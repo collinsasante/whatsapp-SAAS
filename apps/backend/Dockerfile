@@ -25,14 +25,16 @@ RUN pnpm --filter @whatsapp-platform/backend deploy --prod /prod/backend
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
 WORKDIR /app
-RUN npm install -g prisma@5.14.0
 ENV NODE_ENV=production
 
 COPY --from=builder /prod/backend/node_modules ./node_modules
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/backend/dist ./dist
 COPY --from=builder /app/apps/backend/prisma ./prisma
 
-RUN prisma generate --schema prisma/schema.prisma
+RUN node -e "const v=require('./node_modules/@prisma/client/package.json').version; \
+    const {execSync}=require('child_process'); \
+    execSync('npm install -g prisma@'+v,{stdio:'inherit'})"
 RUN mkdir -p uploads
 
 EXPOSE 3001
