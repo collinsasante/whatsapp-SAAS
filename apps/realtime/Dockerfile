@@ -16,14 +16,14 @@ COPY --from=deps /app/packages/shared-types/node_modules ./packages/shared-types
 COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/realtime build
+RUN pnpm --filter @whatsapp-platform/realtime deploy --prod /prod/realtime
 
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+COPY --from=builder /prod/realtime/node_modules ./node_modules
 COPY --from=builder /app/apps/realtime/dist ./dist
-COPY --from=builder /app/apps/realtime/node_modules ./node_modules
-COPY --from=builder /app/apps/realtime/package.json ./
 
 EXPOSE 3002
 CMD ["node", "dist/index.js"]

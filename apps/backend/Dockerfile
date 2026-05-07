@@ -20,19 +20,20 @@ RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
 RUN pnpm --filter @whatsapp-platform/backend prisma:generate
 RUN pnpm --filter @whatsapp-platform/backend build
+RUN pnpm --filter @whatsapp-platform/backend deploy --prod /prod/backend
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
 WORKDIR /app
-RUN npm install -g pnpm@9.1.0
+RUN npm install -g prisma@5.14.0
 ENV NODE_ENV=production
 
+COPY --from=builder /prod/backend/node_modules ./node_modules
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/backend/dist ./dist
-COPY --from=builder /app/apps/backend/node_modules ./node_modules
-COPY --from=builder /app/apps/backend/package.json ./
 COPY --from=builder /app/apps/backend/prisma ./prisma
 
 RUN mkdir -p uploads
 
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "prisma migrate deploy && node dist/main"]

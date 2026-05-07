@@ -19,16 +19,17 @@ COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
 RUN pnpm --filter @whatsapp-platform/worker build
+RUN pnpm --filter @whatsapp-platform/worker deploy --prod /prod/worker
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 
+COPY --from=builder /prod/worker/node_modules ./node_modules
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/worker/dist ./dist
-COPY --from=builder /app/apps/worker/node_modules ./node_modules
 COPY --from=builder /app/apps/worker/package.json ./
-COPY --from=builder /app/apps/backend/prisma ./prisma
 
 EXPOSE 3003
 CMD ["node", "dist/index.js"]
