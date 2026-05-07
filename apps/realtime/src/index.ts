@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
@@ -37,7 +37,7 @@ async function bootstrap() {
   const gateway = new SocketGateway(io, redisSubscriber);
   gateway.initialize();
 
-  app.post('/internal/emit', (req, res) => {
+  app.post('/internal/emit', (req: Request, res: Response) => {
     const { event, payload } = req.body as { event: string; payload: Record<string, unknown> };
     if (!event || !payload) {
       res.status(400).json({ error: 'event and payload required' });
@@ -47,7 +47,7 @@ async function bootstrap() {
     res.json({ ok: true });
   });
 
-  app.get('/health', (_req, res) => res.json({ status: 'ok', connections: io.engine.clientsCount }));
+  app.get('/health', (_req: Request, res: Response) => res.json({ status: 'ok', connections: io.engine.clientsCount }));
 
   httpServer.listen(PORT, () => {
     console.log(`Realtime server running on port ${PORT}`);
