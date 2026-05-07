@@ -18,8 +18,8 @@ COPY --from=deps /app/packages/shared-utils/node_modules ./packages/shared-utils
 COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
-RUN pnpm --filter @whatsapp-platform/backend build
 RUN pnpm --filter @whatsapp-platform/backend prisma:generate
+RUN pnpm --filter @whatsapp-platform/backend build
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
