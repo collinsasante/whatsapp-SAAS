@@ -1,0 +1,102 @@
+export enum UserRole {
+  SUPER_ADMIN = 'SUPER_ADMIN',
+  ADMIN = 'ADMIN',
+  AGENT = 'AGENT',
+  VIEWER = 'VIEWER',
+}
+
+export enum ConversationStatus {
+  OPEN = 'OPEN',
+  RESOLVED = 'RESOLVED',
+  PENDING = 'PENDING',
+  SNOOZED = 'SNOOZED',
+}
+
+export enum MessageStatus {
+  QUEUED = 'QUEUED',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  READ = 'READ',
+  FAILED = 'FAILED',
+}
+
+export enum MessageType {
+  TEXT = 'TEXT',
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+  AUDIO = 'AUDIO',
+  DOCUMENT = 'DOCUMENT',
+  TEMPLATE = 'TEMPLATE',
+  INTERACTIVE = 'INTERACTIVE',
+  LOCATION = 'LOCATION',
+  STICKER = 'STICKER',
+}
+
+export enum MessageDirection {
+  INBOUND = 'INBOUND',
+  OUTBOUND = 'OUTBOUND',
+}
+
+export enum TemplateStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  PAUSED = 'PAUSED',
+}
+
+export enum TemplateCategory {
+  AUTHENTICATION = 'AUTHENTICATION',
+  MARKETING = 'MARKETING',
+  UTILITY = 'UTILITY',
+}
+
+export enum CampaignStatus {
+  DRAFT = 'DRAFT',
+  SCHEDULED = 'SCHEDULED',
+  RUNNING = 'RUNNING',
+  PAUSED = 'PAUSED',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+export enum RecipientStatus {
+  PENDING = 'PENDING',
+  SENT = 'SENT',
+  DELIVERED = 'DELIVERED',
+  READ = 'READ',
+  FAILED = 'FAILED',
+}
+
+export enum AutomationTrigger {
+  KEYWORD = 'KEYWORD',
+  FIRST_MESSAGE = 'FIRST_MESSAGE',
+  CONVERSATION_CREATED = 'CONVERSATION_CREATED',
+  CONVERSATION_RESOLVED = 'CONVERSATION_RESOLVED',
+  LABEL_ADDED = 'LABEL_ADDED',
+}
+
+export enum AutomationAction {
+  SEND_MESSAGE = 'SEND_MESSAGE',
+  SEND_TEMPLATE = 'SEND_TEMPLATE',
+  ASSIGN_AGENT = 'ASSIGN_AGENT',
+  ADD_LABEL = 'ADD_LABEL',
+  RESOLVE_CONVERSATION = 'RESOLVE_CONVERSATION',
+}
+
+export enum MediaType {
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+  AUDIO = 'AUDIO',
+  DOCUMENT = 'DOCUMENT',
+}
+
+export enum AuditAction {
+  LOGIN = 'LOGIN',
+  LOGOUT = 'LOGOUT',
+  CREATE = 'CREATE',
+  UPDATE = 'UPDATE',
+  DELETE = 'DELETE',
+  EXPORT = 'EXPORT',
+  SEND_MESSAGE = 'SEND_MESSAGE',
+  START_CAMPAIGN = 'START_CAMPAIGN',
+}

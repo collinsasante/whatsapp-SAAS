@@ -1,0 +1,39 @@
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { MessagesService } from './messages.service';
+import { SendMessageDto } from './dto/message.dto';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentUser } from '../common/decorators/user.decorator';
+import { JwtPayload } from '@whatsapp-platform/shared-types';
+
+@ApiTags('Messages')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('conversations/:conversationId/messages')
+export class MessagesController {
+  constructor(private readonly messagesService: MessagesService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Send a message in a conversation' })
+  send(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: SendMessageDto,
+  ) {
+    return this.messagesService.sendMessage(tenantId, conversationId, user.sub, dto);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Get messages for a conversation' })
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+  ) {
+    return this.messagesService.findByConversation(tenantId, conversationId, +page, +limit);
+  }
+}
