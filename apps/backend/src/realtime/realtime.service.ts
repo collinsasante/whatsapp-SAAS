@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { Message } from '@whatsapp-platform/shared-types';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
 
 @Injectable()
@@ -21,7 +20,7 @@ export class RealtimeService {
     }
   }
 
-  emitNewMessage(tenantId: string, conversationId: string, message: Message) {
+  emitNewMessage(tenantId: string, conversationId: string, message: Record<string, unknown>) {
     void this.emit('new_message', { tenantId, conversationId, message });
   }
 
