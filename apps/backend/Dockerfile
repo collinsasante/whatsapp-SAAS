@@ -21,6 +21,11 @@ RUN pnpm --filter @whatsapp-platform/shared-utils build
 RUN pnpm --filter @whatsapp-platform/backend prisma:generate
 RUN pnpm --filter @whatsapp-platform/backend build
 RUN pnpm --filter @whatsapp-platform/backend deploy --prod /prod/backend
+# Generate into the flat deploy dir so .prisma/client lands in a real (non-symlinked) path
+RUN cp -r apps/backend/prisma /prod/backend/prisma && \
+    cd /prod/backend && \
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('./package.json'));p.devDependencies=Object.assign(p.devDependencies||{},{prisma:require('/app/apps/backend/node_modules/prisma/package.json').version});fs.writeFileSync('./package.json',JSON.stringify(p));" && \
+    /app/apps/backend/node_modules/.bin/prisma generate
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
@@ -28,7 +33,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=builder /prod/backend/node_modules ./node_modules
-COPY --from=builder /app/apps/backend/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/backend/dist ./dist
 COPY --from=builder /app/apps/backend/prisma ./prisma
 

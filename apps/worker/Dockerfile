@@ -20,9 +20,14 @@ COPY --from=deps /app/packages/shared-utils/node_modules ./packages/shared-utils
 COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
-RUN cd apps/backend && ./node_modules/.bin/prisma generate
 RUN pnpm --filter @whatsapp-platform/worker build
 RUN pnpm --filter @whatsapp-platform/worker deploy --prod /prod/worker
+# Generate into the flat deploy dir so .prisma/client lands in a real (non-symlinked) path
+RUN mkdir -p /prod/worker/prisma && \
+    cp apps/backend/prisma/schema.prisma /prod/worker/prisma/schema.prisma && \
+    cd /prod/worker && \
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('./package.json'));p.devDependencies=Object.assign(p.devDependencies||{},{prisma:require('/app/apps/backend/node_modules/prisma/package.json').version});fs.writeFileSync('./package.json',JSON.stringify(p));" && \
+    /app/apps/backend/node_modules/.bin/prisma generate
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
@@ -30,7 +35,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=builder /prod/worker/node_modules ./node_modules
-COPY --from=builder /app/apps/backend/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/worker/dist ./dist
 COPY --from=builder /app/apps/worker/package.json ./
 
