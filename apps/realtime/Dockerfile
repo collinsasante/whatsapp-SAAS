@@ -4,7 +4,7 @@ WORKDIR /app
 RUN npm install -g pnpm@9.1.0
 
 FROM base AS deps
-COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/realtime/package.json ./apps/realtime/
 COPY packages/shared-types/package.json ./packages/shared-types/
 RUN pnpm install --frozen-lockfile
