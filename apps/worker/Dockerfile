@@ -18,7 +18,7 @@ COPY --from=deps /app/packages/shared-utils/node_modules ./packages/shared-utils
 COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
-RUN ./apps/worker/node_modules/.bin/prisma generate --schema apps/backend/prisma/schema.prisma
+RUN cd apps/worker && ./node_modules/.bin/prisma generate --schema ../backend/prisma/schema.prisma
 RUN pnpm --filter @whatsapp-platform/worker build
 RUN pnpm --filter @whatsapp-platform/worker deploy --prod /prod/worker
 
@@ -28,7 +28,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=builder /prod/worker/node_modules ./node_modules
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/apps/worker/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/worker/dist ./dist
 COPY --from=builder /app/apps/worker/package.json ./
 
