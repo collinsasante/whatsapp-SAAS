@@ -1,5 +1,6 @@
 import { Worker, Job } from 'bullmq';
-import { PrismaClient, MessageDirection, MessageType, MessageStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { MessageDirection, MessageType, MessageStatus } from '@whatsapp-platform/shared-types';
 import axios from 'axios';
 import { QueueName, AutomationTriggerJob, AutomationActionConfig, AutomationAction } from '@whatsapp-platform/shared-types';
 

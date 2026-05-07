@@ -1,5 +1,6 @@
 import { Worker, Job } from 'bullmq';
-import { PrismaClient, MessageStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { MessageStatus } from '@whatsapp-platform/shared-types';
 import axios from 'axios';
 import { QueueName, MessageRetryJob } from '@whatsapp-platform/shared-types';
 
