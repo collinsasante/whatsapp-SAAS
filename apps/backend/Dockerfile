@@ -29,11 +29,11 @@ RUN npm install -g prisma@5.14.0
 ENV NODE_ENV=production
 
 COPY --from=builder /prod/backend/node_modules ./node_modules
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/backend/dist ./dist
 COPY --from=builder /app/apps/backend/prisma ./prisma
 
+RUN prisma generate --schema prisma/schema.prisma
 RUN mkdir -p uploads
 
 EXPOSE 3001
-CMD ["sh", "-c", "prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "prisma migrate deploy --schema prisma/schema.prisma && node dist/main"]

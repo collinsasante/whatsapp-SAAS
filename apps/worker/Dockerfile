@@ -24,12 +24,15 @@ RUN pnpm --filter @whatsapp-platform/worker deploy --prod /prod/worker
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
 WORKDIR /app
+RUN npm install -g prisma@5.14.0
 ENV NODE_ENV=production
 
 COPY --from=builder /prod/worker/node_modules ./node_modules
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/apps/worker/dist ./dist
 COPY --from=builder /app/apps/worker/package.json ./
+COPY --from=builder /app/apps/backend/prisma ./prisma
+
+RUN prisma generate --schema prisma/schema.prisma
 
 EXPOSE 3003
 CMD ["node", "dist/index.js"]
