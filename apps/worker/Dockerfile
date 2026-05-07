@@ -19,7 +19,7 @@ COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
 RUN pnpm --filter @whatsapp-platform/worker build
-RUN pnpm --filter @whatsapp-platform/worker exec prisma generate
+RUN pnpm --filter @whatsapp-platform/worker exec prisma generate --schema=apps/backend/prisma/schema.prisma
 
 FROM node:20-alpine AS runner
 RUN apk add --no-cache openssl
