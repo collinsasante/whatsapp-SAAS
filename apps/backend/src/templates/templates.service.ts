@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto/template.dto';
 import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
-import { TemplateStatus } from '@prisma/client';
+import { TemplateStatus } from '@whatsapp-platform/shared-types';
 
 @Injectable()
 export class TemplatesService {

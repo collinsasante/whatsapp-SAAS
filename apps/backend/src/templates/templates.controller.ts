@@ -7,7 +7,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { UserRole } from '@whatsapp-platform/shared-types';
-import { TemplateStatus } from '@prisma/client';
+import { TemplateStatus } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Templates')
 @ApiBearerAuth()

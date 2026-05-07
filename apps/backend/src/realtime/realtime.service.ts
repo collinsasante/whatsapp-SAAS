@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { Message } from '@prisma/client';
+import { Message } from '@whatsapp-platform/shared-types';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
 
 @Injectable()

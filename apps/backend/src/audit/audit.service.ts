@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditAction } from '@prisma/client';
+import { AuditAction } from '@whatsapp-platform/shared-types';
 
 interface LogParams {
   tenantId: string;
