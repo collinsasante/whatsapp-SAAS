@@ -84,6 +84,7 @@ export default function ChatWindow({ conversation }: Props) {
   }, [conversation.id]);
 
   const startRecording = async () => {
+    if (recording) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
@@ -93,6 +94,7 @@ export default function ChatWindow({ conversation }: Props) {
       mr.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size === 0) return;
         const file = new File([blob], 'voice-note.webm', { type: mimeType });
         setSending(true);
         try {
@@ -114,8 +116,10 @@ export default function ChatWindow({ conversation }: Props) {
   };
 
   const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    mediaRecorderRef.current = null;
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
     setRecording(false);
   };
 
@@ -228,19 +232,20 @@ export default function ChatWindow({ conversation }: Props) {
             >
               <Send size={16} />
             </button>
+          ) : recording ? (
+            <button
+              onClick={stopRecording}
+              className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors animate-pulse"
+            >
+              <Square size={14} fill="white" />
+            </button>
           ) : (
             <button
-              onMouseDown={() => { void startRecording(); }}
-              onMouseUp={stopRecording}
-              onTouchStart={() => { void startRecording(); }}
-              onTouchEnd={stopRecording}
+              onClick={() => { void startRecording(); }}
               disabled={sending || conversation.status === 'RESOLVED'}
-              className={cn(
-                'w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-50 transition-colors',
-                recording ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-600 hover:bg-green-700',
-              )}
+              className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
             >
-              {recording ? <Square size={14} fill="white" /> : <Mic size={16} />}
+              <Mic size={16} />
             </button>
           )}
         </div>
