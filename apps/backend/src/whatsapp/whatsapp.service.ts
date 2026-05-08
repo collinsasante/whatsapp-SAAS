@@ -34,7 +34,7 @@ export interface WhatsAppTemplateMessage {
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
-  private readonly graphBaseUrl = 'https://graph.facebook.com/v20.0';
+  private readonly graphBaseUrl = 'https://graph.facebook.com/v23.0';
 
   constructor(
     private prisma: PrismaService,
