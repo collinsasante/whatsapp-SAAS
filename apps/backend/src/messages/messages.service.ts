@@ -135,14 +135,21 @@ export class MessagesService {
     let content: string | undefined;
     let mediaUrl: string | undefined;
     let mediaType: string | undefined;
+    let mediaCaption: string | undefined;
 
     const msgType = waMessage.type.toUpperCase() as MessageType;
 
     if (waMessage.text) content = waMessage.text.body;
-    if (waMessage.image) { mediaType = 'image/jpeg'; content = waMessage.image.caption; }
-    if (waMessage.video) { mediaType = 'video/mp4'; }
-    if (waMessage.audio) { mediaType = 'audio/ogg'; }
-    if (waMessage.document) { mediaType = waMessage.document.mime_type; }
+
+    const mediaId = waMessage.image?.id ?? waMessage.video?.id ?? waMessage.audio?.id ?? waMessage.document?.id;
+    if (mediaId) {
+      if (waMessage.image) { mediaType = waMessage.image.mime_type; mediaCaption = waMessage.image.caption; }
+      else if (waMessage.video) { mediaType = waMessage.video.mime_type; }
+      else if (waMessage.audio) { mediaType = waMessage.audio.mime_type; }
+      else if (waMessage.document) { mediaType = waMessage.document.mime_type; mediaCaption = waMessage.document.filename; }
+      const fetchedUrl = await this.whatsappService.getMediaUrl(tenantId, mediaId);
+      if (fetchedUrl) mediaUrl = fetchedUrl;
+    }
 
     const message = await this.prisma.message.create({
       data: {
@@ -156,12 +163,22 @@ export class MessagesService {
         content,
         mediaUrl,
         mediaType,
+        mediaCaption,
         deliveredAt: new Date(),
       },
     });
 
     await this.conversationsService.incrementUnread(conversation.id);
     this.realtimeService.emitNewMessage(tenantId, conversation.id, message);
+    this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+      id: conversation.id,
+      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      lastMessageAt: message.createdAt,
+      contact: (conversation as Record<string, unknown>)['contact'],
+      status: conversation.status,
+      assignedTo: (conversation as Record<string, unknown>)['assignedTo'],
+      labels: (conversation as Record<string, unknown>)['labels'] ?? [],
+    });
 
     await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
 

@@ -193,6 +193,18 @@ export class WhatsAppService {
     }
   }
 
+  async getMediaUrl(tenantId: string, mediaId: string): Promise<string | null> {
+    try {
+      const { accessToken } = await this.getTenantCredentials(tenantId);
+      const client = this.getClient(accessToken!);
+      const response = await client.get<{ url: string }>(`/${mediaId}`);
+      return response.data.url;
+    } catch (error: unknown) {
+      this.logger.warn(`Failed to get media URL for ${mediaId}: ${metaError(error)}`);
+      return null;
+    }
+  }
+
   async markMessageRead(tenantId: string, whatsappMessageId: string): Promise<void> {
     try {
       const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);

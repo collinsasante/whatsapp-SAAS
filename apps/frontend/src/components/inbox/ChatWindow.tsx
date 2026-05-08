@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Send, Paperclip, Phone, CheckCheck, Check, Clock, XCircle } from 'lucide-react';
+import { Send, Paperclip, CheckCheck, Check, Clock, XCircle, Mic, Square } from 'lucide-react';
 import { messagesApi, mediaApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useInboxStore } from '@/store/inbox.store';
@@ -35,9 +35,12 @@ export default function ChatWindow({ conversation }: Props) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [recording, setRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const convMessages = messages[conversation.id] ?? [];
   const typing = typingUsers[conversation.id] ?? [];
@@ -79,6 +82,42 @@ export default function ChatWindow({ conversation }: Props) {
       socket.emit(SocketEvent.TYPING_STOP, { conversationId: conversation.id });
     }, 2000);
   }, [conversation.id]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+      const mr = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const file = new File([blob], 'voice-note.webm', { type: mimeType });
+        setSending(true);
+        try {
+          const uploadRes = await mediaApi.upload(file);
+          const { fileUrl: url } = uploadRes.data as { fileUrl: string };
+          await messagesApi.send(conversation.id, { type: 'AUDIO', mediaUrl: url, mediaCaption: 'Voice note' });
+        } catch {
+          toast.error('Failed to send voice note');
+        } finally {
+          setSending(false);
+        }
+      };
+      mediaRecorderRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch {
+      toast.error('Microphone access denied');
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
+  };
 
   const sendMessage = async () => {
     if (!text.trim() || sending) return;
@@ -181,13 +220,29 @@ export default function ChatWindow({ conversation }: Props) {
             className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             disabled={conversation.status === 'RESOLVED'}
           />
-          <button
-            onClick={() => { void sendMessage(); }}
-            disabled={!text.trim() || sending || conversation.status === 'RESOLVED'}
-            className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
-          >
-            <Send size={16} />
-          </button>
+          {text.trim() ? (
+            <button
+              onClick={() => { void sendMessage(); }}
+              disabled={sending || conversation.status === 'RESOLVED'}
+              className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
+            >
+              <Send size={16} />
+            </button>
+          ) : (
+            <button
+              onMouseDown={() => { void startRecording(); }}
+              onMouseUp={stopRecording}
+              onTouchStart={() => { void startRecording(); }}
+              onTouchEnd={stopRecording}
+              disabled={sending || conversation.status === 'RESOLVED'}
+              className={cn(
+                'w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-50 transition-colors',
+                recording ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-green-600 hover:bg-green-700',
+              )}
+            >
+              {recording ? <Square size={14} fill="white" /> : <Mic size={16} />}
+            </button>
+          )}
         </div>
       </div>
     </div>
