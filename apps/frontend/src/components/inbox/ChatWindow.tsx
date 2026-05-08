@@ -50,10 +50,13 @@ export default function ChatWindow({ conversation }: Props) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contacts, setContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
+  const [popupPos, setPopupPos] = useState<{ left: number; bottom: number }>({ left: 0, bottom: 80 });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const attachBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -90,14 +93,9 @@ export default function ChatWindow({ conversation }: Props) {
     scrollToBottom();
   }, [convMessages.length, scrollToBottom]);
 
-  // Close menus on outside click
-  useEffect(() => {
-    const handler = () => {
-      setShowAttachMenu(false);
-      setShowEmojiPicker(false);
-    };
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+  const closeMenus = useCallback(() => {
+    setShowAttachMenu(false);
+    setShowEmojiPicker(false);
   }, []);
 
   const handleTyping = useCallback(() => {
@@ -121,7 +119,7 @@ export default function ChatWindow({ conversation }: Props) {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         if (blob.size === 0) return;
-        const file = new File([blob], 'voice-note.webm', { type: mimeType });
+        const file = new File([blob], 'voice-note.ogg', { type: 'audio/ogg' });
         setSending(true);
         try {
           const uploadRes = await mediaApi.upload(file);
@@ -169,6 +167,7 @@ export default function ChatWindow({ conversation }: Props) {
       await messagesApi.send(conversation.id, { content, type: 'TEXT' });
     } catch {
       setText(content);
+      toast.error('Failed to send message');
     } finally {
       setSending(false);
     }
@@ -196,6 +195,7 @@ export default function ChatWindow({ conversation }: Props) {
   };
 
   const sendLocation = async () => {
+    closeMenus();
     if (!navigator.geolocation) { toast.error('Geolocation not supported'); return; }
     setSending(true);
     navigator.geolocation.getCurrentPosition(
@@ -218,7 +218,7 @@ export default function ChatWindow({ conversation }: Props) {
   };
 
   const openContactPicker = async () => {
-    setShowAttachMenu(false);
+    closeMenus();
     try {
       const res = await contactsApi.list({ limit: 100 });
       setContacts((res.data as { data: { id: string; name: string | null; phone: string }[] }).data);
@@ -247,9 +247,9 @@ export default function ChatWindow({ conversation }: Props) {
   const name = conversation.contact.name ?? conversation.contact.phone;
 
   return (
-    <div className="flex-1 flex flex-col bg-white">
+    <div className="flex-1 flex flex-col bg-white min-h-0">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 flex-shrink-0">
         <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-semibold">
           {getInitials(name)}
         </div>
@@ -275,7 +275,7 @@ export default function ChatWindow({ conversation }: Props) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-gray-50">
+      <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-gray-50 min-h-0">
         {loading ? (
           <div className="flex justify-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600" /></div>
         ) : convMessages.length === 0 ? (
@@ -298,9 +298,9 @@ export default function ChatWindow({ conversation }: Props) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Contact picker modal */}
+      {/* Contact picker modal - uses fixed so it's not clipped */}
       {showContactPicker && (
-        <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/30" onClick={() => setShowContactPicker(false)}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={() => setShowContactPicker(false)}>
           <div className="bg-white w-full max-w-sm rounded-t-2xl p-4 max-h-96 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold text-gray-800">Send Contact</h4>
@@ -330,7 +330,7 @@ export default function ChatWindow({ conversation }: Props) {
       )}
 
       {/* Input area */}
-      <div className="border-t border-gray-100 p-4 relative">
+      <div className="border-t border-gray-100 p-4 flex-shrink-0">
         {sending && (
           <div className="flex items-center gap-2 px-1 pb-2 text-xs text-gray-500">
             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600 flex-shrink-0" />
@@ -338,40 +338,34 @@ export default function ChatWindow({ conversation }: Props) {
           </div>
         )}
 
-        {/* Emoji picker */}
-        {showEmojiPicker && (
-          <div className="absolute bottom-full left-4 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 p-3 z-40 w-64" onClick={(e) => e.stopPropagation()}>
-            <div className="grid grid-cols-10 gap-1">
-              {EMOJI_LIST.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => { setText((t) => t + emoji); }}
-                  className="text-lg hover:bg-gray-100 rounded p-0.5 transition-colors"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Backdrop — transparent full-screen layer that closes menus on outside click.
+            Rendered via fixed so overflow:hidden on parents doesn't affect it.
+            z-40 so it's below the popups (z-50) but above everything else. */}
+        {(showAttachMenu || showEmojiPicker) && (
+          <div className="fixed inset-0 z-40" onClick={closeMenus} />
         )}
 
-        {/* Attachment popup */}
+        {/* Attachment popup — fixed so it's never clipped by overflow:hidden ancestors */}
         {showAttachMenu && (
-          <div className="absolute bottom-full left-4 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-40 w-52" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden w-52"
+            style={{ bottom: popupPos.bottom, left: popupPos.left }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              onClick={() => { setShowAttachMenu(false); fileInputRef.current?.click(); }}
+              onClick={() => { closeMenus(); fileInputRef.current?.click(); }}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
             >
               <FileText size={16} className="text-blue-500" /> Document / File
             </button>
             <button
-              onClick={() => { setShowAttachMenu(false); photoInputRef.current?.click(); }}
+              onClick={() => { closeMenus(); photoInputRef.current?.click(); }}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
             >
               <ImageIcon size={16} className="text-green-500" /> Photos &amp; Videos
             </button>
             <button
-              onClick={() => { setShowAttachMenu(false); void sendLocation(); }}
+              onClick={() => { void sendLocation(); }}
               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
             >
               <MapPin size={16} className="text-red-500" /> Location
@@ -385,25 +379,58 @@ export default function ChatWindow({ conversation }: Props) {
           </div>
         )}
 
+        {/* Emoji picker — fixed so it's never clipped */}
+        {showEmojiPicker && (
+          <div
+            className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 p-3 w-64"
+            style={{ bottom: popupPos.bottom, left: popupPos.left }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="grid grid-cols-10 gap-1">
+              {EMOJI_LIST.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => { setText((t) => t + emoji); }}
+                  className="text-lg hover:bg-gray-100 rounded p-0.5 transition-colors leading-none"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           {/* Hidden file inputs */}
-          <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" className="hidden" onChange={(e) => { void sendFile(e); }} />
+          <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" className="hidden" onChange={(e) => { void sendFile(e); }} />
           <input ref={photoInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { void sendFile(e); }} />
 
           {/* Attach button */}
           <button
-            onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(false); setShowAttachMenu((v) => !v); }}
+            ref={attachBtnRef}
+            onClick={() => {
+              const rect = attachBtnRef.current?.getBoundingClientRect();
+              if (rect) setPopupPos({ left: rect.left, bottom: window.innerHeight - rect.top + 8 });
+              setShowEmojiPicker(false);
+              setShowAttachMenu((v) => !v);
+            }}
             disabled={sending || isResolved}
-            className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40"
+            className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40 flex-shrink-0"
           >
             <Paperclip size={18} />
           </button>
 
           {/* Emoji button */}
           <button
-            onClick={(e) => { e.stopPropagation(); setShowAttachMenu(false); setShowEmojiPicker((v) => !v); }}
+            ref={emojiBtnRef}
+            onClick={() => {
+              const rect = emojiBtnRef.current?.getBoundingClientRect();
+              if (rect) setPopupPos({ left: rect.left, bottom: window.innerHeight - rect.top + 8 });
+              setShowAttachMenu(false);
+              setShowEmojiPicker((v) => !v);
+            }}
             disabled={sending || isResolved}
-            className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40"
+            className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40 flex-shrink-0"
           >
             <Smile size={18} />
           </button>
@@ -414,33 +441,33 @@ export default function ChatWindow({ conversation }: Props) {
             value={text}
             onChange={(e) => { setText(e.target.value); handleTyping(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-            placeholder={sending ? 'Sending…' : isResolved ? 'Conversation resolved' : 'Type a message…'}
+            placeholder={sending ? 'Sending…' : isResolved ? 'Conversation is resolved' : 'Type a message…'}
             className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60"
             disabled={sending || isResolved}
           />
 
-          {/* Send / Record / Stop+Cancel */}
+          {/* Send / Record buttons */}
           {text.trim() ? (
             <button
               onClick={() => { void sendMessage(); }}
               disabled={sending || isResolved}
-              className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
+              className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors flex-shrink-0"
             >
               <Send size={16} />
             </button>
           ) : recording ? (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 flex-shrink-0">
               <button
                 onClick={cancelRecording}
-                className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-300 transition-colors"
                 title="Cancel recording"
+                className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-300 transition-colors"
               >
                 <X size={14} />
               </button>
               <button
                 onClick={stopRecording}
-                className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors animate-pulse"
                 title="Send voice note"
+                className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors animate-pulse"
               >
                 <Square size={14} fill="white" />
               </button>
@@ -449,7 +476,7 @@ export default function ChatWindow({ conversation }: Props) {
             <button
               onClick={() => { void startRecording(); }}
               disabled={sending || isResolved}
-              className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
+              className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors flex-shrink-0"
             >
               <Mic size={16} />
             </button>
@@ -471,7 +498,7 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
       )}>
         {message.content && <p className="text-sm leading-relaxed">{message.content}</p>}
 
-        {/* Location message */}
+        {/* Location */}
         {message.type === 'LOCATION' && (
           <a
             href={`https://maps.google.com/?q=${message.metadata?.['latitude']},${message.metadata?.['longitude']}`}
@@ -479,13 +506,13 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
             rel="noopener noreferrer"
             className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium mt-1', isOutbound ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700')}
           >
-            <MapPin size={14} /> {(message.metadata?.['name'] as string) || 'Location'}
+            <MapPin size={14} /> {(message.metadata?.['name'] as string) || 'View location'}
           </a>
         )}
 
-        {/* Contact message */}
+        {/* Contact card */}
         {message.type === 'CONTACTS' && (
-          <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium mt-1', isOutbound ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700')}>
+          <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs mt-1', isOutbound ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700')}>
             <User size={14} />
             <div>
               <p className="font-semibold">{(message.metadata?.['contactName'] as string) || 'Contact'}</p>
@@ -494,11 +521,17 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
           </div>
         )}
 
+        {/* Media */}
         {message.mediaUrl && (
           <div className="mt-1">
             {message.type === 'IMAGE' && (
               <a href={message.mediaUrl} target="_blank" rel="noopener noreferrer">
-                <img src={message.mediaUrl} alt={message.mediaCaption ?? 'Image'} className="rounded-lg max-w-xs cursor-pointer hover:opacity-90 transition-opacity" />
+                <img
+                  src={message.mediaUrl}
+                  alt={message.mediaCaption ?? 'Image'}
+                  className="rounded-lg max-w-xs cursor-pointer hover:opacity-90 transition-opacity"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
               </a>
             )}
             {message.type === 'VIDEO' && (
@@ -507,7 +540,7 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
               </video>
             )}
             {message.type === 'AUDIO' && (
-              <audio controls className="w-48">
+              <audio controls className="w-48 mt-1">
                 <source src={message.mediaUrl} />
               </audio>
             )}
@@ -521,7 +554,7 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
                   isOutbound ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
                 )}
               >
-                <span>📄</span>
+                <FileText size={14} />
                 <span>{message.mediaCaption ?? 'Download document'}</span>
               </a>
             )}

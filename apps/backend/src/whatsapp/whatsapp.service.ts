@@ -275,9 +275,12 @@ export class WhatsAppService {
 
   async uploadMediaToMeta(tenantId: string, buffer: Buffer, mimeType: string, filename: string): Promise<string> {
     const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    // Meta doesn't accept audio/webm — reclassify as audio/ogg (both use Opus codec)
+    const effectiveMime = mimeType.startsWith('audio/webm') ? 'audio/ogg' : mimeType;
+    const effectiveFilename = mimeType.startsWith('audio/webm') ? filename.replace(/\.webm.*$/, '.ogg') : filename;
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
-    form.append('file', buffer, { filename, contentType: mimeType });
+    form.append('file', buffer, { filename: effectiveFilename, contentType: effectiveMime });
 
     const response = await axios.post<{ id: string }>(
       `${this.graphBaseUrl}/${phoneNumberId}/media`,
