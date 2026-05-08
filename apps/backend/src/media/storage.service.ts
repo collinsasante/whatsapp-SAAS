@@ -1,24 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as Minio from 'minio';
+import { Readable } from 'stream';
 
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private readonly driver: 'local' | 'minio';
+  private readonly driver: 'local' | 'minio' | 's3';
   private minioClient?: Minio.Client;
+  private s3Client?: S3Client;
   private readonly bucket: string;
   private readonly uploadPath: string;
   private readonly publicUrl: string;
+  private readonly s3Region: string;
 
   constructor(private configService: ConfigService) {
-    this.driver = (configService.get<string>('app.storageDriver', 'local') as 'local' | 'minio');
+    this.driver = (configService.get<string>('app.storageDriver', 'local') as 'local' | 'minio' | 's3');
     this.bucket = configService.get<string>('app.minio.bucket', 'whatsapp-platform');
     this.uploadPath = configService.get<string>('app.localUploadPath', './uploads');
     this.publicUrl = configService.get<string>('app.publicUrl', 'http://localhost:3001');
+    this.s3Region = configService.get<string>('app.s3.region', 'us-east-1');
 
     if (this.driver === 'minio') {
       this.minioClient = new Minio.Client({
@@ -29,6 +34,16 @@ export class StorageService {
         secretKey: configService.get<string>('app.minio.secretKey', ''),
       });
       this.initMinio().catch((e) => this.logger.error('MinIO init failed', e));
+    } else if (this.driver === 's3') {
+      this.bucket = configService.get<string>('app.s3.bucket', '');
+      this.s3Client = new S3Client({
+        region: this.s3Region,
+        credentials: {
+          accessKeyId: configService.get<string>('app.s3.accessKeyId', ''),
+          secretAccessKey: configService.get<string>('app.s3.secretAccessKey', ''),
+        },
+      });
+      this.logger.log(`S3 storage initialised (bucket: ${this.bucket}, region: ${this.s3Region})`);
     } else {
       this.initLocal();
     }
@@ -53,11 +68,21 @@ export class StorageService {
     const ext = path.extname(file.originalname);
     const fileKey = `${tenantId}/${uuidv4()}${ext}`;
 
-    if (this.driver === 'minio' && this.minioClient) {
+    if (this.driver === 's3' && this.s3Client) {
+      await this.s3Client.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: fileKey,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        ACL: 'public-read',
+      }));
+      const fileUrl = `https://${this.bucket}.s3.${this.s3Region}.amazonaws.com/${fileKey}`;
+      return { fileKey, fileUrl };
+    } else if (this.driver === 'minio' && this.minioClient) {
       await this.minioClient.putObject(this.bucket, fileKey, file.buffer, file.size, {
         'Content-Type': file.mimetype,
       });
-      const fileUrl = `${this.publicUrl}/media/${fileKey}`;
+      const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
       return { fileKey, fileUrl };
     } else {
       const filePath = path.join(this.uploadPath, fileKey);
@@ -70,7 +95,9 @@ export class StorageService {
   }
 
   async delete(fileKey: string): Promise<void> {
-    if (this.driver === 'minio' && this.minioClient) {
+    if (this.driver === 's3' && this.s3Client) {
+      await this.s3Client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: fileKey }));
+    } else if (this.driver === 'minio' && this.minioClient) {
       await this.minioClient.removeObject(this.bucket, fileKey);
     } else {
       const filePath = path.join(this.uploadPath, fileKey);
@@ -79,7 +106,10 @@ export class StorageService {
   }
 
   async getStream(fileKey: string): Promise<NodeJS.ReadableStream | null> {
-    if (this.driver === 'minio' && this.minioClient) {
+    if (this.driver === 's3' && this.s3Client) {
+      const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: fileKey }));
+      return response.Body as Readable;
+    } else if (this.driver === 'minio' && this.minioClient) {
       return this.minioClient.getObject(this.bucket, fileKey);
     } else {
       const filePath = path.join(this.uploadPath, fileKey);
