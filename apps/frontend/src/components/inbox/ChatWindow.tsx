@@ -100,12 +100,12 @@ export default function ChatWindow({ conversation }: Props) {
     setSending(true);
     try {
       const uploadRes = await mediaApi.upload(file);
-      const { url, id: mediaId } = uploadRes.data as { url: string; id: string };
+      const { url } = uploadRes.data as { url: string; id: string };
       const type = file.type.startsWith('image/') ? 'IMAGE'
         : file.type.startsWith('video/') ? 'VIDEO'
         : file.type.startsWith('audio/') ? 'AUDIO'
         : 'DOCUMENT';
-      await messagesApi.send(conversation.id, { type, mediaUrl: url, mediaId, mediaCaption: file.name });
+      await messagesApi.send(conversation.id, { type, mediaUrl: url, mediaCaption: file.name });
     } catch {
       toast.error('Failed to send file');
     } finally {
