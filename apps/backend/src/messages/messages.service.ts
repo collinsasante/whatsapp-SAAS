@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import axios from 'axios';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { StorageService } from '../media/storage.service';
 import { SendMessageDto } from './dto/message.dto';
 import { MessageType, MessageDirection, MessageStatus } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
@@ -16,6 +19,7 @@ export class MessagesService {
     private conversationsService: ConversationsService,
     private contactsService: ContactsService,
     private realtimeService: RealtimeService,
+    private storageService: StorageService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto) {
@@ -24,6 +28,17 @@ export class MessagesService {
 
     if (contact.isBlocked || contact.optedOut) {
       throw new NotFoundException('Cannot send message to this contact');
+    }
+
+    const messageMetadata: Record<string, unknown> = {};
+    if (dto.type === MessageType.LOCATION) {
+      messageMetadata['latitude'] = dto.locationLatitude;
+      messageMetadata['longitude'] = dto.locationLongitude;
+      if (dto.locationName) messageMetadata['name'] = dto.locationName;
+      if (dto.locationAddress) messageMetadata['address'] = dto.locationAddress;
+    } else if (dto.type === MessageType.CONTACTS) {
+      messageMetadata['contactName'] = dto.contactName;
+      messageMetadata['contactPhone'] = dto.contactPhone;
     }
 
     const message = await this.prisma.message.create({
@@ -40,6 +55,7 @@ export class MessagesService {
         mediaCaption: dto.mediaCaption,
         templateId: dto.templateId,
         templateVariables: dto.templateVariables ?? undefined,
+        metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
       },
     });
 
@@ -49,13 +65,34 @@ export class MessagesService {
       if (dto.type === MessageType.TEXT || !dto.type) {
         whatsappMessageId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, dto.content!);
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
-        whatsappMessageId = await this.whatsappService.sendMediaMessage(
-          tenantId,
-          contact.phone,
-          dto.type.toLowerCase(),
-          dto.mediaUrl!,
-          dto.mediaCaption,
-        );
+        // For audio/video upload the file to Meta first to get a media_id (avoids format rejection)
+        if (dto.mediaUrl && (dto.type === MessageType.AUDIO || dto.type === MessageType.VIDEO)) {
+          try {
+            const dlRes = await axios.get<ArrayBuffer>(dto.mediaUrl, { responseType: 'arraybuffer', timeout: 60000 });
+            const mimeType = (dlRes.headers['content-type'] as string | undefined) ?? (dto.type === MessageType.AUDIO ? 'audio/ogg' : 'video/mp4');
+            const ext = mimeType.split('/')[1]?.split(';')[0] ?? (dto.type === MessageType.AUDIO ? 'ogg' : 'mp4');
+            const filename = `media.${ext}`;
+            const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, Buffer.from(dlRes.data), mimeType, filename);
+            whatsappMessageId = await this.whatsappService.sendMediaMessageById(
+              tenantId,
+              contact.phone,
+              dto.type.toLowerCase(),
+              metaMediaId,
+              dto.mediaCaption,
+            );
+          } catch {
+            // fallback to link-based send
+            whatsappMessageId = await this.whatsappService.sendMediaMessage(tenantId, contact.phone, dto.type.toLowerCase(), dto.mediaUrl!, dto.mediaCaption);
+          }
+        } else {
+          whatsappMessageId = await this.whatsappService.sendMediaMessage(
+            tenantId,
+            contact.phone,
+            dto.type.toLowerCase(),
+            dto.mediaUrl!,
+            dto.mediaCaption,
+          );
+        }
       } else if (dto.type === MessageType.TEMPLATE && dto.templateId) {
         const template = await this.prisma.template.findFirst({
           where: { id: dto.templateId, tenantId },
@@ -70,6 +107,22 @@ export class MessagesService {
             dto.templateVariables ?? {},
           );
         }
+      } else if (dto.type === MessageType.LOCATION && dto.locationLatitude != null && dto.locationLongitude != null) {
+        whatsappMessageId = await this.whatsappService.sendLocationMessage(
+          tenantId,
+          contact.phone,
+          dto.locationLatitude,
+          dto.locationLongitude,
+          dto.locationName,
+          dto.locationAddress,
+        );
+      } else if (dto.type === MessageType.CONTACTS && dto.contactName && dto.contactPhone) {
+        whatsappMessageId = await this.whatsappService.sendContactMessage(
+          tenantId,
+          contact.phone,
+          dto.contactName,
+          dto.contactPhone,
+        );
       }
 
       await this.prisma.message.update({
@@ -143,12 +196,23 @@ export class MessagesService {
 
     const mediaId = waMessage.image?.id ?? waMessage.video?.id ?? waMessage.audio?.id ?? waMessage.document?.id;
     if (mediaId) {
-      if (waMessage.image) { mediaType = waMessage.image.mime_type; mediaCaption = waMessage.image.caption; }
-      else if (waMessage.video) { mediaType = waMessage.video.mime_type; }
-      else if (waMessage.audio) { mediaType = waMessage.audio.mime_type; }
-      else if (waMessage.document) { mediaType = waMessage.document.mime_type; mediaCaption = waMessage.document.filename; }
-      const fetchedUrl = await this.whatsappService.getMediaUrl(tenantId, mediaId);
-      if (fetchedUrl) mediaUrl = fetchedUrl;
+      let filename = 'media';
+      if (waMessage.image) { mediaType = waMessage.image.mime_type; mediaCaption = waMessage.image.caption; filename = 'image'; }
+      else if (waMessage.video) { mediaType = waMessage.video.mime_type; filename = 'video'; }
+      else if (waMessage.audio) { mediaType = waMessage.audio.mime_type; filename = 'audio'; }
+      else if (waMessage.document) { mediaType = waMessage.document.mime_type; mediaCaption = waMessage.document.filename; filename = waMessage.document.filename ?? 'document'; }
+
+      const downloaded = await this.whatsappService.downloadMetaMedia(tenantId, mediaId);
+      if (downloaded) {
+        const ext = downloaded.mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
+        const uploadResult = await this.storageService.uploadRaw(
+          downloaded.buffer,
+          downloaded.mimeType,
+          tenantId,
+          `${filename}.${ext}`,
+        );
+        mediaUrl = uploadResult.fileUrl;
+      }
     }
 
     const message = await this.prisma.message.create({

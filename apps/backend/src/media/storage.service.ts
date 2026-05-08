@@ -105,6 +105,34 @@ export class StorageService {
     }
   }
 
+  async uploadRaw(buffer: Buffer, mimeType: string, tenantId: string, filename: string): Promise<{ fileKey: string; fileUrl: string }> {
+    const ext = path.extname(filename) || `.${mimeType.split('/')[1]?.split(';')[0] ?? 'bin'}`;
+    const fileKey = `${tenantId}/${uuidv4()}${ext}`;
+
+    if (this.driver === 's3' && this.s3Client) {
+      await this.s3Client.send(new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: fileKey,
+        Body: buffer,
+        ContentType: mimeType,
+        ACL: 'public-read',
+      }));
+      const fileUrl = `https://${this.bucket}.s3.${this.s3Region}.amazonaws.com/${fileKey}`;
+      return { fileKey, fileUrl };
+    } else if (this.driver === 'minio' && this.minioClient) {
+      await this.minioClient.putObject(this.bucket, fileKey, buffer, buffer.length, { 'Content-Type': mimeType });
+      const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
+      return { fileKey, fileUrl };
+    } else {
+      const filePath = path.join(this.uploadPath, fileKey);
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(filePath, buffer);
+      const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
+      return { fileKey, fileUrl };
+    }
+  }
+
   async getStream(fileKey: string): Promise<NodeJS.ReadableStream | null> {
     if (this.driver === 's3' && this.s3Client) {
       const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: fileKey }));

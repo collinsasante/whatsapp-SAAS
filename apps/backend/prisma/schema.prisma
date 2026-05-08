@@ -209,6 +209,7 @@ enum MessageType {
   TEMPLATE
   INTERACTIVE
   LOCATION
+  CONTACTS
   STICKER
 }
 

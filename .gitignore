@@ -9,3 +9,4 @@ coverage/
 .turbo/
 uploads/
 prisma/migrations/dev/
+.claude/

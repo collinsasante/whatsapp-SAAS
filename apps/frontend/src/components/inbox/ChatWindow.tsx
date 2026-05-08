@@ -1,7 +1,10 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Send, Paperclip, CheckCheck, Check, Clock, XCircle, Mic, Square } from 'lucide-react';
-import { messagesApi, mediaApi } from '@/lib/api';
+import {
+  Send, Paperclip, CheckCheck, Check, Clock, XCircle, Mic, Square,
+  X, FileText, ImageIcon, MapPin, User, Smile,
+} from 'lucide-react';
+import { messagesApi, mediaApi, contactsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
@@ -29,6 +32,13 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   [MessageStatus.FAILED]: <XCircle size={12} className="text-red-500" />,
 };
 
+const EMOJI_LIST = [
+  '😀','😂','😍','😊','😎','🙏','👍','❤️','🔥','✅',
+  '😭','😢','😅','🤣','🤔','😴','🥺','🤗','😤','😡',
+  '🎉','🎊','💯','⭐','🙌','👏','💪','🤝','✌️','👌',
+  '🍕','🎵','📱','💻','🚀','💡','🌟','💰','🏆','🎯',
+];
+
 export default function ChatWindow({ conversation }: Props) {
   const { messages, setMessages, typingUsers } = useInboxStore();
   const { user } = useAuthStore();
@@ -36,14 +46,20 @@ export default function ChatWindow({ conversation }: Props) {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [contacts, setContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
   const convMessages = messages[conversation.id] ?? [];
   const typing = typingUsers[conversation.id] ?? [];
+  const isResolved = conversation.status === 'RESOLVED';
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -73,6 +89,16 @@ export default function ChatWindow({ conversation }: Props) {
   useEffect(() => {
     scrollToBottom();
   }, [convMessages.length, scrollToBottom]);
+
+  // Close menus on outside click
+  useEffect(() => {
+    const handler = () => {
+      setShowAttachMenu(false);
+      setShowEmojiPicker(false);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
 
   const handleTyping = useCallback(() => {
     const socket = getSocket();
@@ -123,6 +149,17 @@ export default function ChatWindow({ conversation }: Props) {
     setRecording(false);
   };
 
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.ondataavailable = null;
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    audioChunksRef.current = [];
+    setRecording(false);
+  };
+
   const sendMessage = async () => {
     if (!text.trim() || sending) return;
     const content = text.trim();
@@ -154,6 +191,56 @@ export default function ChatWindow({ conversation }: Props) {
     } finally {
       setSending(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  };
+
+  const sendLocation = async () => {
+    if (!navigator.geolocation) { toast.error('Geolocation not supported'); return; }
+    setSending(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await messagesApi.send(conversation.id, {
+            type: 'LOCATION',
+            locationLatitude: pos.coords.latitude,
+            locationLongitude: pos.coords.longitude,
+            locationName: 'My Location',
+          });
+        } catch {
+          toast.error('Failed to send location');
+        } finally {
+          setSending(false);
+        }
+      },
+      () => { toast.error('Location access denied'); setSending(false); },
+    );
+  };
+
+  const openContactPicker = async () => {
+    setShowAttachMenu(false);
+    try {
+      const res = await contactsApi.list({ limit: 100 });
+      setContacts((res.data as { data: { id: string; name: string | null; phone: string }[] }).data);
+      setShowContactPicker(true);
+    } catch {
+      toast.error('Failed to load contacts');
+    }
+  };
+
+  const sendContact = async (c: { name: string | null; phone: string }) => {
+    setShowContactPicker(false);
+    setSending(true);
+    try {
+      await messagesApi.send(conversation.id, {
+        type: 'CONTACTS',
+        contactName: c.name ?? c.phone,
+        contactPhone: c.phone,
+      });
+    } catch {
+      toast.error('Failed to send contact');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -161,6 +248,7 @@ export default function ChatWindow({ conversation }: Props) {
 
   return (
     <div className="flex-1 flex flex-col bg-white">
+      {/* Header */}
       <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
         <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-semibold">
           {getInitials(name)}
@@ -186,6 +274,7 @@ export default function ChatWindow({ conversation }: Props) {
         </div>
       </div>
 
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-gray-50">
         {loading ? (
           <div className="flex justify-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600" /></div>
@@ -209,46 +298,157 @@ export default function ChatWindow({ conversation }: Props) {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-gray-100 p-4">
+      {/* Contact picker modal */}
+      {showContactPicker && (
+        <div className="absolute inset-0 z-50 flex items-end justify-center bg-black/30" onClick={() => setShowContactPicker(false)}>
+          <div className="bg-white w-full max-w-sm rounded-t-2xl p-4 max-h-96 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold text-gray-800">Send Contact</h4>
+              <button onClick={() => setShowContactPicker(false)}><X size={18} /></button>
+            </div>
+            {contacts.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">No contacts found</p>
+            ) : (
+              contacts.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => { void sendContact(c); }}
+                  className="w-full flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg text-left"
+                >
+                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xs font-semibold">
+                    {getInitials(c.name ?? c.phone)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{c.name ?? c.phone}</p>
+                    <p className="text-xs text-gray-500">{c.phone}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Input area */}
+      <div className="border-t border-gray-100 p-4 relative">
         {sending && (
           <div className="flex items-center gap-2 px-1 pb-2 text-xs text-gray-500">
             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600 flex-shrink-0" />
-            <span>Uploading…</span>
+            <span>Sending…</span>
           </div>
         )}
+
+        {/* Emoji picker */}
+        {showEmojiPicker && (
+          <div className="absolute bottom-full left-4 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 p-3 z-40 w-64" onClick={(e) => e.stopPropagation()}>
+            <div className="grid grid-cols-10 gap-1">
+              {EMOJI_LIST.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => { setText((t) => t + emoji); }}
+                  className="text-lg hover:bg-gray-100 rounded p-0.5 transition-colors"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Attachment popup */}
+        {showAttachMenu && (
+          <div className="absolute bottom-full left-4 mb-2 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-40 w-52" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => { setShowAttachMenu(false); fileInputRef.current?.click(); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
+            >
+              <FileText size={16} className="text-blue-500" /> Document / File
+            </button>
+            <button
+              onClick={() => { setShowAttachMenu(false); photoInputRef.current?.click(); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
+            >
+              <ImageIcon size={16} className="text-green-500" /> Photos &amp; Videos
+            </button>
+            <button
+              onClick={() => { setShowAttachMenu(false); void sendLocation(); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
+            >
+              <MapPin size={16} className="text-red-500" /> Location
+            </button>
+            <button
+              onClick={() => { void openContactPicker(); }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700"
+            >
+              <User size={16} className="text-purple-500" /> Contact
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
-          <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" className="hidden" onChange={(e) => { void sendFile(e); }} />
-          <button onClick={() => fileInputRef.current?.click()} disabled={sending || conversation.status === 'RESOLVED'} className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40">
+          {/* Hidden file inputs */}
+          <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt" className="hidden" onChange={(e) => { void sendFile(e); }} />
+          <input ref={photoInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { void sendFile(e); }} />
+
+          {/* Attach button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(false); setShowAttachMenu((v) => !v); }}
+            disabled={sending || isResolved}
+            className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40"
+          >
             <Paperclip size={18} />
           </button>
+
+          {/* Emoji button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAttachMenu(false); setShowEmojiPicker((v) => !v); }}
+            disabled={sending || isResolved}
+            className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40"
+          >
+            <Smile size={18} />
+          </button>
+
+          {/* Text input */}
           <input
             type="text"
             value={text}
             onChange={(e) => { setText(e.target.value); handleTyping(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-            placeholder={sending ? 'Uploading…' : 'Type a message…'}
+            placeholder={sending ? 'Sending…' : isResolved ? 'Conversation resolved' : 'Type a message…'}
             className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60"
-            disabled={sending || conversation.status === 'RESOLVED'}
+            disabled={sending || isResolved}
           />
+
+          {/* Send / Record / Stop+Cancel */}
           {text.trim() ? (
             <button
               onClick={() => { void sendMessage(); }}
-              disabled={sending || conversation.status === 'RESOLVED'}
+              disabled={sending || isResolved}
               className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
             >
               <Send size={16} />
             </button>
           ) : recording ? (
-            <button
-              onClick={stopRecording}
-              className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors animate-pulse"
-            >
-              <Square size={14} fill="white" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={cancelRecording}
+                className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-300 transition-colors"
+                title="Cancel recording"
+              >
+                <X size={14} />
+              </button>
+              <button
+                onClick={stopRecording}
+                className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600 transition-colors animate-pulse"
+                title="Send voice note"
+              >
+                <Square size={14} fill="white" />
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => { void startRecording(); }}
-              disabled={sending || conversation.status === 'RESOLVED'}
+              disabled={sending || isResolved}
               className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 hover:bg-green-700 transition-colors"
             >
               <Mic size={16} />
@@ -270,6 +470,30 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
         isOutbound ? 'bg-green-500 text-white rounded-br-sm' : 'bg-white text-gray-900 rounded-bl-sm shadow-sm',
       )}>
         {message.content && <p className="text-sm leading-relaxed">{message.content}</p>}
+
+        {/* Location message */}
+        {message.type === 'LOCATION' && (
+          <a
+            href={`https://maps.google.com/?q=${message.metadata?.['latitude']},${message.metadata?.['longitude']}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium mt-1', isOutbound ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700')}
+          >
+            <MapPin size={14} /> {(message.metadata?.['name'] as string) || 'Location'}
+          </a>
+        )}
+
+        {/* Contact message */}
+        {message.type === 'CONTACTS' && (
+          <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium mt-1', isOutbound ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700')}>
+            <User size={14} />
+            <div>
+              <p className="font-semibold">{(message.metadata?.['contactName'] as string) || 'Contact'}</p>
+              <p className="opacity-75">{message.metadata?.['contactPhone'] as string}</p>
+            </div>
+          </div>
+        )}
+
         {message.mediaUrl && (
           <div className="mt-1">
             {message.type === 'IMAGE' && (
@@ -303,6 +527,7 @@ function MessageBubble({ message, currentUserId }: { message: Message; currentUs
             )}
           </div>
         )}
+
         <div className={cn('flex items-center gap-1 mt-1', isOutbound ? 'justify-end' : 'justify-start')}>
           <span className={cn('text-xs', isOutbound ? 'text-green-100' : 'text-gray-400')}>
             {formatMessageTime(message.createdAt)}

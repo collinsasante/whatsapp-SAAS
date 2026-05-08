@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import * as FormData from 'form-data';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
@@ -203,6 +204,118 @@ export class WhatsAppService {
     } catch (error: unknown) {
       this.logger.warn(`Failed to get media URL for ${mediaId}: ${metaError(error)}`);
       return null;
+    }
+  }
+
+  async sendLocationMessage(
+    tenantId: string,
+    to: string,
+    latitude: number,
+    longitude: number,
+    name?: string,
+    address?: string,
+  ): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    try {
+      const response = await client.post(`/${phoneNumberId}/messages`, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'location',
+        location: { latitude, longitude, name: name ?? '', address: address ?? '' },
+      });
+      return response.data.messages[0].id as string;
+    } catch (error: unknown) {
+      const msg = metaError(error);
+      this.logger.error(`Failed to send location: ${msg}`);
+      throw new BadRequestException(`Failed to send location: ${msg}`);
+    }
+  }
+
+  async sendContactMessage(tenantId: string, to: string, name: string, phone: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    try {
+      const response = await client.post(`/${phoneNumberId}/messages`, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'contacts',
+        contacts: [{
+          name: { formatted_name: name, first_name: name },
+          phones: [{ phone, type: 'MOBILE' }],
+        }],
+      });
+      return response.data.messages[0].id as string;
+    } catch (error: unknown) {
+      const msg = metaError(error);
+      this.logger.error(`Failed to send contact: ${msg}`);
+      throw new BadRequestException(`Failed to send contact: ${msg}`);
+    }
+  }
+
+  async downloadMetaMedia(tenantId: string, mediaId: string): Promise<{ buffer: Buffer; mimeType: string; filename?: string } | null> {
+    try {
+      const { accessToken } = await this.getTenantCredentials(tenantId);
+      const client = this.getClient(accessToken!);
+      const infoRes = await client.get<{ url: string; mime_type: string; id: string }>(`/${mediaId}`);
+      const { url, mime_type } = infoRes.data;
+      const dlRes = await axios.get<ArrayBuffer>(url, {
+        responseType: 'arraybuffer',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 60000,
+      });
+      return { buffer: Buffer.from(dlRes.data), mimeType: mime_type };
+    } catch (error: unknown) {
+      this.logger.warn(`Failed to download Meta media ${mediaId}: ${metaError(error)}`);
+      return null;
+    }
+  }
+
+  async uploadMediaToMeta(tenantId: string, buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('file', buffer, { filename, contentType: mimeType });
+
+    const response = await axios.post<{ id: string }>(
+      `${this.graphBaseUrl}/${phoneNumberId}/media`,
+      form,
+      {
+        headers: { ...form.getHeaders(), Authorization: `Bearer ${accessToken}` },
+        timeout: 60000,
+      },
+    );
+    return response.data.id;
+  }
+
+  async sendMediaMessageById(
+    tenantId: string,
+    to: string,
+    mediaType: string,
+    mediaId: string,
+    caption?: string,
+  ): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    const mediaTypeKey = mediaType.toLowerCase();
+    const mediaPayload: Record<string, unknown> = { id: mediaId };
+    if (caption && mediaTypeKey !== 'audio') mediaPayload['caption'] = caption;
+
+    try {
+      const response = await client.post(`/${phoneNumberId}/messages`, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: mediaTypeKey,
+        [mediaTypeKey]: mediaPayload,
+      });
+      return response.data.messages[0].id as string;
+    } catch (error: unknown) {
+      const msg = metaError(error);
+      this.logger.error(`Failed to send media by id: ${msg}`);
+      throw new BadRequestException(`Failed to send media: ${msg}`);
     }
   }
 

@@ -20,6 +20,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
+import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('Media')
 @ApiBearerAuth()
@@ -55,6 +56,7 @@ export class MediaController {
     return this.mediaService.findAll(tenantId, +page, +limit);
   }
 
+  @Public()
   @Get('serve/:fileKey')
   async serve(@Param('fileKey') fileKey: string, @Res() res: Response) {
     const normalizedKey = fileKey.replace(/~/g, '/');

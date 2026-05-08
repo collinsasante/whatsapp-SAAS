@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsObject, IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { MessageType } from '@whatsapp-platform/shared-types';
 
@@ -31,4 +31,34 @@ export class SendMessageDto {
   @IsOptional()
   @IsObject()
   templateVariables?: Record<string, string>;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  locationLatitude?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  locationLongitude?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  locationName?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  locationAddress?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  contactPhone?: string;
 }

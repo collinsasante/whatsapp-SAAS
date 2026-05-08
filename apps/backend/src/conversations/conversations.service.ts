@@ -15,6 +15,19 @@ export class ConversationsService {
     });
     if (existing) return existing;
 
+    // Reopen the most-recent resolved conversation instead of creating a new one
+    const resolved = await this.prisma.conversation.findFirst({
+      where: { tenantId, contactId, status: 'RESOLVED' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (resolved) {
+      return this.prisma.conversation.update({
+        where: { id: resolved.id },
+        data: { status: ConversationStatus.PENDING, unreadCount: 0 },
+        include: { contact: true, assignedTo: { select: { id: true, name: true, avatarUrl: true } } },
+      });
+    }
+
     return this.prisma.conversation.create({
       data: { tenantId, contactId },
       include: { contact: true, assignedTo: { select: { id: true, name: true, avatarUrl: true } } },
