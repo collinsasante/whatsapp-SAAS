@@ -105,10 +105,13 @@ export class SocketGateway {
       const { tenantId, conversationId, ...rest } = payload;
 
       if (conversationId) {
+        // Users in the conversation room receive the event once here
         this.io.to(`conversation:${conversationId}`).emit(event, payload);
+        // Users in the tenant room but NOT viewing this conversation still get notified
+        this.io.to(`tenant:${tenantId}`).except(`conversation:${conversationId}`).emit(event, { ...rest, tenantId, conversationId });
+      } else {
+        this.io.to(`tenant:${tenantId}`).emit(event, { ...rest, tenantId, conversationId });
       }
-
-      this.io.to(`tenant:${tenantId}`).emit(event, { ...rest, tenantId, conversationId });
     } catch (error) {
       console.error('Failed to handle Redis message:', error);
     }

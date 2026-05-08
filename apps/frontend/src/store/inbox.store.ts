@@ -42,17 +42,21 @@ export const useInboxStore = create<InboxState>((set) => ({
   setActiveConversation: (id) => set({ activeConversationId: id }),
 
   addMessage: (conversationId, message) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [conversationId]: [...(state.messages[conversationId] ?? []), message],
-      },
-      conversations: state.conversations.map((c) =>
-        c.id === conversationId
-          ? { ...c, lastMessageAt: message.createdAt as unknown as string }
-          : c,
-      ),
-    })),
+    set((state) => {
+      const existing = state.messages[conversationId] ?? [];
+      if (existing.some((m) => m.id === message.id)) return state;
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [...existing, message],
+        },
+        conversations: state.conversations.map((c) =>
+          c.id === conversationId
+            ? { ...c, lastMessageAt: message.createdAt as unknown as string }
+            : c,
+        ),
+      };
+    }),
 
   setMessages: (conversationId, messages) =>
     set((state) => ({
