@@ -98,7 +98,8 @@ export class WhatsAppService {
 
     const mediaTypeKey = mediaType.toLowerCase();
     const mediaPayload: Record<string, unknown> = { link: mediaUrl };
-    if (caption) mediaPayload['caption'] = caption;
+    // audio only supports `link`; image/video support `caption`; document supports `caption` and `filename`
+    if (caption && mediaTypeKey !== 'audio') mediaPayload['caption'] = caption;
 
     try {
       const response = await client.post(`/${phoneNumberId}/messages`, {
