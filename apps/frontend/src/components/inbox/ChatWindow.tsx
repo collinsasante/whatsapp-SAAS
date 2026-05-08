@@ -210,6 +210,12 @@ export default function ChatWindow({ conversation }: Props) {
       </div>
 
       <div className="border-t border-gray-100 p-4">
+        {sending && (
+          <div className="flex items-center gap-2 px-1 pb-2 text-xs text-gray-500">
+            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600 flex-shrink-0" />
+            <span>Uploading…</span>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" className="hidden" onChange={(e) => { void sendFile(e); }} />
           <button onClick={() => fileInputRef.current?.click()} disabled={sending || conversation.status === 'RESOLVED'} className="text-gray-400 hover:text-gray-600 transition-colors p-2 disabled:opacity-40">
@@ -220,9 +226,9 @@ export default function ChatWindow({ conversation }: Props) {
             value={text}
             onChange={(e) => { setText(e.target.value); handleTyping(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-            placeholder="Type a message..."
-            className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            disabled={conversation.status === 'RESOLVED'}
+            placeholder={sending ? 'Uploading…' : 'Type a message…'}
+            className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60"
+            disabled={sending || conversation.status === 'RESOLVED'}
           />
           {text.trim() ? (
             <button
