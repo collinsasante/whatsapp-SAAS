@@ -42,7 +42,7 @@ services:
       --requirepass ${REDIS_PASSWORD}
       --appendonly yes
       --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     networks:

@@ -47,6 +47,8 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
+  app.getHttpAdapter().get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
+
   await app.listen(port);
   console.log(`Backend API running on port ${port}`);
 }
