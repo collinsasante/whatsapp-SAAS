@@ -1,9 +1,16 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosError, AxiosInstance } from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
+
+function metaError(error: unknown): string {
+  if (error instanceof AxiosError && error.response) {
+    return JSON.stringify(error.response.data);
+  }
+  return error instanceof Error ? error.message : String(error);
+}
 
 export interface WhatsAppTextMessage {
   messaging_product: string;
@@ -73,7 +80,7 @@ export class WhatsAppService {
 
       return response.data.messages[0].id as string;
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = metaError(error);
       this.logger.error(`Failed to send text message to ${to}: ${msg}`);
       throw new BadRequestException(`Failed to send message: ${msg}`);
     }
@@ -104,7 +111,7 @@ export class WhatsAppService {
 
       return response.data.messages[0].id as string;
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = metaError(error);
       this.logger.error(`Failed to send media message: ${msg}`);
       throw new BadRequestException(`Failed to send media: ${msg}`);
     }
@@ -137,7 +144,7 @@ export class WhatsAppService {
 
       return response.data.messages[0].id as string;
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = metaError(error);
       this.logger.error(`Failed to send template: ${msg}`);
       throw new BadRequestException(`Failed to send template: ${msg}`);
     }
@@ -180,7 +187,7 @@ export class WhatsAppService {
         });
       }
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = metaError(error);
       this.logger.error(`Failed to sync templates: ${msg}`);
       throw new BadRequestException(`Template sync failed: ${msg}`);
     }
@@ -196,7 +203,7 @@ export class WhatsAppService {
         message_id: whatsappMessageId,
       });
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = metaError(error);
       this.logger.warn(`Failed to mark message as read: ${msg}`);
     }
   }
