@@ -32,12 +32,12 @@ export class MediaController {
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 16 * 1024 * 1024 },
+      limits: { fileSize: 100 * 1024 * 1024 },
     }),
   )
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
-  @ApiOperation({ summary: 'Upload a media file (max 16MB)' })
+  @ApiOperation({ summary: 'Upload a media file (max 100MB)' })
   upload(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
@@ -56,12 +56,26 @@ export class MediaController {
     return this.mediaService.findAll(tenantId, +page, +limit);
   }
 
+  @Get('library')
+  @ApiOperation({ summary: 'Get all media sent/received in conversations' })
+  library(
+    @CurrentTenant() tenantId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+    @Query('type') type?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.mediaService.findMessageMedia(tenantId, +page, +limit, type, search);
+  }
+
   @Public()
   @Get('serve/:fileKey')
   async serve(@Param('fileKey') fileKey: string, @Res() res: Response) {
     const normalizedKey = fileKey.replace(/~/g, '/');
-    const stream = await this.mediaService.getStream(normalizedKey);
+    const { stream, mimeType } = await this.mediaService.getStreamWithMime(normalizedKey);
     if (!stream) return res.status(HttpStatus.NOT_FOUND).send('File not found');
+    if (mimeType) res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
     stream.pipe(res);
   }
 

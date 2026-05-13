@@ -27,8 +27,13 @@ export class ContactsController {
     @Query('limit') limit = 50,
     @Query('search') search?: string,
     @Query('label') label?: string,
+    @Query('segmentId') segmentId?: string,
+    @Query('isBlocked') isBlocked?: string,
+    @Query('optedOut') optedOut?: string,
   ) {
-    return this.contactsService.findAll(tenantId, +page, +limit, search, label);
+    const blocked = isBlocked === 'true' ? true : isBlocked === 'false' ? false : undefined;
+    const opted = optedOut === 'true' ? true : optedOut === 'false' ? false : undefined;
+    return this.contactsService.findAll(tenantId, +page, +limit, search, label, segmentId, blocked, opted);
   }
 
   @Get(':id')

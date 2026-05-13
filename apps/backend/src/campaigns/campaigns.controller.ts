@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
@@ -60,5 +60,29 @@ export class CampaignsController {
   @ApiOperation({ summary: 'Pause a running campaign' })
   pause(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.campaignsService.pause(tenantId, id);
+  }
+
+  @Get(':id/recipients')
+  @ApiOperation({ summary: 'Get paginated recipient list with delivery status' })
+  getRecipients(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.campaignsService.getRecipients(tenantId, id, +page, +limit, status, search);
+  }
+
+  @Post('estimate-recipients')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Estimate recipient count for audience selection' })
+  estimateRecipients(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { segmentId?: string; labels?: string[]; phones?: string[] },
+  ) {
+    return this.campaignsService.estimateRecipients(tenantId, body);
   }
 }

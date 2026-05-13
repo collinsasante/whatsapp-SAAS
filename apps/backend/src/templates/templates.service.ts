@@ -54,6 +54,34 @@ export class TemplatesService {
     await this.prisma.template.delete({ where: { id } });
   }
 
+  async submit(tenantId: string, id: string) {
+    const template = await this.findOne(tenantId, id);
+    const components = template.components as unknown[];
+    const result = await this.whatsappService.submitTemplate(tenantId, {
+      name: template.name,
+      language: template.language,
+      category: template.category,
+      components,
+    });
+    return this.prisma.template.update({
+      where: { id },
+      data: {
+        status: (result.status ?? 'PENDING') as never,
+        waTemplateId: result.id,
+      },
+    });
+  }
+
+  async removeWithMeta(tenantId: string, id: string) {
+    const template = await this.findOne(tenantId, id);
+    try {
+      await this.whatsappService.deleteTemplate(tenantId, template.name);
+    } catch {
+      // best-effort — always delete locally
+    }
+    return this.prisma.template.delete({ where: { id } });
+  }
+
   async sync(tenantId: string) {
     await this.whatsappService.syncTemplates(tenantId);
     return { message: 'Templates synced successfully' };

@@ -37,6 +37,26 @@ export class UpdateTenantSettingsDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
+  businessPhone?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  businessDescription?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  businessAddress?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  businessWebsite?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
   timezone?: string;
 
   @ApiProperty({ required: false })

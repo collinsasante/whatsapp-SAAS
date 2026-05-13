@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { SendMessageDto } from './dto/message.dto';
@@ -35,5 +35,73 @@ export class MessagesController {
     @Query('limit') limit = 50,
   ) {
     return this.messagesService.findByConversation(tenantId, conversationId, +page, +limit);
+  }
+
+  @Patch(':messageId')
+  @ApiOperation({ summary: 'Edit a message' })
+  editMessage(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body('content') content: string,
+  ) {
+    if (!content?.trim()) throw new BadRequestException('Content is required');
+    return this.messagesService.editMessage(tenantId, conversationId, messageId, user.sub, content);
+  }
+
+  @Delete(':messageId')
+  @ApiOperation({ summary: 'Delete a message' })
+  deleteMessage(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @Query('scope') scope: 'me' | 'everyone' = 'everyone',
+  ) {
+    return this.messagesService.deleteMessage(tenantId, conversationId, messageId, scope);
+  }
+
+  @Post(':messageId/react')
+  @ApiOperation({ summary: 'Add emoji reaction to a message' })
+  react(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body('emoji') emoji: string,
+  ) {
+    return this.messagesService.addReaction(tenantId, conversationId, messageId, user.sub, emoji);
+  }
+
+  @Delete(':messageId/react')
+  @ApiOperation({ summary: 'Remove emoji reaction from a message' })
+  removeReact(
+    @CurrentTenant() tenantId: string,
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body('emoji') emoji: string,
+  ) {
+    return this.messagesService.removeReaction(tenantId, messageId, user.sub, emoji);
+  }
+
+  @Patch(':messageId/star')
+  @ApiOperation({ summary: 'Toggle star on a message' })
+  star(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.messagesService.toggleStar(tenantId, conversationId, messageId);
+  }
+
+  @Patch(':messageId/pin')
+  @ApiOperation({ summary: 'Toggle pin on a message' })
+  pin(
+    @CurrentTenant() tenantId: string,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.messagesService.togglePin(tenantId, conversationId, messageId, user.sub);
   }
 }

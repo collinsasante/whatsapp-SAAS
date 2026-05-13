@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/contact.dto';
 import { normalizePhone, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
+import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
 
 @Injectable()
 export class ContactsService {
@@ -27,10 +28,28 @@ export class ContactsService {
     });
   }
 
-  async findAll(tenantId: string, page = 1, limit = 50, search?: string, label?: string) {
+  async findAll(
+    tenantId: string,
+    page = 1,
+    limit = 50,
+    search?: string,
+    label?: string,
+    segmentId?: string,
+    isBlocked?: boolean,
+    optedOut?: boolean,
+  ) {
     const skip = getPaginationSkip(page, limit);
 
-    const where: Record<string, unknown> = { tenantId };
+    let where: Record<string, unknown> = { tenantId };
+
+    if (segmentId) {
+      const segment = await this.prisma.contactSegment.findFirst({ where: { id: segmentId, tenantId } });
+      if (segment) {
+        const filters = segment.filters as unknown as SegmentFilter[];
+        where = buildContactWhere(tenantId, filters) as Record<string, unknown>;
+      }
+    }
+
     if (search) {
       where['OR'] = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -41,19 +60,55 @@ export class ContactsService {
     if (label) {
       where['labels'] = { has: label };
     }
+    if (isBlocked !== undefined) {
+      where['isBlocked'] = isBlocked;
+    }
+    if (optedOut !== undefined) {
+      where['optedOut'] = optedOut;
+    }
 
-    const [data, total] = await Promise.all([
-      this.prisma.contact.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' } }),
+    const [contacts, total] = await Promise.all([
+      this.prisma.contact.findMany({
+        where, skip, take: limit, orderBy: { createdAt: 'desc' },
+        include: {
+          conversations: {
+            take: 1,
+            orderBy: { updatedAt: 'desc' },
+            include: {
+              assignedTo: { select: { id: true, name: true, avatarUrl: true } },
+              channel: { select: { id: true, name: true, type: true } },
+            },
+          },
+        },
+      }),
       this.prisma.contact.count({ where }),
     ]);
+
+    const data = contacts.map(({ conversations, ...contact }) => ({
+      ...contact,
+      latestConversation: conversations[0] ?? null,
+    }));
 
     return { data, meta: buildPaginationMeta(total, page, limit) };
   }
 
   async findOne(tenantId: string, id: string) {
-    const contact = await this.prisma.contact.findFirst({ where: { id, tenantId } });
+    const contact = await this.prisma.contact.findFirst({
+      where: { id, tenantId },
+      include: {
+        conversations: {
+          take: 1,
+          orderBy: { updatedAt: 'desc' },
+          include: {
+            assignedTo: { select: { id: true, name: true, avatarUrl: true } },
+            channel: { select: { id: true, name: true, type: true } },
+          },
+        },
+      },
+    });
     if (!contact) throw new NotFoundException('Contact not found');
-    return contact;
+    const { conversations, ...rest } = contact;
+    return { ...rest, latestConversation: conversations[0] ?? null };
   }
 
   async findByPhone(tenantId: string, phone: string) {
@@ -65,7 +120,17 @@ export class ContactsService {
   async findOrCreate(tenantId: string, phone: string, name?: string) {
     const normalized = normalizePhone(phone);
     const existing = await this.findByPhone(tenantId, normalized);
-    if (existing) return existing;
+
+    if (existing) {
+      // Update name from WhatsApp profile if we have one and the contact has none
+      if (name && !existing.name) {
+        return this.prisma.contact.update({
+          where: { id: existing.id },
+          data: { name },
+        });
+      }
+      return existing;
+    }
 
     return this.prisma.contact.create({
       data: { tenantId, phone: normalized, name: name ?? null },
@@ -79,6 +144,14 @@ export class ContactsService {
 
   async remove(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
+    const convIds = (await this.prisma.conversation.findMany({ where: { tenantId, contactId: id }, select: { id: true } })).map(c => c.id);
+    await this.prisma.campaignRecipient.deleteMany({ where: { contactId: id } });
+    await this.prisma.callLog.deleteMany({ where: { contactId: id } });
+    if (convIds.length) {
+      await this.prisma.conversationNote.deleteMany({ where: { conversationId: { in: convIds } } });
+      await this.prisma.message.deleteMany({ where: { conversationId: { in: convIds } } });
+      await this.prisma.conversation.deleteMany({ where: { id: { in: convIds } } });
+    }
     await this.prisma.contact.delete({ where: { id } });
   }
 

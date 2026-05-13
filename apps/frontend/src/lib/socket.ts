@@ -5,22 +5,50 @@ const SOCKET_URL = process.env['NEXT_PUBLIC_SOCKET_URL'] ?? 'http://localhost:30
 
 let socket: Socket | null = null;
 
-export function getSocket(): Socket {
-  if (!socket) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-    socket = io(SOCKET_URL, {
-      auth: { token },
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-    });
+type AuthErrorCallback = () => void;
+let onAuthError: AuthErrorCallback | null = null;
 
-    socket.on('connect', () => console.log('Socket connected'));
-    socket.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
-    socket.on('connect_error', (err) => console.error('Socket error:', err.message));
+export function setSocketAuthErrorHandler(cb: AuthErrorCallback) {
+  onAuthError = cb;
+}
+
+function createSocket(token: string | null): Socket {
+  const s = io(SOCKET_URL, {
+    auth: { token },
+    transports: ['websocket', 'polling'],
+    autoConnect: true,
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+  });
+  s.on('connect', () => console.log('Socket connected'));
+  s.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
+  s.on('connect_error', (err) => {
+    if (err.message.toLowerCase().includes('authentication') || err.message.toLowerCase().includes('token')) {
+      onAuthError?.();
+    } else {
+      console.error('Socket error:', err.message);
+    }
+  });
+  return s;
+}
+
+export function getSocket(): Socket {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+
+  if (socket) {
+    const prevToken = (socket.auth as { token?: string | null })?.token ?? null;
+    if (prevToken !== token) {
+      // Token changed (e.g. just logged in) — reconnect with fresh credentials
+      socket.disconnect();
+      socket = null;
+    }
   }
+
+  if (!socket) {
+    socket = createSocket(token);
+  }
+
   return socket;
 }
 

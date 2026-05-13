@@ -17,6 +17,21 @@ import { AutomationModule } from './automation/automation.module';
 import { MediaModule } from './media/media.module';
 import { AuditModule } from './audit/audit.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ActivityLogModule } from './activity-log/activity-log.module';
+import { ChannelsModule } from './channels/channels.module';
+import { CallsModule } from './calls/calls.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { CannedResponsesModule } from './canned-responses/canned-responses.module';
+import { ApiKeysModule } from './api-keys/api-keys.module';
+import { ChatbotFlowsModule } from './chatbot-flows/chatbot-flows.module';
+import { TagsModule } from './manage/tags/tags.module';
+import { AttributesModule } from './manage/attributes/attributes.module';
+import { WebhooksModule } from './manage/webhooks/webhooks.module';
+import { ManageSettingsModule } from './manage/settings/manage-settings.module';
+import { SegmentsModule } from './segments/segments.module';
+import { BillingModule } from './billing/billing.module';
+import { TeamsModule } from './teams/teams.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -61,6 +76,21 @@ import appConfig from './config/app.config';
     MediaModule,
     AuditModule,
     WhatsappModule,
+    DashboardModule,
+    ActivityLogModule,
+    ChannelsModule,
+    CallsModule,
+    NotificationsModule,
+    CannedResponsesModule,
+    ApiKeysModule,
+    ChatbotFlowsModule,
+    TagsModule,
+    AttributesModule,
+    WebhooksModule,
+    ManageSettingsModule,
+    SegmentsModule,
+    BillingModule,
+    TeamsModule,
   ],
 })
 export class AppModule implements NestModule {

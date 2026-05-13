@@ -31,4 +31,35 @@ export class RealtimeService {
   emitConversationUpdated(tenantId: string, conversationId: string, data: Record<string, unknown>) {
     void this.emit('conversation_updated', { tenantId, conversationId, ...data });
   }
+
+  emitConversationStateChanged(tenantId: string, conversationId: string, data: Record<string, unknown>) {
+    void this.emit('conversation_state_changed', { tenantId, conversationId, ...data });
+    // Also emit general update so inbox list refreshes
+    void this.emit('conversation_updated', { tenantId, conversationId, ...data });
+  }
+
+  emitActivityLog(tenantId: string, conversationId: string, activity: Record<string, unknown>) {
+    void this.emit('activity_log', { tenantId, conversationId, activity });
+  }
+
+  emitMessageEdited(tenantId: string, conversationId: string, message: Record<string, unknown>) {
+    void this.emit('message_edited', { tenantId, conversationId, message });
+  }
+
+  emitMessageDeleted(tenantId: string, conversationId: string, messageId: string, scope: string) {
+    void this.emit('message_deleted', { tenantId, conversationId, messageId, scope });
+  }
+
+  emitCallEvent(tenantId: string, event: string, call: Record<string, unknown>) {
+    void this.emit(event, { tenantId, call });
+  }
+
+  // Emit to a specific user's personal room
+  emitReactionUpdated(tenantId: string, conversationId: string, messageId: string, reactions: Record<string, unknown>[]) {
+    void this.emit('reaction_updated', { tenantId, conversationId, messageId, reactions });
+  }
+
+  emitToUser(userId: string, event: string, data: unknown) {
+    void this.emit(event, { userId, data });
+  }
 }

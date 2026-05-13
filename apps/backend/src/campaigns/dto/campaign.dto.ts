@@ -27,6 +27,17 @@ export class CreateCampaignDto {
   @IsString({ each: true })
   labels?: string[];
 
+  @ApiProperty({ required: false, description: 'Target a saved segment by ID' })
+  @IsOptional()
+  @IsString()
+  segmentId?: string;
+
+  @ApiProperty({ required: false, type: [String], description: 'Raw phone numbers (resolved to contacts on create)' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  phones?: string[];
+
   @ApiProperty({ required: false, description: 'ISO datetime string for scheduled send' })
   @IsOptional()
   @IsDateString()

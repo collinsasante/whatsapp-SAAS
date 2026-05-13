@@ -1,13 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConversationsService } from './conversations.service';
-import { CreateConversationDto, UpdateConversationDto, CreateNoteDto } from './dto/conversation.dto';
+import {
+  CreateConversationDto, UpdateConversationDto, CreateNoteDto,
+  RequestSupportDto, TransferConversationDto,
+} from './dto/conversation.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
-import { JwtPayload } from '@whatsapp-platform/shared-types';
-import { ConversationStatus } from '@whatsapp-platform/shared-types';
+import { JwtPayload, ConversationStatus } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Conversations')
 @ApiBearerAuth()
@@ -18,12 +20,18 @@ export class ConversationsController {
 
   @Post()
   @ApiOperation({ summary: 'Start a new conversation' })
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateConversationDto) {
-    return this.conversationsService.create(tenantId, dto);
+  create(@CurrentTenant() tenantId: string, @Body() dto: CreateConversationDto, @CurrentUser() user: JwtPayload) {
+    return this.conversationsService.create(tenantId, dto, user.sub);
+  }
+
+  @Post('find-or-create')
+  @ApiOperation({ summary: 'Find existing open conversation or create one' })
+  findOrCreate(@CurrentTenant() tenantId: string, @Body() body: { contactId: string }) {
+    return this.conversationsService.findOrCreate(tenantId, body.contactId);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all conversations (inbox)' })
+  @ApiOperation({ summary: 'Get conversations with status filter' })
   findAll(
     @CurrentTenant() tenantId: string,
     @Query('page') page = 1,
@@ -35,36 +43,86 @@ export class ConversationsController {
     return this.conversationsService.findAll(tenantId, +page, +limit, status, assignedToId, search);
   }
 
+  @Get('counts')
+  @ApiOperation({ summary: 'Get conversation counts per status' })
+  getCounts(@CurrentTenant() tenantId: string) {
+    return this.conversationsService.getStatusCounts(tenantId);
+  }
+
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single conversation' })
   findOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.conversationsService.findOne(tenantId, id);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update conversation (assign, label, snooze)' })
+  @ApiOperation({ summary: 'Update conversation (assign, label, snooze, priority)' })
   update(
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: UpdateConversationDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.conversationsService.update(tenantId, id, dto);
+    return this.conversationsService.update(tenantId, id, dto, user.sub);
+  }
+
+  // ─── State transitions ────────────────────────────────────────────────────
+
+  @Post(':id/request')
+  @ApiOperation({ summary: 'Customer or bot requests human support (→ REQUESTED)' })
+  request(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: RequestSupportDto,
+  ) {
+    return this.conversationsService.request(tenantId, id, dto.reason);
+  }
+
+  @Post(':id/intervene')
+  @ApiOperation({ summary: 'Agent takes over the conversation (→ INTERVENED)' })
+  intervene(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.conversationsService.intervene(tenantId, id, user.sub);
   }
 
   @Patch(':id/resolve')
-  @ApiOperation({ summary: 'Resolve a conversation' })
-  resolve(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.conversationsService.resolve(tenantId, id);
+  @ApiOperation({ summary: 'Resolve a conversation (→ RESOLVED)' })
+  resolve(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.conversationsService.resolve(tenantId, id, user.sub);
   }
 
+  @Post(':id/reopen')
+  @ApiOperation({ summary: 'Reopen a resolved conversation (→ OPEN)' })
+  reopen(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.conversationsService.reopen(tenantId, id, user.sub);
+  }
+
+  @Post(':id/transfer')
+  @ApiOperation({ summary: 'Transfer conversation to another agent' })
+  transfer(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: TransferConversationDto,
+  ) {
+    return this.conversationsService.transfer(tenantId, id, user.sub, dto);
+  }
+
+  // ─── Utilities ────────────────────────────────────────────────────────────
+
   @Patch(':id/read')
-  @ApiOperation({ summary: 'Mark conversation as read' })
   markRead(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.conversationsService.markRead(tenantId, id);
   }
 
+  @Get(':id/notes')
+  getNotes(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.conversationsService.getNotes(tenantId, id);
+  }
+
   @Post(':id/notes')
-  @ApiOperation({ summary: 'Add a note to a conversation' })
   addNote(
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
@@ -72,5 +130,16 @@ export class ConversationsController {
     @Body() dto: CreateNoteDto,
   ) {
     return this.conversationsService.addNote(tenantId, id, user.sub, dto);
+  }
+
+  @Get(':id/events')
+  @ApiOperation({ summary: 'Get conversation lifecycle events (timeline)' })
+  getEvents(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.conversationsService.getEvents(tenantId, id);
+  }
+
+  @Delete(':id')
+  deleteConversation(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.conversationsService.deleteConversation(tenantId, id);
   }
 }

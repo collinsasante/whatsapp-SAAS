@@ -10,3 +10,6 @@ export * from './automation';
 export * from './media';
 export * from './socket-events';
 export * from './queue-jobs';
+export * from './activity-log';
+export * from './channel';
+export * from './call';

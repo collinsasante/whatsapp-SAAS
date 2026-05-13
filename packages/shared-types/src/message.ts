@@ -23,5 +23,19 @@ export interface Message {
   readAt: Date | null;
   failedAt: Date | null;
   failureReason: string | null;
+  replyToId: string | null;
+  isStarred: boolean;
+  isPinned: boolean;
+  isEdited: boolean;
+  editedAt: Date | null;
+  deletedForEveryone: boolean;
+  deletedAt: Date | null;
   createdAt: Date;
+  replyTo?: {
+    id: string;
+    content: string | null;
+    type: MessageType;
+    direction: MessageDirection;
+    mediaCaption: string | null;
+  } | null;
 }

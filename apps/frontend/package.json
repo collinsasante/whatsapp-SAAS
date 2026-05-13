@@ -10,15 +10,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.10",
+    "@ffmpeg/util": "^0.12.1",
     "@whatsapp-platform/shared-types": "workspace:*",
+    "@xyflow/react": "^12.10.2",
     "axios": "^1.7.2",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.383.0",
     "next": "^14.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.4.1",
+    "recharts": "^3.8.1",
     "socket.io-client": "^4.7.5",
     "tailwind-merge": "^2.3.0",
     "zustand": "^4.5.2"

@@ -16,8 +16,10 @@ interface AuthenticatedSocket extends Socket {
 interface RealtimeEvent {
   event: string;
   payload: {
-    tenantId: string;
+    tenantId?: string;
     conversationId?: string;
+    userId?: string;
+    data?: unknown;
     [key: string]: unknown;
   };
 }
@@ -102,12 +104,17 @@ export class SocketGateway {
   private handleRedisMessage(_channel: string, raw: string) {
     try {
       const { event, payload } = JSON.parse(raw) as RealtimeEvent;
+
+      // Personal user events (notifications, etc.)
+      if (payload.userId && !payload.tenantId) {
+        this.io.to(`user:${payload.userId}`).emit(event, payload.data ?? payload);
+        return;
+      }
+
       const { tenantId, conversationId, ...rest } = payload;
 
       if (conversationId) {
-        // Users in the conversation room receive the event once here
         this.io.to(`conversation:${conversationId}`).emit(event, payload);
-        // Users in the tenant room but NOT viewing this conversation still get notified
         this.io.to(`tenant:${tenantId}`).except(`conversation:${conversationId}`).emit(event, { ...rest, tenantId, conversationId });
       } else {
         this.io.to(`tenant:${tenantId}`).emit(event, { ...rest, tenantId, conversationId });

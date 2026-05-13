@@ -3,9 +3,10 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
-import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
+import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
 import { QueueName } from '@whatsapp-platform/shared-types';
 import { CampaignStatus } from '@whatsapp-platform/shared-types';
+import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
 
 const BATCH_SIZE = 50;
 
@@ -25,9 +26,40 @@ export class CampaignsService {
 
     let contactIds = dto.contactIds ?? [];
 
+    // Segment targeting
+    if (dto.segmentId && !contactIds.length) {
+      const segment = await this.prisma.contactSegment.findFirst({ where: { id: dto.segmentId, tenantId } });
+      if (segment) {
+        const filters = segment.filters as unknown as SegmentFilter[];
+        const where = { ...buildContactWhere(tenantId, filters), isBlocked: false, optedOut: false };
+        const contacts = await this.prisma.contact.findMany({ where, select: { id: true } });
+        contactIds = contacts.map((c) => c.id);
+      }
+    }
+
+    // Label targeting
     if (dto.labels?.length && !contactIds.length) {
       const contacts = await this.prisma.contact.findMany({
         where: { tenantId, labels: { hasSome: dto.labels }, isBlocked: false, optedOut: false },
+        select: { id: true },
+      });
+      contactIds = contacts.map((c) => c.id);
+    }
+
+    // Phone list targeting (CSV upload)
+    if (dto.phones?.length && !contactIds.length) {
+      const normalizedPhones = dto.phones.map(normalizePhone);
+      const contacts = await this.prisma.contact.findMany({
+        where: { tenantId, phone: { in: normalizedPhones }, isBlocked: false, optedOut: false },
+        select: { id: true },
+      });
+      contactIds = contacts.map((c) => c.id);
+    }
+
+    // Default: all opted-in, non-blocked contacts
+    if (!contactIds.length && !dto.segmentId && !dto.labels?.length && !dto.phones?.length && !dto.contactIds?.length) {
+      const contacts = await this.prisma.contact.findMany({
+        where: { tenantId, isBlocked: false, optedOut: false },
         select: { id: true },
       });
       contactIds = contacts.map((c) => c.id);
@@ -145,6 +177,73 @@ export class CampaignsService {
     );
 
     return { message: 'Campaign launched', batches: batches.length };
+  }
+
+  async getRecipients(
+    tenantId: string,
+    campaignId: string,
+    page = 1,
+    limit = 50,
+    status?: string,
+    search?: string,
+  ) {
+    await this.findOne(tenantId, campaignId);
+    const skip = getPaginationSkip(page, limit);
+
+    const where: Record<string, unknown> = { campaignId };
+    if (status && status !== 'ALL') where['status'] = status;
+    if (search) {
+      where['contact'] = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search } },
+        ],
+      };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.campaignRecipient.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { sentAt: 'desc' },
+        include: {
+          contact: { select: { id: true, name: true, phone: true, email: true } },
+        },
+      }),
+      this.prisma.campaignRecipient.count({ where }),
+    ]);
+
+    return { data, meta: buildPaginationMeta(total, page, limit) };
+  }
+
+  async estimateRecipients(
+    tenantId: string,
+    opts: { segmentId?: string; labels?: string[]; phones?: string[] },
+  ) {
+    let count = 0;
+
+    if (opts.segmentId) {
+      const segment = await this.prisma.contactSegment.findFirst({ where: { id: opts.segmentId, tenantId } });
+      if (segment) {
+        const filters = segment.filters as unknown as SegmentFilter[];
+        const where = { ...buildContactWhere(tenantId, filters), isBlocked: false, optedOut: false };
+        count = await this.prisma.contact.count({ where });
+      }
+    } else if (opts.labels?.length) {
+      count = await this.prisma.contact.count({
+        where: { tenantId, labels: { hasSome: opts.labels }, isBlocked: false, optedOut: false },
+      });
+    } else if (opts.phones?.length) {
+      const normalized = opts.phones.map(normalizePhone);
+      count = await this.prisma.contact.count({
+        where: { tenantId, phone: { in: normalized }, isBlocked: false, optedOut: false },
+      });
+    } else {
+      count = await this.prisma.contact.count({ where: { tenantId, isBlocked: false, optedOut: false } });
+    }
+
+    return { count };
   }
 
   async pause(tenantId: string, campaignId: string) {

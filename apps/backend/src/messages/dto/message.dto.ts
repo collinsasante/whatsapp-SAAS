@@ -61,4 +61,9 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   contactPhone?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  replyToId?: string;
 }

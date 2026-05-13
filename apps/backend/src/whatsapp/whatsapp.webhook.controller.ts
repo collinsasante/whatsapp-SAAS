@@ -29,11 +29,16 @@ interface WebhookEntry {
         from: string;
         timestamp: string;
         type: string;
+        context?: { id: string; from?: string };
         text?: { body: string };
         image?: { id: string; mime_type: string; sha256: string; caption?: string };
         video?: { id: string; mime_type: string };
         audio?: { id: string; mime_type: string };
         document?: { id: string; mime_type: string; filename?: string };
+        sticker?: { id: string; mime_type: string; animated?: boolean };
+        reaction?: { message_id: string; emoji: string };
+        location?: { latitude: number; longitude: number; name?: string; address?: string };
+        contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
       }>;
       statuses?: Array<{
         id: string;
@@ -108,9 +113,10 @@ export class WhatsAppWebhookController {
         const value = change.value;
 
         if (value.messages?.length) {
+          const profileName = value.contacts?.[0]?.profile?.name;
           for (const message of value.messages) {
             try {
-              await this.messagesService.handleInbound(tenant.id, message);
+              await this.messagesService.handleInbound(tenant.id, message, profileName);
             } catch (error) {
               this.logger.error(`Failed to process inbound message: ${error instanceof Error ? error.message : String(error)}`);
             }

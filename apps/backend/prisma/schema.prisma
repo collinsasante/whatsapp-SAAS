@@ -15,35 +15,123 @@ model Tenant {
   wabaId             String?         @map("waba_id")
   accessToken        String?         @map("access_token")
   webhookVerifyToken String          @map("webhook_verify_token")
-  plan               String          @default("starter")
-  isActive           Boolean         @default(true) @map("is_active")
-  createdAt          DateTime        @default(now()) @map("created_at")
-  updatedAt          DateTime        @updatedAt @map("updated_at")
+  plan                    String   @default("free")
+  planStartedAt           DateTime? @map("plan_started_at")
+  planExpiresAt           DateTime? @map("plan_expires_at")
+  billingEmail            String?  @map("billing_email")
+  isActive                Boolean  @default(true)        @map("is_active")
+  onboardingCompleted     Boolean  @default(false)       @map("onboarding_completed")
+  onboardingStep          Int      @default(0)           @map("onboarding_step")
+  industry                String?
+  teamSize                String?  @map("team_size")
+  country                 String?
+  logoUrl                 String?  @map("logo_url")
+  businessCategory        String?  @map("business_category")
+  businessDescription     String?  @map("business_description")
+  businessAddress         String?  @map("business_address")
+  businessWebsite         String?  @map("business_website")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt     @map("updated_at")
 
-  users           User[]
-  contacts        Contact[]
-  conversations   Conversation[]
-  messages        Message[]
-  templates       Template[]
-  campaigns       Campaign[]
-  automationRules AutomationRule[]
-  mediaAssets     MediaAsset[]
-  auditLogs       AuditLog[]
-  settings        TenantSettings?
+  users               User[]
+  contacts            Contact[]
+  conversations       Conversation[]
+  messages            Message[]
+  templates           Template[]
+  campaigns           Campaign[]
+  automationRules     AutomationRule[]
+  mediaAssets         MediaAsset[]
+  auditLogs           AuditLog[]
+  settings            TenantSettings?
+  channels            Channel[]
+  activityLogs        ActivityLog[]
+  messageReactions    MessageReaction[]
+  pinnedMessages      PinnedMessage[]
+  callLogs            CallLog[]
+  notifications       Notification[]
+  cannedResponses     CannedResponse[]
+  apiKeys             ApiKey[]
+  chatbotFlows        ChatbotFlow[]
+  tags                Tag[]
+  contactAttributes   ContactAttribute[]
+  webhooks            Webhook[]
+  contactSegments     ContactSegment[]
+  billingInvoices     BillingInvoice[]
+  teams               Team[]
+  conversationEvents  ConversationEvent[]
 
   @@map("tenants")
 }
 
+model Team {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members TeamMember[]
+
+  @@index([tenantId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String   @map("team_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model BillingInvoice {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  amount      Float
+  currency    String    @default("USD")
+  status      String    @default("PAID")
+  description String
+  period      String
+  paidAt      DateTime? @map("paid_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("billing_invoices")
+}
+
 model TenantSettings {
-  id              String   @id @default(uuid())
-  tenantId        String   @unique @map("tenant_id")
-  businessName    String?  @map("business_name")
-  businessEmail   String?  @map("business_email")
-  timezone        String   @default("UTC")
-  autoReply       Boolean  @default(false) @map("auto_reply")
-  autoReplyMessage String? @map("auto_reply_message")
-  maxAgents       Int      @default(10) @map("max_agents")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid())
+  tenantId            String   @unique @map("tenant_id")
+  businessName        String?  @map("business_name")
+  businessEmail       String?  @map("business_email")
+  businessPhone       String?  @map("business_phone")
+  businessAddress     String?  @map("business_address")
+  businessWebsite     String?  @map("business_website")
+  businessDescription String?  @map("business_description")
+  timezone            String   @default("UTC")
+  autoReply           Boolean  @default(false) @map("auto_reply")
+  autoReplyMessage    String?  @map("auto_reply_message")
+  maxAgents           Int      @default(10) @map("max_agents")
+  welcomeEnabled      Boolean  @default(false) @map("welcome_enabled")
+  welcomeMessage      String?  @map("welcome_message")
+  offHoursEnabled     Boolean  @default(false) @map("off_hours_enabled")
+  offHoursMessage     String?  @map("off_hours_message")
+  offHoursSchedule    Json     @default("{}") @map("off_hours_schedule")
+  optOutKeywords      String[] @default(["STOP", "UNSUBSCRIBE"]) @map("opt_out_keywords")
+  optInKeywords       String[] @default(["START", "SUBSCRIBE"]) @map("opt_in_keywords")
+  optOutReply         String?  @map("opt_out_reply")
+  optInReply          String?  @map("opt_in_reply")
+  widgetEnabled       Boolean  @default(false) @map("widget_enabled")
+  widgetConfig        Json     @default("{}") @map("widget_config")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -64,13 +152,21 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignedConversations Conversation[] @relation("AssignedAgent")
-  sentMessages        Message[]      @relation("MessageSender")
-  notes               ConversationNote[]
-  campaigns           Campaign[]     @relation("CampaignCreator")
-  mediaAssets         MediaAsset[]
-  auditLogs           AuditLog[]
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedConversations Conversation[]    @relation("AssignedAgent")
+  sentMessages          Message[]         @relation("MessageSender")
+  notes                 ConversationNote[]
+  campaigns             Campaign[]        @relation("CampaignCreator")
+  mediaAssets           MediaAsset[]
+  auditLogs             AuditLog[]
+  activityLogs          ActivityLog[]
+  messageReactions      MessageReaction[]
+  pinnedMessages        PinnedMessage[]   @relation("PinnedBy")
+  callLogs              CallLog[]
+  callNotes             CallNote[]
+  notifications         Notification[]
+  cannedResponses       CannedResponse[]
+  apiKeys               ApiKey[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -99,10 +195,12 @@ model Contact {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
   messages           Message[]
   campaignRecipients CampaignRecipient[]
+  activityLogs       ActivityLog[]
+  callLogs           CallLog[]
 
   @@unique([tenantId, phone])
   @@index([tenantId])
@@ -111,34 +209,85 @@ model Contact {
 }
 
 model Conversation {
-  id            String             @id @default(uuid())
-  tenantId      String             @map("tenant_id")
-  contactId     String             @map("contact_id")
-  assignedToId  String?            @map("assigned_to_id")
-  status        ConversationStatus @default(OPEN)
-  unreadCount   Int                @default(0) @map("unread_count")
-  lastMessageAt DateTime?          @map("last_message_at")
-  snoozedUntil  DateTime?          @map("snoozed_until")
-  labels        String[]           @default([])
-  createdAt     DateTime           @default(now()) @map("created_at")
-  updatedAt     DateTime           @updatedAt @map("updated_at")
+  id             String             @id @default(uuid())
+  tenantId       String             @map("tenant_id")
+  contactId      String             @map("contact_id")
+  assignedToId   String?            @map("assigned_to_id")
+  resolvedById   String?            @map("resolved_by_id")
+  channelId      String?            @map("channel_id")
+  status         ConversationStatus @default(OPEN)
+  priority       Int                @default(0)
+  unreadCount    Int                @default(0) @map("unread_count")
+  reopenedCount  Int                @default(0) @map("reopened_count")
+  lastMessageAt  DateTime?          @map("last_message_at")
+  snoozedUntil   DateTime?          @map("snoozed_until")
+  requestedAt    DateTime?          @map("requested_at")
+  intervenedAt   DateTime?          @map("intervened_at")
+  resolvedAt     DateTime?          @map("resolved_at")
+  reopenedAt     DateTime?          @map("reopened_at")
+  slaDeadline    DateTime?          @map("sla_deadline")
+  labels         String[]           @default([])
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
 
-  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contact    Contact            @relation(fields: [contactId], references: [id])
-  assignedTo User?              @relation("AssignedAgent", fields: [assignedToId], references: [id])
-  messages   Message[]
-  notes      ConversationNote[]
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact           Contact             @relation(fields: [contactId], references: [id])
+  assignedTo        User?               @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  channel           Channel?            @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  messages          Message[]
+  notes             ConversationNote[]
+  activityLogs      ActivityLog[]
+  pinnedMessages    PinnedMessage[]
+  conversationEvents ConversationEvent[]
 
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, contactId])
   @@index([tenantId, assignedToId])
   @@index([tenantId, lastMessageAt])
+  @@index([tenantId, status, lastMessageAt])
+  @@index([tenantId, slaDeadline])
   @@map("conversations")
+}
+
+model ConversationEvent {
+  id             String              @id @default(uuid())
+  tenantId       String              @map("tenant_id")
+  conversationId String              @map("conversation_id")
+  actorId        String?             @map("actor_id")
+  type           ConversationEventType
+  payload        Json                @default("{}")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([tenantId, createdAt])
+  @@map("conversation_events")
+}
+
+enum ConversationEventType {
+  OPENED
+  REQUESTED
+  INTERVENED
+  RESOLVED
+  REOPENED
+  ASSIGNED
+  UNASSIGNED
+  TRANSFERRED
+  NOTE_ADDED
+  TAG_ADDED
+  TAG_REMOVED
+  BOT_PAUSED
+  BOT_RESUMED
+  SLA_BREACHED
 }
 
 enum ConversationStatus {
   OPEN
+  REQUESTED
+  INTERVENED
   RESOLVED
   PENDING
   SNOOZED
@@ -159,39 +308,52 @@ model ConversationNote {
 }
 
 model Message {
-  id                String          @id @default(uuid())
-  tenantId          String          @map("tenant_id")
-  conversationId    String          @map("conversation_id")
-  contactId         String          @map("contact_id")
-  senderId          String?         @map("sender_id")
-  whatsappMessageId String?         @unique @map("whatsapp_message_id")
+  id                String           @id @default(uuid())
+  tenantId          String           @map("tenant_id")
+  conversationId    String           @map("conversation_id")
+  contactId         String           @map("contact_id")
+  senderId          String?          @map("sender_id")
+  replyToId         String?          @map("reply_to_id")
+  whatsappMessageId String?          @unique @map("whatsapp_message_id")
   direction         MessageDirection
-  type              MessageType     @default(TEXT)
-  status            MessageStatus   @default(QUEUED)
+  type              MessageType      @default(TEXT)
+  status            MessageStatus    @default(QUEUED)
   content           String?
-  mediaUrl          String?         @map("media_url")
-  mediaType         String?         @map("media_type")
-  mediaSize         Int?            @map("media_size")
-  mediaCaption      String?         @map("media_caption")
-  templateId        String?         @map("template_id")
-  templateVariables Json?           @map("template_variables")
+  mediaUrl          String?          @map("media_url")
+  mediaType         String?          @map("media_type")
+  mediaSize         Int?             @map("media_size")
+  mediaCaption      String?          @map("media_caption")
+  templateId        String?          @map("template_id")
+  templateVariables Json?            @map("template_variables")
   metadata          Json?
-  sentAt            DateTime?       @map("sent_at")
-  deliveredAt       DateTime?       @map("delivered_at")
-  readAt            DateTime?       @map("read_at")
-  failedAt          DateTime?       @map("failed_at")
-  failureReason     String?         @map("failure_reason")
-  createdAt         DateTime        @default(now()) @map("created_at")
+  isStarred         Boolean          @default(false) @map("is_starred")
+  isPinned          Boolean          @default(false) @map("is_pinned")
+  isEdited          Boolean          @default(false) @map("is_edited")
+  editedAt          DateTime?        @map("edited_at")
+  deletedForEveryone Boolean         @default(false) @map("deleted_for_everyone")
+  deletedAt         DateTime?        @map("deleted_at")
+  sentAt            DateTime?        @map("sent_at")
+  deliveredAt       DateTime?        @map("delivered_at")
+  readAt            DateTime?        @map("read_at")
+  failedAt          DateTime?        @map("failed_at")
+  failureReason     String?          @map("failure_reason")
+  createdAt         DateTime         @default(now()) @map("created_at")
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  contact      Contact      @relation(fields: [contactId], references: [id])
-  sender       User?        @relation("MessageSender", fields: [senderId], references: [id])
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contact      Contact           @relation(fields: [contactId], references: [id])
+  sender       User?             @relation("MessageSender", fields: [senderId], references: [id])
+  replyTo      Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies      Message[]         @relation("MessageReplies")
+  reactions    MessageReaction[]
+  pinnedIn     PinnedMessage[]
 
   @@index([tenantId])
   @@index([conversationId])
+  @@index([conversationId, createdAt])
   @@index([whatsappMessageId])
   @@index([tenantId, createdAt])
+  @@index([tenantId, mediaUrl])
   @@map("messages")
 }
 
@@ -211,6 +373,7 @@ enum MessageType {
   LOCATION
   CONTACTS
   STICKER
+  NOTE
 }
 
 enum MessageStatus {
@@ -219,6 +382,184 @@ enum MessageStatus {
   DELIVERED
   READ
   FAILED
+}
+
+model Channel {
+  id          String      @id @default(uuid())
+  tenantId    String      @map("tenant_id")
+  type        ChannelType
+  name        String
+  isActive    Boolean     @default(true) @map("is_active")
+  credentials Json        @default("{}") @map("credentials")
+  metadata    Json        @default("{}") @map("metadata")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([tenantId, type, name])
+  @@index([tenantId])
+  @@map("channels")
+}
+
+enum ChannelType {
+  WHATSAPP
+  FACEBOOK_MESSENGER
+  INSTAGRAM
+  TELEGRAM
+  EMAIL
+  WEB_CHAT
+  TIKTOK
+  TWITTER
+  LINKEDIN
+}
+
+model ActivityLog {
+  id             String         @id @default(uuid())
+  tenantId       String         @map("tenant_id")
+  conversationId String?        @map("conversation_id")
+  contactId      String?        @map("contact_id")
+  userId         String?        @map("user_id")
+  action         ActivityAction
+  metadata       Json           @default("{}")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([conversationId])
+  @@map("activity_logs")
+}
+
+enum ActivityAction {
+  CONVERSATION_CREATED
+  CONVERSATION_ASSIGNED
+  CONVERSATION_UNASSIGNED
+  CONVERSATION_REQUESTED
+  CONVERSATION_INTERVENED
+  CONVERSATION_RESOLVED
+  CONVERSATION_REOPENED
+  CONVERSATION_ARCHIVED
+  CONVERSATION_TRANSFERRED
+  MESSAGE_SENT
+  MESSAGE_EDITED
+  MESSAGE_DELETED
+  MESSAGE_STARRED
+  NOTE_ADDED
+  NOTE_DELETED
+  TAG_ADDED
+  TAG_REMOVED
+  CONTACT_UPDATED
+  CONTACT_BLOCKED
+  AUTOMATION_TRIGGERED
+  CAMPAIGN_LAUNCHED
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  tenantId  String   @map("tenant_id")
+  userId    String?  @map("user_id")
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
+model PinnedMessage {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  conversationId String   @map("conversation_id")
+  messageId      String   @map("message_id")
+  pinnedById     String   @map("pinned_by_id")
+  pinnedAt       DateTime @default(now()) @map("pinned_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  pinnedBy     User         @relation("PinnedBy", fields: [pinnedById], references: [id])
+
+  @@unique([conversationId, messageId])
+  @@index([conversationId])
+  @@map("pinned_messages")
+}
+
+model CallLog {
+  id                String        @id @default(uuid())
+  tenantId          String        @map("tenant_id")
+  contactId         String?       @map("contact_id")
+  userId            String?       @map("user_id")
+  direction         CallDirection
+  status            CallStatus
+  duration          Int?
+  phone             String?
+  notes             String?
+  metadata          Json          @default("{}")
+  isArchived        Boolean       @default(false) @map("is_archived")
+  endReason         String?       @map("end_reason")
+  recordingUrl      String?       @map("recording_url")
+  callLinkToken     String?       @unique @map("call_link_token")
+  callLinkExpiresAt DateTime?     @map("call_link_expires_at")
+  scheduledAt       DateTime?     @map("scheduled_at")
+  startedAt         DateTime?     @map("started_at")
+  answeredAt        DateTime?     @map("answered_at")
+  endedAt           DateTime?     @map("ended_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact   Contact?   @relation(fields: [contactId], references: [id])
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  callNotes CallNote[]
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, contactId])
+  @@index([tenantId, status])
+  @@index([tenantId, isArchived])
+  @@map("call_logs")
+}
+
+model CallNote {
+  id        String   @id @default(uuid())
+  callLogId String   @map("call_log_id")
+  userId    String   @map("user_id")
+  content   String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  callLog CallLog @relation(fields: [callLogId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([callLogId])
+  @@map("call_notes")
+}
+
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  SCHEDULED
+  INITIATED
+  RINGING
+  ANSWERED
+  MISSED
+  FAILED
+  COMPLETED
+  CANCELLED
+  TRANSFERRED
 }
 
 model Template {
@@ -407,4 +748,178 @@ enum AuditAction {
   EXPORT
   SEND_MESSAGE
   START_CAMPAIGN
+}
+
+enum NotificationType {
+  CONVERSATION_ASSIGNED
+  NEW_MESSAGE
+  MENTION
+  CAMPAIGN_COMPLETED
+  CAMPAIGN_FAILED
+  CONVERSATION_RESOLVED
+  CONVERSATION_REQUESTED
+  CONVERSATION_INTERVENED
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  tenantId  String           @map("tenant_id")
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  body      String
+  link      String?
+  metadata  Json             @default("{}")
+  isRead    Boolean          @default(false) @map("is_read")
+  readAt    DateTime?        @map("read_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model CannedResponse {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  createdById String   @map("created_by_id")
+  shortcut    String
+  content     String
+  category    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation(fields: [createdById], references: [id])
+
+  @@unique([tenantId, shortcut])
+  @@index([tenantId])
+  @@map("canned_responses")
+}
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  createdById String    @map("created_by_id")
+  name        String
+  keyHash     String    @unique @map("key_hash")
+  keyPrefix   String    @map("key_prefix")
+  lastUsedAt  DateTime? @map("last_used_at")
+  expiresAt   DateTime? @map("expires_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation(fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+enum FlowTriggerType {
+  KEYWORD
+  FIRST_MESSAGE
+  BUTTON_REPLY
+  OPT_IN
+  FALLBACK
+}
+
+model ChatbotFlow {
+  id          String          @id @default(uuid())
+  tenantId    String          @map("tenant_id")
+  name        String
+  description String?
+  trigger     FlowTriggerType
+  keywords    String[]        @default([])
+  nodes       Json            @default("[]")
+  isActive    Boolean         @default(true) @map("is_active")
+  priority    Int             @default(0)
+  executionCount Int          @default(0) @map("execution_count")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@map("chatbot_flows")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  color     String   @default("#0d9488")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tags")
+}
+
+enum AttributeType {
+  TEXT
+  NUMBER
+  DROPDOWN
+  DATE
+  BOOLEAN
+}
+
+model ContactAttribute {
+  id         String        @id @default(uuid())
+  tenantId   String        @map("tenant_id")
+  key        String
+  label      String
+  type       AttributeType @default(TEXT)
+  options    String[]      @default([])
+  isRequired Boolean       @default(false) @map("is_required")
+  sortOrder  Int           @default(0) @map("sort_order")
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("contact_attributes")
+}
+
+model Webhook {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  name            String
+  url             String
+  events          String[]  @default([])
+  secret          String?
+  isActive        Boolean   @default(true) @map("is_active")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  failureCount    Int       @default(0) @map("failure_count")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("webhooks")
+}
+
+model ContactSegment {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  description  String?
+  filters      Json     @default("[]")
+  contactCount Int      @default(0) @map("contact_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("contact_segments")
 }

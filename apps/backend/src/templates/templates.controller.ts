@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, Req } from '@nestjs/common';
+import { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { TemplatesService } from './templates.service';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto/template.dto';
@@ -19,8 +20,11 @@ export class TemplatesController {
   @Post()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Create a message template' })
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateTemplateDto) {
-    return this.templatesService.create(tenantId, dto);
+  create(@CurrentTenant() tenantId: string, @Body() dto: CreateTemplateDto, @Req() req: Request) {
+    // Use raw body components to bypass class-transformer converting objects to []
+    const rawComponents = (req.body as Record<string, unknown>)?.components;
+    const components = Array.isArray(rawComponents) ? rawComponents : dto.components;
+    return this.templatesService.create(tenantId, { ...dto, components });
   }
 
   @Get()
@@ -41,14 +45,29 @@ export class TemplatesController {
 
   @Patch(':id')
   @Roles(UserRole.ADMIN)
-  update(@CurrentTenant() tenantId: string, @Param('id') id: string, @Body() dto: UpdateTemplateDto) {
-    return this.templatesService.update(tenantId, id, dto);
+  update(@CurrentTenant() tenantId: string, @Param('id') id: string, @Body() dto: UpdateTemplateDto, @Req() req: Request) {
+    const rawComponents = (req.body as Record<string, unknown>)?.components;
+    const components = Array.isArray(rawComponents) ? rawComponents : dto.components;
+    return this.templatesService.update(tenantId, id, { ...dto, components });
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.templatesService.remove(tenantId, id);
+  }
+
+  @Post(':id/submit')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Submit template to Meta for approval' })
+  submit(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.templatesService.submit(tenantId, id);
+  }
+
+  @Delete(':id/with-meta')
+  @Roles(UserRole.ADMIN)
+  removeWithMeta(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.templatesService.removeWithMeta(tenantId, id);
   }
 
   @Post('sync')

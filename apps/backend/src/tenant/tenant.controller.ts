@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { TenantService } from './tenant.service';
 import { UpdateTenantDto, UpdateTenantSettingsDto } from './dto/update-tenant.dto';
@@ -39,5 +39,12 @@ export class TenantController {
   @ApiOperation({ summary: 'Update tenant settings' })
   updateSettings(@CurrentTenant() tenantId: string, @Body() dto: UpdateTenantSettingsDto) {
     return this.tenantService.updateSettings(tenantId, dto);
+  }
+
+  @Patch('onboarding')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Save onboarding progress' })
+  updateOnboarding(@CurrentTenant() tenantId: string, @Body() body: Record<string, unknown>) {
+    return this.tenantService.updateOnboarding(tenantId, body as any);
   }
 }

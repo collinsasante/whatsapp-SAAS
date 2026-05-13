@@ -74,9 +74,8 @@ export class StorageService {
         Key: fileKey,
         Body: file.buffer,
         ContentType: file.mimetype,
-        ACL: 'public-read',
       }));
-      const fileUrl = `https://${this.bucket}.s3.${this.s3Region}.amazonaws.com/${fileKey}`;
+      const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
       return { fileKey, fileUrl };
     } else if (this.driver === 'minio' && this.minioClient) {
       await this.minioClient.putObject(this.bucket, fileKey, file.buffer, file.size, {
@@ -115,9 +114,8 @@ export class StorageService {
         Key: fileKey,
         Body: buffer,
         ContentType: mimeType,
-        ACL: 'public-read',
       }));
-      const fileUrl = `https://${this.bucket}.s3.${this.s3Region}.amazonaws.com/${fileKey}`;
+      const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
       return { fileKey, fileUrl };
     } else if (this.driver === 'minio' && this.minioClient) {
       await this.minioClient.putObject(this.bucket, fileKey, buffer, buffer.length, { 'Content-Type': mimeType });
@@ -130,6 +128,41 @@ export class StorageService {
       fs.writeFileSync(filePath, buffer);
       const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
       return { fileKey, fileUrl };
+    }
+  }
+
+  /** Download a stored file directly as a Buffer (avoids HTTP loopback through nginx). */
+  async downloadBuffer(fileKey: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    try {
+      if (this.driver === 's3' && this.s3Client) {
+        const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: fileKey }));
+        const stream = response.Body as Readable;
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+          stream.on('end', resolve);
+          stream.on('error', reject);
+        });
+        const mimeType = (response.ContentType as string | undefined) ?? 'application/octet-stream';
+        return { buffer: Buffer.concat(chunks), mimeType };
+      } else if (this.driver === 'minio' && this.minioClient) {
+        const stream = await this.minioClient.getObject(this.bucket, fileKey);
+        const chunks: Buffer[] = [];
+        await new Promise<void>((resolve, reject) => {
+          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+          stream.on('end', resolve);
+          stream.on('error', reject);
+        });
+        const stat = await this.minioClient.statObject(this.bucket, fileKey);
+        const mimeType = (stat.metaData?.['content-type'] as string | undefined) ?? 'application/octet-stream';
+        return { buffer: Buffer.concat(chunks), mimeType };
+      } else {
+        const filePath = path.join(this.uploadPath, fileKey);
+        if (!fs.existsSync(filePath)) return null;
+        return { buffer: fs.readFileSync(filePath), mimeType: 'application/octet-stream' };
+      }
+    } catch {
+      return null;
     }
   }
 

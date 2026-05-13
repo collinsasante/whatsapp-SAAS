@@ -36,3 +36,40 @@ export function truncate(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str;
   return `${str.slice(0, maxLength)}...`;
 }
+
+/**
+ * Rewrites direct S3 URLs to go through the backend proxy endpoint.
+ * Needed because the S3 bucket has "Block all public access" enabled.
+ * Proxy endpoint: /api/v1/media/serve/:fileKey  (slashes in key encoded as ~)
+ */
+export function getProxiedMediaUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  // Already going through our proxy — return as-is to avoid double prefix
+  if (url.includes('/api/v1/media/serve/')) return url;
+  // Expired Meta/Facebook temp download URLs — inaccessible from browser, return empty
+  if (url.includes('fbsbx.com') || url.includes('lookaside.facebook.com')) return '';
+  // Direct S3 URL: https://<bucket>.s3[.<region>].amazonaws.com/<key>
+  const s3Match = url.match(/https?:\/\/[^/]+\.amazonaws\.com\/(.+)/);
+  if (s3Match) {
+    // Use window.location.origin (not NEXT_PUBLIC_API_URL which may include /api/v1)
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const fileKey = s3Match[1].replace(/\//g, '~');
+    return `${origin}/api/v1/media/serve/${fileKey}`;
+  }
+  return url;
+}
+
+/** WhatsApp Cloud API only accepts mp4 and 3gpp video — nothing else */
+export const SUPPORTED_VIDEO_TYPES = ['video/mp4', 'video/3gpp', 'video/3gp'];
+export const SUPPORTED_AUDIO_TYPES = ['audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/aac', 'audio/amr'];
+
+export function isVideoSupported(file: File): boolean {
+  return SUPPORTED_VIDEO_TYPES.includes(file.type) ||
+    file.name.toLowerCase().endsWith('.mp4') ||
+    file.name.toLowerCase().endsWith('.3gp');
+}
+
+export function isAudioSupported(file: File): boolean {
+  return SUPPORTED_AUDIO_TYPES.some((t) => file.type.startsWith(t)) ||
+    /\.(ogg|mp3|aac|amr|m4a)$/i.test(file.name);
+}

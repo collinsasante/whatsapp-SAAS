@@ -28,7 +28,7 @@ RUN cp -r apps/backend/prisma /prod/backend/prisma && \
     /app/apps/backend/node_modules/.bin/prisma generate
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production
 
