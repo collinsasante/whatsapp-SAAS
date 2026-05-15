@@ -96,13 +96,13 @@ export default function ConversationDetails({ conversation }: Props) {
       setActivityLog((res.data as ActivityEntry[]) ?? []);
       setActivityLoaded(true);
     }).catch(() => { setActivityLoaded(true); });
-    if (conversation.contact.id) {
+    if (conversation.contact?.id) {
       void contactsApi.get(conversation.contact.id).then((res) => {
         const c = res.data as { optedOut: boolean; isBlocked: boolean };
         setContactDetail({ optedOut: c.optedOut, isBlocked: c.isBlocked });
       }).catch(() => {});
     }
-  }, [conversation.id, conversation.contact.id]);
+  }, [conversation.id, conversation.contact?.id]);
 
   const removeLabel = async (label: string) => {
     try {
@@ -123,7 +123,7 @@ export default function ConversationDetails({ conversation }: Props) {
     finally { setAddingNote(false); }
   };
 
-  const name = conversation.contact.name ?? conversation.contact.phone;
+  const name = conversation.contact?.name ?? conversation.contact?.phone ?? 'Unknown';
   const avatarColor = getAvatarColor(name);
 
   return (
@@ -134,8 +134,8 @@ export default function ConversationDetails({ conversation }: Props) {
           {getInitials(name)}
         </div>
         <p className="font-semibold text-gray-900 text-base">{name}</p>
-        <p className="text-sm text-gray-500 mt-0.5">{conversation.contact.phone}</p>
-        {conversation.contact.email && <p className="text-xs text-gray-400 mt-0.5">{conversation.contact.email}</p>}
+        <p className="text-sm text-gray-500 mt-0.5">{conversation.contact?.phone}</p>
+        {conversation.contact?.email && <p className="text-xs text-gray-400 mt-0.5">{conversation.contact.email}</p>}
         {conversation.lastMessageAt && (
           <p className="text-xs text-gray-400 mt-2">Last seen {formatRelativeTime(conversation.lastMessageAt)}</p>
         )}

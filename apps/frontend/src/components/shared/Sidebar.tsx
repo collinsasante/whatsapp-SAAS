@@ -5,10 +5,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight,
+  ChevronRight, Check, Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
 
@@ -177,6 +177,124 @@ function NavItemButton({ item, openGroup, setOpenGroup }: {
   );
 }
 
+function WorkspaceSwitcher() {
+  const router = useRouter();
+  const { tenant, workspaces, switchTenant, setWorkspaces } = useAuthStore();
+  const [open, setOpen] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number }>({});
+
+  // Load workspaces once
+  useEffect(() => {
+    if (workspaces.length === 0) {
+      void authApi.getWorkspaces().then((r) => {
+        setWorkspaces(r.data as WorkspaceEntry[]);
+      }).catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      const estimatedHeight = (workspaces.length + 1) * 44 + 60;
+      if (window.innerHeight - rect.top < estimatedHeight) {
+        setPos({ bottom: window.innerHeight - rect.bottom - 4 });
+      } else {
+        setPos({ top: Math.max(8, rect.top - 4) });
+      }
+    }
+  }, [open, workspaces.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        panelRef.current && !panelRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) { setOpen(false); }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const handleSwitch = async (ws: WorkspaceEntry) => {
+    if (ws.id === tenant?.id || switching) return;
+    setSwitching(ws.id);
+    try {
+      const res = await authApi.switchWorkspace(ws.id);
+      const { accessToken } = res.data as { accessToken: string };
+      switchTenant({ id: ws.id, name: ws.name, slug: ws.slug }, accessToken);
+      setOpen(false);
+      // Full page reload so all queries re-fetch with the new tenantId JWT
+      window.location.href = '/dashboard';
+    } catch {
+      // stay on current workspace
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const initials = tenant?.name?.slice(0, 2).toUpperCase() ?? '??';
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        title={tenant?.name ?? 'Workspace'}
+        onClick={() => setOpen((o) => !o)}
+        className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center text-white text-xs font-bold hover:bg-teal-700 transition-colors flex-shrink-0"
+      >
+        {initials}
+      </button>
+
+      {open && (
+        <div
+          ref={panelRef}
+          style={{ ...pos, left: 68 }}
+          className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl py-2 min-w-[220px]"
+        >
+          <p className="px-4 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Workspaces</p>
+          {workspaces.map((ws) => {
+            const isActive = ws.id === tenant?.id;
+            return (
+              <button
+                key={ws.id}
+                onClick={() => { void handleSwitch(ws); }}
+                disabled={isActive || switching === ws.id}
+                className={cn(
+                  'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left',
+                  isActive ? 'bg-teal-50 text-teal-700 font-semibold' : 'text-gray-700 hover:bg-gray-50',
+                )}
+              >
+                <span className="w-7 h-7 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                  {ws.name.slice(0, 2).toUpperCase()}
+                </span>
+                <span className="flex-1 truncate">{ws.name}</span>
+                {isActive && <Check size={13} className="text-teal-600 flex-shrink-0" />}
+                {switching === ws.id && (
+                  <span className="w-3 h-3 border-2 border-teal-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                )}
+              </button>
+            );
+          })}
+          <div className="border-t border-gray-100 mt-1 pt-1">
+            <Link
+              href="/settings"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+            >
+              <Plus size={13} />
+              <span>Manage team</span>
+            </Link>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Sidebar() {
   const router = useRouter();
   const { clearAuth } = useAuthStore();
@@ -197,12 +315,11 @@ export default function Sidebar() {
   const settingsOpen = openGroup === settingsGroup.label;
 
   return (
+    <>
     <aside className="w-16 bg-white border-r border-gray-100 flex flex-col h-full items-center py-5 flex-shrink-0">
-      {/* Logo */}
-      <div className="w-10 h-10 bg-teal-600 rounded-full flex items-center justify-center mb-8 flex-shrink-0">
-        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
-        </svg>
+      {/* Workspace switcher replaces static logo */}
+      <div className="mb-8 flex-shrink-0">
+        <WorkspaceSwitcher />
       </div>
 
       {/* Main nav */}
@@ -251,5 +368,6 @@ export default function Sidebar() {
         <span className="text-[9px] text-gray-300 select-none">v1.0</span>
       </div>
     </aside>
+    </>
   );
 }

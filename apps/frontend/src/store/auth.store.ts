@@ -21,9 +21,17 @@ interface AuthTenant {
   logoUrl?: string;
 }
 
+export interface WorkspaceEntry {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+}
+
 interface AuthState {
   user: AuthUser | null;
   tenant: AuthTenant | null;
+  workspaces: WorkspaceEntry[];
   // Access token lives in memory only — NOT persisted to localStorage.
   // Refresh token lives in an HttpOnly cookie — never touches JS.
   accessToken: string | null;
@@ -32,6 +40,8 @@ interface AuthState {
 
   setAuth: (user: AuthUser, tenant: AuthTenant, accessToken: string) => void;
   setAccessToken: (token: string) => void;
+  setWorkspaces: (workspaces: WorkspaceEntry[]) => void;
+  switchTenant: (tenant: AuthTenant, accessToken: string) => void;
   clearAuth: () => void;
   setHasHydrated: (v: boolean) => void;
 }
@@ -41,6 +51,7 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       tenant: null,
+      workspaces: [],
       accessToken: null,
       isAuthenticated: false,
       _hasHydrated: false,
@@ -59,11 +70,20 @@ export const useAuthStore = create<AuthState>()(
         set({ accessToken: token });
       },
 
+      setWorkspaces: (workspaces) => set({ workspaces }),
+
+      switchTenant: (tenant, accessToken) => {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('access_token', accessToken);
+        }
+        set({ tenant, accessToken });
+      },
+
       clearAuth: () => {
         if (typeof window !== 'undefined') {
           localStorage.removeItem('access_token');
         }
-        set({ user: null, tenant: null, accessToken: null, isAuthenticated: false });
+        set({ user: null, tenant: null, workspaces: [], accessToken: null, isAuthenticated: false });
       },
 
       setHasHydrated: (v) => set({ _hasHydrated: v }),
@@ -75,6 +95,7 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         tenant: state.tenant,
+        workspaces: state.workspaces,
         isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state) => {

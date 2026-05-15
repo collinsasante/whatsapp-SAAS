@@ -20,7 +20,7 @@ export class ContactsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all contacts with pagination and search' })
+  @ApiOperation({ summary: 'Get all contacts with pagination, search, and date filters' })
   findAll(
     @CurrentTenant() tenantId: string,
     @Query('page') page = 1,
@@ -30,10 +30,23 @@ export class ContactsController {
     @Query('segmentId') segmentId?: string,
     @Query('isBlocked') isBlocked?: string,
     @Query('optedOut') optedOut?: string,
+    @Query('dateField') dateField?: string,
+    @Query('datePreset') datePreset?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('assignedAgentId') assignedAgentId?: string,
+    @Query('conversationStatus') conversationStatus?: string,
   ) {
     const blocked = isBlocked === 'true' ? true : isBlocked === 'false' ? false : undefined;
     const opted = optedOut === 'true' ? true : optedOut === 'false' ? false : undefined;
-    return this.contactsService.findAll(tenantId, +page, +limit, search, label, segmentId, blocked, opted);
+    const validDateFields = ['createdAt', 'lastMessage', 'lastActive'] as const;
+    const validPresets = ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month'] as const;
+    const df = validDateFields.includes(dateField as typeof validDateFields[number]) ? dateField as typeof validDateFields[number] : undefined;
+    const dp = validPresets.includes(datePreset as typeof validPresets[number]) ? datePreset as typeof validPresets[number] : undefined;
+    return this.contactsService.findAll(
+      tenantId, +page, +limit, search, label, segmentId, blocked, opted,
+      df, dp, dateFrom, dateTo, assignedAgentId, conversationStatus,
+    );
   }
 
   @Get(':id')

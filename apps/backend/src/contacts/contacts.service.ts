@@ -4,6 +4,42 @@ import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/con
 import { normalizePhone, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
 
+type DatePreset = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
+
+function getDateRangeForPreset(preset: DatePreset): { gte: Date; lte: Date } {
+  const now = new Date();
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const endOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
+  switch (preset) {
+    case 'today':
+      return { gte: startOfDay(now), lte: endOfDay(now) };
+    case 'yesterday': {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      return { gte: startOfDay(y), lte: endOfDay(y) };
+    }
+    case 'this_week': {
+      const day = now.getDay();
+      const mon = new Date(now); mon.setDate(now.getDate() - ((day + 6) % 7));
+      return { gte: startOfDay(mon), lte: endOfDay(now) };
+    }
+    case 'last_week': {
+      const day = now.getDay();
+      const thisMonday = new Date(now); thisMonday.setDate(now.getDate() - ((day + 6) % 7));
+      const lastMon = new Date(thisMonday); lastMon.setDate(thisMonday.getDate() - 7);
+      const lastSun = new Date(thisMonday); lastSun.setDate(thisMonday.getDate() - 1);
+      return { gte: startOfDay(lastMon), lte: endOfDay(lastSun) };
+    }
+    case 'this_month':
+      return { gte: new Date(now.getFullYear(), now.getMonth(), 1), lte: endOfDay(now) };
+    case 'last_month': {
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastOfPrev = new Date(firstOfMonth); lastOfPrev.setDate(0);
+      return { gte: new Date(lastOfPrev.getFullYear(), lastOfPrev.getMonth(), 1), lte: endOfDay(lastOfPrev) };
+    }
+  }
+}
+
 @Injectable()
 export class ContactsService {
   constructor(private prisma: PrismaService) {}
@@ -37,6 +73,12 @@ export class ContactsService {
     segmentId?: string,
     isBlocked?: boolean,
     optedOut?: boolean,
+    dateField?: 'createdAt' | 'lastMessage' | 'lastActive',
+    datePreset?: DatePreset,
+    dateFrom?: string,
+    dateTo?: string,
+    assignedAgentId?: string,
+    conversationStatus?: string,
   ) {
     const skip = getPaginationSkip(page, limit);
 
@@ -67,6 +109,39 @@ export class ContactsService {
       where['optedOut'] = optedOut;
     }
 
+    // Date filtering
+    if (dateField && (datePreset || (dateFrom || dateTo))) {
+      const range = datePreset
+        ? getDateRangeForPreset(datePreset)
+        : { gte: dateFrom ? new Date(dateFrom) : undefined, lte: dateTo ? new Date(dateTo) : undefined };
+
+      const rangeFilter: Record<string, unknown> = {};
+      if (range.gte) rangeFilter['gte'] = range.gte;
+      if (range.lte) rangeFilter['lte'] = range.lte;
+
+      if (dateField === 'createdAt') {
+        where['createdAt'] = rangeFilter;
+      } else if (dateField === 'lastMessage') {
+        where['conversations'] = { some: { lastMessageAt: rangeFilter } };
+      } else if (dateField === 'lastActive') {
+        where['conversations'] = { some: { updatedAt: rangeFilter } };
+      }
+    }
+
+    // Assigned agent filter
+    if (assignedAgentId) {
+      const convFilter = (where['conversations'] as Record<string, unknown> | undefined) ?? {};
+      const existingSome = (convFilter['some'] as Record<string, unknown> | undefined) ?? {};
+      where['conversations'] = { some: { ...existingSome, assignedToId: assignedAgentId } };
+    }
+
+    // Conversation status filter
+    if (conversationStatus) {
+      const convFilter = (where['conversations'] as Record<string, unknown> | undefined) ?? {};
+      const existingSome = (convFilter['some'] as Record<string, unknown> | undefined) ?? {};
+      where['conversations'] = { some: { ...existingSome, status: conversationStatus } };
+    }
+
     const [contacts, total] = await Promise.all([
       this.prisma.contact.findMany({
         where, skip, take: limit, orderBy: { createdAt: 'desc' },
@@ -77,6 +152,11 @@ export class ContactsService {
             include: {
               assignedTo: { select: { id: true, name: true, avatarUrl: true } },
               channel: { select: { id: true, name: true, type: true } },
+              messages: {
+                take: 1,
+                orderBy: { createdAt: 'desc' },
+                select: { id: true, content: true, type: true, direction: true, createdAt: true, mediaCaption: true },
+              },
             },
           },
         },

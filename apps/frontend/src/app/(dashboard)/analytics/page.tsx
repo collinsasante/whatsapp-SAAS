@@ -341,7 +341,8 @@ export default function AnalyticsPage() {
                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Assigned</th>
                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Active</th>
                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Resolved Today</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Response</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Response</th>
+                    <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Rating</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -384,7 +385,7 @@ export default function AnalyticsPage() {
                           {member.resolvedToday}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-right">
+                      <td className="px-4 py-3.5 text-right">
                         <span className={cn(
                           'text-sm font-medium',
                           member.avgResponseMs === null ? 'text-gray-300'
@@ -394,6 +395,19 @@ export default function AnalyticsPage() {
                         )}>
                           {fmtMs(member.avgResponseMs)}
                         </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        {(member as unknown as { avgCsatScore?: number | null }).avgCsatScore != null ? (
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-amber-400 text-sm">★</span>
+                            <span className="text-sm font-semibold text-gray-900">
+                              {((member as unknown as { avgCsatScore: number }).avgCsatScore).toFixed(1)}
+                            </span>
+                            <span className="text-xs text-gray-400">/5</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}

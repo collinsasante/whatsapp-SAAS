@@ -49,8 +49,10 @@ model Tenant {
   pinnedMessages      PinnedMessage[]
   callLogs            CallLog[]
   notifications       Notification[]
-  cannedResponses     CannedResponse[]
-  apiKeys             ApiKey[]
+  cannedResponses          CannedResponse[]
+  cannedResponseCategories CannedResponseCategory[]
+  cannedResponseUsages     CannedResponseUsage[]
+  apiKeys                  ApiKey[]
   chatbotFlows        ChatbotFlow[]
   tags                Tag[]
   contactAttributes   ContactAttribute[]
@@ -59,6 +61,9 @@ model Tenant {
   billingInvoices     BillingInvoice[]
   teams               Team[]
   conversationEvents  ConversationEvent[]
+  workspaceMembers    WorkspaceMember[]   @relation("WorkspaceMembers")
+  workspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitations")
+  messageDeletions     MessageDeletion[]
 
   @@map("tenants")
 }
@@ -146,8 +151,10 @@ model User {
   name         String
   role         UserRole  @default(AGENT)
   avatarUrl    String?   @map("avatar_url")
+  phone        String?
   isActive     Boolean   @default(true) @map("is_active")
   lastSeenAt   DateTime? @map("last_seen_at")
+  lastLoginAt  DateTime? @map("last_login_at")
   refreshToken String?   @map("refresh_token")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -165,8 +172,15 @@ model User {
   callLogs              CallLog[]
   callNotes             CallNote[]
   notifications         Notification[]
-  cannedResponses       CannedResponse[]
-  apiKeys               ApiKey[]
+  cannedResponses          CannedResponse[]
+  favoriteResponses        UserFavoriteResponse[]
+  cannedResponseUsages     CannedResponseUsage[]
+  apiKeys                  ApiKey[]
+  workspaceMemberships  WorkspaceMember[] @relation("WorkspaceMemberships")
+  invitedMembers        WorkspaceMember[] @relation("InvitedMembers")
+  sentInvitations       WorkspaceInvitation[] @relation("SentInvitations")
+  messageEdits          MessageEdit[]
+  messageDeletions      MessageDeletion[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -226,6 +240,9 @@ model Conversation {
   resolvedAt     DateTime?          @map("resolved_at")
   reopenedAt     DateTime?          @map("reopened_at")
   slaDeadline    DateTime?          @map("sla_deadline")
+  csatScore      Int?               @map("csat_score")
+  csatComment    String?            @map("csat_comment")
+  csatSubmittedAt DateTime?         @map("csat_submitted_at")
   labels         String[]           @default([])
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
@@ -314,7 +331,7 @@ model Message {
   contactId         String           @map("contact_id")
   senderId          String?          @map("sender_id")
   replyToId         String?          @map("reply_to_id")
-  whatsappMessageId String?          @unique @map("whatsapp_message_id")
+  whatsappMessageId String?          @map("whatsapp_message_id")
   direction         MessageDirection
   type              MessageType      @default(TEXT)
   status            MessageStatus    @default(QUEUED)
@@ -347,7 +364,10 @@ model Message {
   replies      Message[]         @relation("MessageReplies")
   reactions    MessageReaction[]
   pinnedIn     PinnedMessage[]
+  editHistory      MessageEdit[]
+  messageDeletions MessageDeletion[]
 
+  @@unique([tenantId, whatsappMessageId])
   @@index([tenantId])
   @@index([conversationId])
   @@index([conversationId, createdAt])
@@ -355,6 +375,39 @@ model Message {
   @@index([tenantId, createdAt])
   @@index([tenantId, mediaUrl])
   @@map("messages")
+}
+
+model MessageEdit {
+  id              String   @id @default(uuid())
+  messageId       String   @map("message_id")
+  tenantId        String   @map("tenant_id")
+  previousContent String   @map("previous_content")
+  editedById      String?  @map("edited_by_id")
+  editedAt        DateTime @default(now()) @map("edited_at")
+
+  message  Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  editedBy User?   @relation(fields: [editedById], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([tenantId])
+  @@map("message_edits")
+}
+
+model MessageDeletion {
+  id        String   @id @default(uuid())
+  messageId String   @map("message_id")
+  userId    String   @map("user_id")
+  tenantId  String   @map("tenant_id")
+  deletedAt DateTime @default(now()) @map("deleted_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("message_deletions")
 }
 
 enum MessageDirection {
@@ -457,6 +510,8 @@ enum ActivityAction {
   CONTACT_BLOCKED
   AUTOMATION_TRIGGERED
   CAMPAIGN_LAUNCHED
+  SURVEY_RESPONSE
+  CALL_ENDED
 }
 
 model MessageReaction {
@@ -508,6 +563,7 @@ model CallLog {
   isArchived        Boolean       @default(false) @map("is_archived")
   endReason         String?       @map("end_reason")
   recordingUrl      String?       @map("recording_url")
+  whatsappCallId    String?       @map("whatsapp_call_id")
   callLinkToken     String?       @unique @map("call_link_token")
   callLinkExpiresAt DateTime?     @map("call_link_expires_at")
   scheduledAt       DateTime?     @map("scheduled_at")
@@ -783,22 +839,78 @@ model Notification {
   @@map("notifications")
 }
 
+model CannedResponseCategory {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  color     String   @default("#6B7280")
+  icon      String?
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cannedResponses CannedResponse[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("canned_response_categories")
+}
+
 model CannedResponse {
   id          String   @id @default(uuid())
   tenantId    String   @map("tenant_id")
   createdById String   @map("created_by_id")
+  title       String   @default("")
   shortcut    String
   content     String
-  category    String?
+  categoryId  String?  @map("category_id")
+  tags        String[] @default([])
+  mediaUrl    String?  @map("media_url")
+  mediaType   String?  @map("media_type")
+  usageCount  Int      @default(0) @map("usage_count")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdBy User   @relation(fields: [createdById], references: [id])
+  tenant    Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User                    @relation(fields: [createdById], references: [id])
+  category  CannedResponseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  favorites UserFavoriteResponse[]
+  usages    CannedResponseUsage[]
 
   @@unique([tenantId, shortcut])
   @@index([tenantId])
   @@map("canned_responses")
+}
+
+model UserFavoriteResponse {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  cannedResponseId String   @map("canned_response_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cannedResponse CannedResponse @relation(fields: [cannedResponseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cannedResponseId])
+  @@index([userId])
+  @@map("user_favorite_responses")
+}
+
+model CannedResponseUsage {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  tenantId         String   @map("tenant_id")
+  cannedResponseId String   @map("canned_response_id")
+  usedAt           DateTime @default(now()) @map("used_at")
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cannedResponse CannedResponse @relation(fields: [cannedResponseId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt(sort: Desc)])
+  @@index([tenantId])
+  @@map("canned_response_usages")
 }
 
 model ApiKey {
@@ -896,6 +1008,7 @@ model Webhook {
   url             String
   events          String[]  @default([])
   secret          String?
+  headers         Json?
   isActive        Boolean   @default(true) @map("is_active")
   lastTriggeredAt DateTime? @map("last_triggered_at")
   failureCount    Int       @default(0) @map("failure_count")
@@ -922,4 +1035,121 @@ model ContactSegment {
 
   @@index([tenantId])
   @@map("contact_segments")
+}
+
+enum MemberStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+}
+
+model WorkspaceMember {
+  id          String       @id @default(uuid())
+  workspaceId String       @map("workspace_id")
+  userId      String       @map("user_id")
+  role        String       @default("AGENT")
+  status      MemberStatus @default(ACTIVE)
+  department  String?
+  invitedById String?      @map("invited_by_id")
+  joinedAt    DateTime?    @map("joined_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  workspace Tenant  @relation("WorkspaceMembers", fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User    @relation("WorkspaceMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?   @relation("InvitedMembers", fields: [invitedById], references: [id])
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model WorkspaceInvitation {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  email       String
+  name        String?
+  role        String    @default("AGENT")
+  token       String    @unique
+  invitedById String    @map("invited_by_id")
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Tenant @relation("WorkspaceInvitations", fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User   @relation("SentInvitations", fields: [invitedById], references: [id])
+
+  @@index([workspaceId])
+  @@index([email])
+  @@map("workspace_invitations")
+}
+
+// ─── Platform Administration ─────────────────────────────────────────────────
+
+model PlatformAdmin {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  name             String
+  role             String    @default("SUPER_ADMIN") // SUPER_ADMIN | SUPPORT | VIEWER
+  isActive         Boolean   @default(true)  @map("is_active")
+  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorSecret  String?   @map("two_factor_secret")
+  lastLoginAt      DateTime? @map("last_login_at")
+  lastLoginIp      String?   @map("last_login_ip")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt      @map("updated_at")
+
+  sessions  AdminSession[]
+  auditLogs PlatformAuditLog[]
+
+  @@map("platform_admins")
+}
+
+model AdminSession {
+  id           String        @id @default(uuid())
+  adminId      String        @map("admin_id")
+  tokenHash    String        @unique @map("token_hash")
+  ipAddress    String?       @map("ip_address")
+  userAgent    String?       @map("user_agent")
+  expiresAt    DateTime      @map("expires_at")
+  isRevoked    Boolean       @default(false) @map("is_revoked")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  lastActiveAt DateTime      @default(now()) @map("last_active_at")
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("admin_sessions")
+}
+
+model PlatformAuditLog {
+  id           String         @id @default(uuid())
+  adminId      String?        @map("admin_id")
+  action       String
+  resourceType String?        @map("resource_type")
+  resourceId   String?        @map("resource_id")
+  metadata     Json?
+  ipAddress    String?        @map("ip_address")
+  userAgent    String?        @map("user_agent")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  admin PlatformAdmin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("platform_audit_logs")
+}
+
+model PlatformSettings {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
 }

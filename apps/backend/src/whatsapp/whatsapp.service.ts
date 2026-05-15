@@ -445,6 +445,104 @@ export class WhatsAppService {
     }
   }
 
+  async initiateWhatsAppCall(tenantId: string, to: string, _type: 'audio' | 'video' = 'audio', sdpOffer?: string): Promise<{ callId: string }> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    const recipientId = to.replace(/^\+/, '');
+    try {
+      // action: "connect" is the correct field for outbound calls (not "type")
+      const body: Record<string, unknown> = { messaging_product: 'whatsapp', to: recipientId, action: 'connect' };
+      if (sdpOffer) body['session'] = { sdp_type: 'offer', sdp: sdpOffer };
+      const response = await client.post<{ calls?: Array<{ id: string }>; call_id?: string; id?: string }>(`/${phoneNumberId}/calls`, body);
+      // Meta can return { id }, { calls: [{ id }] }, or { call_id }
+      const callId = response.data.id ?? response.data.calls?.[0]?.id ?? response.data.call_id ?? '';
+      this.logger.log(`[calls] initiateWhatsAppCall response: ${JSON.stringify(response.data)} → callId=${callId}`);
+      return { callId };
+    } catch (err: any) {
+      const metaError = err?.response?.data;
+      this.logger.error('Meta calls API error', JSON.stringify(metaError ?? err?.message));
+      throw new Error(metaError?.error?.message ?? err?.message ?? 'Meta call failed');
+    }
+  }
+
+  async checkCallPermission(tenantId: string, userPhone: string): Promise<{
+    status: 'no_permission' | 'temporary' | 'permanent';
+    expirationTime?: number;
+    canCall: boolean;
+  }> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    const userWaId = userPhone.replace(/^\+/, '');
+    try {
+      const response = await client.get(`/${phoneNumberId}/call_permissions`, {
+        params: { user_wa_id: userWaId },
+      });
+      const data = response.data as {
+        permission?: { status: string; expiration_time?: number };
+        actions?: Array<{ action: string; can_perform_action: boolean }>;
+      };
+      const status = (data.permission?.status ?? 'no_permission') as 'no_permission' | 'temporary' | 'permanent';
+      const canCall = data.actions?.find(a => a.action === 'call')?.can_perform_action ?? status !== 'no_permission';
+      return { status, expirationTime: data.permission?.expiration_time, canCall };
+    } catch (err: any) {
+      // If 404 or error, assume no permission
+      this.logger.warn(`Could not check call permission for ${userWaId}: ${metaError(err)}`);
+      return { status: 'no_permission', canCall: false };
+    }
+  }
+
+  async requestCallPermission(tenantId: string, toPhone: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    const recipientId = toPhone.replace(/^\+/, '');
+    try {
+      const response = await client.post(`/${phoneNumberId}/messages`, {
+        messaging_product: 'whatsapp',
+        to: recipientId,
+        type: 'interactive',
+        interactive: {
+          type: 'call_permission_request',
+          body: { text: 'We would like to call you on WhatsApp to provide better support. Please tap Allow if you agree.' },
+        },
+      });
+      return (response.data as { messages: Array<{ id: string }> }).messages[0].id;
+    } catch (err: unknown) {
+      const msg = metaError(err);
+      this.logger.error(`Failed to send call permission request to ${recipientId}: ${msg}`);
+      throw new BadRequestException(`Failed to send call permission request: ${msg}`);
+    }
+  }
+
+  async respondToWhatsAppCall(
+    tenantId: string,
+    whatsappCallId: string,
+    action: 'pre_accept' | 'accept' | 'reject' | 'terminate',
+    sdpAnswer?: string,
+  ): Promise<void> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+    try {
+      const body: Record<string, unknown> = {
+        messaging_product: 'whatsapp',
+        call_id: whatsappCallId,
+        action,
+      };
+      if (sdpAnswer) {
+        body['session'] = { sdp_type: 'answer', sdp: sdpAnswer };
+      }
+      this.logger.log(`[calls] respondToWhatsAppCall action=${action} hasSession=${!!sdpAnswer} sdpLen=${sdpAnswer?.length ?? 0}`);
+      await client.post(`/${phoneNumberId}/calls`, body);
+    } catch (err: unknown) {
+      const metaError = (err as { response?: { data?: unknown } })?.response?.data;
+      this.logger.error('Meta calls respond error', JSON.stringify(metaError ?? (err as Error)?.message));
+      throw new Error(
+        ((metaError as { error?: { message?: string } })?.error?.message) ??
+        (err as Error)?.message ??
+        'Meta call respond failed',
+      );
+    }
+  }
+
   async submitTemplate(tenantId: string, templateData: {
     name: string;
     language: string;
@@ -481,6 +579,46 @@ export class WhatsAppService {
     } catch (error: unknown) {
       const msg = metaError(error);
       this.logger.warn(`Failed to delete template from Meta: ${msg}`);
+    }
+  }
+
+  async sendCsatSurvey(tenantId: string, to: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+    const client = this.getClient(accessToken!);
+
+    try {
+      const response = await client.post(`/${phoneNumberId}/messages`, {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          header: { type: 'text', text: '⭐ Rate your experience' },
+          body: { text: 'How would you rate the support you received today? Tap below to select your rating.' },
+          footer: { text: 'Your feedback helps us improve' },
+          action: {
+            button: 'Select rating',
+            sections: [
+              {
+                title: 'Your rating',
+                rows: [
+                  { id: 'csat_1', title: '⭐ Poor', description: 'I was not satisfied' },
+                  { id: 'csat_2', title: '⭐⭐ Fair', description: 'Could be better' },
+                  { id: 'csat_3', title: '⭐⭐⭐ Good', description: 'Satisfied' },
+                  { id: 'csat_4', title: '⭐⭐⭐⭐ Very Good', description: 'Very satisfied' },
+                  { id: 'csat_5', title: '⭐⭐⭐⭐⭐ Excellent', description: 'Extremely satisfied' },
+                ],
+              },
+            ],
+          },
+        },
+      });
+      return response.data.messages[0].id as string;
+    } catch (error: unknown) {
+      const msg = metaError(error);
+      this.logger.error(`Failed to send CSAT survey to ${to}: ${msg}`);
+      throw new BadRequestException(`Failed to send CSAT: ${msg}`);
     }
   }
 }

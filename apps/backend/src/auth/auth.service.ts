@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -15,6 +16,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthTokens, JwtPayload } from '@whatsapp-platform/shared-types';
 import { generateSlug } from '@whatsapp-platform/shared-utils';
+import { workspaceRoleToUserRole } from './strategies/jwt.strategy';
 
 @Injectable()
 export class AuthService {
@@ -60,6 +62,17 @@ export class AuthService {
           role: 'ADMIN',
         },
         select: { id: true, email: true, name: true, role: true, tenantId: true },
+      });
+
+      // Register the creator as the workspace OWNER
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: tenant.id,
+          userId: user.id,
+          role: 'OWNER',
+          status: 'ACTIVE',
+          joinedAt: new Date(),
+        },
       });
 
       return { tenant, user };
@@ -162,6 +175,9 @@ export class AuthService {
           data: { tenantId: newTenant.id, email: googleUser.email, name: googleUser.name, role: 'ADMIN', passwordHash: '' },
           select: { id: true, email: true, name: true, role: true, tenantId: true },
         });
+        await tx.workspaceMember.create({
+          data: { workspaceId: newTenant.id, userId: newUser.id, role: 'OWNER', status: 'ACTIVE', joinedAt: new Date() },
+        });
         return { tenant: newTenant, user: newUser };
       });
       user = result.user as unknown as typeof user;
@@ -249,6 +265,157 @@ export class AuthService {
 
   async logout(userId: string) {
     await this.prisma.user.update({ where: { id: userId }, data: { refreshToken: null } });
+  }
+
+  async getWorkspaces(userId: string) {
+    const memberships = await this.prisma.workspaceMember.findMany({
+      where: { userId, status: 'ACTIVE' },
+      orderBy: { joinedAt: 'asc' },
+    });
+    const workspaceIds = memberships.map((m) => m.workspaceId);
+    const workspaces = workspaceIds.length
+      ? await this.prisma.tenant.findMany({
+          where: { id: { in: workspaceIds }, isActive: true },
+          select: { id: true, name: true, slug: true },
+        })
+      : [];
+    return workspaces.map((ws) => {
+      const m = memberships.find((mem) => mem.workspaceId === ws.id)!;
+      return { ...ws, role: m.role };
+    });
+  }
+
+  async switchWorkspace(userId: string, workspaceId: string): Promise<AuthTokens> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: { userId, workspaceId, status: 'ACTIVE' },
+    });
+    const isTenantOwner = user.tenantId === workspaceId;
+    if (!membership && !isTenantOwner) {
+      throw new ForbiddenException('You are not a member of this workspace');
+    }
+
+    const workspace = await this.prisma.tenant.findUnique({
+      where: { id: workspaceId, isActive: true },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+
+    const effectiveRole = membership
+      ? workspaceRoleToUserRole(membership.role)
+      : user.role;
+
+    const tokens = await this.generateTokens(user.id, user.email, workspaceId, effectiveRole);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    return tokens;
+  }
+
+  async verifyInvite(token: string) {
+    const inv = await this.prisma.workspaceInvitation.findUnique({
+      where: { token },
+    });
+    if (!inv) throw new NotFoundException('Invitation not found or already used');
+    if (inv.acceptedAt) throw new BadRequestException('Invitation already accepted');
+    if (inv.expiresAt < new Date()) throw new BadRequestException('Invitation has expired');
+
+    const workspace = await this.prisma.tenant.findUnique({
+      where: { id: inv.workspaceId },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!workspace) throw new NotFoundException('Workspace no longer exists');
+
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: inv.invitedById },
+      select: { name: true },
+    });
+
+    return {
+      email: inv.email,
+      name: inv.name,
+      role: inv.role,
+      expiresAt: inv.expiresAt,
+      workspace,
+      inviterName: inviter?.name ?? 'Someone',
+    };
+  }
+
+  async acceptInvite(
+    token: string,
+    data: { name?: string; password?: string },
+  ): Promise<AuthTokens & { user: object; tenant: object }> {
+    const inv = await this.prisma.workspaceInvitation.findUnique({ where: { token } });
+    if (!inv) throw new NotFoundException('Invitation not found');
+    if (inv.acceptedAt) throw new BadRequestException('Invitation already accepted');
+    if (inv.expiresAt < new Date()) throw new BadRequestException('Invitation has expired');
+
+    const workspace = await this.prisma.tenant.findUnique({ where: { id: inv.workspaceId, isActive: true } });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+
+    // Find existing user by email
+    let user = await this.prisma.user.findFirst({ where: { email: inv.email } });
+
+    if (!user) {
+      // New user — require name + password
+      if (!data.name || !data.password) {
+        throw new BadRequestException('Name and password are required for new accounts');
+      }
+      const passwordHash = await bcrypt.hash(data.password, this.BCRYPT_ROUNDS);
+      user = await this.prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            tenantId: inv.workspaceId,
+            email: inv.email,
+            name: data.name!,
+            passwordHash,
+            role: 'AGENT',
+          },
+        });
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: inv.workspaceId,
+            userId: newUser.id,
+            role: inv.role,
+            status: 'ACTIVE',
+            invitedById: inv.invitedById,
+            joinedAt: new Date(),
+          },
+        });
+        await tx.workspaceInvitation.update({
+          where: { id: inv.id },
+          data: { acceptedAt: new Date() },
+        });
+        return newUser;
+      });
+    } else {
+      // Existing user — just add membership
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.upsert({
+          where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId: user!.id } },
+          create: {
+            workspaceId: inv.workspaceId,
+            userId: user!.id,
+            role: inv.role,
+            status: 'ACTIVE',
+            invitedById: inv.invitedById,
+            joinedAt: new Date(),
+          },
+          update: { role: inv.role, status: 'ACTIVE', joinedAt: new Date() },
+        });
+        await tx.workspaceInvitation.update({
+          where: { id: inv.id },
+          data: { acceptedAt: new Date() },
+        });
+      });
+    }
+
+    const effectiveRole = workspaceRoleToUserRole(inv.role);
+    const tokens = await this.generateTokens(user.id, user.email, inv.workspaceId, effectiveRole);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeTenant = { id: workspace.id, name: workspace.name, slug: workspace.slug };
+    return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
   private async generateTokens(userId: string, email: string, tenantId: string, role: string): Promise<AuthTokens> {

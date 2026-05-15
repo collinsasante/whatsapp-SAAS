@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { SendMessageDto } from './dto/message.dto';
@@ -33,32 +33,9 @@ export class MessagesController {
     @Param('conversationId') conversationId: string,
     @Query('page') page = 1,
     @Query('limit') limit = 50,
+    @Query('search') search?: string,
   ) {
-    return this.messagesService.findByConversation(tenantId, conversationId, +page, +limit);
-  }
-
-  @Patch(':messageId')
-  @ApiOperation({ summary: 'Edit a message' })
-  editMessage(
-    @CurrentTenant() tenantId: string,
-    @Param('conversationId') conversationId: string,
-    @Param('messageId') messageId: string,
-    @CurrentUser() user: JwtPayload,
-    @Body('content') content: string,
-  ) {
-    if (!content?.trim()) throw new BadRequestException('Content is required');
-    return this.messagesService.editMessage(tenantId, conversationId, messageId, user.sub, content);
-  }
-
-  @Delete(':messageId')
-  @ApiOperation({ summary: 'Delete a message' })
-  deleteMessage(
-    @CurrentTenant() tenantId: string,
-    @Param('conversationId') conversationId: string,
-    @Param('messageId') messageId: string,
-    @Query('scope') scope: 'me' | 'everyone' = 'everyone',
-  ) {
-    return this.messagesService.deleteMessage(tenantId, conversationId, messageId, scope);
+    return this.messagesService.findByConversation(tenantId, conversationId, +page, +limit, search);
   }
 
   @Post(':messageId/react')
@@ -104,4 +81,5 @@ export class MessagesController {
   ) {
     return this.messagesService.togglePin(tenantId, conversationId, messageId, user.sub);
   }
+
 }

@@ -32,6 +32,8 @@ import { ManageSettingsModule } from './manage/settings/manage-settings.module';
 import { SegmentsModule } from './segments/segments.module';
 import { BillingModule } from './billing/billing.module';
 import { TeamsModule } from './teams/teams.module';
+import { WorkspaceModule } from './workspace/workspace.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -91,6 +93,8 @@ import appConfig from './config/app.config';
     SegmentsModule,
     BillingModule,
     TeamsModule,
+    WorkspaceModule,
+    PlatformAdminModule,
   ],
 })
 export class AppModule implements NestModule {

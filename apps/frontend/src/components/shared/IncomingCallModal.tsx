@@ -1,0 +1,287 @@
+'use client';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { callsApi } from '@/lib/api';
+import { useCallsStore } from '@/store/calls.store';
+import { cn } from '@/lib/utils';
+
+type CallState = 'ringing' | 'connecting' | 'active' | 'ended';
+
+function useElapsedSeconds(active: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!active) { setElapsed(0); return; }
+    const id = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return elapsed;
+}
+
+function formatElapsed(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function playRingTone(ctx: AudioContext) {
+  const playBeep = (time: number, freq: number, dur: number) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.2, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    osc.start(time);
+    osc.stop(time + dur);
+  };
+  const t = ctx.currentTime;
+  playBeep(t, 440, 0.15);
+  playBeep(t + 0.18, 550, 0.15);
+  playBeep(t + 0.36, 440, 0.15);
+}
+
+export function IncomingCallModal() {
+  const { incomingCall, setIncomingCall } = useCallsStore();
+  const [state, setState] = useState<CallState>('ringing');
+  const [muted, setMuted] = useState(false);
+
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ringCtxRef = useRef<AudioContext | null>(null);
+  const ringIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const elapsed = useElapsedSeconds(state === 'active');
+
+  const cleanup = useCallback(() => {
+    if (ringIntervalRef.current) { clearInterval(ringIntervalRef.current); ringIntervalRef.current = null; }
+    if (ringCtxRef.current) { try { ringCtxRef.current.close(); } catch { /* ignore */ } ringCtxRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
+  }, []);
+
+  // Start ringing when modal appears
+  useEffect(() => {
+    if (!incomingCall) return;
+    setState('ringing');
+    setMuted(false);
+    try {
+      const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      ringCtxRef.current = ctx;
+      playRingTone(ctx);
+      ringIntervalRef.current = setInterval(() => playRingTone(ctx), 2200);
+    } catch { /* audio blocked */ }
+    return cleanup;
+  }, [incomingCall, cleanup]);
+
+  const handleDecline = useCallback(async () => {
+    if (!incomingCall) return;
+    cleanup();
+    try { await callsApi.respond(incomingCall.callLogId, 'reject'); } catch { /* ignore */ }
+    setState('ended');
+    setIncomingCall(null);
+  }, [incomingCall, cleanup, setIncomingCall]);
+
+  const handleAccept = useCallback(async () => {
+    if (!incomingCall) return;
+    // Stop ring tone
+    if (ringIntervalRef.current) { clearInterval(ringIntervalRef.current); ringIntervalRef.current = null; }
+    if (ringCtxRef.current) { try { ringCtxRef.current.close(); } catch { /* ignore */ } ringCtxRef.current = null; }
+
+    setState('connecting');
+    try {
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      });
+      pcRef.current = pc;
+
+      // Get microphone
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      // Route remote audio to <audio> element
+      pc.ontrack = (event) => {
+        if (!remoteAudioRef.current) return;
+        const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+        remoteAudioRef.current.srcObject = remoteStream;
+        void remoteAudioRef.current.play().catch((e) => {
+          console.warn('[call] autoplay blocked:', e);
+          // Retry once on next user gesture
+          const retry = () => { void remoteAudioRef.current?.play().catch(() => {}); document.removeEventListener('click', retry); };
+          document.addEventListener('click', retry, { once: true });
+        });
+      };
+
+      // Set remote description (Meta's SDP offer)
+      if (incomingCall.sdpOffer) {
+        await pc.setRemoteDescription({ type: 'offer', sdp: incomingCall.sdpOffer });
+      }
+
+      // Create and set local answer
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      // Wait for ICE gathering (max 4s)
+      if (pc.iceGatheringState !== 'complete') {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 4000);
+          pc.addEventListener('icegatheringstatechange', () => {
+            if (pc.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
+          });
+        });
+      }
+
+      // WhatsApp requires a=setup:active (not actpass) in our SDP answer for proper DTLS role negotiation
+      const rawSdp = pc.localDescription!.sdp;
+      const sdpAnswer = rawSdp.replace(/a=setup:actpass/g, 'a=setup:active');
+
+      // pre_accept with SDP answer establishes the WebRTC session with Meta
+      await callsApi.respond(incomingCall.callLogId, 'pre_accept', sdpAnswer);
+
+      // Wait for ICE to actually connect before showing active state (max 15s)
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          const s = pc.iceConnectionState;
+          if (s === 'connected' || s === 'completed') { clearTimeout(timer); resolve(); }
+          else if (s === 'failed') { clearTimeout(timer); resolve(); } // resolve anyway, let user see active state
+        };
+        const timer = setTimeout(() => { pc.oniceconnectionstatechange = null; resolve(); }, 15000);
+        pc.oniceconnectionstatechange = check;
+        check();
+      });
+
+      // Send final accept to confirm call is active (required after pre_accept + WebRTC connected)
+      try { await callsApi.respond(incomingCall.callLogId, 'accept'); } catch { /* best-effort */ }
+
+      setState('active');
+    } catch (err) {
+      console.error('WebRTC accept failed:', err);
+      toast.error('Could not connect call — microphone may be blocked');
+      cleanup();
+      try { await callsApi.respond(incomingCall.callLogId, 'reject'); } catch { /* ignore */ }
+      setState('ended');
+      setIncomingCall(null);
+    }
+  }, [incomingCall, cleanup, setIncomingCall]);
+
+  const handleHangup = useCallback(async () => {
+    if (!incomingCall) return;
+    cleanup();
+    try { await callsApi.respond(incomingCall.callLogId, 'terminate'); } catch { /* ignore */ }
+    setState('ended');
+    setIncomingCall(null);
+  }, [incomingCall, cleanup, setIncomingCall]);
+
+  const toggleMute = useCallback(() => {
+    if (!streamRef.current) return;
+    const track = streamRef.current.getAudioTracks()[0];
+    if (track) {
+      track.enabled = muted; // toggle: if currently muted, re-enable
+      setMuted(m => !m);
+    }
+  }, [muted]);
+
+  if (!incomingCall || state === 'ended') return null;
+
+  const displayName = incomingCall.contactName ?? incomingCall.from;
+  const initials = displayName.slice(0, 2).toUpperCase();
+
+  return (
+    <>
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
+      {/* Top-right toast notification */}
+      <div className="fixed top-4 right-4 z-50 w-80 animate-in slide-in-from-right-4 fade-in duration-300">
+        <div className={cn(
+          'bg-white rounded-2xl shadow-2xl border overflow-hidden',
+          state === 'ringing' ? 'border-emerald-200' : state === 'connecting' ? 'border-teal-200' : 'border-gray-200',
+        )}>
+          {/* Coloured top strip */}
+          <div className={cn(
+            'px-4 py-3 flex items-center gap-3',
+            state === 'ringing' ? 'bg-gradient-to-r from-emerald-600 to-emerald-500' :
+            state === 'connecting' ? 'bg-gradient-to-r from-teal-700 to-teal-600' :
+            'bg-gradient-to-r from-teal-800 to-teal-700',
+          )}>
+            <div className="relative flex-shrink-0">
+              {state === 'ringing' && <span className="absolute inset-0 rounded-full bg-white/30 animate-ping" />}
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-white text-sm font-bold relative z-10">
+                {initials}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest leading-none mb-0.5">
+                {state === 'ringing' ? 'Incoming call' : state === 'connecting' ? 'Connecting…' : 'On call'}
+              </p>
+              <p className="text-white font-bold text-sm truncate">{displayName}</p>
+              {incomingCall.contactName && (
+                <p className="text-white/60 text-xs truncate">{incomingCall.from}</p>
+              )}
+            </div>
+            {state === 'active' && (
+              <span className="text-white/90 text-sm font-mono flex-shrink-0">{formatElapsed(elapsed)}</span>
+            )}
+          </div>
+
+          {/* Controls */}
+          <div className="px-4 py-3 bg-white">
+            {state === 'ringing' && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { void handleDecline(); }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-sm font-semibold transition-colors border border-red-100"
+                >
+                  <PhoneOff size={15} />Decline
+                </button>
+                <button
+                  onClick={() => { void handleAccept(); }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-sm font-semibold transition-colors border border-emerald-100"
+                >
+                  <Phone size={15} />Accept
+                </button>
+              </div>
+            )}
+
+            {state === 'connecting' && (
+              <div className="flex items-center justify-center gap-2 py-1">
+                <span className="w-4 h-4 border-2 border-teal-200 border-t-teal-600 rounded-full animate-spin" />
+                <span className="text-sm text-gray-500">Setting up audio…</span>
+              </div>
+            )}
+
+            {state === 'active' && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleMute}
+                  className={cn(
+                    'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors border',
+                    muted
+                      ? 'bg-red-50 hover:bg-red-100 text-red-600 border-red-100'
+                      : 'bg-gray-50 hover:bg-gray-100 text-gray-600 border-gray-100',
+                  )}
+                >
+                  {muted ? <MicOff size={15} /> : <Mic size={15} />}
+                  {muted ? 'Unmute' : 'Mute'}
+                </button>
+                <button
+                  onClick={() => { void handleHangup(); }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-sm font-semibold transition-colors border border-red-100"
+                >
+                  <PhoneOff size={15} />Hang up
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}

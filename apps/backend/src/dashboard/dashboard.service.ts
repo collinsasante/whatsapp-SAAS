@@ -84,7 +84,7 @@ export class DashboardService {
 
     const stats = await Promise.all(
       users.map(async (user) => {
-        const [activeConvCount, resolvedToday, avgResponseMs] = await Promise.all([
+        const [activeConvCount, resolvedToday, avgResponseMs, csatAgg] = await Promise.all([
           this.prisma.conversation.count({
             where: { tenantId, assignedToId: user.id, status: 'OPEN' },
           }),
@@ -113,11 +113,21 @@ export class DashboardService {
               AND in_msg.direction = 'INBOUND'
               AND in_msg.created_at >= NOW() - INTERVAL '7 days'
           `.catch(() => [{ avg_ms: null }]),
+          this.prisma.conversation.aggregate({
+            where: { tenantId, resolvedById: user.id, csatScore: { not: null } },
+            _avg: { csatScore: true },
+            _count: { csatScore: true },
+          }),
         ]);
 
         const avgMs = Array.isArray(avgResponseMs) && avgResponseMs[0]?.avg_ms
           ? Number(avgResponseMs[0].avg_ms)
           : null;
+
+        const avgCsatScore = csatAgg._avg.csatScore != null
+          ? Math.round(csatAgg._avg.csatScore * 10) / 10
+          : null;
+        const csatCount = csatAgg._count.csatScore;
 
         const isOnline = user.lastSeenAt
           ? Date.now() - new Date(user.lastSeenAt).getTime() < 5 * 60 * 1000
@@ -135,6 +145,8 @@ export class DashboardService {
           activeConversations: activeConvCount,
           resolvedToday,
           avgResponseMs: avgMs,
+          avgCsatScore,
+          csatCount,
         };
       }),
     );

@@ -109,6 +109,7 @@ services:
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
       THROTTLE_TTL: 60000
       THROTTLE_LIMIT: 100
+      PLATFORM_ADMIN_SETUP_SECRET: ${PLATFORM_ADMIN_SETUP_SECRET:-}
     volumes:
       - uploads_data:/app/uploads
     depends_on:

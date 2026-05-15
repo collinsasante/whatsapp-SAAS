@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,8 +7,10 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { StorageService } from '../media/storage.service';
+import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.service';
 import { SendMessageDto } from './dto/message.dto';
-import { MessageType, MessageDirection, MessageStatus } from '@whatsapp-platform/shared-types';
+import { ActivityLogService } from '../activity-log/activity-log.service';
+import { MessageType, MessageDirection, MessageStatus, ActivityAction } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 
 @Injectable()
@@ -20,6 +22,8 @@ export class MessagesService {
     private contactsService: ContactsService,
     private realtimeService: RealtimeService,
     private storageService: StorageService,
+    private chatbotFlowsService: ChatbotFlowsService,
+    private activityLogService: ActivityLogService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto) {
@@ -28,6 +32,11 @@ export class MessagesService {
 
     if (contact.isBlocked || contact.optedOut) {
       throw new NotFoundException('Cannot send message to this contact');
+    }
+
+    // Block other agents from messaging when someone has intervened
+    if (conversation.status === 'INTERVENED' && (conversation as unknown as { assignedToId?: string | null }).assignedToId !== senderId) {
+      throw new ForbiddenException('This conversation has been taken over by another agent');
     }
 
     // Auto-reopen resolved conversation when agent sends a message
@@ -177,7 +186,10 @@ export class MessagesService {
 
       const updatedMessage = await this.prisma.message.findUnique({
         where: { id: message.id },
-        include: { replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } } },
+        include: {
+          sender: { select: { id: true, name: true, avatarUrl: true } },
+          replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
+        },
       });
       this.realtimeService.emitNewMessage(tenantId, conversationId, updatedMessage!);
 
@@ -198,23 +210,27 @@ export class MessagesService {
     }
   }
 
-  async findByConversation(tenantId: string, conversationId: string, page = 1, limit = 50) {
+  async findByConversation(tenantId: string, conversationId: string, page = 1, limit = 50, search?: string) {
     const conversation = await this.conversationsService.findOne(tenantId, conversationId);
     const skip = getPaginationSkip(page, limit);
 
+    const where = search?.trim()
+      ? { conversationId: conversation.id, content: { contains: search.trim(), mode: 'insensitive' as const } }
+      : { conversationId: conversation.id };
+
     const [data, total] = await Promise.all([
       this.prisma.message.findMany({
-        where: { conversationId: conversation.id },
+        where,
         orderBy: { createdAt: 'asc' },
         skip,
-        take: limit,
+        take: search?.trim() ? 200 : limit,
         include: {
           sender: { select: { id: true, name: true, avatarUrl: true } },
           replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
           reactions: { select: { id: true, emoji: true, userId: true } },
         },
       }),
-      this.prisma.message.count({ where: { conversationId: conversation.id } }),
+      this.prisma.message.count({ where }),
     ]);
 
     return { data, meta: buildPaginationMeta(total, page, limit) };
@@ -235,13 +251,54 @@ export class MessagesService {
     reaction?: { message_id: string; emoji: string };
     location?: { latitude: number; longitude: number; name?: string; address?: string };
     contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
+    interactive?: { type: 'list_reply' | 'button_reply'; list_reply?: { id: string; title: string }; button_reply?: { id: string; title: string } };
   }, profileName?: string) {
+    // Idempotency: skip if this WA message was already processed for this tenant.
+    // Protects against Meta webhook retries AND fan-out re-delivery.
+    const alreadyProcessed = await this.prisma.message.findFirst({
+      where: { whatsappMessageId: waMessage.id, tenantId },
+      select: { id: true },
+    });
+    if (alreadyProcessed) return alreadyProcessed;
+
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id);
 
     // Migrate any legacy OPEN conversations to REQUESTING on next inbound message
     if (conversation.status === 'OPEN') {
       await this.conversationsService.request(tenantId, conversation.id);
+    }
+
+    // Handle customer-deleted message — mark it deleted in our DB
+    if (waMessage.type === 'deleted') {
+      return null;
+    }
+
+    // Handle CSAT survey reply (interactive list_reply with csat_N id)
+    if (waMessage.type === 'interactive' && waMessage.interactive) {
+      const replyId = waMessage.interactive.list_reply?.id ?? waMessage.interactive.button_reply?.id ?? '';
+      if (replyId.startsWith('csat_')) {
+        const score = parseInt(replyId.replace('csat_', ''), 10);
+        if (score >= 1 && score <= 5) {
+          // Save score on conversation
+          await this.prisma.conversation.update({
+            where: { id: conversation.id },
+            data: { csatScore: score, csatSubmittedAt: new Date() } as { csatScore: number; csatSubmittedAt: Date },
+          });
+          // Log as activity (renders inline in chat)
+          void this.activityLogService.log({
+            tenantId,
+            action: ActivityAction.SURVEY_RESPONSE,
+            conversationId: conversation.id,
+            contactId: contact.id,
+            metadata: { score },
+          });
+          // Mark read + send thank-you
+          await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
+          await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for rating this chat! ⭐ Your feedback helps us improve.').catch(() => null);
+          return null;
+        }
+      }
     }
 
     // Handle incoming reaction — update DB reaction, don't create a new message
@@ -353,56 +410,88 @@ export class MessagesService {
       id: conversation.id,
       unreadCount: (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: message.createdAt,
+      lastInboundAt: message.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
       status: conversation.status,
       assignedTo: (conversation as Record<string, unknown>)['assignedTo'],
       labels: (conversation as Record<string, unknown>)['labels'] ?? [],
+      channel: (conversation as Record<string, unknown>)['channel'] ?? null,
     });
 
     await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
 
+    // Trigger chatbot flow if one matches this message
+    if (content) {
+      const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content);
+      if (flow) {
+        void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[]);
+      }
+    }
+
     return message;
   }
 
-  async editMessage(tenantId: string, conversationId: string, messageId: string, senderId: string, content: string) {
-    const message = await this.prisma.message.findFirst({
-      where: { id: messageId, tenantId, conversationId },
-    });
-    if (!message) throw new NotFoundException('Message not found');
-    if (message.senderId !== senderId || message.direction !== MessageDirection.OUTBOUND) {
-      throw new ForbiddenException('Cannot edit this message');
-    }
-    if (message.type !== 'TEXT') {
-      throw new ForbiddenException('Only text messages can be edited');
-    }
+  private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>) {
+    if (!rawNodes) return;
 
-    const updated = await this.prisma.message.update({
-      where: { id: messageId },
-      data: { content: content.trim(), isEdited: true, editedAt: new Date() },
-      include: { replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } } },
-    });
+    // Support both simple FlowNode[] and ReactFlow {nodes,edges} format
+    type ExecNode = { id: string; type: string; data: Record<string, unknown> };
+    let execNodes: ExecNode[];
+    const edgeMap = new Map<string, string>(); // source nodeId -> target nodeId (first edge only)
 
-    this.realtimeService.emitMessageEdited(tenantId, conversationId, updated as unknown as Record<string, unknown>);
-    return updated;
-  }
-
-  async deleteMessage(tenantId: string, conversationId: string, messageId: string, scope: 'me' | 'everyone' = 'everyone') {
-    const message = await this.prisma.message.findFirst({
-      where: { id: messageId, tenantId, conversationId },
-    });
-    if (!message) throw new NotFoundException('Message not found');
-
-    if (scope === 'everyone') {
-      await this.prisma.message.update({
-        where: { id: messageId },
-        data: { deletedForEveryone: true, deletedAt: new Date(), content: null, mediaUrl: null, mediaCaption: null },
-      });
-      this.realtimeService.emitMessageDeleted(tenantId, conversationId, messageId, 'everyone');
+    if (!Array.isArray(rawNodes) && typeof rawNodes === 'object' && 'nodes' in rawNodes) {
+      const rf = rawNodes as { nodes: Array<{ id: string; type: string; data: Record<string, unknown> }>; edges: Array<{ source: string; target: string }> };
+      execNodes = rf.nodes ?? [];
+      for (const e of (rf.edges ?? [])) {
+        if (!edgeMap.has(e.source)) edgeMap.set(e.source, e.target);
+      }
     } else {
-      this.realtimeService.emitMessageDeleted(tenantId, conversationId, messageId, 'me');
+      const simple = rawNodes as FlowNode[];
+      execNodes = simple.map(n => ({ id: n.id, type: n.type, data: { content: n.content, mediaUrl: n.mediaUrl, delaySeconds: n.delaySeconds } }));
+      for (const n of simple) { if (n.nextNodeId) edgeMap.set(n.id, n.nextNodeId); }
     }
 
-    return { success: true };
+    if (!execNodes.length) return;
+
+    // Find the trigger/start node and begin from its first successor
+    const allTargets = new Set(edgeMap.values());
+    const startNode = execNodes.find(n => n.type === 'start') ?? execNodes.find(n => !allTargets.has(n.id));
+    if (!startNode) return;
+
+    let nodeId: string | undefined = edgeMap.get(startNode.id);
+    const visited = new Set<string>();
+
+    while (nodeId && !visited.has(nodeId)) {
+      visited.add(nodeId);
+      const node = execNodes.find(n => n.id === nodeId);
+      if (!node || node.type === 'end') break;
+
+      try {
+        const content = (node.data.content as string | undefined) ?? undefined;
+        const mediaUrl = (node.data.mediaUrl as string | undefined) ?? undefined;
+        const delaySec = node.data.delaySeconds as number | undefined;
+
+        if (node.type === 'text' && content) {
+          const msg = await this.prisma.message.create({
+            data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content },
+          });
+          const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, content).catch(() => null);
+          const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
+          this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
+        } else if (node.type === 'image' && mediaUrl) {
+          const msg = await this.prisma.message.create({
+            data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.IMAGE, status: MessageStatus.QUEUED, mediaUrl, mediaCaption: content ?? null },
+          });
+          const waId = await this.whatsappService.sendMediaMessage(tenantId, contact.phone, 'image', mediaUrl, content).catch(() => null);
+          const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
+          this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
+        } else if (node.type === 'delay' && delaySec) {
+          await new Promise(r => setTimeout(r, Math.min(delaySec * 1000, 10000)));
+        }
+      } catch { /* continue to next node on error */ }
+
+      nodeId = edgeMap.get(nodeId);
+    }
   }
 
   async addReaction(tenantId: string, conversationId: string, messageId: string, userId: string, emoji: string) {

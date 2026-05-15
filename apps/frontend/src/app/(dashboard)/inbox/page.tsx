@@ -11,6 +11,7 @@ export default function InboxPage() {
   const { conversations, activeConversationId, setConversations, setActiveConversation, statusCounts, setStatusCounts } = useInboxStore();
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
+  const [resolvedConversations, setResolvedConversations] = useState<Parameters<typeof setConversations>[0]>([]);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -41,10 +42,38 @@ export default function InboxPage() {
     return () => window.removeEventListener('conversation:state-changed', handler);
   }, [loadCounts]);
 
+  // Background polling fallback when socket is disconnected
+  useEffect(() => {
+    const pollHandler = async () => {
+      try {
+        const [convRes, countsRes] = await Promise.all([
+          conversationsApi.list({ limit: 50 }),
+          conversationsApi.getCounts(),
+        ]);
+        setConversations((convRes.data as { data: unknown[] }).data as Parameters<typeof setConversations>[0]);
+        setStatusCounts(countsRes.data as StatusCounts);
+      } catch { /* silent */ }
+    };
+    window.addEventListener('socket:reconnect-poll', pollHandler);
+    return () => window.removeEventListener('socket:reconnect-poll', pollHandler);
+  }, [setConversations, setStatusCounts]);
+
   // Close details panel when switching conversations
   useEffect(() => { setShowDetails(false); }, [activeConversationId]);
 
-  const activeConversation = conversations.find((c) => c.id === activeConversationId) ?? null;
+  // Open conversation from toast notification click
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { conversationId } = (e as CustomEvent<{ conversationId: string }>).detail;
+      if (conversationId) setActiveConversation(conversationId);
+    };
+    window.addEventListener('inbox:open-conversation', handler);
+    return () => window.removeEventListener('inbox:open-conversation', handler);
+  }, [setActiveConversation]);
+
+  const activeConversation = conversations.find((c) => c.id === activeConversationId)
+    ?? resolvedConversations.find((c) => c.id === activeConversationId)
+    ?? null;
 
   return (
     <div className="flex h-full">
@@ -54,6 +83,7 @@ export default function InboxPage() {
         onSelect={setActiveConversation}
         loading={loading}
         statusCounts={statusCounts}
+        onResolvedLoaded={(convs) => setResolvedConversations(convs as Parameters<typeof setConversations>[0])}
       />
       {activeConversation ? (
         <>

@@ -1,17 +1,22 @@
 'use client';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Send, Paperclip, CheckCheck, Check, Clock, XCircle, Mic, Square,
-  X, FileText, ImageIcon, MapPin, User, Smile, Phone, MoreVertical,
-  CheckCircle, RefreshCw, Copy, StickyNote, Archive, Trash2,
+  X, FileText, ImageIcon, MapPin, User, Smile, Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
+  CheckCircle, RefreshCw, Copy, StickyNote, Archive,
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
-  AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Pencil, Download,
+  AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
+  ChevronUp, ChevronDown,
 } from 'lucide-react';
-import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, cannedResponsesApi, tagsApi } from '@/lib/api';
+import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi } from '@/lib/api';
+import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
 import toast from 'react-hot-toast';
 import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
+import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatMessageTime, getProxiedMediaUrl } from '@/lib/utils';
 
@@ -45,6 +50,7 @@ interface Props {
   conversation: Conversation;
   showDetails?: boolean;
   onToggleDetails?: () => void;
+  onClose?: () => void;
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
@@ -110,28 +116,38 @@ function ChannelBadge({ channelType }: { channelType?: string }) {
 }
 
 function SessionCountdown({ lastInboundAt }: { lastInboundAt: string | null | undefined }) {
-  const [display, setDisplay] = useState('');
-  const [urgent, setUrgent] = useState(false);
+  const [remaining, setRemaining] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!lastInboundAt) { setDisplay(''); return; }
+    if (!lastInboundAt) { setRemaining(null); return; }
     const update = () => {
-      const remaining = 24 * 3600 * 1000 - (Date.now() - new Date(lastInboundAt).getTime());
-      if (remaining <= 0) { setDisplay(''); return; }
-      const h = Math.floor(remaining / 3600000);
-      const m = Math.floor((remaining % 3600000) / 60000);
-      setUrgent(remaining < 2 * 3600000);
-      setDisplay(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+      setRemaining(24 * 3600 * 1000 - (Date.now() - new Date(lastInboundAt).getTime()));
     };
     update();
-    const id = setInterval(update, 60000);
+    const id = setInterval(update, 30000);
     return () => clearInterval(id);
   }, [lastInboundAt]);
 
-  if (!display) return null;
+  if (remaining === null) return null;
+
+  if (remaining <= 0) {
+    return (
+      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600 animate-pulse">
+        Session Expired
+      </span>
+    );
+  }
+
+  const h = Math.floor(remaining / 3600000);
+  const m = Math.floor((remaining % 3600000) / 60000);
+  const colorClass =
+    remaining < 3600000 ? 'bg-red-100 text-red-600' :
+    remaining < 12 * 3600000 ? 'bg-amber-100 text-amber-600' :
+    'bg-green-100 text-green-700';
+
   return (
-    <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', urgent ? 'bg-orange-100 text-orange-600' : 'bg-blue-50 text-blue-600')}>
-      ⏱ {display}
+    <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full', colorClass, remaining < 3600000 && 'animate-pulse')}>
+      ⏱ {h}h:{String(m).padStart(2, '0')}m
     </span>
   );
 }
@@ -159,9 +175,12 @@ function fmtTimestamp(d: Date | string | null | undefined) {
   return new Date(d).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function ChatWindow({ conversation, showDetails, onToggleDetails }: Props) {
-  const { messages, setMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, activityLogs, setActivityLogs } = useInboxStore();
+const ACTIVITY_NOISE = new Set(['MESSAGE_SENT', 'MESSAGE_DELETED', 'MESSAGE_STARRED', 'MESSAGE_RECEIVED']);
+
+export default function ChatWindow({ conversation, showDetails, onToggleDetails, onClose }: Props) {
+  const { messages, setMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, updateMessage, activityLogs, setActivityLogs } = useInboxStore();
   const { user } = useAuthStore();
+  const { setConfirmDial, outboundSession } = useCallsStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -186,9 +205,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [transferring, setTransferring] = useState(false);
 
+  // Drag & drop
+  const [isDragging, setIsDragging] = useState(false);
+
   // Search
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResultIds, setSearchResultIds] = useState<string[]>([]);
+  const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
 
   // Input mode: 'message' | 'note'
   const [inputMode, setInputMode] = useState<'message' | 'note'>('message');
@@ -204,8 +228,34 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   const [showMentions, setShowMentions] = useState(false);
 
   // Canned responses
-  const [cannedSuggestions, setCannedSuggestions] = useState<{ id: string; shortcut: string; content: string }[]>([]);
   const [showCanned, setShowCanned] = useState(false);
+  const cannedQuery = text.startsWith('/') ? text.slice(1) : '';
+  const cannedVars = useMemo(() => ({
+    customer_name: conversation.contact?.name ?? conversation.contact?.phone ?? '',
+    agent_name: user?.name ?? 'Agent',
+    phone: conversation.contact?.phone ?? '',
+    email: (conversation.contact as { email?: string } | undefined)?.email ?? '',
+    ticket_id: conversation.id.slice(0, 8).toUpperCase(),
+    conversation_id: conversation.id,
+    current_date: new Date().toLocaleDateString(),
+    current_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  }), [conversation, user]);
+
+  const handleCannedSelect = useCallback((resolvedText: string, mediaUrl?: string, mediaType?: string) => {
+    setShowCanned(false);
+    if (mediaUrl) {
+      const rawType = (mediaType ?? '').toUpperCase();
+      const type = rawType.startsWith('IMAGE') ? 'IMAGE' : rawType.startsWith('VIDEO') ? 'VIDEO' : rawType.startsWith('AUDIO') ? 'AUDIO' : 'DOCUMENT';
+      setSending(true);
+      messagesApi.send(conversation.id, { type, mediaUrl, ...(resolvedText ? { mediaCaption: resolvedText } : {}) })
+        .catch(() => toast.error('Failed to send canned media'))
+        .finally(() => { setSending(false); inputRef.current?.focus(); });
+      setText('');
+    } else {
+      setText(resolvedText);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [conversation.id]);
 
   const activityLog = activityLogs[conversation.id] ?? [];
 
@@ -213,6 +263,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   const [notes, setNotes] = useState<{ id: string; content: string; createdAt: string; author: { id: string; name: string } }[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -229,7 +280,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   const typing = typingUsers[conversation.id] ?? [];
   const isResolved = localStatus === 'RESOLVED';
   const isArchived = localStatus === 'ARCHIVED';
-  const name = conversation.contact.name ?? conversation.contact.phone;
+  const name = conversation.contact?.name ?? conversation.contact?.phone ?? '';
   const avatarColor = getAvatarColor(name);
 
   const lastInboundMsg = [...convMessages].reverse().find((m) => m.direction === MessageDirection.INBOUND);
@@ -237,26 +288,20 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   const sessionExpired = !lastInboundMsg || (Date.now() - new Date(lastInboundMsg.createdAt).getTime()) > sessionExpiredMs;
   const isExpiredResolved = isResolved && sessionExpired;
 
-  const filteredMessages = searchQuery
-    ? convMessages.filter((m) => m.content?.toLowerCase().includes(searchQuery.toLowerCase()))
-    : convMessages;
-
-  const ACTIVITY_NOISE = new Set(['MESSAGE_SENT', 'MESSAGE_DELETED', 'MESSAGE_STARRED', 'MESSAGE_RECEIVED']);
-
   type TimelineItem =
     | { kind: 'message'; item: Message; sortKey: number }
     | { kind: 'note'; item: typeof notes[number]; sortKey: number }
     | { kind: 'activity'; item: ActivityEntry; sortKey: number };
 
-  const timeline: TimelineItem[] = [
-    ...filteredMessages.map((m) => ({ kind: 'message' as const, item: m, sortKey: new Date(m.createdAt).getTime() })),
+  const timeline = useMemo<TimelineItem[]>(() => [
+    ...convMessages.map((m) => ({ kind: 'message' as const, item: m, sortKey: new Date(m.createdAt).getTime() })),
     ...notes.map((n) => ({ kind: 'note' as const, item: n, sortKey: new Date(n.createdAt).getTime() })),
     ...activityLog
       .filter((a) => !ACTIVITY_NOISE.has(a.action))
       .map((a) => ({ kind: 'activity' as const, item: a, sortKey: new Date(a.createdAt).getTime() })),
-  ].sort((a, b) => a.sortKey - b.sortKey);
+  ].sort((a, b) => a.sortKey - b.sortKey), [convMessages, notes, activityLog]);
 
-  const timelineGroups = (() => {
+  const timelineGroups = useMemo(() => {
     const groups: { label: string; items: TimelineItem[] }[] = [];
     let currentLabel = '';
     for (const entry of timeline) {
@@ -272,7 +317,35 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
       else groups[groups.length - 1].items.push(entry);
     }
     return groups;
-  })();
+  }, [timeline]);
+
+  type FlatTimelineItem =
+    | { kind: 'date-header'; label: string; _id: string }
+    | TimelineItem;
+
+  const flatItems = useMemo<FlatTimelineItem[]>(() => {
+    const result: FlatTimelineItem[] = [];
+    for (const group of timelineGroups) {
+      result.push({ kind: 'date-header', label: group.label, _id: `hdr-${group.label}` });
+      for (const item of group.items) result.push(item);
+    }
+    return result;
+  }, [timelineGroups]);
+
+  const virtualizer = useVirtualizer({
+    count: flatItems.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 72,
+    overscan: 8,
+    getItemKey: (i) => {
+      const item = flatItems[i];
+      if (!item) return i;
+      if (item.kind === 'date-header') return item._id;
+      if (item.kind === 'note') return `note-${item.item.id}`;
+      if (item.kind === 'activity') return `act-${item.item.id}`;
+      return item.item.id;
+    },
+  });
 
   const scrollToBottom = useCallback((instant = false) => {
     requestAnimationFrame(() => {
@@ -305,6 +378,31 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
     void load();
   }, [conversation.id, setMessages, updateConversation, setActivityLogs]);
 
+  // Client-side search — compute matching message IDs whenever query or messages change
+  useEffect(() => {
+    if (!searchQuery.trim()) { setSearchResultIds([]); setSearchCurrentIdx(0); return; }
+    const q = searchQuery.toLowerCase().trim();
+    const ids = convMessages
+      .filter((m) => (
+        m.content?.toLowerCase().includes(q) ||
+        m.mediaCaption?.toLowerCase().includes(q)
+      ))
+      .map((m) => m.id);
+    setSearchResultIds(ids);
+    setSearchCurrentIdx(0);
+  }, [searchQuery, convMessages]);
+
+  // Scroll to current search result when index changes
+  useEffect(() => {
+    if (!searchResultIds.length) return;
+    const id = searchResultIds[searchCurrentIdx];
+    if (!id) return;
+    setTimeout(() => {
+      const el = document.getElementById(`msg-${id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }, [searchCurrentIdx, searchResultIds]);
+
   useEffect(() => { scrollToBottom(); }, [convMessages.length, scrollToBottom]);
 
   useEffect(() => {
@@ -317,6 +415,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   }, [conversation.id]);
 
   useEffect(() => { setLocalStatus(conversation.status); }, [conversation.status]);
+
+  // Auto-focus the message input whenever a new conversation is opened
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, [conversation.id]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -392,22 +495,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
 
     // Canned response detection: starts with /
     if (inputMode === 'message' && val.startsWith('/')) {
-      const q = val.slice(1);
-      if (q.length === 0) {
-        // show all on bare "/"
-        try {
-          const res = await cannedResponsesApi.search('');
-          setCannedSuggestions(res.data as { id: string; shortcut: string; content: string }[]);
-          setShowCanned(true);
-        } catch { setShowCanned(false); }
-      } else {
-        try {
-          const res = await cannedResponsesApi.search(q);
-          const items = res.data as { id: string; shortcut: string; content: string }[];
-          setCannedSuggestions(items);
-          setShowCanned(items.length > 0);
-        } catch { setShowCanned(false); }
-      }
+      setShowCanned(true);
     } else {
       setShowCanned(false);
     }
@@ -478,6 +566,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
   const sendMessage = async () => {
     if (!text.trim() || sending) return;
     const content = text.trim();
+
     const replyToId = replyTo?.id;
     setText('');
     setReplyTo(null);
@@ -505,12 +594,18 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
       createdAt: new Date().toISOString(),
       conversationId: conversation.id,
       tenantId: '',
-      contactId: conversation.contact.phone,
+      contactId: conversation.contact?.phone ?? '',
     } as unknown as Message);
 
     setSending(true);
     try {
-      await messagesApi.send(conversation.id, { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) });
+      const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) });
+      // Replace temp immediately from API response — don't wait for socket (socket may be down)
+      const real = res.data as Message;
+      if (real?.id) {
+        removeMessage(conversation.id, tempId);
+        addMessage(conversation.id, real);
+      }
     } catch {
       removeMessage(conversation.id, tempId);
       setText(content);
@@ -521,29 +616,38 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
     }
   };
 
-  const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const maxBytes = file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB * 1024 * 1024 : 64 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      toast.error(`File too large. Max: ${file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB + 'MB' : '64MB'}`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
+  const sendFiles = useCallback(async (files: File[]) => {
+    if (!files.length) return;
     setSending(true);
-    try {
-      const uploadRes = await mediaApi.upload(file);
-      const { fileUrl: url } = uploadRes.data as { fileUrl: string };
-      const type = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('video/') ? 'VIDEO' : file.type.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT';
-      await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(type !== 'IMAGE' ? { mediaCaption: file.name } : {}) });
-    } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
-      toast.error(typeof msg === 'string' ? msg : 'Failed to send file');
-    } finally {
-      setSending(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      if (photoInputRef.current) photoInputRef.current.value = '';
+    const total = files.length;
+    const toastId = total > 1 ? toast.loading(`Uploading 1 of ${total}…`) : null;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (toastId && total > 1) toast.loading(`Uploading ${i + 1} of ${total}…`, { id: toastId });
+      const maxBytes = file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB * 1024 * 1024 : 64 * 1024 * 1024;
+      if (file.size > maxBytes) {
+        toast.error(`${file.name}: too large. Max ${file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB + 'MB' : '64MB'}`);
+        continue;
+      }
+      try {
+        const uploadRes = await mediaApi.upload(file);
+        const { fileUrl: url } = uploadRes.data as { fileUrl: string };
+        const type = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('video/') ? 'VIDEO' : file.type.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT';
+        await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(type !== 'IMAGE' ? { mediaCaption: file.name } : {}) });
+      } catch (err: unknown) {
+        const msg = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
+        toast.error(typeof msg === 'string' ? msg : `Failed to send ${file.name}`);
+      }
     }
+    if (toastId) toast.success(`${total} file${total > 1 ? 's' : ''} sent`, { id: toastId });
+    setSending(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  }, [conversation.id]);
+
+  const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    void sendFiles(files);
   };
 
   const sendCurrentPosition = useCallback(async (label: string) => {
@@ -701,11 +805,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
     for (const entry of timeline) {
       if (entry.kind === 'message') {
         const m = entry.item;
-        if (m.deletedForEveryone) continue;
         const ts = new Date(m.createdAt).toLocaleString();
         const sender = m.direction === 'OUTBOUND' ? 'Agent' : name;
         const body = m.content ?? (m.mediaUrl ? `[${m.type} media]` : `[${m.type}]`);
-        lines.push(`[${ts}] ${sender}: ${body}${m.isEdited ? ' (edited)' : ''}`);
+        lines.push(`[${ts}] ${sender}: ${body}`);
       } else if (entry.kind === 'note') {
         const n = entry.item;
         const ts = new Date(n.createdAt).toLocaleString();
@@ -738,26 +841,32 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
     'text-teal-600';
 
   return (
-    <div className="flex-1 flex flex-col bg-white min-h-0 relative">
+    <div
+      className="flex-1 flex flex-col bg-white min-h-0 relative"
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const files = Array.from(e.dataTransfer.files).filter((f) => !f.type.startsWith('text/'));
+        if (files.length) void sendFiles(files);
+      }}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-teal-50/95 border-2 border-dashed border-teal-400 rounded-none flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <div className="w-14 h-14 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Paperclip size={24} className="text-teal-600" />
+            </div>
+            <p className="text-teal-700 font-semibold text-sm">Drop files to send</p>
+            <p className="text-teal-500 text-xs mt-1">Images, videos, documents</p>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 flex-shrink-0 bg-white">
-        {showSearch ? (
-          <div className="flex-1 flex items-center gap-2">
-            <Search size={15} className="text-gray-400 flex-shrink-0" />
-            <input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search messages..."
-              className="flex-1 text-sm focus:outline-none text-gray-700 placeholder-gray-400"
-            />
-            <button onClick={() => { setShowSearch(false); setSearchQuery(''); }} className="text-gray-400 hover:text-gray-600">
-              <X size={15} />
-            </button>
-          </div>
-        ) : (
-          <>
+      <div className="border-b border-gray-100 flex-shrink-0 bg-white">
+        <div className="flex items-center gap-3 px-4 py-3">
             {/* Avatar */}
             <div className="relative flex-shrink-0">
               <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold', avatarColor)}>
@@ -911,74 +1020,128 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
               </button>
 
               {/* Call */}
-              <a
-                href={`tel:${conversation.contact.phone.replace(/\D/g, '')}`}
+              <button
+                onClick={() => {
+                  if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone });
+                }}
                 title="Call"
                 className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
               >
                 <Phone size={15} />
-              </a>
+              </button>
 
-              {/* More actions */}
-              <div className="relative" ref={headerMenuRef}>
+              {/* Download chat */}
+              <button
+                onClick={handleDownloadChat}
+                title="Download chat"
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+              >
+                <Download size={15} />
+              </button>
+
+              {/* Close inline chat — always last */}
+              {onClose && (
                 <button
-                  onClick={() => setShowHeaderMenu((v) => !v)}
-                  className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', showHeaderMenu ? 'bg-teal-50 text-teal-600' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50')}
+                  onClick={onClose}
+                  title="Close chat"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-gray-400 hover:text-teal-600 hover:bg-teal-50"
                 >
-                  <MoreVertical size={15} />
+                  <X size={15} />
                 </button>
-                {showHeaderMenu && (
-                  <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-lg z-50 min-w-[190px] py-1 overflow-hidden">
-                    <button onClick={handleDownloadChat} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-gray-700">
-                      <Download size={13} className="text-gray-400" /> Download chat
-                    </button>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-          </>
+        </div>
+
+        {/* WhatsApp-style search panel — slides in below header */}
+        {showSearch && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
+            <Search size={14} className="text-gray-400 flex-shrink-0" />
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search in conversation…"
+              className="flex-1 text-sm bg-transparent focus:outline-none text-gray-700 placeholder-gray-400"
+              autoFocus
+            />
+            {searchQuery && (
+              <span className="text-xs text-gray-500 flex-shrink-0 font-medium">
+                {searchResultIds.length === 0 ? 'No results' : `${searchCurrentIdx + 1} of ${searchResultIds.length}`}
+              </span>
+            )}
+            <button
+              onClick={() => { if (searchResultIds.length) setSearchCurrentIdx((i) => (i - 1 + searchResultIds.length) % searchResultIds.length); }}
+              disabled={!searchResultIds.length}
+              className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-teal-600 disabled:opacity-30 rounded-lg transition-colors"
+            >
+              <ChevronUp size={15} />
+            </button>
+            <button
+              onClick={() => { if (searchResultIds.length) setSearchCurrentIdx((i) => (i + 1) % searchResultIds.length); }}
+              disabled={!searchResultIds.length}
+              className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-teal-600 disabled:opacity-30 rounded-lg transition-colors"
+            >
+              <ChevronDown size={15} />
+            </button>
+            <button
+              onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResultIds([]); }}
+              className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
         )}
       </div>
 
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto px-4 py-4 bg-[#f0f2f5] min-h-0 space-y-0.5">
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 bg-[#f0f2f5] min-h-0">
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
             ) : timeline.length === 0 ? (
               <div className="text-center text-gray-400 text-sm mt-12">
-                {searchQuery ? `No messages matching "${searchQuery}"` : 'No messages yet. Start the conversation!'}
+                {outboundSession ? 'Call in progress…' : 'Send a message to start the conversation.'}
               </div>
             ) : (
-              timelineGroups.map((group) => (
-                <div key={group.label}>
-                  <div className="flex items-center justify-center my-3">
-                    <span className="text-xs text-gray-500 bg-white/80 px-3 py-1 rounded-full shadow-sm">{group.label}</span>
-                  </div>
-                  <div className="space-y-0.5">
-                    {group.items.map((entry) =>
-                      entry.kind === 'note' ? (
-                        <NoteBubble key={`note-${entry.item.id}`} note={entry.item} />
+              <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                  const entry = flatItems[virtualItem.index];
+                  if (!entry) return null;
+                  return (
+                    <div
+                      key={virtualItem.key}
+                      data-index={virtualItem.index}
+                      ref={virtualizer.measureElement}
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualItem.start}px)` }}
+                      className="pb-0.5"
+                    >
+                      {entry.kind === 'date-header' ? (
+                        <div className="flex items-center justify-center my-3">
+                          <span className="text-xs text-gray-500 bg-white/80 px-3 py-1 rounded-full shadow-sm">{entry.label}</span>
+                        </div>
+                      ) : entry.kind === 'note' ? (
+                        <NoteBubble note={entry.item} />
                       ) : entry.kind === 'activity' ? (
-                        <ActivityBubble key={`act-${entry.item.id}`} entry={entry.item} />
+                        <ActivityBubble entry={entry.item} />
                       ) : (
                         <MessageBubble
-                          key={entry.item.id}
                           message={entry.item}
                           currentUserId={user?.id}
                           contactName={name}
                           conversationId={conversation.id}
                           onReply={(m) => setReplyTo({ id: m.id, content: m.content ?? undefined, type: m.type, direction: m.direction, mediaCaption: m.mediaCaption ?? undefined })}
+                          searchQuery={showSearch ? searchQuery : ''}
+                          isCurrentResult={showSearch && searchResultIds[searchCurrentIdx] === entry.item.id}
                         />
-                      )
-                    )}
-                  </div>
-                </div>
-              ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
             {typing.filter((id) => id !== user?.id).length > 0 && (
-              <div className="flex items-end gap-2 pl-1">
+              <div className="flex items-end gap-2 pl-1 mt-1">
                 <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0', avatarColor)}>{getInitials(name)}</div>
                 <div className="bg-white rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm flex gap-1 items-center">
                   <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -991,7 +1154,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
           </div>
 
           {/* Input area */}
-          <div className="border-t border-gray-100 px-4 pt-2 pb-3 flex-shrink-0 bg-white">
+          <div className="border-t border-gray-100 px-4 pt-2 pb-3 flex-shrink-0 bg-white relative">
             {/* Resolved banner */}
             {isResolved && (
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200">
@@ -1059,21 +1222,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
               </div>
             )}
 
-            {/* Canned response suggestions */}
-            {showCanned && cannedSuggestions.length > 0 && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden max-h-52 overflow-y-auto">
-                <div className="px-3 py-1.5 border-b border-gray-100 flex items-center gap-1.5">
-                  <span className="text-xs font-semibold text-gray-500">Canned Responses</span>
-                  <span className="text-xs text-gray-400">— press Tab or click to insert</span>
-                </div>
-                {cannedSuggestions.map((c) => (
-                  <button key={c.id} onClick={() => { setText(c.content); setShowCanned(false); }}
-                    className="w-full flex items-start gap-3 px-3 py-2.5 hover:bg-teal-50 transition-colors text-left border-b border-gray-50 last:border-0">
-                    <code className="text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded font-mono flex-shrink-0 mt-0.5">/{c.shortcut}</code>
-                    <span className="text-xs text-gray-700 line-clamp-2">{c.content}</span>
-                  </button>
-                ))}
-              </div>
+            {/* Canned response picker */}
+            {showCanned && (
+              <CannedPicker
+                query={cannedQuery}
+                vars={cannedVars}
+                onSelect={handleCannedSelect}
+                onClose={() => setShowCanned(false)}
+              />
             )}
 
             {/* Mode tabs */}
@@ -1143,10 +1299,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
             {/* @mention dropdown */}
             {showMentions && inputMode === 'note' && (
               <div className="mb-1.5 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
-                {teamMembers.filter((m) => m.name.toLowerCase().includes(mentionSearch.toLowerCase())).slice(0, 5).length === 0 ? (
+                {teamMembers.filter((m) => (m.name ?? '').toLowerCase().includes(mentionSearch.toLowerCase())).slice(0, 5).length === 0 ? (
                   <p className="text-xs text-gray-400 px-3 py-2">No team members found</p>
                 ) : (
-                  teamMembers.filter((m) => m.name.toLowerCase().includes(mentionSearch.toLowerCase())).slice(0, 5).map((m) => (
+                  teamMembers.filter((m) => (m.name ?? '').toLowerCase().includes(mentionSearch.toLowerCase())).slice(0, 5).map((m) => (
                     <button
                       key={m.id}
                       onMouseDown={(e) => { e.preventDefault(); selectMention(m); }}
@@ -1164,8 +1320,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
             )}
 
             <div className="flex items-center gap-2">
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" className="hidden" onChange={(e) => { void sendFile(e); }} />
-              <input ref={photoInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => { void sendFile(e); }} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
+              <input ref={photoInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
 
               {/* Attach button — LEFT side, only in message mode */}
               {inputMode === 'message' && !recording && (
@@ -1190,13 +1346,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
                 value={text}
                 onChange={(e) => { void handleTextChange(e.target.value); }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') { setShowCanned(false); setShowMentions(false); }
-                  if (e.key === 'Tab' && showCanned && cannedSuggestions.length > 0) {
-                    e.preventDefault();
-                    const first = cannedSuggestions[0];
-                    if (first) { setText(first.content); setShowCanned(false); }
-                  }
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); }
+                  if (e.key === 'Escape') { setShowMentions(false); }
+                  if (!showCanned && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); }
                 }}
                 placeholder={
                   savingNote ? 'Saving note…' :
@@ -1331,7 +1482,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
               await messagesApi.send(conversation.id, {
                 type: item.type,
                 mediaUrl: item.mediaUrl,
-                mediaCaption: item.mediaCaption ?? undefined,
+                // Images don't need a caption/filename — only documents and audio
+                mediaCaption: item.type === 'IMAGE' ? undefined : (item.mediaCaption ?? undefined),
                 mediaType: item.mediaType ?? undefined,
               });
             }
@@ -1341,43 +1493,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails 
 
       {/* Transfer modal */}
       {showTransfer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowTransfer(false)}>
-          <div className="bg-white rounded-2xl p-5 w-80 shadow-2xl max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2"><UserPlus size={16} className="text-teal-600" /><h4 className="font-semibold text-gray-900">Transfer Conversation</h4></div>
-              <button onClick={() => setShowTransfer(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
-            </div>
-            <div className="overflow-y-auto space-y-1">
-              {teamMembers.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">Loading team members...</p>
-              ) : (
-                teamMembers.map((m) => (
-                  <button
-                    key={m.id}
-                    disabled={transferring}
-                    onClick={() => { void handleTransfer(m.id, m.name); }}
-                    className="w-full flex items-center gap-3 p-2.5 hover:bg-teal-50 rounded-xl text-left transition-colors"
-                  >
-                    <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold', getAvatarColor(m.name))}>{getInitials(m.name)}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{m.name}</p>
-                      <p className="text-xs text-gray-400 truncate">{m.email}</p>
-                    </div>
-                    {conversation.assignedTo?.id === m.id && <span className="text-xs text-teal-600 font-medium">Assigned</span>}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+        <TransferModal
+          teamMembers={teamMembers}
+          transferring={transferring}
+          assignedToId={conversation.assignedTo?.id}
+          onTransfer={handleTransfer}
+          onClose={() => setShowTransfer(false)}
+        />
       )}
+
     </div>
   );
 }
 
 // ─── Note Bubble ──────────────────────────────────────────────────────────────
 
-function NoteBubble({ note }: { note: { id: string; content: string; createdAt: string; author: { id: string; name: string } } }) {
+const NoteBubble = memo(function NoteBubble({ note }: { note: { id: string; content: string; createdAt: string; author: { id: string; name: string } } }) {
   return (
     <div className="flex justify-center px-1 py-1">
       <div className="max-w-xs lg:max-w-md w-full bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2.5 shadow-sm">
@@ -1393,7 +1524,7 @@ function NoteBubble({ note }: { note: { id: string; content: string; createdAt: 
       </div>
     </div>
   );
-}
+});
 
 // ─── Activity Bubble ──────────────────────────────────────────────────────────
 
@@ -1416,9 +1547,18 @@ const ACTIVITY_LABELS: Record<string, (who: string, meta: Record<string, unknown
   MESSAGE_EDITED:            (who) => ({ text: `${who} edited a message`, color: 'text-gray-400' }),
   CONTACT_UPDATED:           (who) => ({ text: `${who} updated contact info`, color: 'text-gray-500' }),
   CONTACT_BLOCKED:           (who) => ({ text: `${who} blocked this contact`, color: 'text-red-500' }),
+  SURVEY_RESPONSE:           (_who, m) => ({ text: `Customer rated: ${'⭐'.repeat(Number(m.score ?? 0))} (${m.score}/5)`, color: 'text-amber-600' }),
 };
 
-function ActivityBubble({ entry }: { entry: ActivityEntry }) {
+function formatCallDuration(secs: number): string {
+  if (secs <= 0) return '';
+  if (secs < 60) return `${secs} sec`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return s > 0 ? `${m} min ${s} sec` : `${m} min`;
+}
+
+const ActivityBubble = memo(function ActivityBubble({ entry }: { entry: ActivityEntry }) {
   const who = entry.user?.name ?? 'System';
   const labelFn = ACTIVITY_LABELS[entry.action];
   const { text, color } = labelFn
@@ -1427,12 +1567,123 @@ function ActivityBubble({ entry }: { entry: ActivityEntry }) {
 
   const time = new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
+  // Call ended — WhatsApp-style call bubble
+  if (entry.action === 'CALL_ENDED') {
+    const { direction, status, duration } = entry.metadata as { direction: string; status: string; duration: number };
+    const isOutbound = direction === 'OUTBOUND';
+    const isMissed = status === 'MISSED' || status === 'FAILED';
+    const durationLabel = formatCallDuration(duration ?? 0);
+    const IconEl = isMissed ? PhoneMissed : isOutbound ? PhoneOutgoing : PhoneIncoming;
+    return (
+      <div className={cn('flex px-4 py-1', isOutbound ? 'justify-end' : 'justify-start')}>
+        <div className={cn(
+          'flex items-center gap-3 rounded-2xl px-4 py-3 shadow-sm',
+          isMissed
+            ? 'bg-red-50 border border-red-100'
+            : 'bg-white border border-gray-200',
+        )}>
+          <div className={cn(
+            'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0',
+            isMissed ? 'bg-red-100' : 'bg-emerald-100',
+          )}>
+            <IconEl size={16} className={isMissed ? 'text-red-500' : 'text-emerald-600'} />
+          </div>
+          <div className="min-w-0">
+            <p className={cn('text-sm font-semibold', isMissed ? 'text-red-600' : 'text-gray-900')}>
+              {isMissed ? 'Missed voice call' : 'Voice call'}
+            </p>
+            {durationLabel && <p className="text-xs text-gray-400">{durationLabel}</p>}
+          </div>
+          <span className="text-xs text-gray-400 flex-shrink-0 ml-1">{time}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Survey response gets a special star-rating card
+  if (entry.action === 'SURVEY_RESPONSE') {
+    const score = Number((entry.metadata as Record<string, unknown>)?.score ?? 0);
+    return (
+      <div className="flex justify-center px-4 py-2">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 shadow-sm max-w-xs w-full text-center">
+          <p className="text-xs font-semibold text-amber-700 mb-1.5">Customer rated this chat</p>
+          <div className="flex justify-center gap-1 mb-1">
+            {[1,2,3,4,5].map(n => (
+              <span key={n} className={n <= score ? 'text-amber-400 text-xl' : 'text-gray-200 text-xl'}>★</span>
+            ))}
+          </div>
+          <p className="text-xs text-amber-500">{score}/5 · {time}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex justify-center px-4 py-1.5">
       <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3.5 py-1 shadow-sm max-w-lg">
         <span className={cn('text-xs font-medium', color)}>{text}</span>
         <span className="text-gray-200 text-xs">·</span>
         <span className="text-xs text-gray-400 flex-shrink-0">{time}</span>
+      </div>
+    </div>
+  );
+});
+
+// ─── Transfer Modal ────────────────────────────────────────────────────────────
+
+function TransferModal({ teamMembers, transferring, assignedToId, onTransfer, onClose }: {
+  teamMembers: { id: string; name: string; email: string }[];
+  transferring: boolean;
+  assignedToId?: string;
+  onTransfer: (id: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const filtered = teamMembers.filter((m) =>
+    (m.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (m.email ?? '').toLowerCase().includes(search.toLowerCase())
+  );
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-5 w-80 shadow-2xl max-h-[70vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2"><UserPlus size={16} className="text-teal-600" /><h4 className="font-semibold text-gray-900">Transfer Conversation</h4></div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="relative mb-3">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            autoFocus
+            type="text"
+            placeholder="Search members…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+        </div>
+        <div className="overflow-y-auto space-y-1 flex-1">
+          {teamMembers.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Loading team members...</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No members found</p>
+          ) : (
+            filtered.map((m) => (
+              <button
+                key={m.id}
+                disabled={transferring}
+                onClick={() => onTransfer(m.id, m.name)}
+                className="w-full flex items-center gap-3 p-2.5 hover:bg-teal-50 rounded-xl text-left transition-colors disabled:opacity-50"
+              >
+                <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold', getAvatarColor(m.name))}>{getInitials(m.name)}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{m.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{m.email}</p>
+                </div>
+                {assignedToId === m.id && <span className="text-xs text-teal-600 font-medium">Assigned</span>}
+              </button>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1449,6 +1700,7 @@ function ForwardModal({ message, conversations, onClose }: {
   const [forwarding, setForwarding] = useState<string | null>(null);
 
   const filtered = conversations.filter((c) => {
+    if (!c.contact) return false;
     const name = c.contact.name ?? c.contact.phone;
     return name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
   });
@@ -1521,44 +1773,66 @@ interface ContextMenu {
   messageId: string;
 }
 
-function MessageBubble({
+function escapeRegex(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function highlightText(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const parts = text.split(new RegExp(`(${escapeRegex(query.trim())})`, 'gi'));
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.trim().toLowerCase()
+      ? <mark key={i} className="bg-yellow-300 text-gray-900 rounded-[2px] px-[1px]">{part}</mark>
+      : part,
+  );
+}
+
+const MessageBubble = memo(function MessageBubble({
   message,
   currentUserId,
   contactName,
   conversationId,
   onReply,
+  searchQuery,
+  isCurrentResult,
 }: {
   message: Message;
   currentUserId?: string;
   contactName: string;
   conversationId: string;
   onReply?: (msg: Message) => void;
+  searchQuery?: string;
+  isCurrentResult?: boolean;
 }) {
   const isOutbound = message.direction === MessageDirection.OUTBOUND;
   const avatarColor = getAvatarColor(contactName);
-  const { removeMessage, updateMessage, conversations } = useInboxStore();
+  const { updateMessage, conversations } = useInboxStore();
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [starred, setStarred] = useState(message.isStarred ?? false);
-  const [showReactions, setShowReactions] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState('');
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showForward, setShowForward] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchMoved = useRef(false);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null);
-    };
-    if (contextMenu) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    if (!contextMenu) return;
+    let handler: (e: MouseEvent) => void;
+    // Delay by one tick so the right-click event that opened the menu doesn't immediately close it
+    const timer = setTimeout(() => {
+      handler = (e: MouseEvent) => {
+        if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null);
+      };
+      document.addEventListener('mousedown', handler);
+    }, 0);
+    return () => { clearTimeout(timer); if (handler) document.removeEventListener('mousedown', handler); };
   }, [contextMenu]);
 
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    const x = Math.min(e.clientX, window.innerWidth - 200);
-    const y = Math.min(e.clientY, window.innerHeight - 320);
+    e.stopPropagation();
+    const menuWidth = 210;
+    const menuHeight = Math.min(420, window.innerHeight * 0.6);
+    const x = e.clientX + menuWidth > window.innerWidth ? e.clientX - menuWidth : e.clientX;
+    const y = e.clientY + menuHeight > window.innerHeight ? e.clientY - menuHeight : e.clientY;
     setContextMenu({ x, y, messageId: message.id });
   };
 
@@ -1592,42 +1866,34 @@ function MessageBubble({
     } catch { toast.error('Failed to pin message'); }
   };
 
-  const handleDeleteForMe = async () => {
-    setContextMenu(null);
-    if (!window.confirm('Delete this message for yourself?')) return;
-    try {
-      await messagesApi.deleteForMe(conversationId, message.id);
-      removeMessage(conversationId, message.id);
-    } catch { toast.error('Failed to delete message'); }
+  const openContextMenuFromTouch = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    const menuWidth = 210;
+    const menuHeight = Math.min(420, window.innerHeight * 0.6);
+    const x = touch.clientX + menuWidth > window.innerWidth ? touch.clientX - menuWidth : touch.clientX;
+    const y = touch.clientY + menuHeight > window.innerHeight ? touch.clientY - menuHeight : touch.clientY;
+    setContextMenu({ x, y, messageId: message.id });
   };
 
-  const handleDeleteForEveryone = async () => {
-    setContextMenu(null);
-    if (!window.confirm('Delete this message for everyone?')) return;
-    try {
-      await messagesApi.deleteForEveryone(conversationId, message.id);
-      updateMessage(conversationId, message.id, { deletedForEveryone: true, content: null, mediaUrl: null, mediaCaption: null } as Partial<Message>);
-    } catch { toast.error('Failed to delete message'); }
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchMoved.current = false;
+    longPressTimer.current = setTimeout(() => {
+      if (!touchMoved.current) {
+        openContextMenuFromTouch(e);
+      }
+    }, 500);
   };
 
-  const handleEditStart = () => {
-    setContextMenu(null);
-    setEditText(message.content ?? '');
-    setIsEditing(true);
+  const handleTouchMove = () => {
+    touchMoved.current = true;
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
-  const handleEditSubmit = async () => {
-    const content = editText.trim();
-    if (!content || content === message.content) { setIsEditing(false); return; }
-    try {
-      await messagesApi.edit(conversationId, message.id, content);
-      updateMessage(conversationId, message.id, { content, isEdited: true, editedAt: new Date() } as Partial<Message>);
-      setIsEditing(false);
-    } catch { toast.error('Failed to edit message'); }
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   };
 
   const handleReact = async (emoji: string) => {
-    setShowReactions(false);
     setContextMenu(null);
     const typed = message as Message & { messageReactions?: Array<{ emoji: string; userId: string | null }> };
     const alreadyReacted = typed.messageReactions?.some(r => r.userId === currentUserId && r.emoji === emoji);
@@ -1644,7 +1910,11 @@ function MessageBubble({
     <>
       <div
         id={`msg-${message.id}`}
-        className={cn('flex items-end gap-2 group px-1 py-0.5', isOutbound ? 'justify-end' : 'justify-start')}
+        className={cn(
+          'flex items-end gap-2 group px-1 py-0.5',
+          isOutbound ? 'justify-end' : 'justify-start',
+          isCurrentResult && 'ring-2 ring-yellow-400 ring-offset-2 rounded-2xl bg-yellow-50/60',
+        )}
       >
         {!isOutbound && (
           <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 mb-5', avatarColor)}>
@@ -1653,6 +1923,16 @@ function MessageBubble({
         )}
 
         <div className={cn('flex items-end gap-1 max-w-xs lg:max-w-md', isOutbound ? 'flex-row-reverse' : 'flex-row')}>
+          {/* Hover chevron button to open context menu */}
+          <button
+            onClick={openMenu}
+            className={cn(
+              'flex-shrink-0 w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity mb-5',
+              isOutbound ? 'order-first' : 'order-last',
+            )}
+          >
+            <ChevronDown size={14} className="text-gray-500" />
+          </button>
           <div className="flex flex-col gap-0.5">
             {/* Reply-to quote */}
             {message.replyTo && (
@@ -1674,7 +1954,7 @@ function MessageBubble({
                 <p className={cn('text-xs font-semibold', isOutbound ? 'text-teal-200' : 'text-teal-600')}>
                   {message.replyTo.direction === 'INBOUND' ? contactName : 'You'}
                 </p>
-                <p className={cn('text-xs truncate', isOutbound ? 'text-teal-100' : 'text-gray-600')}>
+                <p className={cn('text-xs truncate italic', isOutbound ? 'text-teal-100' : 'text-gray-600')}>
                   {message.replyTo.content ?? message.replyTo.mediaCaption ?? '📎 Media'}
                 </p>
               </div>
@@ -1687,6 +1967,9 @@ function MessageBubble({
                 isOutbound ? 'bg-teal-700 text-white rounded-br-sm' : 'bg-white text-gray-900 rounded-bl-sm shadow-sm',
               )}
               onContextMenu={openMenu}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               {/* Forwarded indicator */}
               {(message as Message & { isForwarded?: boolean }).isForwarded && (
@@ -1703,49 +1986,27 @@ function MessageBubble({
                 </div>
               )}
 
-              {message.deletedForEveryone ? (
-                <p className={cn('text-sm italic', isOutbound ? 'text-teal-200 opacity-70' : 'text-gray-400')}>
-                  <span className="mr-1">🚫</span>This message was deleted
+              {message.content && (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {searchQuery ? highlightText(message.content, searchQuery) : message.content}
                 </p>
-              ) : isEditing ? (
-                <div className="flex flex-col gap-1.5">
-                  <input
-                    autoFocus
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleEditSubmit(); }
-                      if (e.key === 'Escape') setIsEditing(false);
-                    }}
-                    className="text-sm bg-teal-600 text-white placeholder-teal-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-teal-300 min-w-[180px]"
-                  />
-                  <div className="flex gap-1 justify-end">
-                    <button onClick={() => setIsEditing(false)} className="text-xs text-teal-200 hover:text-white px-2 py-0.5 rounded">Cancel</button>
-                    <button onClick={() => { void handleEditSubmit(); }} className="text-xs bg-white text-teal-700 font-semibold px-2 py-0.5 rounded hover:bg-teal-50">Save</button>
-                  </div>
-                </div>
-              ) : (
-                message.content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-              )}
-              {message.isEdited && !message.deletedForEveryone && !isEditing && (
-                <span className={cn('text-xs', isOutbound ? 'text-teal-300' : 'text-gray-400')}>Edited</span>
               )}
 
-              {!message.deletedForEveryone && message.type === 'LOCATION' && (
+              {message.type === 'LOCATION' && (
                 <a href={`https://maps.google.com/?q=${message.metadata?.['latitude']},${message.metadata?.['longitude']}`} target="_blank" rel="noopener noreferrer"
                   className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                   <MapPin size={14} /> {(message.metadata?.['name'] as string) || 'View location'}
                 </a>
               )}
 
-              {!message.deletedForEveryone && message.type === 'CONTACTS' && (
+              {message.type === 'CONTACTS' && (
                 <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                   <div className={cn('w-7 h-7 rounded-full flex items-center justify-center', isOutbound ? 'bg-teal-600' : 'bg-teal-100 text-teal-700')}><User size={14} /></div>
                   <div><p className="font-semibold">{(message.metadata?.['contactName'] as string) || 'Contact'}</p><p className="opacity-75">{message.metadata?.['contactPhone'] as string}</p></div>
                 </div>
               )}
 
-              {!message.deletedForEveryone && message.mediaUrl && (() => {
+              {message.mediaUrl && (() => {
                 const proxied = getProxiedMediaUrl(message.mediaUrl);
                 return (
                   <div className="mt-1">
@@ -1757,6 +2018,7 @@ function MessageBubble({
                           className="rounded-xl cursor-zoom-in hover:opacity-90 transition-opacity"
                           style={{ maxWidth: '320px', maxHeight: '400px', width: 'auto', height: 'auto', display: 'block', objectFit: 'cover' }}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          onContextMenu={(e) => e.preventDefault()}
                         />
                       </button>
                     )}
@@ -1856,9 +2118,9 @@ function MessageBubble({
         />
       )}
 
-      {/* Image lightbox */}
-      {lightboxSrc && (
-        <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center" onClick={() => setLightboxSrc(null)}>
+      {/* Image lightbox — portalled to body to escape virtualizer transform stacking context */}
+      {lightboxSrc && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center" onClick={() => setLightboxSrc(null)}>
           <button className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white transition-colors" onClick={() => setLightboxSrc(null)}>
             <X size={20} />
           </button>
@@ -1866,14 +2128,15 @@ function MessageBubble({
           <a href={lightboxSrc} download target="_blank" rel="noopener noreferrer" className="absolute bottom-4 right-4 flex items-center gap-2 text-xs text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl transition-colors" onClick={(e) => e.stopPropagation()}>
             <Download size={13} /> Download
           </a>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {/* Context menu */}
-      {contextMenu && (
+      {/* Context menu — portalled to body to escape virtualizer transform stacking context */}
+      {contextMenu && typeof document !== 'undefined' && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[100] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden py-1.5 w-52"
+          className="fixed z-[9998] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden py-1.5 w-52"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1903,22 +2166,9 @@ function MessageBubble({
           <button onClick={() => { setShowInfo((v) => !v); setContextMenu(null); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-gray-700">
             <Info size={14} className="text-gray-400" /> Message info
           </button>
-          {isOutbound && message.type === 'TEXT' && !message.deletedForEveryone && (
-            <button onClick={handleEditStart} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-gray-50 text-gray-700">
-              <Pencil size={14} className="text-gray-400" /> Edit
-            </button>
-          )}
-          <div className="border-t border-gray-100 my-1" />
-          <button onClick={() => { void handleDeleteForMe(); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-red-50 text-red-600">
-            <Trash2 size={14} className="text-red-500" /> Delete for me
-          </button>
-          {isOutbound && !message.deletedForEveryone && (
-            <button onClick={() => { void handleDeleteForEveryone(); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-red-50 text-red-600">
-              <Trash2 size={14} className="text-red-500" /> Delete for everyone
-            </button>
-          )}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
-}
+});

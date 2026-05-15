@@ -1,11 +1,15 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
-import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
-import { ActivityAction, ConversationStatus } from '@whatsapp-platform/shared-types';
+import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
+import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, CsatSurveyJob } from '@whatsapp-platform/shared-types';
 import { NotificationType, ConversationEventType } from '@prisma/client';
 
 const CHANNEL_SELECT = { select: { id: true, type: true, name: true } } as const;
@@ -29,6 +33,8 @@ export class ConversationsService {
     private activityLogService: ActivityLogService,
     private notificationsService: NotificationsService,
     private realtimeService: RealtimeService,
+    private moduleRef: ModuleRef,
+    @InjectQueue(QueueName.CSAT_SURVEY) private csatQueue: Queue<CsatSurveyJob>,
   ) {}
 
   // ─── Finders ─────────────────────────────────────────────────────────────
@@ -110,12 +116,11 @@ export class ConversationsService {
     }
     if (assignedToId) where['assignedToId'] = assignedToId;
     if (search) {
-      where['contact'] = {
-        OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search } },
-        ],
-      };
+      where['OR'] = [
+        { contact: { name: { contains: search, mode: 'insensitive' } } },
+        { contact: { phone: { contains: search } } },
+        { messages: { some: { content: { contains: search, mode: 'insensitive' }, deletedForEveryone: false } } },
+      ];
     }
 
     const [data, total] = await Promise.all([
@@ -131,6 +136,11 @@ export class ConversationsService {
           messages: {
             take: 1,
             orderBy: { createdAt: 'desc' },
+          },
+          activityLogs: {
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+            select: { action: true, metadata: true, createdAt: true },
           },
         },
       }),
@@ -266,6 +276,17 @@ export class ConversationsService {
     await this.recordEvent(tenantId, id, ConversationEventType.RESOLVED, userId);
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_RESOLVED, conversationId: id, contactId: existing.contactId, userId });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result);
+
+    // Schedule CSAT survey to send 23 hours after resolve
+    const contact = (result as unknown as { contact?: { phone?: string } }).contact;
+    if (contact?.phone) {
+      void this.csatQueue.add(
+        'send-survey',
+        { tenantId, conversationId: id, contactPhone: contact.phone },
+        { delay: 23 * 60 * 60 * 1000, attempts: 2, backoff: { type: 'fixed', delay: 60_000 } },
+      ).catch(() => { /* non-fatal */ });
+    }
+
     return result;
   }
 
@@ -416,7 +437,10 @@ export class ConversationsService {
 
   async markRead(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
-    return this.prisma.conversation.update({ where: { id }, data: { unreadCount: 0 } });
+    const updated = await this.prisma.conversation.update({ where: { id }, data: { unreadCount: 0 } });
+    // Notify other connected clients (e.g. mobile, other browser tabs) that unread count cleared
+    this.realtimeService.emitConversationUpdated(tenantId, id, { id, unreadCount: 0 });
+    return updated;
   }
 
   async addNote(tenantId: string, conversationId: string, authorId: string, dto: CreateNoteDto) {
@@ -504,4 +528,181 @@ export class ConversationsService {
       ),
     );
   }
+
+  // ─── AI Summary ───────────────────────────────────────────────────────────
+
+  async summarize(tenantId: string, conversationId: string) {
+    const conversation = await this.findOne(tenantId, conversationId);
+    const messages = await this.prisma.message.findMany({
+      where: { conversationId: conversation.id, deletedForEveryone: false },
+      orderBy: { createdAt: 'asc' },
+      take: 150,
+      select: { direction: true, content: true, type: true, createdAt: true },
+    });
+
+    const contactName = (conversation as unknown as { contact?: { name?: string; phone?: string } }).contact?.name
+      ?? (conversation as unknown as { contact?: { phone?: string } }).contact?.phone
+      ?? 'Customer';
+
+    const transcript = messages
+      .filter((m) => m.content)
+      .map((m) => `[${m.direction === 'INBOUND' ? contactName : 'Agent'}]: ${m.content}`)
+      .join('\n');
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      // Rule-based fallback when no API key is configured
+      const inbound = messages.filter((m) => m.direction === 'INBOUND').length;
+      const outbound = messages.filter((m) => m.direction === 'OUTBOUND').length;
+      const durationMs = messages.length > 1
+        ? new Date(messages[messages.length - 1].createdAt).getTime() - new Date(messages[0].createdAt).getTime()
+        : 0;
+      const hours = Math.round(durationMs / 3600000);
+      return {
+        summary: `Conversation with ${contactName}: ${inbound + outbound} messages (${inbound} from customer, ${outbound} from agent) over ${hours > 0 ? hours + 'h' : 'less than 1h'}. Status: ${conversation.status}.`,
+        note: 'Add ANTHROPIC_API_KEY to .env for full AI summary.',
+      };
+    }
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 512,
+        messages: [{
+          role: 'user',
+          content: `Summarize this customer support conversation in 3-5 bullet points. Focus on: the issue raised, actions taken, and resolution status.\n\n${transcript}`,
+        }],
+      }),
+    });
+
+    const json = await resp.json() as { content?: Array<{ text?: string }> };
+    const text = json.content?.[0]?.text ?? 'Could not generate summary.';
+    return { summary: text };
+  }
+
+  // ─── CSV Import ───────────────────────────────────────────────────────────
+
+  async importFromCsv(tenantId: string, csvText: string) {
+    const lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter((l) => l.trim());
+    if (lines.length < 2) throw new BadRequestException('CSV must have a header row and at least one data row');
+
+    // Parse CSV header — match flexible column names
+    const rawHeaders = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase().replace(/[\s_-]+/g, ''));
+    const col = (names: string[]) => {
+      for (const n of names) {
+        const idx = rawHeaders.findIndex((h) => h === n || h.includes(n));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    };
+
+    const idxPhone = col(['phone', 'phonenumber', 'mobilenumber', 'mobile', 'number', 'contact']);
+    if (idxPhone === -1) throw new BadRequestException('CSV must have a "phone" or "phone number" column');
+
+    const idxName    = col(['name', 'contactname', 'customername', 'fullname', 'firstname']);
+    const idxDir     = col(['direction', 'messagedirection', 'type2', 'sentby', 'from']);
+    const idxMsgType = col(['messagetype', 'type', 'mediatype']);
+    const idxContent = col(['content', 'message', 'messagecontent', 'text', 'body']);
+    const idxTs      = col(['timestamp', 'date', 'datetime', 'createdat', 'time', 'messagedate']);
+    const idxMedia   = col(['mediaurl', 'media', 'fileurl', 'attachment', 'url']);
+    const idxCaption = col(['caption', 'mediacaption']);
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const cells = parseCsvLine(lines[i]);
+      const rawPhone = cells[idxPhone]?.trim();
+      if (!rawPhone) { skipped++; continue; }
+
+      let phone: string;
+      try { phone = normalizePhone(rawPhone); } catch { skipped++; continue; }
+
+      const name   = idxName    !== -1 ? (cells[idxName]?.trim()    || undefined) : undefined;
+      const dirRaw = idxDir     !== -1 ? (cells[idxDir]?.trim()?.toUpperCase()) : 'INBOUND';
+      const dir: MessageDirection = dirRaw === 'OUTBOUND' || dirRaw === 'OUT' || dirRaw === 'AGENT' || dirRaw === 'BOT'
+        ? MessageDirection.OUTBOUND : MessageDirection.INBOUND;
+      const msgTypeRaw = idxMsgType !== -1 ? cells[idxMsgType]?.trim()?.toUpperCase() : 'TEXT';
+      const msgType: MessageType =
+        (['TEXT','IMAGE','VIDEO','AUDIO','DOCUMENT','LOCATION','CONTACTS'] as string[]).includes(msgTypeRaw ?? '')
+          ? (msgTypeRaw as MessageType) : MessageType.TEXT;
+      const content  = idxContent !== -1 ? (cells[idxContent]?.trim() || undefined) : undefined;
+      const mediaUrl = idxMedia   !== -1 ? (cells[idxMedia]?.trim()   || undefined) : undefined;
+      const caption  = idxCaption !== -1 ? (cells[idxCaption]?.trim() || undefined) : undefined;
+      let createdAt  = new Date();
+      if (idxTs !== -1 && cells[idxTs]?.trim()) {
+        const parsed = new Date(cells[idxTs].trim());
+        if (!isNaN(parsed.getTime())) createdAt = parsed;
+      }
+
+      try {
+        // Upsert contact
+        let contact = await this.prisma.contact.findUnique({ where: { tenantId_phone: { tenantId, phone } } });
+        if (!contact) {
+          contact = await this.prisma.contact.create({ data: { tenantId, phone, name: name ?? null } });
+        } else if (name && !contact.name) {
+          contact = await this.prisma.contact.update({ where: { id: contact.id }, data: { name } });
+        }
+
+        // Find or create conversation (RESOLVED for imported)
+        let conv = await this.prisma.conversation.findFirst({ where: { tenantId, contactId: contact.id }, orderBy: { createdAt: 'asc' } });
+        if (!conv) {
+          conv = await this.prisma.conversation.create({
+            data: { tenantId, contactId: contact.id, status: ConversationStatus.RESOLVED, resolvedAt: new Date() },
+          });
+        }
+
+        // Create message (skip if no content and no mediaUrl)
+        if (!content && !mediaUrl) { skipped++; continue; }
+
+        await this.prisma.message.create({
+          data: {
+            tenantId,
+            conversationId: conv.id,
+            contactId: contact.id,
+            direction: dir,
+            type: msgType,
+            status: dir === MessageDirection.OUTBOUND ? MessageStatus.DELIVERED : MessageStatus.READ,
+            content: content ?? null,
+            mediaUrl: mediaUrl ?? null,
+            mediaCaption: caption ?? null,
+            createdAt,
+            sentAt: dir === MessageDirection.OUTBOUND ? createdAt : null,
+          },
+        });
+
+        // Update conversation's lastMessageAt
+        await this.prisma.conversation.update({ where: { id: conv.id }, data: { lastMessageAt: createdAt } });
+        imported++;
+      } catch { skipped++; }
+    }
+
+    return { imported, skipped, total: lines.length - 1 };
+  }
+
+}
+
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current); current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
 }

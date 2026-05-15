@@ -87,6 +87,32 @@ export const authApi = {
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
   googleUrl: () => `${API_URL}/auth/google`,
+  getWorkspaces: () => api.get('/auth/workspaces'),
+  switchWorkspace: (workspaceId: string) => api.post('/auth/switch-workspace', { workspaceId }),
+  verifyInvite: (token: string) => api.get(`/auth/invite/verify/${token}`),
+  acceptInvite: (token: string, name?: string, password?: string) =>
+    api.post('/auth/invite/accept', { token, name, password }),
+};
+
+export const workspaceApi = {
+  listMembers: () => api.get('/workspace/members'),
+  invite: (email: string, role?: string, name?: string) =>
+    api.post('/workspace/invite', { email, role, name }),
+  listInvitations: () => api.get('/workspace/invitations'),
+  cancelInvitation: (id: string) => api.delete(`/workspace/invitations/${id}`),
+  editMember: (id: string, data: {
+    name?: string; email?: string; phone?: string; avatarUrl?: string;
+    role?: string; department?: string; status?: string;
+  }) => api.patch(`/workspace/members/${id}`, data),
+  suspendMember: (id: string) => api.patch(`/workspace/members/${id}/suspend`),
+  reactivateMember: (id: string) => api.patch(`/workspace/members/${id}/reactivate`),
+  forceLogout: (id: string) => api.post(`/workspace/members/${id}/force-logout`),
+  resetPassword: (id: string, newPassword: string) =>
+    api.post(`/workspace/members/${id}/reset-password`, { newPassword }),
+  getMemberActivity: (id: string) => api.get(`/workspace/members/${id}/activity`),
+  getMemberConversations: (id: string) => api.get(`/workspace/members/${id}/conversations`),
+  removeMember: (id: string, reassignToId?: string) =>
+    api.delete(`/workspace/members/${id}`, { data: { reassignToId } }),
 };
 
 export const conversationsApi = {
@@ -108,6 +134,12 @@ export const conversationsApi = {
   transfer: (id: string, toAgentId: string, reason?: string) => api.post(`/conversations/${id}/transfer`, { toAgentId, reason }),
   getCounts: () => api.get('/conversations/counts'),
   getEvents: (id: string) => api.get(`/conversations/${id}/events`),
+  importCsv: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post('/conversations/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  summarize: (id: string) => api.post(`/conversations/${id}/summarize`),
 };
 
 export const messagesApi = {
@@ -115,18 +147,10 @@ export const messagesApi = {
     api.get(`/conversations/${conversationId}/messages`, { params }),
   send: (conversationId: string, data: Record<string, unknown>) =>
     api.post(`/conversations/${conversationId}/messages`, data),
-  delete: (conversationId: string, messageId: string) =>
-    api.delete(`/conversations/${conversationId}/messages/${messageId}`),
   react: (conversationId: string, messageId: string, emoji: string) =>
     api.post(`/conversations/${conversationId}/messages/${messageId}/react`, { emoji }),
   removeReact: (conversationId: string, messageId: string, emoji: string) =>
     api.delete(`/conversations/${conversationId}/messages/${messageId}/react`, { data: { emoji } }),
-  edit: (conversationId: string, messageId: string, content: string) =>
-    api.patch(`/conversations/${conversationId}/messages/${messageId}`, { content }),
-  deleteForMe: (conversationId: string, messageId: string) =>
-    api.delete(`/conversations/${conversationId}/messages/${messageId}?scope=me`),
-  deleteForEveryone: (conversationId: string, messageId: string) =>
-    api.delete(`/conversations/${conversationId}/messages/${messageId}?scope=everyone`),
   star: (conversationId: string, messageId: string) =>
     api.patch(`/conversations/${conversationId}/messages/${messageId}/star`),
   pin: (conversationId: string, messageId: string) =>
@@ -197,8 +221,14 @@ export const callsApi = {
   hold: (id: string, held: boolean) => api.patch(`/calls/${id}/hold`, { held }),
   transfer: (id: string, toUserId: string, reason?: string, transferType?: string) =>
     api.post(`/calls/${id}/transfer`, { toUserId, reason, transferType }),
+  initiate: (data: { phone: string; contactId?: string; type?: 'audio' | 'video'; sdpOffer?: string }) =>
+    api.post('/calls/initiate', data),
+  respond: (id: string, action: 'pre_accept' | 'accept' | 'reject' | 'terminate', sdpAnswer?: string) =>
+    api.post(`/calls/${id}/respond`, { action, sdpAnswer }),
   generateLink: () => api.post('/calls/links/generate'),
   analytics: (params?: Record<string, unknown>) => api.get('/calls/analytics', { params }),
+  getPermission: (phone: string) => api.get('/calls/permissions', { params: { phone } }),
+  requestPermission: (phone: string) => api.post('/calls/permissions/request', { phone }),
 };
 
 export const tenantApi = {
@@ -247,12 +277,38 @@ export const notificationsApi = {
 
 export const cannedResponsesApi = {
   list: () => api.get('/canned-responses'),
-  search: (q: string) => api.get('/canned-responses/search', { params: { q } }),
-  create: (data: { shortcut: string; content: string; category?: string }) =>
-    api.post('/canned-responses', data),
-  update: (id: string, data: Partial<{ shortcut: string; content: string; category: string }>) =>
-    api.patch(`/canned-responses/${id}`, data),
+  search: (q: string, categoryId?: string) =>
+    api.get('/canned-responses/search', { params: { q, ...(categoryId ? { categoryId } : {}) } }),
+  getFavorites: () => api.get('/canned-responses/favorites'),
+  getRecent: () => api.get('/canned-responses/recent'),
+  create: (data: {
+    title?: string;
+    shortcut: string;
+    content: string;
+    categoryId?: string;
+    tags?: string[];
+    mediaUrl?: string;
+    mediaType?: string;
+  }) => api.post('/canned-responses', data),
+  update: (id: string, data: Partial<{
+    title: string;
+    shortcut: string;
+    content: string;
+    categoryId: string | null;
+    tags: string[];
+    mediaUrl: string | null;
+    mediaType: string | null;
+  }>) => api.patch(`/canned-responses/${id}`, data),
   delete: (id: string) => api.delete(`/canned-responses/${id}`),
+  toggleFavorite: (id: string) => api.post(`/canned-responses/${id}/favorite`),
+  trackUsage: (id: string) => api.post(`/canned-responses/${id}/use`),
+  // Categories
+  listCategories: () => api.get('/canned-responses/categories'),
+  createCategory: (data: { name: string; color?: string; icon?: string; sortOrder?: number }) =>
+    api.post('/canned-responses/categories', data),
+  updateCategory: (id: string, data: Partial<{ name: string; color: string; icon: string; sortOrder: number }>) =>
+    api.patch(`/canned-responses/categories/${id}`, data),
+  deleteCategory: (id: string) => api.delete(`/canned-responses/categories/${id}`),
 };
 
 export const apiKeysApi = {

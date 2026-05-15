@@ -5,7 +5,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CallsService } from './calls.service';
 import {
   CreateCallDto, UpdateCallDto, ListCallsDto, CreateCallNoteDto,
-  TransferCallDto, MuteCallDto, HoldCallDto, AnalyticsQueryDto,
+  TransferCallDto, MuteCallDto, HoldCallDto, AnalyticsQueryDto, InitiateCallDto, RespondCallDto,
 } from './dto/call.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -30,6 +30,28 @@ export class CallsController {
   @ApiOperation({ summary: 'Get call analytics (avg duration, missed rate, response time)' })
   getAnalytics(@CurrentTenant() tenantId: string, @Query() dto: AnalyticsQueryDto) {
     return this.callsService.getAnalytics(tenantId, dto);
+  }
+
+  @Get('permissions')
+  @ApiOperation({ summary: 'Check if a user has granted call permission' })
+  getCallPermission(@CurrentTenant() tenantId: string, @Query('phone') phone: string) {
+    return this.callsService.getCallPermission(tenantId, phone);
+  }
+
+  @Post('permissions/request')
+  @ApiOperation({ summary: 'Send a call permission request message to a user' })
+  requestCallPermission(@CurrentTenant() tenantId: string, @Body('phone') phone: string) {
+    return this.callsService.requestCallPermission(tenantId, phone);
+  }
+
+  @Post('initiate')
+  @ApiOperation({ summary: 'Initiate a real WhatsApp call via Meta API' })
+  initiateCall(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: InitiateCallDto,
+  ) {
+    return this.callsService.initiateCall(tenantId, user.sub, dto);
   }
 
   @Post('links/generate')
@@ -111,6 +133,16 @@ export class CallsController {
     @Body() dto: TransferCallDto,
   ) {
     return this.callsService.transfer(tenantId, id, user.sub, dto);
+  }
+
+  @Post(':id/respond')
+  @ApiOperation({ summary: 'Respond to an inbound WhatsApp call (accept/pre_accept/reject/terminate)' })
+  respondToCall(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() dto: RespondCallDto,
+  ) {
+    return this.callsService.respondToCall(tenantId, id, dto.action, dto.sdpAnswer);
   }
 
   @Post(':id/notes')

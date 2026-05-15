@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, HttpCode, HttpStatus, Post, Query,
+  Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query,
   Req, Res, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -146,6 +146,50 @@ export class AuthController {
     });
 
     return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  }
+
+  // ─── Workspace / Multi-workspace ─────────────────────────────────────────────
+
+  @Get('workspaces')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List all workspaces the authenticated user belongs to' })
+  getWorkspaces(@CurrentUser() user: JwtPayload) {
+    return this.authService.getWorkspaces(user.sub);
+  }
+
+  @Post('switch-workspace')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Switch active workspace and receive new tokens' })
+  async switchWorkspace(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { workspaceId: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.switchWorkspace(user.sub, body.workspaceId);
+    this.setRefreshCookie(res as unknown as import('express').Response, result.refreshToken);
+    return { accessToken: result.accessToken, expiresIn: result.expiresIn };
+  }
+
+  @Get('invite/verify/:token')
+  @ApiOperation({ summary: 'Verify an invitation token (public)' })
+  verifyInvite(@Param('token') token: string) {
+    return this.authService.verifyInvite(token);
+  }
+
+  @Post('invite/accept')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Accept an invitation and create/link account' })
+  async acceptInvite(
+    @Body() body: { token: string; name?: string; password?: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.acceptInvite(body.token, { name: body.name, password: body.password });
+    this.setRefreshCookie(res as unknown as import('express').Response, result.refreshToken);
+    const { refreshToken: _, ...safe } = result;
+    return safe;
   }
 
   @Get('google/callback')

@@ -5,9 +5,11 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { ContactsModule } from '../contacts/contacts.module';
 import { MediaModule } from '../media/media.module';
+import { ChatbotFlowsModule } from '../chatbot-flows/chatbot-flows.module';
+import { ActivityLogModule } from '../activity-log/activity-log.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule],
+  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule],
   controllers: [MessagesController],
   providers: [MessagesService],
   exports: [MessagesService],

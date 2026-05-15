@@ -6,12 +6,16 @@ import {
   User, Wifi, Globe, Languages, AlertCircle, ExternalLink,
   Users, Filter, ChevronDown, ChevronRight as CRight, Loader2,
   CheckCircle2, AlertTriangle, FolderOpen, Download, TagIcon,
+  PanelRightClose,
 } from 'lucide-react';
 import { contactsApi, conversationsApi, segmentsApi, tagsApi, messagesApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useInboxStore } from '@/store/inbox.store';
+import type { StatusCounts } from '@/store/inbox.store';
 import toast from 'react-hot-toast';
 import { formatRelativeTime, cn } from '@/lib/utils';
+import ChatWindow from '@/components/inbox/ChatWindow';
+import ConversationDetails from '@/components/inbox/ConversationDetails';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface Segment { id: string; name: string; description?: string; filters: unknown[]; contactCount: number }
@@ -602,7 +606,28 @@ const EMPTY_FORM = { name: '', phone: '', email: '', labels: '', country: '', la
 // ─── Page ──────────────────────────────────────────────────────────────────
 export default function ContactsPage() {
   const router = useRouter();
-  const { setActiveConversation, prependConversation } = useInboxStore();
+  const {
+    conversations,
+    prependConversation,
+    setConversations, setStatusCounts,
+  } = useInboxStore();
+
+  // Inline chat state — local to this page so it resets on navigation
+  const [activeContactConvId, setActiveContactConvId] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState(true);
+
+  // Boot conversations into store so ChatWindow works
+  useEffect(() => {
+    conversationsApi.list({ limit: 100 }).then((res) => {
+      setConversations((res.data as { data: unknown[] }).data as Parameters<typeof setConversations>[0]);
+    }).catch(() => {});
+    conversationsApi.getCounts().then((res) => {
+      setStatusCounts(res.data as StatusCounts);
+    }).catch(() => {});
+  }, [setConversations, setStatusCounts]);
+
+  const activeConversation = conversations.find((c) => c.id === activeContactConvId) ?? null;
+
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -629,10 +654,15 @@ export default function ContactsPage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterLifecycle, setFilterLifecycle] = useState<'' | 'active' | 'blocked' | 'optedOut'>('');
   const [filterLabel, setFilterLabel] = useState('');
+  // Date filters
+  const [dateField, setDateField] = useState<'createdAt' | 'lastMessage' | 'lastActive' | ''>('');
+  const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom' | ''>('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   // Available tags from central tag system
   const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color?: string }[]>([]);
 
-  const activeFiltersCount = [filterLifecycle, filterLabel].filter(Boolean).length;
+  const activeFiltersCount = [filterLifecycle, filterLabel, dateField].filter(Boolean).length;
 
   const load = useCallback(async (
     pg: number,
@@ -640,6 +670,10 @@ export default function ContactsPage() {
     segId: string | null,
     lifecycle: string,
     label: string,
+    df?: string,
+    dp?: string,
+    dfrom?: string,
+    dto?: string,
   ) => {
     setLoading(true);
     try {
@@ -651,6 +685,10 @@ export default function ContactsPage() {
         isBlocked: lifecycle === 'blocked' ? 'true' : lifecycle === 'active' ? 'false' : undefined,
         optedOut: lifecycle === 'optedOut' ? 'true' : lifecycle === 'active' ? 'false' : undefined,
         label: label || undefined,
+        dateField: df || undefined,
+        datePreset: dp && dp !== 'custom' ? dp : undefined,
+        dateFrom: dp === 'custom' && dfrom ? dfrom : undefined,
+        dateTo: dp === 'custom' && dto ? dto : undefined,
       });
       const data = res.data as { data: Contact[]; meta: { total: number } };
       setContacts(data.data);
@@ -661,10 +699,10 @@ export default function ContactsPage() {
   useEffect(() => {
     const t = setTimeout(() => {
       setPage(1); setSelectedIds(new Set());
-      void load(1, search, activeSegmentId, filterLifecycle, filterLabel);
+      void load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
     }, 300);
     return () => clearTimeout(t);
-  }, [search, activeSegmentId, load, filterLifecycle, filterLabel]);
+  }, [search, activeSegmentId, load, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo]);
 
   // Load segments + available tags
   useEffect(() => {
@@ -674,11 +712,15 @@ export default function ContactsPage() {
 
   const openConversation = async (contact: Contact) => {
     try {
+      const existingId = contact.latestConversation?.id;
+      if (existingId && conversations.find((c) => c.id === existingId)) {
+        setActiveContactConvId(existingId);
+        return;
+      }
       const res = await conversationsApi.findOrCreate(contact.id);
       const conv = res.data as ConvPayload;
       prependConversation(conv);
-      setActiveConversation(conv.id);
-      router.push('/inbox');
+      setActiveContactConvId(conv.id);
     } catch { toast.error('Failed to open conversation'); }
   };
 
@@ -715,7 +757,7 @@ export default function ContactsPage() {
         });
         toast.success('Contact created');
         setShowCreate(false);
-        await load(1, search, activeSegmentId, filterLifecycle, filterLabel);
+        await load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
       }
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -781,7 +823,7 @@ export default function ContactsPage() {
       await Promise.all([...selectedIds].map(id => contactsApi.delete(id)));
       toast.success(`Deleted ${selectedIds.size} contacts`);
       setSelectedIds(new Set());
-      await load(1, search, activeSegmentId, filterLifecycle, filterLabel);
+      await load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
     } catch { toast.error('Failed to delete some contacts'); }
     finally { setBulkProcessing(false); }
   };
@@ -799,7 +841,7 @@ export default function ContactsPage() {
       toast.success(`Tag "${tag}" added to ${selectedIds.size} contacts`);
       setShowBulkTag(false);
       setBulkTagInput('');
-      await load(page, search, activeSegmentId, filterLifecycle, filterLabel);
+      await load(page, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
     } catch { toast.error('Failed to add tag'); }
     finally { setBulkProcessing(false); }
   };
@@ -827,8 +869,13 @@ export default function ContactsPage() {
   };
 
   return (
-    <div className="flex h-full bg-gray-50 overflow-hidden">
-      {/* ── Segments Sidebar ── */}
+    <div className="flex h-full bg-gray-50 overflow-hidden" style={activeConversation ? { zoom: 0.8 } : undefined}>
+      {/* ── LEFT: full table area (narrows when chat is open) ── */}
+      <div className={cn(
+        'flex overflow-hidden transition-all duration-200 flex-shrink-0',
+        activeConversation ? 'w-[660px]' : 'flex-1',
+      )}>
+        {/* ── Segments Sidebar ── */}
       <aside className="w-52 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-y-auto">
         <div className="p-3 border-b border-gray-100">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Segments</p>
@@ -912,43 +959,110 @@ export default function ContactsPage() {
 
             {/* Filter panel */}
             {showFilterPanel && (
-              <div className="w-full flex items-center gap-3 flex-wrap bg-teal-50 border border-teal-100 rounded-xl px-4 py-3 mt-1">
-                {/* Lifecycle filter */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Lifecycle</label>
-                  <select
-                    value={filterLifecycle}
-                    onChange={e => setFilterLifecycle(e.target.value as typeof filterLifecycle)}
-                    className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]"
-                  >
-                    <option value="">All</option>
-                    <option value="active">Active</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="optedOut">Opted Out</option>
-                  </select>
+              <div className="w-full flex flex-col gap-3 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3 mt-1">
+                <div className="flex items-start gap-3 flex-wrap">
+                  {/* Lifecycle filter */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Lifecycle</label>
+                    <select value={filterLifecycle} onChange={e => setFilterLifecycle(e.target.value as typeof filterLifecycle)}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
+                      <option value="">All</option>
+                      <option value="active">Active</option>
+                      <option value="blocked">Blocked</option>
+                      <option value="optedOut">Opted Out</option>
+                    </select>
+                  </div>
+
+                  {/* Tag filter */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Tag</label>
+                    <select value={filterLabel} onChange={e => setFilterLabel(e.target.value)}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
+                      <option value="">All tags</option>
+                      {availableTags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Date field */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Date Field</label>
+                    <select value={dateField} onChange={e => { setDateField(e.target.value as typeof dateField); setDatePreset(''); setDateFrom(''); setDateTo(''); }}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[140px]">
+                      <option value="">No date filter</option>
+                      <option value="createdAt">Date Added</option>
+                      <option value="lastMessage">Last Message</option>
+                      <option value="lastActive">Last Active</option>
+                    </select>
+                  </div>
+
+                  {/* Date preset — only shown when dateField is set */}
+                  {dateField && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Period</label>
+                      <select value={datePreset} onChange={e => setDatePreset(e.target.value as typeof datePreset)}
+                        className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
+                        <option value="">Any time</option>
+                        <option value="today">Today</option>
+                        <option value="yesterday">Yesterday</option>
+                        <option value="this_week">This Week</option>
+                        <option value="last_week">Last Week</option>
+                        <option value="this_month">This Month</option>
+                        <option value="last_month">Last Month</option>
+                        <option value="custom">Custom Range</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Custom date range */}
+                  {dateField && datePreset === 'custom' && (
+                    <>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">From</label>
+                        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                          className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">To</label>
+                        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                          className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Clear filters */}
+                  {activeFiltersCount > 0 && (
+                    <button onClick={() => { setFilterLifecycle(''); setFilterLabel(''); setDateField(''); setDatePreset(''); setDateFrom(''); setDateTo(''); }}
+                      className="self-end text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 pb-1.5">
+                      <X size={12} /> Clear all
+                    </button>
+                  )}
                 </div>
 
-                {/* Tag filter */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Tag</label>
-                  <select
-                    value={filterLabel}
-                    onChange={e => setFilterLabel(e.target.value)}
-                    className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]"
-                  >
-                    <option value="">All tags</option>
-                    {availableTags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                  </select>
-                </div>
-
-                {/* Clear filters */}
+                {/* Active filter chips */}
                 {activeFiltersCount > 0 && (
-                  <button
-                    onClick={() => { setFilterLifecycle(''); setFilterLabel(''); }}
-                    className="self-end text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 pb-1.5"
-                  >
-                    <X size={12} /> Clear
-                  </button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {filterLifecycle && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
+                        Lifecycle: {filterLifecycle}
+                        <button onClick={() => setFilterLifecycle('')} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
+                      </span>
+                    )}
+                    {filterLabel && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
+                        Tag: {filterLabel}
+                        <button onClick={() => setFilterLabel('')} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
+                      </span>
+                    )}
+                    {dateField && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
+                        {dateField === 'createdAt' ? 'Date Added' : dateField === 'lastMessage' ? 'Last Message' : 'Last Active'}
+                        {datePreset && datePreset !== 'custom' ? `: ${datePreset.replace('_', ' ')}` : ''}
+                        {datePreset === 'custom' && dateFrom ? `: ${dateFrom}` : ''}
+                        {datePreset === 'custom' && dateTo ? ` → ${dateTo}` : ''}
+                        <button onClick={() => { setDateField(''); setDatePreset(''); setDateFrom(''); setDateTo(''); }} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -989,7 +1103,7 @@ export default function ContactsPage() {
             <>
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm whitespace-nowrap">
+                  <table className="w-full text-sm whitespace-nowrap border-collapse">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
                         <th className="px-4 py-3 w-8">
@@ -1023,9 +1137,9 @@ export default function ContactsPage() {
                         const country = cf?.country ? { name: cf.country, flag: '' } : phoneToCountry(contact.phone);
                         return (
                           <tr key={contact.id}
-                            onClick={() => setSelectedContact(selectedContact?.id === contact.id ? null : contact)}
-                            className={cn('hover:bg-gray-50 transition-colors cursor-pointer', selectedContact?.id === contact.id && 'bg-teal-50', selectedIds.has(contact.id) && 'bg-teal-50/60')}>
-                            <td className="px-4 py-3 w-8" onClick={(e) => toggleSelect(contact.id, e)}>
+                            onClick={() => { void openConversation(contact); }}
+                            className={cn('hover:bg-gray-50 cursor-pointer', contact.latestConversation?.id === activeContactConvId && 'bg-teal-50', selectedIds.has(contact.id) && 'bg-teal-50/60')}>
+                            <td className={cn('px-4 py-3 w-8', contact.latestConversation?.id === activeContactConvId && 'border-l-2 border-l-teal-500')} onClick={(e) => toggleSelect(contact.id, e)}>
                               <input type="checkbox" checked={selectedIds.has(contact.id)} onChange={() => {}}
                                 className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer" />
                             </td>
@@ -1131,16 +1245,19 @@ export default function ContactsPage() {
           )}
         </div>
       </div>
+      </div>{/* end LEFT panel */}
 
-      {/* Contact Card Slide-over */}
-      {selectedContact && (
-        <ContactCard
-          contact={selectedContact}
-          onClose={() => setSelectedContact(null)}
-          onMessage={() => { void openConversation(selectedContact); }}
-          onEdit={() => openEdit(selectedContact)}
-          onDelete={() => setDeleteContact(selectedContact)}
-        />
+      {/* ── CENTER + RIGHT: inline chat (opens when contact row is clicked) ── */}
+      {activeConversation && (
+        <>
+          <ChatWindow
+            conversation={activeConversation}
+            showDetails={showDetails}
+            onToggleDetails={() => setShowDetails((v) => !v)}
+            onClose={() => setActiveContactConvId(null)}
+          />
+          {showDetails && <ConversationDetails conversation={activeConversation} />}
+        </>
       )}
 
       {/* Create / Edit modal */}
@@ -1465,7 +1582,7 @@ function ContactCard({
               <Loader2 size={14} className="animate-spin text-gray-300" />
             </div>
           ) : recentMsgs.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-3">No messages yet</p>
+            <p className="text-xs text-gray-400 text-center py-3">No messages on record</p>
           ) : (
             <div className="space-y-2">
               {recentMsgs.map(msg => {

@@ -1,14 +1,16 @@
 'use client';
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { Search, Edit2, X, Plus, ChevronDown, Check, Tag } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, Upload } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn, formatMessageTime, getInitials, truncate } from '@/lib/utils';
-import { contactsApi, conversationsApi, tagsApi } from '@/lib/api';
+import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import toast from 'react-hot-toast';
 
 interface Conversation {
   id: string;
   contact: { name: string | null; phone: string; avatarUrl: string | null };
+  assignedTo: { id: string; name: string } | null;
   status: string;
   unreadCount: number;
   lastMessageAt: string | null;
@@ -20,6 +22,7 @@ interface Conversation {
   intervenedAt?: string;
   resolvedAt?: string;
   lastInboundAt?: string | null;
+  activityLogs?: Array<{ action: string; metadata: Record<string, unknown> | null; createdAt: string }>;
 }
 
 interface StatusCounts {
@@ -34,12 +37,12 @@ interface Props {
   onSelect: (id: string) => void;
   loading: boolean;
   statusCounts?: StatusCounts;
+  onResolvedLoaded?: (convs: Conversation[]) => void;
 }
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
-  { key: 'REQUESTED', label: 'Requesting' },
-  { key: 'INTERVENED', label: 'Intervened' },
+  { key: 'REQUESTED', label: 'Requests' },
   { key: 'RESOLVED', label: 'Resolved' },
 ];
 
@@ -97,54 +100,196 @@ function getAvatarColor(name: string) {
 interface Contact { id: string; name: string | null; phone: string }
 
 function SessionTimer({ lastInboundAt }: { lastInboundAt: string | null | undefined }) {
-  const [display, setDisplay] = useState('');
-  const [urgent, setUrgent] = useState(false);
+  const [remaining, setRemaining] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!lastInboundAt) { setDisplay(''); return; }
+    if (!lastInboundAt) { setRemaining(null); return; }
     const update = () => {
-      const remaining = 24 * 3600 * 1000 - (Date.now() - new Date(lastInboundAt).getTime());
-      if (remaining <= 0) { setDisplay(''); return; }
-      const h = Math.floor(remaining / 3600000);
-      const m = Math.floor((remaining % 3600000) / 60000);
-      setUrgent(remaining < 2 * 3600000);
-      setDisplay(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+      setRemaining(24 * 3600 * 1000 - (Date.now() - new Date(lastInboundAt).getTime()));
     };
     update();
-    const id = setInterval(update, 60000);
+    const id = setInterval(update, 30000);
     return () => clearInterval(id);
   }, [lastInboundAt]);
 
-  if (!display) return null;
+  if (remaining === null) return null;
+
+  if (remaining <= 0) {
+    return (
+      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 animate-pulse">
+        Expired
+      </span>
+    );
+  }
+
+  const h = Math.floor(remaining / 3600000);
+  const m = Math.floor((remaining % 3600000) / 60000);
+  const colorClass =
+    remaining < 3600000 ? 'bg-red-100 text-red-600' :
+    remaining < 12 * 3600000 ? 'bg-amber-100 text-amber-600' :
+    'bg-green-100 text-green-700';
+
   return (
-    <span className={cn('text-[9px] font-semibold px-1.5 py-0.5 rounded-full', urgent ? 'bg-orange-100 text-orange-600' : 'bg-blue-50 text-blue-600')}>
-      ⏱ {display}
+    <span className={cn('text-[9px] font-semibold px-1.5 py-0.5 rounded-full', colorClass, remaining < 3600000 && 'animate-pulse')}>
+      ⏱ {h}h:{String(m).padStart(2, '0')}m
     </span>
   );
 }
 
-export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts }: Props) {
+const ConvRow = memo(function ConvRow({
+  conv, isActive, onSelect,
+}: {
+  conv: Conversation;
+  isActive: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const { activityLogs: storeActivityLogs } = useInboxStore();
+  if (!conv.contact) return null;
+  const name = conv.contact.name ?? conv.contact.phone;
+  const lastMsg = conv.messages?.[0];
+  const avatarColor = getAvatarColor(name);
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+    >
+      <button
+        onClick={() => onSelect(conv.id)}
+        className={cn(
+          'w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 transition-colors text-left border-l-2',
+          isActive ? 'bg-gray-50 border-l-teal-600' : 'border-l-transparent',
+        )}
+      >
+        <div className="relative flex-shrink-0">
+          <div className={cn('w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold', avatarColor)}>
+            {conv.contact.avatarUrl
+              ? <img src={conv.contact.avatarUrl} alt={name} className="w-10 h-10 rounded-full object-cover" />
+              : getInitials(name)}
+          </div>
+          <ConvChannelBadge channelType={conv.channel?.type} />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-sm font-semibold text-gray-900 truncate">{name}</span>
+            {conv.lastMessageAt && (
+              <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
+                {formatMessageTime(conv.lastMessageAt)}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-400 truncate">
+              {lastMsg?.content
+                ? truncate(lastMsg.content, 38)
+                : lastMsg?.type === 'IMAGE' ? '📷 Photo'
+                : lastMsg?.type === 'VIDEO' ? '🎥 Video'
+                : lastMsg?.type === 'AUDIO' ? '🎵 Audio'
+                : lastMsg?.type === 'DOCUMENT' ? '📄 Document'
+                : lastMsg?.type === 'LOCATION' ? '📍 Location'
+                : lastMsg?.type === 'CONTACTS' ? '👤 Contact'
+                : (() => {
+                    const liveLogs = storeActivityLogs[conv.id];
+                    const lastActivity = liveLogs
+                      ? liveLogs[liveLogs.length - 1]
+                      : conv.activityLogs?.[0];
+                    if (lastActivity?.action === 'CALL_ENDED') {
+                      const meta = lastActivity.metadata as { direction?: string; status?: string } | null;
+                      const isMissed = meta?.status === 'MISSED' || meta?.status === 'FAILED';
+                      const isOutbound = meta?.direction === 'OUTBOUND';
+                      return isMissed ? (isOutbound ? '📞 Missed outbound call' : '📞 Missed call') : '📞 Voice call';
+                    }
+                    return conv.requestedAt ? 'Conversation opened' : 'New conversation';
+                  })()}
+            </span>
+            {conv.unreadCount > 0 && (
+              <motion.span
+                key={conv.unreadCount}
+                initial={{ scale: 0.7 }}
+                animate={{ scale: 1 }}
+                className="ml-1.5 min-w-[18px] h-[18px] bg-teal-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 flex-shrink-0"
+              >
+                {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+              </motion.span>
+            )}
+          </div>
+          <div className="flex gap-1 mt-1 flex-wrap items-center">
+            {(conv.labels ?? []).slice(0, 2).map(l => (
+              <span key={l} className="text-[9px] bg-teal-50 text-teal-600 border border-teal-100 px-1.5 py-0.5 rounded-full font-medium">{l}</span>
+            ))}
+            {(conv.labels ?? []).length > 2 && (
+              <span className="text-[9px] text-gray-400">+{(conv.labels ?? []).length - 2}</span>
+            )}
+            {(conv.status === 'REQUESTED' || conv.status === 'INTERVENED') && (
+              <SessionTimer lastInboundAt={conv.lastInboundAt} />
+            )}
+            {conv.status === 'REQUESTED' && (
+              <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-semibold">Requesting</span>
+            )}
+            {conv.status === 'INTERVENED' && (
+              <span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold">
+                {conv.assignedTo?.name ? `By ${conv.assignedTo.name}` : 'Intervened'}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+    </motion.div>
+  );
+});
+
+export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
   const [labelFilter, setLabelFilter] = useState('All');
+  const [memberFilter, setMemberFilter] = useState('All');
   const [showChannelDropdown, setShowChannelDropdown] = useState(false);
   const [showLabelDropdown, setShowLabelDropdown] = useState(false);
+  const [showMemberDropdown, setShowMemberDropdown] = useState(false);
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
   const channelDropdownRef = useRef<HTMLDivElement>(null);
   const labelDropdownRef = useRef<HTMLDivElement>(null);
+  const memberDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactSearch, setContactSearch] = useState('');
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<Conversation[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [resolvedConversations, setResolvedConversations] = useState<Conversation[]>([]);
+  const [resolvedLoading, setResolvedLoading] = useState(false);
   const { prependConversation } = useInboxStore();
+
+  // Fetch resolved conversations on demand when that tab is selected
+  useEffect(() => {
+    if (statusFilter !== 'RESOLVED') return;
+    setResolvedLoading(true);
+    conversationsApi.list({ status: 'RESOLVED', limit: 100 })
+      .then(res => {
+        const data = (res.data as { data: Conversation[] }).data ?? [];
+        setResolvedConversations(data);
+        onResolvedLoaded?.(data);
+      })
+      .catch(() => {})
+      .finally(() => setResolvedLoading(false));
+  }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (channelDropdownRef.current && !channelDropdownRef.current.contains(e.target as Node)) setShowChannelDropdown(false);
       if (labelDropdownRef.current && !labelDropdownRef.current.contains(e.target as Node)) setShowLabelDropdown(false);
+      if (memberDropdownRef.current && !memberDropdownRef.current.contains(e.target as Node)) setShowMemberDropdown(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -152,7 +297,25 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
   useEffect(() => {
     tagsApi.list().then(r => setSavedTags((r.data as { id: string; name: string; color?: string }[]) ?? [])).catch(() => {});
+    usersApi.list().then(r => {
+      const users = (r.data as { id: string; name: string }[]) ?? [];
+      setTeamMembers(users);
+    }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!search.trim()) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await conversationsApi.list({ search: search.trim(), limit: 100, status: statusFilter !== 'All' ? statusFilter : undefined });
+        const data = (res.data as { data: Conversation[] }).data;
+        setSearchResults(data);
+      } catch { /* silent */ }
+      finally { setSearchLoading(false); }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search, statusFilter]);
 
   const openCompose = useCallback(async () => {
     setShowCompose(true);
@@ -177,14 +340,39 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     finally { setCreating(false); }
   };
 
-  const filtered = conversations.filter((c) => {
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const res = await conversationsApi.importCsv(file);
+      const { imported, skipped } = res.data as { imported: number; skipped: number };
+      toast.success(`Imported ${imported} messages${skipped > 0 ? `, skipped ${skipped}` : ''}`);
+      setShowImport(false);
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      toast.error(typeof msg === 'string' ? msg : 'Import failed');
+    } finally {
+      setImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  };
+
+  const sourceConversations = statusFilter === 'RESOLVED' ? resolvedConversations : conversations;
+
+  const filtered = useMemo(() => sourceConversations.filter((c) => {
+    if (!c.contact) return false;
     const name = c.contact.name ?? c.contact.phone;
     const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
-    const matchesStatus = statusFilter === 'All' ? ['REQUESTED', 'INTERVENED'].includes(c.status) : c.status === statusFilter;
+    const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
     const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
     const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
-    return matchesSearch && matchesStatus && matchesChannel && matchesLabel;
-  });
+    const matchesMember = statusFilter !== 'RESOLVED' || memberFilter === 'All'
+      || (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
+    return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
+  }), [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
 
   const filteredContacts = contacts.filter((c) => {
     const name = c.name ?? c.phone;
@@ -196,13 +384,20 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       {/* Header */}
       <div className="px-5 pt-5 pb-3 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-teal-600">Message</h2>
+          <h2 className="text-xl font-bold text-teal-600">Inbox</h2>
           <div className="flex items-center gap-1">
             <button
               onClick={() => { setShowSearch((v) => !v); if (showSearch) setSearch(''); }}
               className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
             >
               {showSearch ? <X size={15} /> : <Search size={15} />}
+            </button>
+            <button
+              onClick={() => setShowImport(true)}
+              title="Import conversations from CSV"
+              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+            >
+              <Upload size={15} />
             </button>
             <button
               onClick={() => { void openCompose(); }}
@@ -216,21 +411,24 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
         {showSearch && (
           <div className="relative mb-3">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            {searchLoading
+              ? <div className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+              : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />}
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Search name, phone, or message..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               autoFocus
               className="w-full pl-8 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
             />
+            {search && !searchLoading && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{searchResults.length}</span>}
           </div>
         )}
 
         {/* Filters: channel + label row, then status row */}
         <div className="flex flex-col gap-2">
-          {/* Row 1: Channel + Label */}
+          {/* Row 1: Channel + Label + Member */}
           <div className="flex items-center gap-2">
             {/* Channel filter */}
             <div className="relative flex-1" ref={channelDropdownRef}>
@@ -292,6 +490,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                 )}
               </div>
             )}
+
           </div>
 
           {/* Row 2: Status tabs */}
@@ -299,9 +498,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             {STATUS_FILTERS.map((f) => {
               const count = f.key !== 'All' ? (statusCounts?.[f.key as keyof StatusCounts] ?? 0) : null;
               const isActive = statusFilter === f.key;
-              const isUrgent = f.key === 'REQUESTED' && (count ?? 0) > 0;
+              const isUrgent = (f.key === 'REQUESTED' || f.key === 'INTERVENED') && (count ?? 0) > 0;
               return (
-                <button key={f.key} onClick={() => setStatusFilter(f.key)}
+                <button key={f.key} onClick={() => { setStatusFilter(f.key); if (f.key !== 'RESOLVED') setMemberFilter('All'); }}
                   className={cn(
                     'flex-1 flex items-center justify-center gap-1 px-1.5 py-1.5 text-[10px] rounded-lg transition-colors font-semibold whitespace-nowrap',
                     isActive ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
@@ -321,92 +520,90 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {/* Member filter — only shown for Resolved tab */}
+        {statusFilter === 'RESOLVED' && teamMembers.length > 0 && (
+          <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-3 py-2" ref={memberDropdownRef}>
+            <button
+              onClick={() => { setShowMemberDropdown(v => !v); setMemberSearch(''); }}
+              className={cn(
+                'w-full flex items-center justify-between gap-1.5 px-3 py-1.5 text-xs rounded-xl border transition-colors font-medium',
+                memberFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
+              )}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                <Users size={11} className="flex-shrink-0" />
+                <span className="truncate">
+                  {memberFilter === 'All' ? 'Filter by member' :
+                   memberFilter === 'unassigned' ? 'Unassigned' :
+                   (teamMembers.find(m => m.id === memberFilter)?.name ?? 'Member')}
+                </span>
+              </span>
+              <ChevronDown className={cn('w-3 h-3 flex-shrink-0 transition-transform', showMemberDropdown && 'rotate-180')} />
+            </button>
+            {showMemberDropdown && (
+              <div className="absolute left-3 right-3 top-full mt-0.5 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 overflow-hidden">
+                <div className="px-2 pt-1 pb-1">
+                  <div className="relative">
+                    <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="Search members…"
+                      value={memberSearch}
+                      onChange={e => setMemberSearch(e.target.value)}
+                      className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    />
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  <button onClick={() => { setMemberFilter('All'); setShowMemberDropdown(false); }}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
+                    <span className={memberFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Members</span>
+                    {memberFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
+                  </button>
+                  <button onClick={() => { setMemberFilter('unassigned'); setShowMemberDropdown(false); }}
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
+                    <span className={memberFilter === 'unassigned' ? 'font-semibold text-teal-600' : ''}>Unassigned</span>
+                    {memberFilter === 'unassigned' && <Check className="w-3 h-3 text-teal-600" />}
+                  </button>
+                  {teamMembers
+                    .filter(m => !memberSearch || (m.name ?? '').toLowerCase().includes(memberSearch.toLowerCase()))
+                    .map(m => (
+                      <button key={m.id} onClick={() => { setMemberFilter(m.id); setShowMemberDropdown(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
+                        <span className={cn(memberFilter === m.id && 'font-semibold text-teal-600')}>{m.name}</span>
+                        {memberFilter === m.id && <Check className="w-3 h-3 text-teal-600" />}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {(loading || resolvedLoading) ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 gap-3 text-gray-400 text-sm">
-            <p>No conversations found</p>
-            <button
-              onClick={() => { void openCompose(); }}
-              className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium"
-            >
-              <Plus size={13} /> New conversation
-            </button>
-          </div>
-        ) : (
-          filtered.map((conv) => {
-            const name = conv.contact.name ?? conv.contact.phone;
-            const lastMsg = conv.messages?.[0];
-            const isActive = conv.id === activeId;
-            const avatarColor = getAvatarColor(name);
-
-            return (
-              <button
-                key={conv.id}
-                onClick={() => onSelect(conv.id)}
-                className={cn(
-                  'w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 transition-colors text-left border-l-2',
-                  isActive ? 'bg-gray-50 border-l-teal-600' : 'border-l-transparent',
-                )}
-              >
-                <div className="relative flex-shrink-0">
-                  <div className={cn('w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold', avatarColor)}>
-                    {getInitials(name)}
-                  </div>
-                  <ConvChannelBadge channelType={conv.channel?.type} />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-sm font-semibold text-gray-900 truncate">{name}</span>
-                    {conv.lastMessageAt && (
-                      <span className="text-xs text-gray-400 flex-shrink-0 ml-1">
-                        {formatMessageTime(conv.lastMessageAt)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400 truncate">
-                      {lastMsg?.content
-                        ? truncate(lastMsg.content, 38)
-                        : lastMsg?.type === 'IMAGE' ? '📷 Photo'
-                        : lastMsg?.type === 'VIDEO' ? '🎥 Video'
-                        : lastMsg?.type === 'AUDIO' ? '🎵 Audio'
-                        : lastMsg?.type === 'DOCUMENT' ? '📄 Document'
-                        : lastMsg?.type === 'LOCATION' ? '📍 Location'
-                        : lastMsg?.type === 'CONTACTS' ? '👤 Contact'
-                        : 'No messages yet'}
-                    </span>
-                    {conv.unreadCount > 0 && (
-                      <span className="ml-1.5 min-w-[18px] h-[18px] bg-teal-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 flex-shrink-0">
-                        {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-1 mt-1 flex-wrap items-center">
-                    {(conv.labels ?? []).slice(0, 2).map(l => (
-                      <span key={l} className="text-[9px] bg-teal-50 text-teal-600 border border-teal-100 px-1.5 py-0.5 rounded-full font-medium">{l}</span>
-                    ))}
-                    {(conv.labels ?? []).length > 2 && (
-                      <span className="text-[9px] text-gray-400">+{(conv.labels ?? []).length - 2}</span>
-                    )}
-                    {(conv.status === 'REQUESTED' || conv.status === 'INTERVENED') && (
-                      <SessionTimer lastInboundAt={conv.lastInboundAt} />
-                    )}
-                    {conv.status === 'REQUESTED' && (
-                      <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-semibold">Requesting</span>
-                    )}
-                    {conv.status === 'INTERVENED' && (
-                      <span className="text-[9px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-semibold">In progress</span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            );
-          })
-        )}
+        ) : (() => {
+          const displayList = search.trim() ? searchResults : filtered;
+          if (displayList.length === 0) return (
+            <div className="flex flex-col items-center justify-center h-32 gap-3 text-gray-400 text-sm">
+              <p>{search.trim() && !searchLoading ? `No results for "${search}"` : 'No conversations found'}</p>
+              {!search && (
+                <button onClick={() => { void openCompose(); }} className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium">
+                  <Plus size={13} /> New conversation
+                </button>
+              )}
+            </div>
+          );
+          return (
+            <AnimatePresence initial={false}>
+              {displayList.map((conv) => (
+                <ConvRow key={conv.id} conv={conv} isActive={conv.id === activeId} onSelect={onSelect} />
+              ))}
+            </AnimatePresence>
+          );
+        })()}
       </div>
 
       {/* Compose / New conversation modal */}
@@ -431,7 +628,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   className="w-full pl-8 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
-              <div className="max-h-72 overflow-y-auto space-y-0.5">
+              <div className="max-h-72 overflow-y-auto">
                 {loadingContacts ? (
                   <div className="flex justify-center py-6">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-teal-600" />
@@ -460,6 +657,39 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   })
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import CSV modal */}
+      {showImport && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowImport(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900 text-sm">Import Conversations</h3>
+              <button onClick={() => setShowImport(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Import conversation history from AiSensy, Interakt, or any CSV export.<br />
+                Required column: <code className="bg-gray-100 px-1 rounded text-gray-700">phone</code><br />
+                Optional columns: <code className="bg-gray-100 px-1 rounded text-gray-700">name</code>, <code className="bg-gray-100 px-1 rounded text-gray-700">content</code>, <code className="bg-gray-100 px-1 rounded text-gray-700">direction</code> (INBOUND/OUTBOUND), <code className="bg-gray-100 px-1 rounded text-gray-700">type</code> (TEXT/IMAGE/VIDEO/DOCUMENT), <code className="bg-gray-100 px-1 rounded text-gray-700">timestamp</code>, <code className="bg-gray-100 px-1 rounded text-gray-700">mediaUrl</code>
+              </p>
+              <input ref={importFileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { void handleImportFile(e); }} />
+              <button
+                onClick={() => importFileRef.current?.click()}
+                disabled={importing}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+              >
+                {importing ? (
+                  <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Importing…</>
+                ) : (
+                  <><Upload size={15} /> Select CSV file</>
+                )}
+              </button>
             </div>
           </div>
         </div>

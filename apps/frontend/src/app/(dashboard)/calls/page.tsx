@@ -15,6 +15,7 @@ import toast from 'react-hot-toast';
 import { callsApi, contactsApi, conversationsApi, usersApi } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { useInboxStore } from '@/store/inbox.store';
+import { useCallsStore } from '@/store/calls.store';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ interface Contact { id: string; name: string | null; phone: string; }
 interface Agent { id: string; name: string; avatarUrl: string | null; }
 interface Stats { total: number; todayTotal: number; missed: number; scheduled: number; active: number; inbound: number; outbound: number; }
 interface Analytics { avgDuration: number; missedRate: number; completionRate: number; avgResponseTime: number; total: number; }
-interface ActiveCall { callId: string; contactName: string; phone: string; startedAt: Date; muted: boolean; held: boolean; }
+interface ActiveCall { callId: string; contactName: string; phone: string; startedAt: Date | null; ringing: boolean; muted: boolean; held: boolean; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -102,10 +103,13 @@ function downloadCallLog(call: CallLog) {
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<CallStatus, { label: string; dot: string; badge: string; text: string }> = {
+type DisplayStatus = CallStatus | 'UNANSWERED';
+
+const STATUS_CONFIG: Record<DisplayStatus, { label: string; dot: string; badge: string; text: string }> = {
   COMPLETED:   { label: 'Completed',   dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
   ANSWERED:    { label: 'Answered',    dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',       text: 'text-teal-700' },
   MISSED:      { label: 'Missed',      dot: 'bg-red-500',     badge: 'bg-red-50 border-red-200',         text: 'text-red-700' },
+  UNANSWERED:  { label: 'Unanswered',  dot: 'bg-orange-500',  badge: 'bg-orange-50 border-orange-200',   text: 'text-orange-700' },
   RINGING:     { label: 'Ringing',     dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',     text: 'text-amber-700' },
   SCHEDULED:   { label: 'Scheduled',   dot: 'bg-blue-500',    badge: 'bg-blue-50 border-blue-200',       text: 'text-blue-700' },
   INITIATED:   { label: 'Initiated',   dot: 'bg-sky-500',     badge: 'bg-sky-50 border-sky-200',         text: 'text-sky-700' },
@@ -114,7 +118,15 @@ const STATUS_CONFIG: Record<CallStatus, { label: string; dot: string; badge: str
   TRANSFERRED: { label: 'Transferred', dot: 'bg-purple-500',  badge: 'bg-purple-50 border-purple-200',   text: 'text-purple-700' },
 };
 
-function StatusBadge({ status }: { status: CallStatus }) {
+function resolveDisplayStatus(call: CallLog): DisplayStatus {
+  if (call.direction === 'OUTBOUND' && !call.answeredAt &&
+      (call.status === 'COMPLETED' || call.status === 'MISSED' || call.status === 'FAILED')) {
+    return 'UNANSWERED';
+  }
+  return call.status;
+}
+
+function StatusBadge({ status }: { status: DisplayStatus }) {
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.CANCELLED;
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-0.5 rounded-full border', cfg.badge, cfg.text)}>
@@ -161,40 +173,160 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-function DialModal({ onClose, prefill = '', onCallStarted }: { onClose: () => void; prefill?: string; onCallStarted: (phone: string) => void }) {
+type PermissionStatus = 'unknown' | 'checking' | 'no_permission' | 'temporary' | 'permanent' | 'requesting';
+
+function DialModal({ onClose, prefill = '', onCallStarted }: { onClose: () => void; prefill?: string; onCallStarted: (phone: string, callId: string) => void }) {
   const [number, setNumber] = useState(prefill);
+  const [callType, setCallType] = useState<'audio' | 'video'>('audio');
   const [calling, setCalling] = useState(false);
-  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
+  const [permission, setPermission] = useState<PermissionStatus>('unknown');
+  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '0', '⌫'];
+  const { setOutboundSession } = useCallsStore();
+  const permCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced permission check when phone number is entered
+  useEffect(() => {
+    const phone = number.trim();
+    if (!phone || phone.length < 7) { setPermission('unknown'); return; }
+    if (permCheckRef.current) clearTimeout(permCheckRef.current);
+    permCheckRef.current = setTimeout(async () => {
+      setPermission('checking');
+      try {
+        const res = await callsApi.getPermission(phone);
+        const d = res.data as { status: string; canCall: boolean };
+        setPermission(d.status as PermissionStatus);
+      } catch {
+        setPermission('unknown');
+      }
+    }, 600);
+    return () => { if (permCheckRef.current) clearTimeout(permCheckRef.current); };
+  }, [number]);
+
+  const handleRequestPermission = async () => {
+    const phone = number.trim();
+    if (!phone) return;
+    setPermission('requesting');
+    try {
+      await callsApi.requestPermission(phone);
+      toast.success('Call permission request sent via WhatsApp');
+      setPermission('no_permission'); // Still no permission until user accepts
+    } catch (err: unknown) {
+      const raw = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
+      toast.error(raw || 'Failed to send permission request');
+      setPermission('no_permission');
+    }
+  };
 
   const handleCall = async () => {
     const phone = number.trim();
     if (!phone) { toast.error('Enter a phone number'); return; }
     setCalling(true);
     try {
-      await callsApi.create({ phone, direction: 'OUTBOUND', status: 'INITIATED', startedAt: new Date().toISOString() });
-      onCallStarted(phone);
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      if (pc.iceGatheringState !== 'complete') {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 4000);
+          pc.addEventListener('icegatheringstatechange', () => {
+            if (pc.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
+          });
+        });
+      }
+      const sdpOffer = pc.localDescription!.sdp;
+
+      // DOM-attached audio element so autoplay policy is satisfied when ontrack fires
+      const remoteAudio = document.createElement('audio');
+      remoteAudio.autoplay = true;
+      remoteAudio.setAttribute('playsinline', '');
+      document.body.appendChild(remoteAudio);
+
+      pc.ontrack = (ev) => {
+        const remoteStream = ev.streams[0] ?? new MediaStream([ev.track]);
+        remoteAudio.srcObject = remoteStream;
+        void remoteAudio.play().catch(() => {
+          const retry = () => { void remoteAudio.play().catch(() => {}); document.removeEventListener('click', retry); };
+          document.addEventListener('click', retry, { once: true });
+        });
+      };
+
+      const res = await callsApi.initiate({ phone, type: callType, sdpOffer });
+      const data = res.data as { id: string };
+      setOutboundSession({ callLogId: data.id, pc, stream, remoteAudio });
+      onCallStarted(phone, data.id);
       onClose();
-    } catch { toast.error('Failed to initiate call'); }
+    } catch (err: unknown) {
+      const raw = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
+      const msg = raw.includes('call permission') || raw.includes('approved call') || raw.includes('138006')
+        ? 'This number has not granted call permission. Request permission first.'
+        : raw || 'Failed to initiate call';
+      toast.error(msg);
+    }
     finally { setCalling(false); }
+  };
+
+  const permBadge = () => {
+    if (permission === 'checking') return <span className="text-[10px] text-gray-400 flex items-center gap-1"><span className="w-2 h-2 border border-gray-300 border-t-gray-500 rounded-full animate-spin inline-block" />Checking…</span>;
+    if (permission === 'permanent') return <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">✓ Call permission granted</span>;
+    if (permission === 'temporary') return <span className="text-[10px] text-teal-600 font-bold flex items-center gap-1">✓ Temporary permission granted</span>;
+    if (permission === 'no_permission') return <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">⚠ No call permission</span>;
+    return null;
   };
 
   return (
     <ModalShell title="New call" onClose={onClose}>
       <div className="px-6 py-4 space-y-4">
-        <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-          <Phone size={14} className="text-gray-400 flex-shrink-0" />
-          <input value={number} onChange={e => setNumber(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void handleCall(); }}
-            placeholder="+1 (555) 000-0000" autoFocus
-            className="flex-1 bg-transparent text-lg font-mono text-gray-900 outline-none placeholder-gray-300 tracking-wider" />
-          {number && <button onClick={() => setNumber(p => p.slice(0, -1))} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>}
+        <div>
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+            <Phone size={14} className="text-gray-400 flex-shrink-0" />
+            <input value={number} onChange={e => setNumber(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void handleCall(); }}
+              placeholder="+1 (555) 000-0000" autoFocus
+              className="flex-1 bg-transparent text-lg font-mono text-gray-900 outline-none placeholder-gray-300 tracking-wider" />
+            {number && <button onClick={() => setNumber(p => p.slice(0, -1))} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>}
+          </div>
+          {number.trim().length >= 7 && (
+            <div className="mt-1.5 px-1 flex items-center justify-between">
+              {permBadge()}
+              {permission === 'no_permission' && (
+                <button
+                  onClick={() => { void handleRequestPermission(); }}
+                  className="text-[10px] font-bold text-teal-600 hover:text-teal-800 underline">
+                  Send permission request
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-3 gap-2">
           {digits.map(d => (
-            <button key={d} onClick={() => setNumber(p => p + d)}
+            <button key={d} onClick={() => d === '⌫' ? setNumber(p => p.slice(0, -1)) : setNumber(p => p + d)}
               className="h-12 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-900 font-semibold text-lg transition-colors border border-gray-100 active:scale-95">{d}</button>
           ))}
         </div>
+        <div className="flex gap-2">
+          {(['audio', 'video'] as const).map(t => (
+            <button key={t} onClick={() => setCallType(t)}
+              className={cn('flex-1 py-2 rounded-xl text-xs font-bold border transition-colors',
+                callType === t ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
+              {t === 'audio' ? '🎙 Audio' : '📹 Video'}
+            </button>
+          ))}
+        </div>
+        {permission === 'no_permission' && (
+          <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200">
+            <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+            <span>This number hasn&apos;t granted call permission. You can still try calling, or send a permission request first.</span>
+          </div>
+        )}
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
           <button onClick={() => { void handleCall(); }} disabled={calling || !number.trim()}
@@ -492,10 +624,12 @@ function ActiveCallBar({
   const [dragging, setDragging] = useState(false);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
+  const connected = call.startedAt !== null;
   useEffect(() => {
+    if (!connected) return;
     const t = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [connected]);
 
   const handleMute = async () => {
     if (togglingMute) return;
@@ -562,11 +696,18 @@ function ActiveCallBar({
           <p className="text-white font-semibold text-sm leading-tight truncate">{call.contactName}</p>
           <p className="text-slate-400 text-xs truncate">{call.phone}</p>
         </div>
-        {!held && <WaveformBars />}
+        {connected && !held && <WaveformBars />}
         {held && <span className="text-amber-400 text-xs font-bold animate-pulse">On Hold</span>}
-        <div className="flex items-center gap-1 text-emerald-400 font-mono text-sm bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 flex-shrink-0">
+        <div className={cn(
+          'flex items-center gap-1 font-mono text-sm px-3 py-1 rounded-full border flex-shrink-0',
+          connected
+            ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+            : call.ringing
+              ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse'
+              : 'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse',
+        )}>
           <Clock size={11} />
-          {formatDuration(elapsed)}
+          {connected ? formatDuration(elapsed) : call.ringing ? 'Ringing…' : 'Calling…'}
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
@@ -662,7 +803,7 @@ function CallDetail({
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Call Info</p>
           <div className="grid grid-cols-2 gap-y-2.5 text-xs">
             <span className="text-gray-500">Status</span>
-            <span className="flex justify-end"><StatusBadge status={call.status} /></span>
+            <span className="flex justify-end"><StatusBadge status={resolveDisplayStatus(call)} /></span>
             <span className="text-gray-500">Direction</span>
             <span className="flex items-center justify-end gap-1 font-medium text-gray-700">
               <DirectionIcon direction={call.direction} size={12} />
@@ -760,6 +901,7 @@ function CallDetail({
 
 function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
   const items = [
+    { label: 'Total Calls', value: analytics.total, icon: <Phone size={14} className="text-gray-500" />, color: 'text-gray-700' },
     { label: 'Avg Duration', value: formatDuration(analytics.avgDuration), icon: <Clock size={14} className="text-teal-500" />, color: 'text-teal-700' },
     { label: 'Missed Rate', value: `${analytics.missedRate}%`, icon: <PhoneMissed size={14} className="text-red-500" />, color: analytics.missedRate > 20 ? 'text-red-600' : 'text-gray-700' },
     { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: <TrendingUp size={14} className="text-emerald-500" />, color: 'text-emerald-700' },
@@ -767,7 +909,7 @@ function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
   ];
 
   return (
-    <div className="grid grid-cols-4 gap-3 mb-4 px-1">
+    <div className="grid grid-cols-5 gap-3 mb-4 px-1">
       {items.map(item => (
         <div key={item.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3">
           {item.icon}
@@ -823,7 +965,7 @@ function CallRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className={cn('text-sm font-semibold truncate', call.status === 'MISSED' ? 'text-red-600' : 'text-gray-900')}>{name}</p>
+          <p className={cn('text-sm font-semibold truncate', ['MISSED', 'UNANSWERED'].includes(resolveDisplayStatus(call)) ? 'text-red-600' : 'text-gray-900')}>{name}</p>
           {call.isArchived && <Archive size={11} className="text-gray-400 flex-shrink-0" />}
           {call.callNotes.length > 0 && (
             <span className="w-4 h-4 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0">{call.callNotes.length}</span>
@@ -840,7 +982,7 @@ function CallRow({
       </div>
 
       <div className="hidden lg:flex w-28 justify-end">
-        <StatusBadge status={call.status} />
+        <StatusBadge status={resolveDisplayStatus(call)} />
       </div>
 
       <div className="hidden xl:flex items-center gap-1.5 w-28 justify-end">
@@ -921,6 +1063,8 @@ export default function CallsPage() {
 
   const [nav, setNav] = useState<NavSection>('all');
   const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [modal, setModal] = useState<'dial' | 'schedule' | 'link' | null>(null);
@@ -944,7 +1088,7 @@ export default function CallsPage() {
     if (resetPage) setPage(1);
     try {
       const [callsRes, statsRes] = await Promise.all([
-        callsApi.list({ ...navParams(), search: search || undefined, page: p, limit }),
+        callsApi.list({ ...navParams(), search: search || undefined, page: p, limit, from: dateFrom || undefined, to: dateTo || undefined }),
         callsApi.stats(),
       ]);
       const d = callsRes.data as { data: CallLog[]; meta: { total: number } };
@@ -953,7 +1097,7 @@ export default function CallsPage() {
       setStats(statsRes.data as Stats);
     } catch { setCalls([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [nav, search, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nav, search, dateFrom, dateTo, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadContacts = useCallback(async () => {
     try {
@@ -977,27 +1121,82 @@ export default function CallsPage() {
     } catch { /* non-critical */ }
   }, []);
 
-  useEffect(() => { void loadCalls(true); }, [nav, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadCalls(true); }, [nav, search, dateFrom, dateTo]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void loadCalls(); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void loadContacts(); void loadAgents(); void loadAnalytics(); }, [loadContacts, loadAgents, loadAnalytics]);
 
   useEffect(() => {
     const socket = getSocket();
     const refresh = () => { void loadCalls(true); void loadAnalytics(); };
+
+    // Outbound call is ringing on user's device (SDP negotiated, not yet answered)
+    const onCallRinging = (data: { call: { callLogId: string } }) => {
+      setActiveCall(prev => {
+        if (!prev || prev.callId !== data.call?.callLogId) return prev;
+        return { ...prev, ringing: true };
+      });
+    };
+
+    // Start the call timer when the customer actually answers
+    const onCallConnected = (data: { call: { callLogId: string } }) => {
+      setActiveCall(prev => {
+        if (!prev || prev.callId !== data.call?.callLogId) return prev;
+        return { ...prev, startedAt: new Date() };
+      });
+    };
+
+    // Auto-end the active call bar when the remote side hangs up
+    const onCallUpdated = (data: { call: { id: string; status: string } }) => {
+      refresh();
+      const ended = ['COMPLETED', 'MISSED', 'FAILED', 'CANCELLED'].includes(data.call?.status ?? '');
+      if (!ended) return;
+      setActiveCall(prev => {
+        if (!prev || prev.callId !== data.call?.id) return prev;
+        const session = useCallsStore.getState().outboundSession;
+        if (session) {
+          try { session.pc.close(); } catch { /* ignore */ }
+          session.stream.getTracks().forEach(t => t.stop());
+          try { session.remoteAudio.srcObject = null; session.remoteAudio.remove(); } catch { /* ignore */ }
+          useCallsStore.getState().setOutboundSession(null);
+        }
+        return null;
+      });
+    };
+
     socket.on('call_created', refresh);
-    socket.on('call_updated', refresh);
+    socket.on('call_updated', onCallUpdated);
     socket.on('call_transferred', refresh);
-    return () => { socket.off('call_created', refresh); socket.off('call_updated', refresh); socket.off('call_transferred', refresh); };
+    socket.on('call_ringing', onCallRinging);
+    socket.on('call_connected', onCallConnected);
+    return () => {
+      socket.off('call_created', refresh);
+      socket.off('call_updated', onCallUpdated);
+      socket.off('call_transferred', refresh);
+      socket.off('call_ringing', onCallRinging);
+      socket.off('call_connected', onCallConnected);
+    };
   }, [loadCalls, loadAnalytics]);
 
-  const handleCallStarted = (phone: string, callId = '') => {
-    setActiveCall({ callId, contactName: phone, phone, startedAt: new Date(), muted: false, held: false });
+  const handleCallStarted = (phone: string, callId: string) => {
+    setActiveCall({ callId, contactName: phone, phone, startedAt: null, ringing: false, muted: false, held: false });
+    useCallsStore.getState().setOutboundCall({ callId, contactName: phone, phone, startedAt: null, ringing: false, muted: false, held: false });
     void loadCalls(true);
   };
 
   const handleEndCall = async () => {
     if (!activeCall) return;
-    const duration = Math.floor((Date.now() - activeCall.startedAt.getTime()) / 1000);
+    const duration = activeCall.startedAt ? Math.floor((Date.now() - activeCall.startedAt.getTime()) / 1000) : 0;
+
+    // Cleanup WebRTC session
+    const session = useCallsStore.getState().outboundSession;
+    if (session) {
+      try { await callsApi.respond(activeCall.callId, 'terminate'); } catch { /* best-effort */ }
+      if (session.pc) { session.pc.close(); }
+      if (session.stream) { session.stream.getTracks().forEach(t => t.stop()); }
+      if (session.remoteAudio) { session.remoteAudio.srcObject = null; session.remoteAudio.remove(); }
+      useCallsStore.getState().setOutboundSession(null);
+    }
+
     try {
       if (activeCall.callId) {
         await callsApi.update(activeCall.callId, { status: 'COMPLETED', duration, endedAt: new Date().toISOString() });
@@ -1109,10 +1308,23 @@ export default function CallsPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-gray-100 rounded-xl px-3 py-1.5 border-0">
+              <span className="text-[11px] text-gray-400 font-medium whitespace-nowrap">From</span>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="bg-transparent text-xs text-gray-700 focus:outline-none w-28" />
+              <span className="text-gray-300">—</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="bg-transparent text-xs text-gray-700 focus:outline-none w-28" />
+              {(dateFrom || dateTo) && (
+                <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-gray-400 hover:text-gray-600 ml-0.5">
+                  <X size={11} />
+                </button>
+              )}
+            </div>
             <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or number…"
-                className="bg-gray-100 border-0 rounded-xl pl-8 pr-8 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:bg-white transition-colors w-52" />
+                className="bg-gray-100 border-0 rounded-xl pl-8 pr-8 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:bg-white transition-colors w-44" />
               {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={12} /></button>}
             </div>
             <button onClick={() => void loadCalls(true)} title="Refresh"
@@ -1196,7 +1408,7 @@ export default function CallsPage() {
       </div>
 
       {/* Modals */}
-      {modal === 'dial'     && <DialModal prefill={dialPrefill} onClose={() => setModal(null)} onCallStarted={(phone) => handleCallStarted(phone)} />}
+      {modal === 'dial'     && <DialModal prefill={dialPrefill} onClose={() => setModal(null)} onCallStarted={(phone, callId) => handleCallStarted(phone, callId)} />}
       {modal === 'schedule' && <ScheduleModal contacts={contacts} onClose={() => setModal(null)} onScheduled={() => void loadCalls(true)} />}
       {modal === 'link'     && <CallLinkModal onClose={() => setModal(null)} />}
       {transferTarget       && <TransferModal call={transferTarget} agents={agents} onClose={() => setTransferTarget(null)} onTransferred={() => void loadCalls(true)} />}

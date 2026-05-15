@@ -1,6 +1,6 @@
 'use client';
 import { create } from 'zustand';
-import { Message } from '@whatsapp-platform/shared-types';
+import { Message, MessageDirection } from '@whatsapp-platform/shared-types';
 
 export interface ActivityEntry {
   id: string;
@@ -10,15 +10,16 @@ export interface ActivityEntry {
   user?: { id: string; name: string } | null;
 }
 
-interface Conversation {
+export interface Conversation {
   id: string;
   contact: { id: string; name: string | null; phone: string; avatarUrl: string | null };
   assignedTo: { id: string; name: string } | null;
   status: string;
   unreadCount: number;
   lastMessageAt: string | null;
+  lastInboundAt?: string | null;
   labels: string[];
-  messages?: Message[];
+  messages?: Array<{ id?: string; content: string | null; type: string; direction?: string }>;
   channel?: { id: string; type: string; name: string };
   requestedAt?: string;
   intervenedAt?: string;
@@ -42,7 +43,10 @@ interface InboxState {
   activityLogs: Record<string, ActivityEntry[]>;
   statusCounts: StatusCounts;
   setConversations: (conversations: Conversation[]) => void;
-  prependConversation: (conversation: Conversation) => void;
+  // Adds to top if new, updates IN-PLACE (no reorder) if already in the list
+  prependConversation: (conversation: Partial<Conversation> & { id: string }) => void;
+  // Moves conversation to top — only for new-message events
+  bumpConversation: (id: string) => void;
   setActiveConversation: (id: string | null) => void;
   addMessage: (conversationId: string, message: Message) => void;
   setMessages: (conversationId: string, messages: Message[]) => void;
@@ -55,6 +59,7 @@ interface InboxState {
   setActivityLogs: (conversationId: string, entries: ActivityEntry[]) => void;
   addActivityLog: (conversationId: string, entry: ActivityEntry) => void;
   setStatusCounts: (counts: StatusCounts) => void;
+  markConversationRead: (id: string) => void;
 }
 
 export const useInboxStore = create<InboxState>((set) => ({
@@ -67,8 +72,47 @@ export const useInboxStore = create<InboxState>((set) => ({
 
   setConversations: (conversations) => set({ conversations }),
 
+  // Merges partial data into an existing conversation IN-PLACE (no reorder).
+  // If the conversation is not yet in the list, adds it to the top (brand new).
   prependConversation: (conversation) =>
-    set((state) => ({ conversations: [conversation, ...state.conversations.filter((c) => c.id !== conversation.id)] })),
+    set((state) => {
+      const existing = state.conversations.find((c) => c.id === conversation.id);
+      if (existing) {
+        // Update in-place — preserve position in the list
+        const merged: Conversation = {
+          ...existing,
+          ...conversation,
+          contact: conversation.contact ?? existing.contact,
+          channel: conversation.channel ?? existing.channel,
+          labels: conversation.labels ?? existing.labels ?? [],
+          assignedTo: conversation.assignedTo !== undefined ? conversation.assignedTo : existing.assignedTo,
+          status: conversation.status ?? existing.status,
+          lastInboundAt: conversation.lastInboundAt !== undefined ? conversation.lastInboundAt : existing.lastInboundAt,
+          messages: conversation.messages ?? existing.messages,
+        };
+        return {
+          conversations: state.conversations.map((c) => c.id === conversation.id ? merged : c),
+        };
+      }
+      // New conversation not yet in list — add to top
+      const merged: Conversation = {
+        assignedTo: null,
+        status: 'REQUESTED',
+        unreadCount: 0,
+        lastMessageAt: null,
+        labels: [],
+        ...conversation,
+      } as Conversation;
+      return { conversations: [merged, ...state.conversations] };
+    }),
+
+  // Move an existing conversation to the top (called only on new message).
+  bumpConversation: (id) =>
+    set((state) => {
+      const conv = state.conversations.find((c) => c.id === id);
+      if (!conv) return state;
+      return { conversations: [conv, ...state.conversations.filter((c) => c.id !== id)] };
+    }),
 
   setActiveConversation: (id) => set({ activeConversationId: id }),
 
@@ -81,22 +125,33 @@ export const useInboxStore = create<InboxState>((set) => ({
       // Replace matching optimistic (temp-*) message with the real one
       const withoutOptimistic = existing.filter((m) => {
         if (!m.id.startsWith('temp-')) return true;
-        // Same direction + same content + created less than 15s ago
         const tempTime = parseInt(m.id.replace('temp-', ''), 10);
         if (Date.now() - tempTime > 15_000) return true;
         return m.content !== message.content || m.direction !== message.direction;
       });
+
+      const isInbound = message.direction === MessageDirection.INBOUND;
+      const inboundUpdate = isInbound ? { lastInboundAt: message.createdAt as unknown as string } : {};
+
+      const updatedConv = state.conversations.find((c) => c.id === conversationId);
+      const updatedConvData = updatedConv
+        ? {
+            ...updatedConv,
+            lastMessageAt: message.createdAt as unknown as string,
+            messages: [{ id: message.id, content: message.content, type: message.type, direction: message.direction }],
+            ...inboundUpdate,
+          }
+        : null;
 
       return {
         messages: {
           ...state.messages,
           [conversationId]: [...withoutOptimistic, message],
         },
-        conversations: state.conversations.map((c) =>
-          c.id === conversationId
-            ? { ...c, lastMessageAt: message.createdAt as unknown as string }
-            : c,
-        ),
+        // New message always moves conversation to top (WhatsApp behaviour)
+        conversations: updatedConvData
+          ? [updatedConvData, ...state.conversations.filter((c) => c.id !== conversationId)]
+          : state.conversations,
       };
     }),
 
@@ -166,4 +221,11 @@ export const useInboxStore = create<InboxState>((set) => ({
     }),
 
   setStatusCounts: (counts) => set({ statusCounts: counts }),
+
+  markConversationRead: (id) =>
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === id ? { ...c, unreadCount: 0 } : c,
+      ),
+    })),
 }));

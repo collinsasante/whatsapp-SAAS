@@ -27,15 +27,32 @@ export class UsersService {
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
-    return this.prisma.user.create({
-      data: {
-        tenantId,
-        email: dto.email,
-        name: dto.name,
-        passwordHash,
-        role: dto.role ?? 'AGENT',
-      },
-      select: USER_SELECT,
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          tenantId,
+          email: dto.email,
+          name: dto.name,
+          passwordHash,
+          role: dto.role ?? 'AGENT',
+        },
+        select: USER_SELECT,
+      });
+
+      // Register as workspace member so JWT validation picks up the correct role
+      await tx.workspaceMember.upsert({
+        where: { workspaceId_userId: { workspaceId: tenantId, userId: user.id } },
+        create: {
+          workspaceId: tenantId,
+          userId: user.id,
+          role: dto.role === 'ADMIN' ? 'ADMIN' : 'AGENT',
+          status: 'ACTIVE',
+          joinedAt: new Date(),
+        },
+        update: {},
+      });
+
+      return user;
     });
   }
 

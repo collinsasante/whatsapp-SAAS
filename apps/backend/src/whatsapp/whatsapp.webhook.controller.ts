@@ -10,12 +10,28 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from '../messages/messages.service';
+import { CallsService } from '../calls/calls.service';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
+
+interface CallEvent {
+  id: string;
+  from?: string;
+  event: string;
+  status?: string;
+  timestamp?: string;
+  direction?: string;
+  duration?: number;
+  start_time?: string;
+  end_time?: string;
+  session?: { sdp_type: string; sdp: string };
+}
 
 interface WebhookEntry {
   id: string;
@@ -24,6 +40,7 @@ interface WebhookEntry {
       messaging_product: string;
       metadata: { display_phone_number: string; phone_number_id: string };
       contacts?: Array<{ profile: { name: string }; wa_id: string }>;
+      calls?: CallEvent[];
       messages?: Array<{
         id: string;
         from: string;
@@ -67,6 +84,7 @@ export class WhatsAppWebhookController {
   constructor(
     private prisma: PrismaService,
     private messagesService: MessagesService,
+    @Inject(forwardRef(() => CallsService)) private callsService: CallsService,
   ) {}
 
   @Get(':tenantSlug')
@@ -99,15 +117,68 @@ export class WhatsAppWebhookController {
   ) {
     if (body.object !== 'whatsapp_business_account') return { status: 'ok' };
 
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
-      select: { id: true },
-    });
+    // Collect all phone_number_ids present in this webhook batch.
+    // Meta always includes metadata.phone_number_id so we can resolve the
+    // canonical owner(s) regardless of which slug the webhook was registered under.
+    const phoneNumberIds = new Set<string>();
+    for (const entry of body.entry ?? []) {
+      for (const change of entry.changes ?? []) {
+        const pid = change.value?.metadata?.phone_number_id;
+        if (pid) phoneNumberIds.add(pid);
+      }
+    }
 
-    if (!tenant) return { status: 'ok' };
+    // Find every active tenant that owns any of these phone numbers.
+    // This is the fan-out: if tenant A and tenant B both configured the same
+    // phoneNumberId, both will receive and process this webhook.
+    let tenants: Array<{ id: string }> = [];
+    if (phoneNumberIds.size > 0) {
+      tenants = await this.prisma.tenant.findMany({
+        where: { phoneNumberId: { in: [...phoneNumberIds] }, isActive: true },
+        select: { id: true },
+      });
+      this.logger.debug(
+        `Webhook phone_number_ids [${[...phoneNumberIds].join(', ')}] → ${tenants.length} matching tenant(s)`,
+      );
+    }
 
-    for (const entry of body.entry) {
+    // Fallback: if no tenant matched by phoneNumberId (e.g. number not yet saved
+    // in tenant settings), resolve by slug so existing webhooks keep working.
+    if (tenants.length === 0) {
+      const fallback = await this.prisma.tenant.findUnique({
+        where: { slug: tenantSlug },
+        select: { id: true },
+      });
+      if (!fallback) return { status: 'ok' };
+      tenants = [fallback];
+      this.logger.debug(`Webhook slug fallback for ${tenantSlug}`);
+    }
+
+    // Process the full webhook payload for each matched tenant.
+    for (const tenant of tenants) {
+      await this.processWebhookForTenant(tenant.id, body.entry ?? []);
+    }
+
+    return { status: 'ok' };
+  }
+
+  private async processWebhookForTenant(tenantId: string, entries: WebhookEntry[]) {
+    for (const entry of entries) {
       for (const change of entry.changes) {
+        this.logger.log(`[webhook] field=${change.field} tenant=${tenantId}`);
+
+        // Handle call status updates from WhatsApp Calling API
+        if (change.field === 'calls') {
+          this.logger.log(`[webhook] calls payload: ${JSON.stringify(change.value)}`);
+          if (!change.value.calls?.length) continue;
+          try {
+            await this.callsService.handleCallWebhook(tenantId, change.value.calls);
+          } catch (error) {
+            this.logger.error(`[tenant:${tenantId}] Failed to process call webhook: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          continue;
+        }
+
         if (change.field !== 'messages') continue;
 
         const value = change.value;
@@ -116,9 +187,11 @@ export class WhatsAppWebhookController {
           const profileName = value.contacts?.[0]?.profile?.name;
           for (const message of value.messages) {
             try {
-              await this.messagesService.handleInbound(tenant.id, message, profileName);
+              await this.messagesService.handleInbound(tenantId, message, profileName);
             } catch (error) {
-              this.logger.error(`Failed to process inbound message: ${error instanceof Error ? error.message : String(error)}`);
+              this.logger.error(
+                `[tenant:${tenantId}] Failed to process inbound message ${message.id}: ${error instanceof Error ? error.message : String(error)}`,
+              );
             }
           }
         }
@@ -128,16 +201,16 @@ export class WhatsAppWebhookController {
             const status = STATUS_MAP[statusUpdate.status];
             if (status) {
               try {
-                await this.messagesService.updateStatus(statusUpdate.id, status, tenant.id);
+                await this.messagesService.updateStatus(statusUpdate.id, status, tenantId);
               } catch (error) {
-                this.logger.warn(`Failed to update message status: ${error instanceof Error ? error.message : String(error)}`);
+                this.logger.warn(
+                  `[tenant:${tenantId}] Failed to update message status ${statusUpdate.id}: ${error instanceof Error ? error.message : String(error)}`,
+                );
               }
             }
           }
         }
       }
     }
-
-    return { status: 'ok' };
   }
 }

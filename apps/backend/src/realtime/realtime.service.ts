@@ -42,14 +42,6 @@ export class RealtimeService {
     void this.emit('activity_log', { tenantId, conversationId, activity });
   }
 
-  emitMessageEdited(tenantId: string, conversationId: string, message: Record<string, unknown>) {
-    void this.emit('message_edited', { tenantId, conversationId, message });
-  }
-
-  emitMessageDeleted(tenantId: string, conversationId: string, messageId: string, scope: string) {
-    void this.emit('message_deleted', { tenantId, conversationId, messageId, scope });
-  }
-
   emitCallEvent(tenantId: string, event: string, call: Record<string, unknown>) {
     void this.emit(event, { tenantId, call });
   }
@@ -61,5 +53,29 @@ export class RealtimeService {
 
   emitToUser(userId: string, event: string, data: unknown) {
     void this.emit(event, { userId, data });
+  }
+
+  // Emit force-logout to a specific user's socket room
+  emitForceLogout(userId: string, reason: 'suspended' | 'removed' | 'forced' | 'password_reset') {
+    void this.emit('force_logout', { userId, reason });
+  }
+
+  // Notify all clients in a tenant that a member's profile/status changed
+  emitMemberUpdated(tenantId: string, userId: string, changes: Record<string, unknown>) {
+    void this.emit('member_updated', { tenantId, userId, changes });
+  }
+
+  // Notify a specific user that their role changed (they need to refresh their token)
+  emitRoleChanged(userId: string, newRole: string, tenantId: string) {
+    void this.emit('role_changed', { userId, newRole, tenantId });
+  }
+
+  // Notify tenant that conversations were bulk-reassigned
+  emitConversationsReassigned(tenantId: string, fromUserId: string, toUserId: string, count: number) {
+    void this.emit('conversations_reassigned', { tenantId, fromUserId, toUserId, count });
+  }
+
+  emitCannedUpdated(tenantId: string) {
+    void this.emit('canned_responses_updated', { tenantId });
   }
 }

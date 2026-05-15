@@ -24,10 +24,17 @@ export interface ScheduledCampaignJob {
   tenantId: string;
 }
 
+export interface CsatSurveyJob {
+  tenantId: string;
+  conversationId: string;
+  contactPhone: string;
+}
+
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
   MESSAGE_RETRY = 'message-retry',
   AUTOMATION_TRIGGER = 'automation-trigger',
   SCHEDULED_CAMPAIGN = 'scheduled-campaign',
   WEBHOOK_PROCESS = 'webhook-process',
+  CSAT_SURVEY = 'csat-survey',
 }

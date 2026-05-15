@@ -60,3 +60,21 @@ export class AnalyticsQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsString() from?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() to?: string;
 }
+
+export class InitiateCallDto {
+  @ApiProperty() @IsString() phone: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() contactId?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() type?: 'audio' | 'video';
+  @ApiPropertyOptional() @IsOptional() @IsString() sdpOffer?: string;
+}
+
+export class RespondCallDto {
+  @ApiProperty({ enum: ['pre_accept', 'accept', 'reject', 'terminate'] })
+  @IsString()
+  action: 'pre_accept' | 'accept' | 'reject' | 'terminate';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sdpAnswer?: string;
+}

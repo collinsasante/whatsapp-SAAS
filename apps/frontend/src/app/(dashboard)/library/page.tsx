@@ -137,13 +137,10 @@ export default function LibraryPage() {
   };
 
   const handleDelete = async (item: MediaItem) => {
+    if (!item.isAsset) { toast.error('Only library assets can be deleted'); return; }
     if (!window.confirm('Remove this file from the library?')) return;
     try {
-      if (item.isAsset) {
-        await mediaApi.deleteAsset(item.id);
-      } else {
-        await messagesApi.delete(item.conversation.id, item.id);
-      }
+      await mediaApi.deleteAsset(item.id);
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       setTotal((t) => Math.max(0, t - 1));
       toast.success('File removed');

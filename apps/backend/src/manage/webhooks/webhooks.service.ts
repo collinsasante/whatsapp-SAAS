@@ -6,6 +6,7 @@ export interface CreateWebhookDto {
   url: string;
   events?: string[];
   secret?: string;
+  headers?: Record<string, string>;
 }
 
 @Injectable()
@@ -27,6 +28,7 @@ export class WebhooksService {
         url: dto.url,
         events: dto.events ?? [],
         secret: dto.secret,
+        headers: dto.headers ?? undefined,
       },
     });
   }
@@ -41,6 +43,7 @@ export class WebhooksService {
         ...(dto.url && { url: dto.url }),
         ...(dto.events && { events: dto.events }),
         ...(dto.secret !== undefined && { secret: dto.secret }),
+        ...(dto.headers !== undefined && { headers: dto.headers }),
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       },
     });
@@ -62,12 +65,15 @@ export class WebhooksService {
       data: { message: 'This is a test webhook delivery from WhatsApp Platform' },
     };
 
+    const customHeaders = (wh.headers as Record<string, string> | null) ?? {};
+
     try {
       const res = await fetch(wh.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(wh.secret && { 'X-Webhook-Secret': wh.secret }),
+          ...customHeaders,
         },
         body: JSON.stringify(payload),
       });

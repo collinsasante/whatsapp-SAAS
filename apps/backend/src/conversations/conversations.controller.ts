@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ConversationsService } from './conversations.service';
 import {
   CreateConversationDto, UpdateConversationDto, CreateNoteDto,
@@ -30,6 +31,16 @@ export class ConversationsController {
     return this.conversationsService.findOrCreate(tenantId, body.contactId);
   }
 
+  @Post('import')
+  @ApiOperation({ summary: 'Import conversations from CSV (AiSensy or generic format)' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  importCsv(
+    @CurrentTenant() tenantId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.conversationsService.importFromCsv(tenantId, file.buffer.toString('utf-8'));
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get conversations with status filter' })
   findAll(
@@ -47,6 +58,12 @@ export class ConversationsController {
   @ApiOperation({ summary: 'Get conversation counts per status' })
   getCounts(@CurrentTenant() tenantId: string) {
     return this.conversationsService.getStatusCounts(tenantId);
+  }
+
+  @Post(':id/summarize')
+  @ApiOperation({ summary: 'AI-summarize a conversation' })
+  summarize(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.conversationsService.summarize(tenantId, id);
   }
 
   @Get(':id')
@@ -142,4 +159,5 @@ export class ConversationsController {
   deleteConversation(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.conversationsService.deleteConversation(tenantId, id);
   }
+
 }
