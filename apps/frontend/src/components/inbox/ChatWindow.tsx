@@ -393,16 +393,21 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setSearchCurrentIdx(0);
   }, [searchQuery, convMessages]);
 
-  // Scroll to current search result when index changes
+  // Scroll to current search result when index changes.
+  // Messages outside the virtualizer's render window have no DOM node, so we ask the
+  // virtualizer to scroll to that row first; once it mounts, scrollIntoView centers it.
   useEffect(() => {
     if (!searchResultIds.length) return;
     const id = searchResultIds[searchCurrentIdx];
     if (!id) return;
+    const idx = flatItems.findIndex((it) => it.kind === 'message' && it.item.id === id);
+    if (idx === -1) return;
+    virtualizer.scrollToIndex(idx, { align: 'center' });
     setTimeout(() => {
       const el = document.getElementById(`msg-${id}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 50);
-  }, [searchCurrentIdx, searchResultIds]);
+    }, 120);
+  }, [searchCurrentIdx, searchResultIds, flatItems, virtualizer]);
 
   useEffect(() => { scrollToBottom(); }, [convMessages.length, scrollToBottom]);
 
@@ -634,7 +639,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         const uploadRes = await mediaApi.upload(file);
         const { fileUrl: url } = uploadRes.data as { fileUrl: string };
         const type = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('video/') ? 'VIDEO' : file.type.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT';
-        await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(type !== 'IMAGE' ? { mediaCaption: file.name } : {}) });
+        // Documents/audio carry the filename as a caption so the recipient knows what they got.
+        // Images and videos render inline — their filename is irrelevant clutter.
+        const carriesFilename = type === 'DOCUMENT' || type === 'AUDIO';
+        await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(carriesFilename ? { mediaCaption: file.name } : {}) });
       } catch (err: unknown) {
         const msg = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
         toast.error(typeof msg === 'string' ? msg : `Failed to send ${file.name}`);
@@ -1497,6 +1505,20 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               <button onClick={() => setShowLocationPicker(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div className="space-y-2">
+              <button
+                onClick={() => {
+                  setShowLocationPicker(false);
+                  void sendCurrentPosition('Current Location').catch((e) => toast.error(e instanceof Error ? e.message : 'Location error'));
+                }}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-teal-50 hover:bg-teal-100 transition-colors text-sm font-semibold text-teal-700"
+              >
+                <span>Send current location</span><MapPin size={14} />
+              </button>
+              <div className="flex items-center gap-2 py-1">
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">or share live</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
               {LOCATION_DURATIONS.map(({ label, minutes }) => (
                 <button key={minutes} onClick={() => { setShowLocationPicker(false); void startLiveLocation(minutes); }} className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-gray-50 hover:bg-teal-50 hover:text-teal-700 transition-colors text-sm font-medium text-gray-700">
                   <span>{label}</span><MapPin size={14} className="opacity-50" />
