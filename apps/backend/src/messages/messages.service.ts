@@ -416,6 +416,9 @@ export class MessagesService {
         metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
         deliveredAt: new Date(),
       },
+      include: {
+        replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
+      },
     });
 
     await this.conversationsService.incrementUnread(conversation.id);

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { useCallsStore } from '@/store/calls.store';
+import { useCallRecording, uploadCallRecording } from '@/hooks/useCallRecording';
 import { cn } from '@/lib/utils';
 
 function WaveformBars() {
@@ -72,6 +73,9 @@ export function OutboundCallBar() {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
 
+  const recording           = useCallRecording();
+  const recordingStartedRef = useRef(false); // guard against double-start
+
   const phase = phaseOf(outboundCall);
   const connected = phase === 'connected';
   const terminal  = ['declined', 'unanswered', 'canceled', 'ended'].includes(phase);
@@ -84,7 +88,7 @@ export function OutboundCallBar() {
   }, [connected]);
 
   useEffect(() => {
-    if (outboundCall) { setElapsed(0); setMuted(false); }
+    if (outboundCall) { setElapsed(0); setMuted(false); recordingStartedRef.current = false; }
   }, [outboundCall?.callId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // NOTE: do NOT use WebRTC `connectionState === 'connected'` to start the timer.
@@ -93,6 +97,34 @@ export function OutboundCallBar() {
   // the peer connection reports 'connected' too early. The timer is driven only
   // by the `call_accepted` socket event below, which the backend emits when Meta
   // sends the real `accept` webhook (customer actually answered).
+
+  // ── Start recording when customer answers ──────────────────────────────────
+  useEffect(() => {
+    if (!connected || recordingStartedRef.current) return;
+    const session = useCallsStore.getState().outboundSession;
+    if (!session) return;
+    recordingStartedRef.current = true;
+    const remoteStream = session.remoteAudio.srcObject instanceof MediaStream
+      ? session.remoteAudio.srcObject
+      : null;
+    recording.start(session.stream, remoteStream);
+  }, [connected, outboundSession]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Stop recording when call reaches a terminal phase ─────────────────────
+  const recordingCallIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (outboundCall?.callId) recordingCallIdRef.current = outboundCall.callId;
+  }, [outboundCall?.callId]);
+
+  const stopAndUpload = useCallback(() => {
+    const id = recordingCallIdRef.current;
+    if (!id) return;
+    recordingCallIdRef.current = null;
+    recordingStartedRef.current = false;
+    void recording.stop().then((blob) => {
+      if (blob) void uploadCallRecording(id, blob);
+    });
+  }, [recording]);
 
   // ── Cleanup WebRTC session ─────────────────────────────────────────────────
   const cleanupSession = useCallback(() => {
@@ -145,6 +177,7 @@ export function OutboundCallBar() {
     socket.on('call_declined', (data: { call: { id: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
+      stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'declined' });
       toast.error('Call declined', { icon: '🚫' });
@@ -155,6 +188,7 @@ export function OutboundCallBar() {
     socket.on('call_unanswered', (data: { call: { id: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
+      stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'unanswered' });
       toast('No answer', { icon: '📵' });
@@ -167,6 +201,7 @@ export function OutboundCallBar() {
       if (!current || current.callId !== data.call?.id) return;
       if (!TERMINAL.has(data.call?.status ?? '')) return;
 
+      stopAndUpload();
       cleanupSession();
       const reason = data.call.status === 'DECLINED' ? 'declined' :
                      data.call.status === 'UNANSWERED' ? 'unanswered' :
@@ -179,6 +214,7 @@ export function OutboundCallBar() {
     socket.on('call_ended', (data: { call: { id: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
+      stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'ended' });
       dismiss(2000);
@@ -193,7 +229,7 @@ export function OutboundCallBar() {
       socket.off('call_updated');
       socket.off('call_ended');
     };
-  }, [cleanupSession, dismiss, setOutboundCall]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cleanupSession, dismiss, setOutboundCall, stopAndUpload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Hang up ────────────────────────────────────────────────────────────────
   const handleHangUp = useCallback(async () => {
@@ -201,6 +237,7 @@ export function OutboundCallBar() {
     const duration = outboundCall.startedAt
       ? Math.floor((Date.now() - outboundCall.startedAt.getTime()) / 1000)
       : 0;
+    stopAndUpload();
     try { await callsApi.respond(outboundCall.callId, 'terminate'); } catch { /* best-effort */ }
     try {
       await callsApi.update(outboundCall.callId, {
@@ -214,7 +251,7 @@ export function OutboundCallBar() {
     setOutboundCall({ ...outboundCall, endedReason: reason });
     if (duration > 0) toast.success(`Call ended — ${formatDuration(duration)}`);
     dismiss(1500);
-  }, [outboundCall, cleanupSession, dismiss, setOutboundCall]);
+  }, [outboundCall, cleanupSession, dismiss, setOutboundCall, stopAndUpload]);
 
   // ── Mute ───────────────────────────────────────────────────────────────────
   const handleMute = useCallback(async () => {
@@ -311,9 +348,18 @@ export function OutboundCallBar() {
         {connected && !outboundCall.held && <WaveformBars />}
         {outboundCall.held && <span className="text-amber-400 text-xs font-bold animate-pulse">On Hold</span>}
 
-        <div className={cn('flex items-center gap-1 font-mono text-sm px-3 py-1 rounded-full border flex-shrink-0', statusColor)}>
-          <Clock size={11} />
-          {statusLabel}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className={cn('flex items-center gap-1 font-mono text-sm px-3 py-1 rounded-full border', statusColor)}>
+            <Clock size={11} />
+            {statusLabel}
+          </div>
+          {/* Recording indicator */}
+          {connected && (
+            <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/20">
+              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              <span className="text-red-400 text-[10px] font-bold">REC</span>
+            </div>
+          )}
         </div>
       </div>
 

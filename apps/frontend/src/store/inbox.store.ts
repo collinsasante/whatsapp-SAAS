@@ -30,6 +30,7 @@ export interface Conversation {
 }
 
 export interface StatusCounts {
+  ACTIVE: number;
   REQUESTED: number;
   INTERVENED: number;
   RESOLVED: number;
@@ -68,7 +69,7 @@ export const useInboxStore = create<InboxState>((set) => ({
   messages: {},
   typingUsers: {},
   activityLogs: {},
-  statusCounts: { REQUESTED: 0, INTERVENED: 0, RESOLVED: 0 },
+  statusCounts: { ACTIVE: 0, REQUESTED: 0, INTERVENED: 0, RESOLVED: 0 },
 
   setConversations: (conversations) => set({ conversations }),
 

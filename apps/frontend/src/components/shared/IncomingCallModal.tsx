@@ -4,6 +4,7 @@ import { Phone, PhoneOff, Mic, MicOff, PhoneIncoming } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
 import { useCallsStore } from '@/store/calls.store';
+import { useCallRecording, uploadCallRecording } from '@/hooks/useCallRecording';
 import { cn } from '@/lib/utils';
 
 type CallState = 'ringing' | 'connecting' | 'active' | 'declined' | 'ended';
@@ -53,16 +54,31 @@ export function IncomingCallModal() {
   const [muted, setMuted] = useState(false);
   const [dismissing, setDismissing] = useState(false);
 
-  const pcRef        = useRef<RTCPeerConnection | null>(null);
-  const streamRef    = useRef<MediaStream | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
-  const ringCtxRef   = useRef<AudioContext | null>(null);
-  const ringTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pcRef           = useRef<RTCPeerConnection | null>(null);
+  const streamRef       = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const ringCtxRef      = useRef<AudioContext | null>(null);
+  const ringTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Kept to upload recording when call ends remotely (incomingCall cleared from store)
+  const recordingCallIdRef = useRef<string | null>(null);
 
+  const recording = useCallRecording();
   const elapsed = useElapsedSeconds(state === 'active');
+
+  // ── Stop recording and upload (fire-and-forget) ───────────────────────────
+  const stopAndUpload = useCallback(() => {
+    const id = recordingCallIdRef.current;
+    if (!id) return;
+    recordingCallIdRef.current = null;
+    void recording.stop().then((blob) => {
+      if (blob) void uploadCallRecording(id, blob);
+    });
+  }, [recording]);
 
   // ── Clean up audio/WebRTC resources ──────────────────────────────────────
   const cleanup = useCallback(() => {
+    stopAndUpload();
     if (ringTimerRef.current) { clearInterval(ringTimerRef.current); ringTimerRef.current = null; }
     if (ringCtxRef.current) {
       try { ringCtxRef.current.close(); } catch { /* ignore */ }
@@ -72,8 +88,9 @@ export function IncomingCallModal() {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
+    remoteStreamRef.current = null;
     if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-  }, []);
+  }, [stopAndUpload]);
 
   // ── Auto-dismiss after showing final state ────────────────────────────────
   const autoDismiss = useCallback((delay = 2500) => {
@@ -100,6 +117,13 @@ export function IncomingCallModal() {
 
     return cleanup;
   }, [incomingCall, cleanup]);
+
+  // ── Handle remote call termination (store cleared externally) ─────────────
+  useEffect(() => {
+    if (!incomingCall && recording.isRecording()) {
+      stopAndUpload();
+    }
+  }, [incomingCall]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Decline: agent pressed decline ───────────────────────────────────────
   const handleDecline = useCallback(async () => {
@@ -139,6 +163,7 @@ export function IncomingCallModal() {
       pc.ontrack = (event) => {
         if (!remoteAudioRef.current) return;
         const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+        remoteStreamRef.current = remoteStream;
         remoteAudioRef.current.srcObject = remoteStream;
         void remoteAudioRef.current.play().catch(() => {
           const retry = () => { void remoteAudioRef.current?.play().catch(() => {}); document.removeEventListener('click', retry); };
@@ -185,6 +210,9 @@ export function IncomingCallModal() {
       try { await callsApi.respond(incomingCall.callLogId, 'accept'); } catch { /* best-effort */ }
 
       setState('active');
+      // Start recording once both local + remote streams are available
+      recordingCallIdRef.current = incomingCall.callLogId;
+      recording.start(streamRef.current, remoteStreamRef.current);
     } catch (err) {
       console.error('[IncomingCallModal] WebRTC accept failed:', err);
       toast.error('Could not connect call — microphone may be blocked');
@@ -193,16 +221,17 @@ export function IncomingCallModal() {
       setState('declined');
       autoDismiss(1500);
     }
-  }, [incomingCall, cleanup, autoDismiss]);
+  }, [incomingCall, cleanup, autoDismiss, recording]);
 
   // ── Hang up during active call ────────────────────────────────────────────
   const handleHangup = useCallback(async () => {
     if (!incomingCall) return;
+    stopAndUpload();
     cleanup();
     try { await callsApi.respond(incomingCall.callLogId, 'terminate'); } catch { /* best-effort */ }
     setState('ended');
     autoDismiss(2000);
-  }, [incomingCall, cleanup, autoDismiss]);
+  }, [incomingCall, cleanup, stopAndUpload, autoDismiss]);
 
   // ── Toggle mute ───────────────────────────────────────────────────────────
   const toggleMute = useCallback(() => {
@@ -269,9 +298,15 @@ export function IncomingCallModal() {
             </div>
 
             {state === 'active' && (
-              <span className="text-white/90 text-sm font-mono flex-shrink-0 tabular-nums">
-                {formatElapsed(elapsed)}
-              </span>
+              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                <span className="text-white/90 text-sm font-mono tabular-nums">
+                  {formatElapsed(elapsed)}
+                </span>
+                <span className="flex items-center gap-1 text-red-300 text-[10px] font-semibold">
+                  <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />
+                  REC
+                </span>
+              </div>
             )}
             {state === 'ringing' && (
               <div className="flex-shrink-0">

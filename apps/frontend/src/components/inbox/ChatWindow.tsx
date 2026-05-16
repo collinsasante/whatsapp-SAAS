@@ -394,8 +394,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, [searchQuery, convMessages]);
 
   // Scroll to current search result when index changes.
-  // Messages outside the virtualizer's render window have no DOM node, so we ask the
-  // virtualizer to scroll to that row first; once it mounts, scrollIntoView centers it.
+  // Step 1: scrollToIndex uses estimated sizes — gets us close immediately.
+  // Step 2: after React re-renders the now-visible items and the virtualizer
+  //         re-measures them, scrollToIndex again with actual sizes for precision.
+  // Step 3: as a final fallback, scrollIntoView on the DOM node itself.
   useEffect(() => {
     if (!searchResultIds.length) return;
     const id = searchResultIds[searchCurrentIdx];
@@ -403,10 +405,16 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     const idx = flatItems.findIndex((it) => it.kind === 'message' && it.item.id === id);
     if (idx === -1) return;
     virtualizer.scrollToIndex(idx, { align: 'center' });
-    setTimeout(() => {
+    const t1 = setTimeout(() => {
+      virtualizer.scrollToIndex(idx, { align: 'center' });
       const el = document.getElementById(`msg-${id}`);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 120);
+    }, 150);
+    const t2 = setTimeout(() => {
+      const el = document.getElementById(`msg-${id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 350);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [searchCurrentIdx, searchResultIds, flatItems, virtualizer]);
 
   useEffect(() => { scrollToBottom(); }, [convMessages.length, scrollToBottom]);
@@ -1500,30 +1508,44 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       {showLocationPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowLocationPicker(false)}>
           <div className="bg-white rounded-2xl p-6 w-80 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2"><MapPin size={18} className="text-red-500" /><h4 className="font-semibold text-gray-900">Share Location</h4></div>
               <button onClick={() => setShowLocationPicker(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
-            <div className="space-y-2">
-              <button
-                onClick={() => {
-                  setShowLocationPicker(false);
-                  void sendCurrentPosition('Current Location').catch((e) => toast.error(e instanceof Error ? e.message : 'Location error'));
-                }}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-teal-50 hover:bg-teal-100 transition-colors text-sm font-semibold text-teal-700"
-              >
-                <span>Send current location</span><MapPin size={14} />
-              </button>
-              <div className="flex items-center gap-2 py-1">
-                <div className="flex-1 h-px bg-gray-200" />
-                <span className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">or share live</span>
-                <div className="flex-1 h-px bg-gray-200" />
-              </div>
-              {LOCATION_DURATIONS.map(({ label, minutes }) => (
-                <button key={minutes} onClick={() => { setShowLocationPicker(false); void startLiveLocation(minutes); }} className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-gray-50 hover:bg-teal-50 hover:text-teal-700 transition-colors text-sm font-medium text-gray-700">
-                  <span>{label}</span><MapPin size={14} className="opacity-50" />
+            <div className="space-y-3">
+              {/* Specific location */}
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">Specific location</p>
+                <button
+                  onClick={() => {
+                    setShowLocationPicker(false);
+                    void sendCurrentPosition('Current Location').catch((e) => toast.error(e instanceof Error ? e.message : 'Location error'));
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-teal-50 hover:bg-teal-100 transition-colors text-sm font-semibold text-teal-700"
+                >
+                  <MapPin size={15} className="flex-shrink-0" />
+                  <div className="text-left">
+                    <p className="font-semibold text-sm">Send current location</p>
+                    <p className="text-xs text-teal-500 font-normal">Sends a one-time GPS pin</p>
+                  </div>
                 </button>
-              ))}
+              </div>
+              <div className="h-px bg-gray-100" />
+              {/* Live location */}
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">Live location</p>
+                <div className="space-y-1.5">
+                  {LOCATION_DURATIONS.map(({ label, minutes }) => (
+                    <button key={minutes} onClick={() => { setShowLocationPicker(false); void startLiveLocation(minutes); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-50 hover:bg-teal-50 hover:text-teal-700 transition-colors text-sm font-medium text-gray-700">
+                      <MapPin size={15} className="flex-shrink-0 opacity-50" />
+                      <div className="text-left">
+                        <p className="font-medium text-sm">{label}</p>
+                        <p className="text-xs text-gray-400 font-normal">Updates your location in real time</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1554,8 +1576,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               await messagesApi.send(conversation.id, {
                 type: item.type,
                 mediaUrl: item.mediaUrl,
-                // Images don't need a caption/filename — only documents and audio
-                mediaCaption: item.type === 'IMAGE' ? undefined : (item.mediaCaption ?? undefined),
+                // Images and videos render inline — only documents and audio need a filename caption
+                mediaCaption: (item.type === 'IMAGE' || item.type === 'VIDEO') ? undefined : (item.mediaCaption ?? undefined),
               });
             }
           }}
@@ -2106,7 +2128,7 @@ const MessageBubble = memo(function MessageBubble({
                         <FileText size={14} /><span>{message.mediaCaption ?? 'Download document'}</span>
                       </a>
                     )}
-                    {message.mediaCaption && message.type !== 'DOCUMENT' && (
+                    {message.mediaCaption && message.type !== 'DOCUMENT' && message.type !== 'VIDEO' && (
                       <p className={cn('text-xs mt-1', isOutbound ? 'text-teal-200' : 'text-gray-500')}>{message.mediaCaption}</p>
                     )}
                   </div>
