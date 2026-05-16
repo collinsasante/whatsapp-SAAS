@@ -1534,7 +1534,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 mediaUrl: item.mediaUrl,
                 // Images don't need a caption/filename — only documents and audio
                 mediaCaption: item.type === 'IMAGE' ? undefined : (item.mediaCaption ?? undefined),
-                mediaType: item.mediaType ?? undefined,
               });
             }
           }}
