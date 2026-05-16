@@ -389,13 +389,14 @@ export class WorkspaceService {
     // Send invite email (fire-and-forget; failures are logged, not thrown)
     void (async () => {
       const [inviter, workspace] = await Promise.all([
-        this.prisma.user.findUnique({ where: { id: invitedById }, select: { name: true } }),
+        this.prisma.user.findUnique({ where: { id: invitedById }, select: { name: true, email: true } }),
         this.prisma.tenantSettings.findFirst({ where: { tenantId }, select: { businessName: true } }),
       ]).catch(() => [null, null]);
       await this.emailService.sendInvite({
         to: email,
         inviteeName: name,
         inviterName: inviter?.name ?? 'Your team',
+        inviterEmail: inviter?.email ?? undefined,
         workspaceName: workspace?.businessName ?? 'the workspace',
         inviteLink: link,
         expiresAt,

@@ -26,11 +26,16 @@ export class EmailService {
     to: string;
     inviteeName: string | undefined;
     inviterName: string;
+    inviterEmail: string | undefined;
     workspaceName: string;
     inviteLink: string;
     expiresAt: Date;
   }): Promise<void> {
-    const from = this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER') || 'noreply@example.com';
+    // The sending address is the platform SMTP account; the display name reflects
+    // who is actually inviting so the recipient knows it's a real person.
+    const smtpAddress = this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER') || 'noreply@example.com';
+    const from = `"${opts.inviterName} via ${opts.workspaceName}" <${smtpAddress}>`;
+    const replyTo = opts.inviterEmail ? `"${opts.inviterName}" <${opts.inviterEmail}>` : undefined;
     const subject = `${opts.inviterName} invited you to join ${opts.workspaceName}`;
 
     const expiryStr = opts.expiresAt.toLocaleDateString(undefined, {
@@ -94,7 +99,7 @@ export class EmailService {
     }
 
     try {
-      await this.transporter.sendMail({ from, to: opts.to, subject, html });
+      await this.transporter.sendMail({ from, to: opts.to, subject, html, ...(replyTo ? { replyTo } : {}) });
       this.logger.log(`Invite email sent to ${opts.to}`);
     } catch (err) {
       // Log but don't throw — the invitation token was already created
