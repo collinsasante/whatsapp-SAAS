@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
@@ -1864,6 +1864,7 @@ interface ContextMenu {
   x: number;
   y: number;
   messageId: string;
+  adjusted?: boolean;
 }
 
 function escapeRegex(s: string) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -1919,14 +1920,25 @@ const MessageBubble = memo(function MessageBubble({
     return () => { clearTimeout(timer); if (handler) document.removeEventListener('mousedown', handler); };
   }, [contextMenu]);
 
+  // Measure actual menu height after render and clamp within viewport
+  useLayoutEffect(() => {
+    if (!contextMenu || contextMenu.adjusted || !menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const padding = 8;
+    let { x, y } = contextMenu;
+    if (x + rect.width > window.innerWidth - padding) x = window.innerWidth - rect.width - padding;
+    x = Math.max(padding, x);
+    if (y + rect.height > window.innerHeight - padding) y = y - rect.height;
+    y = Math.max(padding, y);
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      setContextMenu(c => c ? { ...c, x, y, adjusted: true } : null);
+    }
+  }, [contextMenu]);
+
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const menuWidth = 210;
-    const menuHeight = Math.min(420, window.innerHeight * 0.6);
-    const x = e.clientX + menuWidth > window.innerWidth ? e.clientX - menuWidth : e.clientX;
-    const y = e.clientY + menuHeight > window.innerHeight ? e.clientY - menuHeight : e.clientY;
-    setContextMenu({ x, y, messageId: message.id });
+    setContextMenu({ x: e.clientX, y: e.clientY, messageId: message.id });
   };
 
   const handleCopy = () => {
@@ -1961,11 +1973,7 @@ const MessageBubble = memo(function MessageBubble({
 
   const openContextMenuFromTouch = (e: React.TouchEvent) => {
     const touch = e.touches[0];
-    const menuWidth = 210;
-    const menuHeight = Math.min(420, window.innerHeight * 0.6);
-    const x = touch.clientX + menuWidth > window.innerWidth ? touch.clientX - menuWidth : touch.clientX;
-    const y = touch.clientY + menuHeight > window.innerHeight ? touch.clientY - menuHeight : touch.clientY;
-    setContextMenu({ x, y, messageId: message.id });
+    setContextMenu({ x: touch.clientX, y: touch.clientY, messageId: message.id });
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
