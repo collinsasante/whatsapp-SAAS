@@ -846,9 +846,16 @@ function WelcomeSection({ settings, reload }: { settings: ManageSettings; reload
 
   const save = async () => {
     setSaving(true);
-    await manageSettingsApi.updateWelcome({ welcomeEnabled: enabled, welcomeMessage: msg });
-    setSaving(false);
-    reload();
+    try {
+      await manageSettingsApi.updateWelcome({ welcomeEnabled: enabled, welcomeMessage: msg });
+      toast.success('Welcome message saved');
+      reload();
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save welcome message';
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
