@@ -31,6 +31,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<Record<string, ContactField | ''>>({});
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState('');
   const [result, setResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -40,16 +41,18 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
       const text = e.target?.result as string;
       const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
       if (!lines.length) { toast.error('Empty file'); return; }
-      const h = lines[0].split(',').map(c => c.replace(/"/g, '').trim());
-      const r = lines.slice(1, 201).map(l => l.split(',').map(c => c.replace(/"/g, '').trim()));
+      const delim = lines[0].includes('\t') ? '\t' : ',';
+      const splitRow = (line: string) => line.split(delim).map(c => c.replace(/"/g, '').trim());
+      const h = splitRow(lines[0]);
+      const r = lines.slice(1).map(splitRow);
       setHeaders(h);
       setRows(r);
       // Auto-map obvious columns
       const auto: Record<string, ContactField | ''> = {};
       h.forEach(col => {
-        const lc = col.toLowerCase();
-        if (lc.includes('phone') || lc.includes('mobile') || lc.includes('number')) auto[col] = 'phone';
-        else if (lc.includes('name')) auto[col] = 'name';
+        const lc = col.toLowerCase().replace(/\s+/g, '');
+        if (lc.includes('phone') || lc.includes('mobile') || lc === 'usernumber' || lc.includes('number')) auto[col] = 'phone';
+        else if (lc === 'name' || lc.includes('firstname') || lc.includes('fullname')) auto[col] = 'name';
         else if (lc.includes('email')) auto[col] = 'email';
         else if (lc.includes('tag') || lc.includes('label')) auto[col] = 'labels';
         else if (lc.includes('country')) auto[col] = 'country';
@@ -75,6 +78,8 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
     if (!phoneCol) { toast.error('Map a column to Phone first'); return; }
 
     setImporting(true);
+    const CHUNK = 500;
+    const totals = { created: 0, skipped: 0, errors: [] as string[] };
     try {
       const contacts = rows.map(row => {
         const obj: Record<string, string> = {};
@@ -82,11 +87,22 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
         return obj;
       }).filter(c => c.phone?.trim());
 
-      const res = await contactsApi.import(contacts);
-      setResult(res.data as { created: number; skipped: number; errors: string[] });
+      const totalChunks = Math.ceil(contacts.length / CHUNK);
+      for (let i = 0; i < contacts.length; i += CHUNK) {
+        const chunk = contacts.slice(i, i + CHUNK);
+        const chunkNum = Math.floor(i / CHUNK) + 1;
+        setImportProgress(`Importing batch ${chunkNum} of ${totalChunks}…`);
+        const res = await contactsApi.import(chunk);
+        const data = res.data as { created: number; skipped: number; errors: string[] };
+        totals.created += data.created;
+        totals.skipped += data.skipped;
+        totals.errors.push(...data.errors);
+      }
+
+      setResult(totals);
       setStep('result');
     } catch { toast.error('Import failed'); }
-    finally { setImporting(false); }
+    finally { setImporting(false); setImportProgress(''); }
   };
 
   return (
@@ -121,7 +137,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
               </div>
               <div className="text-center">
                 <p className="text-sm font-medium text-gray-700">Drop your CSV here, or click to browse</p>
-                <p className="text-xs text-gray-400 mt-1">Columns: phone (required), name, email, labels, country, language</p>
+                <p className="text-xs text-gray-400 mt-1">Columns: UserNumber (required), Name, Tags, Status, Opted In, and more</p>
               </div>
             </div>
             <input ref={fileRef} type="file" accept=".csv" className="hidden"
@@ -130,7 +146,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs text-gray-500 font-medium">Sample CSV format:</p>
                 <a
-                  href={`data:text/csv;charset=utf-8,${encodeURIComponent('phone,name,email,labels\n+1234567890,John Doe,john@example.com,VIP\n+9876543210,Jane Smith,,customer\n+447911123456,Alice Brown,alice@example.com,lead')}`}
+                  href={`data:text/csv;charset=utf-8,${encodeURIComponent('Name\tUserNumber\tTags\tLast Active\tCreated On\tFirst Message\tSource\tStatus\tOpted In\tIntervened By\nJohn Doe\t+1234567890\tVIP\t\t\t\tdirect\tactive\tYes\t\nJane Smith\t+9876543210\tcustomer\t\t\t\twhatsapp\tactive\tYes\t\nAlice Brown\t+447911123456\tlead\t\t\t\tdirect\tactive\tYes\t')}`}
                   download="contacts_sample.csv"
                   className="text-[10px] text-teal-600 hover:text-teal-700 font-medium flex items-center gap-0.5"
                   onClick={e => e.stopPropagation()}
@@ -138,7 +154,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
                   ↓ Download sample
                 </a>
               </div>
-              <pre className="text-[10px] text-gray-400 font-mono">phone,name,email,labels{'\n'}+1234567890,John Doe,john@example.com,VIP{'\n'}+9876543210,Jane Smith,,customer{'\n'}+447911123456,Alice Brown,alice@example.com,lead</pre>
+              <pre className="text-[10px] text-gray-400 font-mono overflow-x-auto">{'Name\tUserNumber\tTags\tLast Active\tCreated On\tFirst Message\tSource\tStatus\tOpted In\tIntervened By'}</pre>
             </div>
           </div>
         )}
@@ -190,7 +206,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
               <button onClick={() => { void handleImport(); }} disabled={importing}
                 className="flex items-center gap-2 px-5 py-2 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 disabled:opacity-60">
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                {importing ? 'Importing…' : `Import ${rows.length} contacts`}
+                {importing ? (importProgress || 'Importing…') : `Import ${rows.length} contacts`}
               </button>
             </div>
           </div>

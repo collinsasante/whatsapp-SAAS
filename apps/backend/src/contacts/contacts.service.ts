@@ -237,20 +237,25 @@ export class ContactsService {
 
   async bulkImport(tenantId: string, dto: ImportContactsDto) {
     const results = { created: 0, skipped: 0, errors: [] as string[] };
+    const BATCH = 50;
 
-    for (const contactDto of dto.contacts) {
-      try {
-        const phone = normalizePhone(contactDto.phone);
-        await this.prisma.contact.upsert({
-          where: { tenantId_phone: { tenantId, phone } },
-          create: { tenantId, phone, name: contactDto.name, email: contactDto.email, labels: contactDto.labels ?? [] },
-          update: { name: contactDto.name, email: contactDto.email },
-        });
-        results.created++;
-      } catch {
-        results.errors.push(`Failed to import ${contactDto.phone}`);
-        results.skipped++;
-      }
+    for (let i = 0; i < dto.contacts.length; i += BATCH) {
+      await Promise.all(
+        dto.contacts.slice(i, i + BATCH).map(async (contactDto) => {
+          try {
+            const phone = normalizePhone(contactDto.phone);
+            await this.prisma.contact.upsert({
+              where: { tenantId_phone: { tenantId, phone } },
+              create: { tenantId, phone, name: contactDto.name, email: contactDto.email, labels: contactDto.labels ?? [] },
+              update: { name: contactDto.name, email: contactDto.email },
+            });
+            results.created++;
+          } catch {
+            results.errors.push(`Failed to import ${contactDto.phone}`);
+            results.skipped++;
+          }
+        }),
+      );
     }
 
     return results;
