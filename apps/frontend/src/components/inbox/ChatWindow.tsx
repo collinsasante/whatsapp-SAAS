@@ -191,6 +191,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [emojiCategory, setEmojiCategory] = useState(0);
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [addrQuery, setAddrQuery] = useState('');
+  const [addrResults, setAddrResults] = useState<{ display_name: string; lat: string; lon: string }[]>([]);
+  const [addrSearching, setAddrSearching] = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [contacts, setContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
@@ -643,15 +646,34 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         toast.error(`${file.name}: too large. Max ${file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB + 'MB' : '64MB'}`);
         continue;
       }
+      const type = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('video/') ? 'VIDEO' : file.type.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT';
+      const carriesFilename = type === 'DOCUMENT' || type === 'AUDIO';
+      // Show the message immediately while uploading
+      const previewUrl = (type === 'IMAGE' || type === 'VIDEO') ? URL.createObjectURL(file) : null;
+      const tempId = `temp-${Date.now()}-${i}`;
+      addMessage(conversation.id, {
+        id: tempId, content: null, type, status: 'QUEUED' as MessageStatus,
+        direction: MessageDirection.OUTBOUND,
+        createdAt: new Date().toISOString(), conversationId: conversation.id,
+        tenantId: '', contactId: '', senderId: null, whatsappMessageId: null,
+        mediaUrl: previewUrl, mediaType: null, mediaSize: null,
+        mediaCaption: carriesFilename ? file.name : null,
+        templateId: null, templateVariables: null, metadata: null,
+        sentAt: null, deliveredAt: null, readAt: null, failedAt: null, failureReason: null,
+        replyToId: null, isStarred: false, isPinned: false, isEdited: false,
+        editedAt: null, deletedForEveryone: false, deletedAt: null,
+      } as unknown as Message);
       try {
         const uploadRes = await mediaApi.upload(file);
         const { fileUrl: url } = uploadRes.data as { fileUrl: string };
-        const type = file.type.startsWith('image/') ? 'IMAGE' : file.type.startsWith('video/') ? 'VIDEO' : file.type.startsWith('audio/') ? 'AUDIO' : 'DOCUMENT';
-        // Documents/audio carry the filename as a caption so the recipient knows what they got.
-        // Images and videos render inline — their filename is irrelevant clutter.
-        const carriesFilename = type === 'DOCUMENT' || type === 'AUDIO';
-        await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(carriesFilename ? { mediaCaption: file.name } : {}) });
+        const res = await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(carriesFilename ? { mediaCaption: file.name } : {}) });
+        const real = res.data as Message;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        removeMessage(conversation.id, tempId);
+        if (real?.id) addMessage(conversation.id, real);
       } catch (err: unknown) {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        removeMessage(conversation.id, tempId);
         const msg = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
         toast.error(typeof msg === 'string' ? msg : `Failed to send ${file.name}`);
       }
@@ -660,7 +682,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setSending(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (photoInputRef.current) photoInputRef.current.value = '';
-  }, [conversation.id]);
+  }, [conversation.id, addMessage, removeMessage]);
 
   const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -681,6 +703,25 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       );
     });
   }, [conversation.id]);
+
+  const searchAddress = async () => {
+    if (!addrQuery.trim()) return;
+    setAddrSearching(true);
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(addrQuery)}`, { headers: { 'Accept-Language': 'en' } });
+      const data = await r.json() as { display_name: string; lat: string; lon: string }[];
+      setAddrResults(data);
+    } catch { toast.error('Address search failed'); }
+    finally { setAddrSearching(false); }
+  };
+
+  const sendSpecificAddress = async (lat: string, lon: string, name: string) => {
+    setShowLocationPicker(false);
+    setAddrQuery(''); setAddrResults([]);
+    try {
+      await messagesApi.send(conversation.id, { type: 'LOCATION', locationLatitude: parseFloat(lat), locationLongitude: parseFloat(lon), locationName: name });
+    } catch { toast.error('Failed to send location'); }
+  };
 
   const startLiveLocation = async (minutes: number) => {
     closeMenus();
@@ -1506,16 +1547,16 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
       {/* Location picker modal */}
       {showLocationPicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowLocationPicker(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setShowLocationPicker(false); setAddrQuery(''); setAddrResults([]); }}>
           <div className="bg-white rounded-2xl p-6 w-80 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2"><MapPin size={18} className="text-red-500" /><h4 className="font-semibold text-gray-900">Share Location</h4></div>
-              <button onClick={() => setShowLocationPicker(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+              <button onClick={() => { setShowLocationPicker(false); setAddrQuery(''); setAddrResults([]); }} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div className="space-y-3">
-              {/* Specific location */}
+              {/* Current location */}
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">Specific location</p>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">Current location</p>
                 <button
                   onClick={() => {
                     setShowLocationPicker(false);
@@ -1529,6 +1570,41 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     <p className="text-xs text-teal-500 font-normal">Sends a one-time GPS pin</p>
                   </div>
                 </button>
+              </div>
+              <div className="h-px bg-gray-100" />
+              {/* Specific location */}
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-2">Specific location</p>
+                <div className="flex gap-2">
+                  <input
+                    value={addrQuery}
+                    onChange={(e) => setAddrQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void searchAddress(); }}
+                    placeholder="Search address or place…"
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                  <button
+                    onClick={() => void searchAddress()}
+                    disabled={addrSearching || !addrQuery.trim()}
+                    className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+                  >
+                    {addrSearching ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin block" /> : 'Search'}
+                  </button>
+                </div>
+                {addrResults.length > 0 && (
+                  <div className="mt-2 space-y-1 max-h-44 overflow-y-auto">
+                    {addrResults.map((r, i) => (
+                      <button
+                        key={i}
+                        onClick={() => void sendSpecificAddress(r.lat, r.lon, r.display_name.split(',')[0])}
+                        className="w-full flex items-start gap-2 px-3 py-2 rounded-xl hover:bg-teal-50 text-left transition-colors"
+                      >
+                        <MapPin size={13} className="flex-shrink-0 text-teal-500 mt-0.5" />
+                        <span className="text-xs text-gray-700 line-clamp-2">{r.display_name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="h-px bg-gray-100" />
               {/* Live location */}
@@ -1572,13 +1648,30 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         <LibraryPickerModal
           onClose={() => setShowLibraryPicker(false)}
           onSend={async (items) => {
-            for (const item of items) {
-              await messagesApi.send(conversation.id, {
-                type: item.type,
-                mediaUrl: item.mediaUrl,
-                // Images and videos render inline — only documents and audio need a filename caption
-                mediaCaption: (item.type === 'IMAGE' || item.type === 'VIDEO') ? undefined : (item.mediaCaption ?? undefined),
-              });
+            for (let i = 0; i < items.length; i++) {
+              const item = items[i];
+              const cap = (item.type === 'IMAGE' || item.type === 'VIDEO') ? null : (item.mediaCaption ?? null);
+              const tempId = `temp-lib-${Date.now()}-${i}`;
+              addMessage(conversation.id, {
+                id: tempId, content: null, type: item.type, status: 'QUEUED' as MessageStatus,
+                direction: MessageDirection.OUTBOUND,
+                createdAt: new Date().toISOString(), conversationId: conversation.id,
+                tenantId: '', contactId: '', senderId: null, whatsappMessageId: null,
+                mediaUrl: item.mediaUrl, mediaType: null, mediaSize: null, mediaCaption: cap,
+                templateId: null, templateVariables: null, metadata: null,
+                sentAt: null, deliveredAt: null, readAt: null, failedAt: null, failureReason: null,
+                replyToId: null, isStarred: false, isPinned: false, isEdited: false,
+                editedAt: null, deletedForEveryone: false, deletedAt: null,
+              } as unknown as Message);
+              try {
+                const res = await messagesApi.send(conversation.id, { type: item.type, mediaUrl: item.mediaUrl, ...(cap ? { mediaCaption: cap } : {}) });
+                const real = res.data as Message;
+                removeMessage(conversation.id, tempId);
+                if (real?.id) addMessage(conversation.id, real);
+              } catch {
+                removeMessage(conversation.id, tempId);
+                toast.error('Failed to send item');
+              }
             }
           }}
         />

@@ -156,7 +156,12 @@ export function IncomingCallModal() {
       });
       pcRef.current = pc;
 
+      // Bail out helper: caller may hang up while we await getUserMedia / ICE
+      const aborted = () => pc.signalingState === 'closed';
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (aborted()) { stream.getTracks().forEach(t => t.stop()); return; }
+
       streamRef.current = stream;
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
@@ -174,9 +179,11 @@ export function IncomingCallModal() {
 
       if (incomingCall.sdpOffer) {
         await pc.setRemoteDescription({ type: 'offer', sdp: incomingCall.sdpOffer });
+        if (aborted()) return;
       }
 
       const answer = await pc.createAnswer();
+      if (aborted()) return;
       await pc.setLocalDescription(answer);
 
       // Wait for ICE gathering (max 4s)
@@ -188,12 +195,14 @@ export function IncomingCallModal() {
           });
         });
       }
+      if (aborted()) return;
 
       // Meta requires a=setup:active in the SDP answer (not actpass)
       const rawSdp = pc.localDescription!.sdp;
       const sdpAnswer = rawSdp.replace(/a=setup:actpass/g, 'a=setup:active');
 
       await callsApi.respond(incomingCall.callLogId, 'pre_accept', sdpAnswer);
+      if (aborted()) return;
 
       // Wait for ICE connection (max 15s)
       await new Promise<void>((resolve) => {
@@ -207,6 +216,7 @@ export function IncomingCallModal() {
         pc.oniceconnectionstatechange = check;
         check();
       });
+      if (aborted()) return;
 
       try { await callsApi.respond(incomingCall.callLogId, 'accept'); } catch { /* best-effort */ }
 
