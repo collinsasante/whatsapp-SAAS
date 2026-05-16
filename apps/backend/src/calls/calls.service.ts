@@ -343,7 +343,8 @@ export class CallsService {
     switch (action) {
       case 'accept':
         newStatus = CallStatus.ONGOING;
-        updateData.answeredAt = new Date();
+        // Keep the earliest answeredAt — pre_accept may have already set it.
+        if (!call.answeredAt) updateData.answeredAt = new Date();
         break;
 
       case 'reject':
@@ -365,8 +366,19 @@ export class CallsService {
       }
 
       case 'pre_accept':
+        // Agent intent-to-answer is recorded here. WebRTC ICE/negotiation can take
+        // 4–19s before the final `accept` action arrives; if anything terminates
+        // the call in that window we still want it counted as answered, not MISSED.
+        // Status stays INCOMING until media is actually flowing on `accept`.
+        if (!call.answeredAt) {
+          await this.prisma.callLog.update({
+            where: { id: callLogId },
+            data: { answeredAt: new Date() },
+          });
+        }
+        break;
+
       default:
-        // pre_accept is WebRTC signaling only, no status change
         break;
     }
 

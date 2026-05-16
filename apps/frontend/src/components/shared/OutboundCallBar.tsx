@@ -87,21 +87,12 @@ export function OutboundCallBar() {
     if (outboundCall) { setElapsed(0); setMuted(false); }
   }, [outboundCall?.callId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── WebRTC connection → start timer ───────────────────────────────────────
-  useEffect(() => {
-    const session = outboundSession;
-    if (!session?.pc) return;
-    const handleStateChange = () => {
-      if (session.pc.connectionState === 'connected') {
-        const current = useCallsStore.getState().outboundCall;
-        if (current && !current.startedAt) {
-          setOutboundCall({ ...current, startedAt: new Date() });
-        }
-      }
-    };
-    session.pc.addEventListener('connectionstatechange', handleStateChange);
-    return () => session.pc.removeEventListener('connectionstatechange', handleStateChange);
-  }, [outboundSession, setOutboundCall]);
+  // NOTE: do NOT use WebRTC `connectionState === 'connected'` to start the timer.
+  // With the WhatsApp Calling API, ICE/DTLS establishes against Meta's media
+  // gateway during the *ringing* phase — well before the customer picks up — so
+  // the peer connection reports 'connected' too early. The timer is driven only
+  // by the `call_accepted` socket event below, which the backend emits when Meta
+  // sends the real `accept` webhook (customer actually answered).
 
   // ── Cleanup WebRTC session ─────────────────────────────────────────────────
   const cleanupSession = useCallback(() => {
