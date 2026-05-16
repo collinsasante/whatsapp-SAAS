@@ -1,6 +1,6 @@
 'use client';
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
-import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, Upload } from 'lucide-react';
+import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn, formatMessageTime, getInitials, truncate } from '@/lib/utils';
 import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
@@ -397,7 +397,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
               title="Import conversations from CSV"
               className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
             >
-              <Upload size={15} />
+              <FileInput size={15} />
             </button>
             <button
               onClick={() => { void openCompose(); }}
@@ -687,7 +687,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                 {importing ? (
                   <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Importing…</>
                 ) : (
-                  <><Upload size={15} /> Select CSV file</>
+                  <><FileInput size={15} /> Select CSV file</>
                 )}
               </button>
             </div>

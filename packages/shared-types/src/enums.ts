@@ -141,6 +141,10 @@ export enum ActivityAction {
   CAMPAIGN_LAUNCHED = 'CAMPAIGN_LAUNCHED',
   SURVEY_RESPONSE = 'SURVEY_RESPONSE',
   CALL_ENDED = 'CALL_ENDED',
+  CALL_INITIATED = 'CALL_INITIATED',
+  CALL_MISSED = 'CALL_MISSED',
+  CALL_DECLINED = 'CALL_DECLINED',
+  CALL_CANCELED = 'CALL_CANCELED',
 }
 
 export enum CallDirection {
@@ -148,14 +152,31 @@ export enum CallDirection {
   OUTBOUND = 'OUTBOUND',
 }
 
+/**
+ * Finite call state machine.
+ *
+ * Outbound (agent → customer):
+ *   INITIATED → RINGING → ONGOING → ENDED
+ *                        → DECLINED  (customer pressed decline)
+ *                        → UNANSWERED (timeout, no answer)
+ *   INITIATED/RINGING → CANCELED (agent hung up before answer)
+ *
+ * Inbound (customer → agent):
+ *   INCOMING → ONGOING → ENDED
+ *            → DECLINED  (agent pressed decline)
+ *            → MISSED    (agent didn't answer / timed out)
+ */
 export enum CallStatus {
-  SCHEDULED = 'SCHEDULED',
-  INITIATED = 'INITIATED',
-  RINGING = 'RINGING',
-  ANSWERED = 'ANSWERED',
-  MISSED = 'MISSED',
-  FAILED = 'FAILED',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
-  TRANSFERRED = 'TRANSFERRED',
+  SCHEDULED   = 'SCHEDULED',
+  INITIATED   = 'INITIATED',
+  RINGING     = 'RINGING',
+  INCOMING    = 'INCOMING',
+  ONGOING     = 'ONGOING',
+  MISSED      = 'MISSED',
+  DECLINED    = 'DECLINED',
+  CANCELED    = 'CANCELED',
+  UNANSWERED  = 'UNANSWERED',
+  BUSY        = 'BUSY',
+  FAILED      = 'FAILED',
+  ENDED       = 'ENDED',
 }

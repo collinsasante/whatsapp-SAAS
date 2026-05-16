@@ -65,7 +65,8 @@ function needsVideoTranscode(mimeType: string): boolean {
 
 function metaError(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
-    return JSON.stringify(error.response.data);
+    const data = error.response.data as { error?: { message?: string; error_user_msg?: string } };
+    return data?.error?.error_user_msg ?? data?.error?.message ?? JSON.stringify(data);
   }
   return error instanceof Error ? error.message : String(error);
 }
@@ -619,6 +620,26 @@ export class WhatsAppService {
       const msg = metaError(error);
       this.logger.error(`Failed to send CSAT survey to ${to}: ${msg}`);
       throw new BadRequestException(`Failed to send CSAT: ${msg}`);
+    }
+  }
+
+  async getBusinessProfile(tenantId: string) {
+    try {
+      const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+      const client = this.getClient(accessToken!);
+      const [phoneRes, profileRes] = await Promise.allSettled([
+        client.get(`/${phoneNumberId}`, {
+          params: { fields: 'verified_name,display_phone_number,quality_rating,messaging_limit_tier,code_verification_status' },
+        }),
+        client.get(`/${phoneNumberId}/whatsapp_business_profile`, {
+          params: { fields: 'about,address,description,email,profile_picture_url,websites,vertical' },
+        }),
+      ]);
+      const phone = phoneRes.status === 'fulfilled' ? phoneRes.value.data : {};
+      const profile = profileRes.status === 'fulfilled' ? (profileRes.value.data as { data?: unknown[] }).data?.[0] ?? {} : {};
+      return { phone, profile };
+    } catch {
+      return null;
     }
   }
 }

@@ -10,8 +10,8 @@ import { StorageService } from '../media/storage.service';
 import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
-import { MessageType, MessageDirection, MessageStatus, ActivityAction } from '@whatsapp-platform/shared-types';
-import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
+import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
+import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 
 @Injectable()
 export class MessagesService {
@@ -26,7 +26,8 @@ export class MessagesService {
     private activityLogService: ActivityLogService,
   ) {}
 
-  async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto) {
+  async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
+    console.log(`[sendMessage] type=${dto.type} templateId=${dto.templateId} content=${dto.content}`);
     const conversation = await this.conversationsService.findOne(tenantId, conversationId);
     const contact = await this.contactsService.findOne(tenantId, conversation.contactId);
 
@@ -34,9 +35,13 @@ export class MessagesService {
       throw new NotFoundException('Cannot send message to this contact');
     }
 
-    // Block other agents from messaging when someone has intervened
-    if (conversation.status === 'INTERVENED' && (conversation as unknown as { assignedToId?: string | null }).assignedToId !== senderId) {
-      throw new ForbiddenException('This conversation has been taken over by another agent');
+    // Block AGENTs from messaging conversations assigned to a different user
+    // (covers both initial assignment and post-transfer ownership).
+    // ADMIN / SUPER_ADMIN can supervise and respond on any conversation.
+    const assignedToId = (conversation as unknown as { assignedToId?: string | null }).assignedToId ?? null;
+    const isAgentLevel = !senderRole || senderRole === UserRole.AGENT || senderRole === UserRole.VIEWER;
+    if (isAgentLevel && assignedToId && assignedToId !== senderId) {
+      throw new ForbiddenException('This conversation is assigned to another agent');
     }
 
     // Auto-reopen resolved conversation when agent sends a message
@@ -55,6 +60,20 @@ export class MessagesService {
       messageMetadata['contactPhone'] = dto.contactPhone;
     }
 
+    // For template messages, resolve the body text so it renders in the chat
+    let resolvedContent = dto.content ?? null;
+    if (dto.type === MessageType.TEMPLATE && dto.templateId) {
+      const tpl = await this.prisma.template.findFirst({ where: { id: dto.templateId, tenantId } });
+      console.log(`[template] resolving content templateId=${dto.templateId} found=${!!tpl}`);
+      if (tpl) {
+        const bodyComp = (tpl.components as Array<{ type: string; text?: string }>).find((c) => c.type === 'BODY');
+        if (bodyComp?.text) {
+          resolvedContent = interpolateTemplate(bodyComp.text, dto.templateVariables ?? {});
+          console.log(`[template] resolvedContent="${resolvedContent?.slice(0, 60)}"`);
+        }
+      }
+    }
+
     const message = await this.prisma.message.create({
       data: {
         tenantId,
@@ -65,7 +84,7 @@ export class MessagesService {
         direction: MessageDirection.OUTBOUND,
         type: (dto.type as MessageType) ?? MessageType.TEXT,
         status: MessageStatus.QUEUED,
-        content: dto.content,
+        content: resolvedContent,
         mediaUrl: dto.mediaUrl,
         mediaCaption: dto.mediaCaption,
         templateId: dto.templateId,
@@ -93,12 +112,17 @@ export class MessagesService {
       if (dto.type === MessageType.TEXT || !dto.type) {
         whatsappMessageId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, dto.content!, replyToWaMessageId);
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
-        // For audio/video upload the file to Meta first to get a media_id (avoids format rejection)
-        if (dto.mediaUrl && (dto.type === MessageType.AUDIO || dto.type === MessageType.VIDEO)) {
+        // Upload media to Meta first to get a media_id (more reliable than link-based send)
+        if (dto.mediaUrl) {
+          const defaultMime: Record<string, string> = {
+            [MessageType.AUDIO]: 'audio/ogg',
+            [MessageType.VIDEO]: 'video/mp4',
+            [MessageType.IMAGE]: 'image/jpeg',
+            [MessageType.DOCUMENT]: 'application/pdf',
+          };
           try {
-            // Prefer direct S3 read (avoids nginx loopback + rate limits)
             let mediaBuffer: Buffer | null = null;
-            let mimeType = dto.type === MessageType.AUDIO ? 'audio/ogg' : 'video/mp4';
+            let mimeType = defaultMime[dto.type as string] ?? 'application/octet-stream';
 
             const proxyMatch = dto.mediaUrl.match(/\/api\/v1\/media\/serve\/(.+)/);
             if (proxyMatch) {
@@ -111,13 +135,12 @@ export class MessagesService {
             }
 
             if (!mediaBuffer) {
-              // Fallback: HTTP download (for non-proxy URLs)
               const dlRes = await axios.get<ArrayBuffer>(dto.mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
               mediaBuffer = Buffer.from(dlRes.data);
               mimeType = (dlRes.headers['content-type'] as string | undefined) ?? mimeType;
             }
 
-            const ext = mimeType.split('/')[1]?.split(';')[0] ?? (dto.type === MessageType.AUDIO ? 'ogg' : 'mp4');
+            const ext = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
             const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, mediaBuffer, mimeType, `media.${ext}`);
             whatsappMessageId = await this.whatsappService.sendMediaMessageById(
               tenantId,
@@ -131,15 +154,6 @@ export class MessagesService {
             // fallback to link-based send
             whatsappMessageId = await this.whatsappService.sendMediaMessage(tenantId, contact.phone, dto.type.toLowerCase(), dto.mediaUrl!, dto.mediaCaption, replyToWaMessageId);
           }
-        } else {
-          whatsappMessageId = await this.whatsappService.sendMediaMessage(
-            tenantId,
-            contact.phone,
-            dto.type.toLowerCase(),
-            dto.mediaUrl!,
-            dto.mediaCaption,
-            replyToWaMessageId,
-          );
         }
       } else if (dto.type === MessageType.TEMPLATE && dto.templateId) {
         const template = await this.prisma.template.findFirst({

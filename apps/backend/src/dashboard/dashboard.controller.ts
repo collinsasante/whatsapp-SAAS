@@ -49,4 +49,10 @@ export class DashboardController {
   getWhatsAppStatus(@CurrentTenant() tenantId: string) {
     return this.dashboardService.getWhatsAppStatus(tenantId);
   }
+
+  @Get('business-profile')
+  @ApiOperation({ summary: 'Get business profile from Meta API' })
+  getBusinessProfile(@CurrentTenant() tenantId: string) {
+    return this.dashboardService.getBusinessProfile(tenantId);
+  }
 }

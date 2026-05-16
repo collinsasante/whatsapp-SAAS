@@ -23,6 +23,8 @@ export interface OutboundCall {
   ringing: boolean;
   muted: boolean;
   held: boolean;
+  /** Set when the call reaches a terminal state so the bar shows the correct message */
+  endedReason?: 'declined' | 'unanswered' | 'canceled' | 'ended' | null;
 }
 
 export interface ConfirmDial {
@@ -36,6 +38,7 @@ interface CallsStore {
   outboundCall: OutboundCall | null;
   pendingDial: string | null;
   confirmDial: ConfirmDial | null;
+
   setIncomingCall: (call: IncomingCall | null) => void;
   clearCallIfMatches: (callLogId: string) => void;
   setOutboundSession: (session: OutboundCallSession | null) => void;
@@ -50,9 +53,12 @@ export const useCallsStore = create<CallsStore>((set) => ({
   outboundCall: null,
   pendingDial: null,
   confirmDial: null,
+
   setIncomingCall: (call) => set({ incomingCall: call }),
   clearCallIfMatches: (callLogId) =>
-    set((state) => ({ incomingCall: state.incomingCall?.callLogId === callLogId ? null : state.incomingCall })),
+    set((state) => ({
+      incomingCall: state.incomingCall?.callLogId === callLogId ? null : state.incomingCall,
+    })),
   setOutboundSession: (session) => set({ outboundSession: session }),
   setOutboundCall: (call) => set({ outboundCall: call }),
   setPendingDial: (phone) => set({ pendingDial: phone }),

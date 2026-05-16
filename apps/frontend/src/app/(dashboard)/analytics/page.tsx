@@ -1,14 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
 import {
-  Users, MessageSquare, Send, Megaphone, TrendingUp, CheckCircle,
-  Clock, XCircle, BarChart3, RefreshCw, UserCheck, Zap,
+  Users, MessageSquare, Send, Megaphone, TrendingUp,
+  BarChart3, RefreshCw, UserCheck, Phone, PhoneMissed, PhoneCall,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  PieChart, Pie, Cell, AreaChart, Area,
+  AreaChart, Area,
 } from 'recharts';
-import { dashboardApi, campaignsApi, contactsApi, conversationsApi } from '@/lib/api';
+import { dashboardApi, campaignsApi, contactsApi, conversationsApi, callsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface Stats { contacts: number; conversations: number; messages: number; campaigns: number; }
@@ -24,6 +24,7 @@ interface TeamMember {
   resolvedToday: number; isOnline: boolean; avgResponseMs: number | null;
 }
 interface TrendPoint { date: string; opened: number; resolved: number; }
+interface CallStats { total: number; todayTotal: number; missed: number; inbound: number; outbound: number; }
 
 const RANGE_OPTIONS = [
   { label: '7d', days: 7 },
@@ -72,6 +73,7 @@ export default function AnalyticsPage() {
   const [topCampaigns, setTopCampaigns] = useState<Campaign[]>([]);
   const [team, setTeam] = useState<TeamMember[]>([]);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [callStats, setCallStats] = useState<CallStats | null>(null);
   const [rangeDays, setRangeDays] = useState(30);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -79,12 +81,13 @@ export default function AnalyticsPage() {
   const load = async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
     try {
-      const [contactsRes, convsRes, campsRes, teamRes, trendRes] = await Promise.all([
+      const [contactsRes, convsRes, campsRes, teamRes, trendRes, callStatsRes] = await Promise.all([
         contactsApi.list({ limit: 1 }),
         conversationsApi.list({ limit: 1 }),
         campaignsApi.list({ limit: 50 }),
         dashboardApi.teamStats(),
         dashboardApi.conversationTrend(rangeDays),
+        callsApi.stats(),
       ]);
 
       const allConvs: { status: string }[] = (await conversationsApi.list({ limit: 9999 })).data.items ?? [];
@@ -112,6 +115,7 @@ export default function AnalyticsPage() {
       setTopCampaigns(sorted.slice(0, 8));
       setTeam(teamRes.data as TeamMember[]);
       setTrend((trendRes.data as TrendPoint[]).map(p => ({ ...p, date: fmtDate(p.date) })));
+      setCallStats(callStatsRes.data as CallStats);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -200,6 +204,29 @@ export default function AnalyticsPage() {
             </div>
           ))}
         </div>
+
+        {/* Calls KPI strip */}
+        {callStats && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { icon: Phone,       label: 'Total Calls',    value: callStats.total,       sub: `${callStats.todayTotal} today`,    color: 'bg-emerald-50 text-emerald-600' },
+              { icon: PhoneCall,   label: 'Inbound',        value: callStats.inbound,     sub: 'Today',                            color: 'bg-teal-50 text-teal-600' },
+              { icon: Send,        label: 'Outbound',       value: callStats.outbound,    sub: 'Today',                            color: 'bg-blue-50 text-blue-600' },
+              { icon: PhoneMissed, label: 'Missed Today',   value: callStats.missed,      sub: 'Unanswered',                       color: 'bg-red-50 text-red-500' },
+            ].map(({ icon: Icon, label, value, sub, color }) => (
+              <div key={label} className="bg-white rounded-2xl border border-gray-100 p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-gray-500">{label}</span>
+                  <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', color)}>
+                    <Icon size={17} />
+                  </div>
+                </div>
+                <p className="text-3xl font-bold text-gray-900">{value.toLocaleString()}</p>
+                <p className="text-xs text-gray-400 mt-1">{sub}</p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Conversation trend chart */}
         {trend.length > 0 && (
@@ -507,25 +534,6 @@ export default function AnalyticsPage() {
           </div>
         )}
 
-        {/* Quick metrics footer */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { icon: CheckCircle, label: 'Open Conversations',  value: conv.open,     cls: 'bg-green-50 border-green-100',  iconCls: 'text-green-600' },
-            { icon: Clock,       label: 'Pending Reply',       value: conv.pending,  cls: 'bg-yellow-50 border-yellow-100', iconCls: 'text-yellow-600' },
-            { icon: Zap,         label: 'Active Campaigns',    value: camp.running,  cls: 'bg-teal-50 border-teal-100',    iconCls: 'text-teal-600' },
-            { icon: XCircle,     label: 'Failed Campaigns',    value: camp.failed,   cls: 'bg-red-50 border-red-100',      iconCls: 'text-red-500' },
-          ].map(({ icon: Icon, label, value, cls, iconCls }) => (
-            <div key={label} className={cn('rounded-2xl border p-4 flex items-center gap-3', cls)}>
-              <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-white/60', iconCls)}>
-                <Icon size={18} />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">{label}</p>
-                <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

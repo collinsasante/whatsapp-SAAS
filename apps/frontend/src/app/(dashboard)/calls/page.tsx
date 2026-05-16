@@ -20,7 +20,12 @@ import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type CallStatus = 'SCHEDULED' | 'INITIATED' | 'RINGING' | 'ANSWERED' | 'MISSED' | 'FAILED' | 'COMPLETED' | 'CANCELLED' | 'TRANSFERRED';
+type CallStatus =
+  | 'SCHEDULED' | 'INITIATED' | 'RINGING' | 'INCOMING'
+  | 'ONGOING' | 'MISSED' | 'DECLINED' | 'CANCELED'
+  | 'UNANSWERED' | 'BUSY' | 'FAILED' | 'ENDED'
+  // legacy values kept for old records
+  | 'ANSWERED' | 'COMPLETED' | 'CANCELLED' | 'TRANSFERRED';
 type CallDirection = 'INBOUND' | 'OUTBOUND';
 type NavSection = 'all' | 'missed' | 'incoming' | 'outgoing' | 'scheduled' | 'archived';
 
@@ -103,26 +108,33 @@ function downloadCallLog(call: CallLog) {
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
-type DisplayStatus = CallStatus | 'UNANSWERED';
+type DisplayStatus = CallStatus;
 
-const STATUS_CONFIG: Record<DisplayStatus, { label: string; dot: string; badge: string; text: string }> = {
-  COMPLETED:   { label: 'Completed',   dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
-  ANSWERED:    { label: 'Answered',    dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',       text: 'text-teal-700' },
-  MISSED:      { label: 'Missed',      dot: 'bg-red-500',     badge: 'bg-red-50 border-red-200',         text: 'text-red-700' },
-  UNANSWERED:  { label: 'Unanswered',  dot: 'bg-orange-500',  badge: 'bg-orange-50 border-orange-200',   text: 'text-orange-700' },
-  RINGING:     { label: 'Ringing',     dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',     text: 'text-amber-700' },
-  SCHEDULED:   { label: 'Scheduled',   dot: 'bg-blue-500',    badge: 'bg-blue-50 border-blue-200',       text: 'text-blue-700' },
-  INITIATED:   { label: 'Initiated',   dot: 'bg-sky-500',     badge: 'bg-sky-50 border-sky-200',         text: 'text-sky-700' },
-  FAILED:      { label: 'Failed',      dot: 'bg-red-600',     badge: 'bg-red-50 border-red-200',         text: 'text-red-700' },
-  CANCELLED:   { label: 'Cancelled',   dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',       text: 'text-gray-500' },
-  TRANSFERRED: { label: 'Transferred', dot: 'bg-purple-500',  badge: 'bg-purple-50 border-purple-200',   text: 'text-purple-700' },
+const STATUS_CONFIG: Record<string, { label: string; dot: string; badge: string; text: string }> = {
+  // Current states
+  ENDED:       { label: 'Ended',       dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  ONGOING:     { label: 'Ongoing',     dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
+  INCOMING:    { label: 'Incoming',    dot: 'bg-emerald-400', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  MISSED:      { label: 'Missed',      dot: 'bg-red-500',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
+  UNANSWERED:  { label: 'Unanswered',  dot: 'bg-orange-500',  badge: 'bg-orange-50 border-orange-200',    text: 'text-orange-700' },
+  DECLINED:    { label: 'Declined',    dot: 'bg-gray-500',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-600' },
+  CANCELED:    { label: 'Canceled',    dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
+  BUSY:        { label: 'Busy',        dot: 'bg-yellow-500',  badge: 'bg-yellow-50 border-yellow-200',    text: 'text-yellow-700' },
+  RINGING:     { label: 'Ringing',     dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
+  SCHEDULED:   { label: 'Scheduled',   dot: 'bg-blue-500',    badge: 'bg-blue-50 border-blue-200',        text: 'text-blue-700' },
+  INITIATED:   { label: 'Calling…',    dot: 'bg-sky-500',     badge: 'bg-sky-50 border-sky-200',          text: 'text-sky-700' },
+  FAILED:      { label: 'Failed',      dot: 'bg-red-600',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
+  // Legacy values (old records)
+  ANSWERED:    { label: 'Answered',    dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
+  COMPLETED:   { label: 'Completed',   dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  CANCELLED:   { label: 'Cancelled',   dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
+  TRANSFERRED: { label: 'Transferred', dot: 'bg-purple-500',  badge: 'bg-purple-50 border-purple-200',    text: 'text-purple-700' },
 };
 
+const MISSED_STATUSES = new Set(['MISSED', 'UNANSWERED']);
+const ACTIVE_STATUSES = new Set(['INITIATED', 'RINGING', 'INCOMING', 'ONGOING', 'ANSWERED']);
+
 function resolveDisplayStatus(call: CallLog): DisplayStatus {
-  if (call.direction === 'OUTBOUND' && !call.answeredAt &&
-      (call.status === 'COMPLETED' || call.status === 'MISSED' || call.status === 'FAILED')) {
-    return 'UNANSWERED';
-  }
   return call.status;
 }
 
@@ -151,7 +163,7 @@ function Avatar({ call, size = 'md' }: { call: CallLog; size?: 'sm' | 'md' | 'lg
       {getInitials(name, phone)}
       <span className={cn(
         'absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white',
-        call.status === 'RINGING' || call.status === 'ANSWERED' ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300',
+        ACTIVE_STATUSES.has(call.status) ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300',
       )} />
     </div>
   );
@@ -791,7 +803,7 @@ function CallDetail({
               </button>
             )}
           </div>
-          {call.status === 'ANSWERED' || call.status === 'RINGING' || call.status === 'INITIATED' ? (
+          {ACTIVE_STATUSES.has(call.status) ? (
             <button onClick={() => onTransfer(call)}
               className="mt-2 w-full flex items-center justify-center gap-1.5 py-2 border border-teal-200 text-teal-600 hover:bg-teal-50 rounded-xl text-xs font-semibold transition-colors">
               <UserCheck size={13} />Transfer Call
@@ -965,7 +977,7 @@ function CallRow({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className={cn('text-sm font-semibold truncate', ['MISSED', 'UNANSWERED'].includes(resolveDisplayStatus(call)) ? 'text-red-600' : 'text-gray-900')}>{name}</p>
+          <p className={cn('text-sm font-semibold truncate', MISSED_STATUSES.has(call.status) ? 'text-red-600' : 'text-gray-900')}>{name}</p>
           {call.isArchived && <Archive size={11} className="text-gray-400 flex-shrink-0" />}
           {call.callNotes.length > 0 && (
             <span className="w-4 h-4 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0">{call.callNotes.length}</span>
@@ -1021,9 +1033,16 @@ function CallRow({
 
 // ─── Stats Card ───────────────────────────────────────────────────────────────
 
-function StatCard({ label, value, icon, sub, color }: { label: string; value: number | string; icon: React.ReactNode; sub?: string; color: string }) {
+function StatCard({ label, value, icon, sub, color, onClick, active }: { label: string; value: number | string; icon: React.ReactNode; sub?: string; color: string; onClick?: () => void; active?: boolean }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 flex items-center gap-4 hover:shadow-sm transition-shadow">
+    <div
+      onClick={onClick}
+      className={cn(
+        'bg-white border rounded-2xl px-5 py-4 flex items-center gap-4 transition-all',
+        onClick ? 'cursor-pointer hover:shadow-md active:scale-[0.98]' : 'hover:shadow-sm',
+        active ? 'border-teal-400 ring-2 ring-teal-400/20 shadow-sm' : 'border-gray-200',
+      )}
+    >
       <div className={cn('w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0', color)}>
         {icon}
       </div>
@@ -1074,11 +1093,12 @@ export default function CallsPage() {
   const limit = 25;
 
   const navParams = (): Record<string, unknown> => {
-    if (nav === 'missed') return { status: 'MISSED' };
-    if (nav === 'incoming') return { direction: 'INBOUND' };
-    if (nav === 'outgoing') return { direction: 'OUTBOUND' };
+    // 'MISSED' on the backend now filters status IN (MISSED, UNANSWERED)
+    if (nav === 'missed')    return { status: 'MISSED' };
+    if (nav === 'incoming')  return { direction: 'INBOUND' };
+    if (nav === 'outgoing')  return { direction: 'OUTBOUND' };
     if (nav === 'scheduled') return { status: 'SCHEDULED' };
-    if (nav === 'archived') return { isArchived: 'true' };
+    if (nav === 'archived')  return { isArchived: 'true' };
     return {};
   };
 
@@ -1145,11 +1165,16 @@ export default function CallsPage() {
       });
     };
 
-    // Auto-end the active call bar when the remote side hangs up
+    const TERMINAL_SET = new Set([
+      'ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
+      // legacy
+      'COMPLETED', 'CANCELLED',
+    ]);
+
+    // Auto-end the active call bar when any terminal status arrives
     const onCallUpdated = (data: { call: { id: string; status: string } }) => {
       refresh();
-      const ended = ['COMPLETED', 'MISSED', 'FAILED', 'CANCELLED'].includes(data.call?.status ?? '');
-      if (!ended) return;
+      if (!TERMINAL_SET.has(data.call?.status ?? '')) return;
       setActiveCall(prev => {
         if (!prev || prev.callId !== data.call?.id) return prev;
         const session = useCallsStore.getState().outboundSession;
@@ -1163,17 +1188,35 @@ export default function CallsPage() {
       });
     };
 
-    socket.on('call_created', refresh);
-    socket.on('call_updated', onCallUpdated);
+    // Listen for all terminal events so the list refreshes immediately
+    const refreshTerminal = () => { refresh(); };
+
+    socket.on('call_created',    refresh);
+    socket.on('call_updated',    onCallUpdated);
     socket.on('call_transferred', refresh);
-    socket.on('call_ringing', onCallRinging);
-    socket.on('call_connected', onCallConnected);
+    socket.on('call_ringing',    onCallRinging);
+    socket.on('call_connected',  onCallConnected);
+    socket.on('call_accepted',   refreshTerminal);
+    socket.on('call_declined',   refreshTerminal);
+    socket.on('call_missed',     refreshTerminal);
+    socket.on('call_canceled',   refreshTerminal);
+    socket.on('call_unanswered', refreshTerminal);
+    socket.on('call_ended',      refreshTerminal);
+    socket.on('incoming_call',   refreshTerminal);
+
     return () => {
-      socket.off('call_created', refresh);
-      socket.off('call_updated', onCallUpdated);
+      socket.off('call_created',    refresh);
+      socket.off('call_updated',    onCallUpdated);
       socket.off('call_transferred', refresh);
-      socket.off('call_ringing', onCallRinging);
-      socket.off('call_connected', onCallConnected);
+      socket.off('call_ringing',    onCallRinging);
+      socket.off('call_connected',  onCallConnected);
+      socket.off('call_accepted',   refreshTerminal);
+      socket.off('call_declined',   refreshTerminal);
+      socket.off('call_missed',     refreshTerminal);
+      socket.off('call_canceled',   refreshTerminal);
+      socket.off('call_unanswered', refreshTerminal);
+      socket.off('call_ended',      refreshTerminal);
+      socket.off('incoming_call',   refreshTerminal);
     };
   }, [loadCalls, loadAnalytics]);
 
@@ -1199,10 +1242,10 @@ export default function CallsPage() {
 
     try {
       if (activeCall.callId) {
-        await callsApi.update(activeCall.callId, { status: 'COMPLETED', duration, endedAt: new Date().toISOString() });
+        await callsApi.update(activeCall.callId, { status: 'ENDED', duration, endedAt: new Date().toISOString() });
       } else {
         const recent = calls.find(c => c.status === 'INITIATED' && c.direction === 'OUTBOUND');
-        if (recent) await callsApi.update(recent.id, { status: 'COMPLETED', duration, endedAt: new Date().toISOString() });
+        if (recent) await callsApi.update(recent.id, { status: 'ENDED', duration, endedAt: new Date().toISOString() });
       }
     } catch { /* best-effort */ }
     setActiveCall(null);
@@ -1269,13 +1312,15 @@ export default function CallsPage() {
 
         {/* Stats cards */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3 mb-4">
-            <StatCard label="Total Calls" value={stats.total} icon={<Phone size={18} className="text-teal-600" />} sub={`${stats.todayTotal} today`} color="bg-teal-50" />
-            <StatCard label="Missed" value={stats.missed} icon={<PhoneMissed size={18} className="text-red-500" />} color="bg-red-50" />
-            <StatCard label="Inbound" value={stats.inbound} icon={<PhoneIncoming size={18} className="text-emerald-600" />} color="bg-emerald-50" />
-            <StatCard label="Scheduled" value={stats.scheduled} icon={<CalendarClock size={18} className="text-blue-600" />} color="bg-blue-50" />
-            {stats.active > 0 && (
-              <StatCard label="Live Calls" value={stats.active} icon={<Activity size={18} className="text-orange-500" />} sub="Active now" color="bg-orange-50" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
+            <StatCard label="Total Calls" value={stats.total} icon={<Phone size={18} className="text-teal-600" />} sub={`${stats.todayTotal} today`} color="bg-teal-50" onClick={() => setNav('all')} active={nav === 'all'} />
+            <StatCard label="Missed" value={stats.missed} icon={<PhoneMissed size={18} className="text-red-500" />} color="bg-red-50" onClick={() => setNav('missed')} active={nav === 'missed'} />
+            <StatCard label="Inbound" value={stats.inbound} icon={<PhoneIncoming size={18} className="text-emerald-600" />} color="bg-emerald-50" onClick={() => setNav('incoming')} active={nav === 'incoming'} />
+            <StatCard label="Outbound" value={stats.outbound} icon={<PhoneOutgoing size={18} className="text-blue-500" />} color="bg-blue-50" onClick={() => setNav('outgoing')} active={nav === 'outgoing'} />
+            {stats.active > 0 ? (
+              <StatCard label="Live Calls" value={stats.active} icon={<Activity size={18} className="text-orange-500" />} sub="Active now" color="bg-orange-50" onClick={() => setNav('all')} active={false} />
+            ) : (
+              <StatCard label="Scheduled" value={stats.scheduled} icon={<CalendarClock size={18} className="text-blue-600" />} color="bg-indigo-50" onClick={() => setNav('scheduled')} active={nav === 'scheduled'} />
             )}
           </div>
         )}

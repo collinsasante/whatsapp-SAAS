@@ -20,6 +20,14 @@ const CALL_INCLUDE = {
   },
 } satisfies Prisma.CallLogInclude;
 
+/** Statuses that represent an active/live call */
+const ACTIVE_STATUSES = [CallStatus.INITIATED, CallStatus.RINGING, CallStatus.INCOMING, CallStatus.ONGOING];
+
+/** Statuses that represent a terminal (finished) call */
+const TERMINAL_STATUSES = [
+  CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED,
+  CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED,
+];
 
 @Injectable()
 export class CallsService {
@@ -32,6 +40,8 @@ export class CallsService {
     private activityLogService: ActivityLogService,
   ) {}
 
+  // ─── CRUD ─────────────────────────────────────────────────────────────────
+
   async findAll(tenantId: string, dto: ListCallsDto) {
     const page = dto.page ?? 1;
     const limit = Math.min(dto.limit ?? 25, 100);
@@ -39,7 +49,6 @@ export class CallsService {
 
     const where: Prisma.CallLogWhereInput = { tenantId };
 
-    // Archived tab — show only archived; all other tabs exclude archived
     if (dto.isArchived === 'true') {
       where.isArchived = true;
     } else if (!dto.isArchived) {
@@ -47,7 +56,14 @@ export class CallsService {
     }
 
     if (dto.direction) where.direction = dto.direction;
-    if (dto.status) where.status = dto.status;
+
+    // Missed tab shows both MISSED (inbound not answered) and UNANSWERED (outbound not answered)
+    if (dto.status === 'MISSED') {
+      where.status = { in: [CallStatus.MISSED, CallStatus.UNANSWERED] };
+    } else if (dto.status) {
+      where.status = dto.status;
+    }
+
     if (dto.contactId) where.contactId = dto.contactId;
     if (dto.userId) where.userId = dto.userId;
     if (dto.from || dto.to) {
@@ -106,7 +122,7 @@ export class CallsService {
       include: CALL_INCLUDE,
     });
 
-    this.realtime.emitCallEvent(tenantId, 'call_created', call as unknown as Record<string, unknown>);
+    this.emit('call_created', tenantId, call);
     return call;
   }
 
@@ -127,7 +143,7 @@ export class CallsService {
       include: CALL_INCLUDE,
     });
 
-    this.realtime.emitCallEvent(tenantId, 'call_updated', call as unknown as Record<string, unknown>);
+    this.emit('call_updated', tenantId, call);
     return call;
   }
 
@@ -138,7 +154,7 @@ export class CallsService {
       data: { isArchived: !existing.isArchived },
       include: CALL_INCLUDE,
     });
-    this.realtime.emitCallEvent(tenantId, 'call_updated', call as unknown as Record<string, unknown>);
+    this.emit('call_updated', tenantId, call);
     return call;
   }
 
@@ -185,7 +201,6 @@ export class CallsService {
       where: { id },
       data: {
         userId: dto.toUserId,
-        status: CallStatus.TRANSFERRED,
         metadata: { ...meta, transfers } as Prisma.InputJsonValue,
       },
       include: CALL_INCLUDE,
@@ -196,13 +211,14 @@ export class CallsService {
       fromUserId,
       toUserId: dto.toUserId,
       toUserName: toUser.name,
+      call,
     });
     return call;
   }
 
   async generateCallLink(tenantId: string, userId: string) {
     const token = randomBytes(16).toString('hex');
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const call = await this.prisma.callLog.create({
       data: {
@@ -218,25 +234,352 @@ export class CallsService {
     });
 
     const host = process.env['FRONTEND_URL'] ?? 'https://app.waplatform.com';
-    return {
-      call,
-      token,
-      url: `${host}/join/${token}`,
-      expiresAt,
-    };
+    return { call, token, url: `${host}/join/${token}`, expiresAt };
   }
 
   async validateCallLink(token: string) {
     const call = await this.prisma.callLog.findFirst({
-      where: {
-        callLinkToken: token,
-        callLinkExpiresAt: { gt: new Date() },
-      },
+      where: { callLinkToken: token, callLinkExpiresAt: { gt: new Date() } },
       include: CALL_INCLUDE,
     });
     if (!call) throw new NotFoundException('Call link is invalid or expired');
     return call;
   }
+
+  async addNote(tenantId: string, callId: string, userId: string, dto: CreateCallNoteDto) {
+    await this.findOne(tenantId, callId);
+    return this.prisma.callNote.create({
+      data: { callLogId: callId, userId, content: dto.content },
+      include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+    });
+  }
+
+  async remove(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+    await this.prisma.callLog.delete({ where: { id } });
+    return { success: true };
+  }
+
+  // ─── Permissions ───────────────────────────────────────────────────────────
+
+  async getCallPermission(tenantId: string, phone: string) {
+    return this.whatsapp.checkCallPermission(tenantId, phone);
+  }
+
+  async requestCallPermission(tenantId: string, phone: string) {
+    const messageId = await this.whatsapp.requestCallPermission(tenantId, phone);
+    return { success: true, messageId };
+  }
+
+  // ─── Initiate outbound call ────────────────────────────────────────────────
+
+  async initiateCall(tenantId: string, userId: string, dto: InitiateCallDto) {
+    const phone = dto.phone.trim();
+    if (!phone) throw new BadRequestException('Phone number is required');
+
+    let contactId = dto.contactId;
+    if (!contactId) {
+      const contact = await this.prisma.contact.findFirst({
+        where: { tenantId, phone: { contains: phone.replace(/^\+/, '') } },
+        select: { id: true },
+      });
+      contactId = contact?.id;
+    }
+
+    const { callId: whatsappCallId } = await this.whatsapp.initiateWhatsAppCall(
+      tenantId, phone, dto.type ?? 'audio', dto.sdpOffer,
+    );
+
+    const call = await this.prisma.callLog.create({
+      data: {
+        tenantId,
+        userId,
+        ...(contactId && { contactId }),
+        phone,
+        direction: CallDirection.OUTBOUND,
+        status: CallStatus.INITIATED,
+        startedAt: new Date(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(whatsappCallId && { ['whatsappCallId' as any]: whatsappCallId }),
+        metadata: { type: dto.type ?? 'audio' } as Prisma.InputJsonValue,
+      },
+      include: CALL_INCLUDE,
+    });
+
+    this.emit('call_initiated', tenantId, call);
+    this.emit('call_created', tenantId, call);
+
+    return { ...call, whatsappCallId };
+  }
+
+  // ─── Respond to inbound call (agent side) ─────────────────────────────────
+
+  async respondToCall(
+    tenantId: string,
+    callLogId: string,
+    action: 'pre_accept' | 'accept' | 'reject' | 'terminate',
+    sdpAnswer?: string,
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = await (this.prisma as any).callLog.findFirst({
+      where: { id: callLogId, tenantId },
+      select: { id: true, whatsappCallId: true, direction: true, status: true, answeredAt: true },
+    }) as { id: string; whatsappCallId: string | null; direction: string; status: string; answeredAt: Date | null } | null;
+
+    if (!call) throw new NotFoundException('Call not found');
+
+    // Signal Meta (best-effort)
+    if (call.whatsappCallId) {
+      try {
+        await this.whatsapp.respondToWhatsAppCall(tenantId, call.whatsappCallId, action, sdpAnswer);
+      } catch (err) {
+        this.logger.warn(`[calls] respondToWhatsAppCall non-fatal for action=${action}: ${err}`);
+      }
+    }
+
+    let newStatus: CallStatus | null = null;
+    const updateData: Prisma.CallLogUpdateInput = {};
+
+    switch (action) {
+      case 'accept':
+        newStatus = CallStatus.ONGOING;
+        updateData.answeredAt = new Date();
+        break;
+
+      case 'reject':
+        // Agent declined an inbound call
+        newStatus = CallStatus.DECLINED;
+        updateData.endedAt = new Date();
+        break;
+
+      case 'terminate': {
+        // If call was never answered → CANCELED (agent hung up before answer)
+        // If call was active (ONGOING) → ENDED
+        const wasAnswered = !!call.answeredAt || call.status === CallStatus.ONGOING;
+        newStatus = wasAnswered ? CallStatus.ENDED : CallStatus.CANCELED;
+        updateData.endedAt = new Date();
+        if (!wasAnswered) {
+          updateData.duration = 0;
+        }
+        break;
+      }
+
+      case 'pre_accept':
+      default:
+        // pre_accept is WebRTC signaling only, no status change
+        break;
+    }
+
+    if (newStatus) {
+      updateData.status = newStatus;
+      await this.prisma.callLog.update({ where: { id: callLogId }, data: updateData });
+
+      // Fetch full call for emit
+      const updated = await this.prisma.callLog.findFirst({
+        where: { id: callLogId },
+        include: CALL_INCLUDE,
+      });
+
+      const eventName = this.statusToEvent(newStatus);
+      this.emit(eventName, tenantId, updated!);
+      this.emit('call_updated', tenantId, updated!);
+
+    }
+
+    return { success: true };
+  }
+
+  // ─── Meta webhook handler ──────────────────────────────────────────────────
+
+  async handleCallWebhook(
+    tenantId: string,
+    callEvents: Array<{
+      id: string;
+      from?: string;
+      event: string;
+      status?: string;
+      timestamp?: string;
+      direction?: string;
+      duration?: number;
+      start_time?: string;
+      end_time?: string;
+      session?: { sdp_type: string; sdp: string };
+    }>,
+  ) {
+    for (const event of callEvents) {
+      try {
+        await this.processWebhookEvent(tenantId, event);
+      } catch (err) {
+        this.logger.error(`[calls] Failed to handle webhook event id=${event.id} event=${event.event}: ${err}`);
+      }
+    }
+  }
+
+  private async processWebhookEvent(
+    tenantId: string,
+    event: {
+      id: string;
+      from?: string;
+      event: string;
+      direction?: string;
+      duration?: number;
+      session?: { sdp_type: string; sdp: string };
+    },
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prismaAny = this.prisma as any;
+
+    let existing = await prismaAny.callLog.findFirst({
+      where: { whatsappCallId: event.id, tenantId },
+      select: { id: true, direction: true, status: true, answeredAt: true },
+    }) as { id: string; direction: string; status: string; answeredAt: Date | null } | null;
+
+    // Outbound: Meta sends SDP answer as soon as customer's device rings
+    // (event=connect, direction=BUSINESS_INITIATED, sdp_type=answer)
+    if (event.event === 'connect' && event.direction === 'BUSINESS_INITIATED' && event.session?.sdp_type === 'answer') {
+      // Retry briefly — race condition between webhook arrival and DB write
+      if (!existing) {
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 300));
+          existing = await prismaAny.callLog.findFirst({
+            where: { whatsappCallId: event.id, tenantId },
+            select: { id: true, direction: true, status: true, answeredAt: true },
+          }) as typeof existing;
+          if (existing) break;
+        }
+      }
+
+      if (existing) {
+        await this.prisma.callLog.update({
+          where: { id: existing.id },
+          data: { status: CallStatus.RINGING },
+        });
+        this.logger.log(`[calls] Outbound RINGING callLogId=${existing.id}`);
+        this.realtime.emitCallEvent(tenantId, 'call_ringing', {
+          callLogId: existing.id,
+          whatsappCallId: event.id,
+          sdpAnswer: event.session.sdp,
+        });
+      }
+      return;
+    }
+
+    // Inbound: customer calling the agent (event=connect, no existing record)
+    if (!existing && event.event === 'connect' && event.from && event.direction !== 'BUSINESS_INITIATED') {
+      const phone = event.from;
+      const contact = await this.prisma.contact.findFirst({
+        where: { tenantId, phone: { contains: phone } },
+        select: { id: true, name: true, phone: true },
+      });
+
+      const sdpOffer = event.session?.sdp ?? null;
+
+      const call = await prismaAny.callLog.create({
+        data: {
+          tenantId,
+          ...(contact && { contactId: contact.id }),
+          phone,
+          direction: CallDirection.INBOUND,
+          status: CallStatus.INCOMING,
+          startedAt: new Date(),
+          whatsappCallId: event.id,
+          metadata: { sdpOffer } as Prisma.InputJsonValue,
+        },
+        include: CALL_INCLUDE,
+      }) as Record<string, unknown> & { id: string };
+
+      this.logger.log(`[calls] Inbound INCOMING callLogId=${call.id} from=${phone}`);
+      this.realtime.emitCallEvent(tenantId, 'incoming_call', {
+        callLogId: call.id,
+        whatsappCallId: event.id,
+        from: phone,
+        contactName: contact?.name ?? null,
+        sdpOffer,
+        call,
+      });
+      return;
+    }
+
+    // Outbound: customer accepted the call (agent's device can start audio)
+    if (existing && event.event === 'accept' && event.direction === 'BUSINESS_INITIATED') {
+      await this.prisma.callLog.update({
+        where: { id: existing.id },
+        data: { status: CallStatus.ONGOING, answeredAt: new Date() },
+      });
+      this.logger.log(`[calls] Outbound ONGOING (accepted) callLogId=${existing.id}`);
+      const updated = await this.prisma.callLog.findFirst({ where: { id: existing.id }, include: CALL_INCLUDE });
+      this.realtime.emitCallEvent(tenantId, 'call_accepted', { callLogId: existing.id, whatsappCallId: event.id, call: updated });
+      this.realtime.emitCallEvent(tenantId, 'call_connected', { callLogId: existing.id, whatsappCallId: event.id });
+      this.emit('call_updated', tenantId, updated!);
+      return;
+    }
+
+    if (!existing) {
+      if (event.event !== 'connect') {
+        this.logger.warn(`[calls] No call log for whatsappCallId=${event.id} event=${event.event}`);
+      }
+      return;
+    }
+
+    // Terminal events
+    const direction = existing.direction as CallDirection;
+    const wasAnswered = !!existing.answeredAt || existing.status === CallStatus.ONGOING;
+
+    let finalStatus: CallStatus | null = null;
+
+    switch (event.event) {
+      case 'reject':
+        // Customer declined an outbound call
+        finalStatus = CallStatus.DECLINED;
+        break;
+
+      case 'terminate': {
+        if (wasAnswered) {
+          finalStatus = CallStatus.ENDED;
+        } else {
+          // Not answered: outbound=UNANSWERED, inbound=MISSED
+          finalStatus = direction === CallDirection.OUTBOUND ? CallStatus.UNANSWERED : CallStatus.MISSED;
+        }
+        break;
+      }
+
+      case 'busy':
+        finalStatus = CallStatus.BUSY;
+        break;
+
+      default:
+        this.logger.warn(`[calls] Unhandled webhook event=${event.event} for callLogId=${existing.id}`);
+        return;
+    }
+
+    const updateData: Prisma.CallLogUpdateInput = {
+      status: finalStatus,
+      endedAt: new Date(),
+    };
+    if (event.duration != null) updateData.duration = event.duration;
+    if (finalStatus === CallStatus.ENDED && !existing.answeredAt) {
+      updateData.duration = 0;
+    }
+
+    const updated = await this.prisma.callLog.update({
+      where: { id: existing.id },
+      data: updateData,
+      include: CALL_INCLUDE,
+    });
+
+    this.logger.log(`[calls] Terminal status=${finalStatus} callLogId=${existing.id}`);
+    this.emit(this.statusToEvent(finalStatus), tenantId, updated);
+    this.emit('call_updated', tenantId, updated);
+
+    void this.logCallActivity(
+      tenantId,
+      updated as unknown as CallRecord,
+      this.statusToActivityAction(finalStatus),
+      event.duration,
+    );
+  }
+
+  // ─── Analytics & Stats ─────────────────────────────────────────────────────
 
   async getAnalytics(tenantId: string, dto: AnalyticsQueryDto) {
     const where: Prisma.CallLogWhereInput = { tenantId, isArchived: false };
@@ -248,10 +591,10 @@ export class CallsService {
 
     const [all, missed, completed, withDuration, withResponse] = await Promise.all([
       this.prisma.callLog.count({ where }),
-      this.prisma.callLog.count({ where: { ...where, status: CallStatus.MISSED } }),
-      this.prisma.callLog.count({ where: { ...where, status: CallStatus.COMPLETED } }),
+      this.prisma.callLog.count({ where: { ...where, status: { in: [CallStatus.MISSED, CallStatus.UNANSWERED] } } }),
+      this.prisma.callLog.count({ where: { ...where, status: CallStatus.ENDED } }),
       this.prisma.callLog.aggregate({
-        where: { ...where, duration: { not: null } },
+        where: { ...where, duration: { not: null }, status: CallStatus.ENDED },
         _avg: { duration: true },
         _sum: { duration: true },
       }),
@@ -285,268 +628,84 @@ export class CallsService {
     };
   }
 
-  async addNote(tenantId: string, callId: string, userId: string, dto: CreateCallNoteDto) {
-    await this.findOne(tenantId, callId);
-    return this.prisma.callNote.create({
-      data: { callLogId: callId, userId, content: dto.content },
-      include: { user: { select: { id: true, name: true, avatarUrl: true } } },
-    });
+  async getStats(tenantId: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [total, todayTotal, missed, scheduled, active, inbound, outbound] = await Promise.all([
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false } }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, createdAt: { gte: today } } }),
+      this.prisma.callLog.count({
+        where: { tenantId, isArchived: false, status: { in: [CallStatus.MISSED, CallStatus.UNANSWERED] }, createdAt: { gte: today } },
+      }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: CallStatus.SCHEDULED } }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: { in: ACTIVE_STATUSES } } }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.INBOUND, createdAt: { gte: today } } }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.OUTBOUND, createdAt: { gte: today } } }),
+    ]);
+
+    return { total, todayTotal, missed, scheduled, active, inbound, outbound };
   }
 
-  async remove(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
-    await this.prisma.callLog.delete({ where: { id } });
-    return { success: true };
+  // ─── Private helpers ───────────────────────────────────────────────────────
+
+  /** Emit a socket event with full call payload */
+  private emit(event: string, tenantId: string, call: Record<string, unknown> | null) {
+    this.realtime.emitCallEvent(tenantId, event, call as Record<string, unknown>);
   }
 
-  async initiateCall(tenantId: string, userId: string, dto: InitiateCallDto) {
-    const phone = dto.phone.trim();
-    if (!phone) throw new BadRequestException('Phone number is required');
-
-    // Resolve contactId if not provided but phone matches a known contact
-    let contactId = dto.contactId;
-    if (!contactId) {
-      const contact = await this.prisma.contact.findFirst({
-        where: { tenantId, phone: { contains: phone.replace(/^\+/, '') } },
-        select: { id: true },
-      });
-      contactId = contact?.id;
-    }
-
-    // Place the real WhatsApp call via Meta API
-    const { callId: whatsappCallId } = await this.whatsapp.initiateWhatsAppCall(tenantId, phone, dto.type ?? 'audio', dto.sdpOffer);
-
-    const call = await this.prisma.callLog.create({
-      data: {
-        tenantId,
-        userId,
-        ...(contactId && { contactId }),
-        phone,
-        direction: CallDirection.OUTBOUND,
-        status: CallStatus.INITIATED,
-        startedAt: new Date(),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...(whatsappCallId && { ['whatsappCallId' as any]: whatsappCallId }),
-        metadata: { type: dto.type ?? 'audio' } as Prisma.InputJsonValue,
-      },
-      include: CALL_INCLUDE,
-    });
-
-    this.realtime.emitCallEvent(tenantId, 'call_created', call as unknown as Record<string, unknown>);
-    return { ...call, whatsappCallId };
-  }
-
-  async handleCallWebhook(
-    tenantId: string,
-    callEvents: Array<{ id: string; from?: string; event: string; status?: string; timestamp?: string; direction?: string; duration?: number; start_time?: string; end_time?: string; session?: { sdp_type: string; sdp: string } }>,
-  ) {
-    const EVENT_TO_STATUS: Record<string, CallStatus> = {
-      accept:    CallStatus.ANSWERED,
-      terminate: CallStatus.COMPLETED,
-      reject:    CallStatus.MISSED,
+  /** Map a terminal CallStatus to its socket event name */
+  private statusToEvent(status: CallStatus): string {
+    const map: Partial<Record<CallStatus, string>> = {
+      [CallStatus.ONGOING]:    'call_accepted',
+      [CallStatus.ENDED]:      'call_ended',
+      [CallStatus.MISSED]:     'call_missed',
+      [CallStatus.DECLINED]:   'call_declined',
+      [CallStatus.CANCELED]:   'call_canceled',
+      [CallStatus.UNANSWERED]: 'call_unanswered',
+      [CallStatus.BUSY]:       'call_updated',
+      [CallStatus.FAILED]:     'call_updated',
     };
+    return map[status] ?? 'call_updated';
+  }
 
-    for (const event of callEvents) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const prismaAny = this.prisma as any;
-        // eslint-disable-next-line prefer-const
-        let existing = await prismaAny.callLog.findFirst({
-          where: { whatsappCallId: event.id, tenantId },
-        }) as { id: string } | null;
-
-        // For BUSINESS_INITIATED connect events (outbound call answered by user),
-        // the call record might not exist yet due to race condition — retry briefly
-        if (!existing && event.event === 'connect' && event.direction === 'BUSINESS_INITIATED' && event.session?.sdp_type === 'answer') {
-          for (let attempt = 0; attempt < 5; attempt++) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-            existing = await prismaAny.callLog.findFirst({
-              where: { whatsappCallId: event.id, tenantId },
-            }) as { id: string } | null;
-            if (existing) break;
-          }
-        }
-
-        // Outbound call ringing on user's device: Meta sends SDP answer so we can set up WebRTC
-        // The user hasn't answered yet — just their device is ringing. Timer starts when they pick up.
-        if (existing && event.event === 'connect' && event.direction === 'BUSINESS_INITIATED' && event.session?.sdp_type === 'answer') {
-          const sdpAnswer = event.session.sdp;
-          await this.prisma.callLog.update({
-            where: { id: existing.id },
-            data: { status: CallStatus.RINGING },
-          });
-          this.realtime.emitCallEvent(tenantId, 'call_ringing', {
-            callLogId: existing.id,
-            whatsappCallId: event.id,
-            sdpAnswer,
-          });
-          this.logger.log(`[calls] Outbound call ringing, emitting call_ringing for callLogId=${existing.id}, tenant=${tenantId}`);
-          continue;
-        }
-
-        // Outbound call accepted by user (they picked up)
-        if (existing && event.event === 'accept' && event.direction === 'BUSINESS_INITIATED') {
-          await this.prisma.callLog.update({
-            where: { id: existing.id },
-            data: { status: CallStatus.ANSWERED, answeredAt: new Date() },
-          });
-          this.realtime.emitCallEvent(tenantId, 'call_connected', {
-            callLogId: existing.id,
-            whatsappCallId: event.id,
-          });
-          this.logger.log(`[calls] Outbound call answered by user, emitting call_connected for callLogId=${existing.id}, tenant=${tenantId}`);
-          continue;
-        }
-
-        // Inbound call arriving: Meta sends event=connect with SDP offer
-        // Skip BUSINESS_INITIATED events — those are outbound calls handled above
-        if (!existing && event.event === 'connect' && event.from && event.direction !== 'BUSINESS_INITIATED') {
-          const phone = event.from;
-          const contact = await this.prisma.contact.findFirst({
-            where: { tenantId, phone: { contains: phone } },
-            select: { id: true, name: true, phone: true },
-          });
-
-          const sdpOffer = event.session?.sdp ?? null;
-
-          const call = await prismaAny.callLog.create({
-            data: {
-              tenantId,
-              ...(contact && { contactId: contact.id }),
-              phone,
-              direction: CallDirection.INBOUND,
-              status: CallStatus.RINGING,
-              startedAt: new Date(),
-              whatsappCallId: event.id,
-              metadata: { sdpOffer } as Prisma.InputJsonValue,
-            },
-            include: CALL_INCLUDE,
-          }) as Record<string, unknown> & { id: string };
-
-          this.realtime.emitCallEvent(tenantId, 'incoming_call', {
-            callLogId: call.id,
-            whatsappCallId: event.id,
-            from: phone,
-            contactName: contact?.name ?? null,
-            sdpOffer,
-          });
-          this.logger.log(`[calls] Inbound call created ${call.id} from ${phone}, tenant=${tenantId}`);
-          continue;
-        }
-
-        const mappedStatus = EVENT_TO_STATUS[event.event];
-        if (!mappedStatus || !existing) {
-          if (!existing && event.event !== 'connect') this.logger.warn(`No call log for whatsappCallId ${event.id}, event=${event.event}`);
-          continue;
-        }
-
-        // For terminate events on outbound calls: if never answered, mark MISSED not COMPLETED
-        let finalStatus = mappedStatus;
-        if (event.event === 'terminate' && mappedStatus === CallStatus.COMPLETED) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const record = await (this.prisma as any).callLog.findFirst({
-            where: { id: existing.id },
-            select: { answeredAt: true, direction: true },
-          }) as { answeredAt: Date | null; direction: string } | null;
-          if (record && !record.answeredAt) {
-            finalStatus = CallStatus.MISSED;
-          }
-        }
-
-        const updateData: Record<string, unknown> = { status: finalStatus };
-        if (finalStatus === CallStatus.ANSWERED) updateData['answeredAt'] = new Date();
-        if ([CallStatus.COMPLETED, CallStatus.MISSED, CallStatus.FAILED].includes(finalStatus)) {
-          updateData['endedAt'] = new Date();
-          if (event.duration != null) updateData['duration'] = event.duration;
-        }
-
-        const updated = await this.prisma.callLog.update({
-          where: { id: existing.id },
-          data: updateData as Prisma.CallLogUpdateInput,
-          include: CALL_INCLUDE,
-        });
-
-        this.realtime.emitCallEvent(tenantId, 'call_updated', updated as unknown as Record<string, unknown>);
-
-        // Log call activity to the conversation when call ends
-        if ([CallStatus.COMPLETED, CallStatus.MISSED, CallStatus.FAILED].includes(finalStatus)) {
-          void this.logCallEndedActivity(tenantId, updated as unknown as Parameters<typeof this.logCallEndedActivity>[1], event.duration);
-        }
-      } catch (err) {
-        this.logger.error(`Failed to handle call webhook event for ${event.id}: ${err}`);
-      }
+  /** Map a terminal CallStatus to its ActivityAction */
+  private statusToActivityAction(status: CallStatus): ActivityAction {
+    switch (status) {
+      case CallStatus.MISSED:     return ActivityAction.CALL_MISSED;
+      case CallStatus.DECLINED:   return ActivityAction.CALL_DECLINED;
+      case CallStatus.CANCELED:   return ActivityAction.CALL_CANCELED;
+      case CallStatus.UNANSWERED: return ActivityAction.CALL_MISSED;
+      default:                    return ActivityAction.CALL_ENDED;
     }
   }
 
-  async respondToCall(
+  /** Log a call lifecycle event to the contact's conversation thread */
+  private async logCallActivity(
     tenantId: string,
-    callLogId: string,
-    action: 'pre_accept' | 'accept' | 'reject' | 'terminate',
-    sdpAnswer?: string,
-  ) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const call = await (this.prisma as any).callLog.findFirst({
-      where: { id: callLogId, tenantId },
-      select: { id: true, whatsappCallId: true },
-    }) as { id: string; whatsappCallId: string | null } | null;
-
-    if (!call) throw new NotFoundException('Call not found');
-
-    // Attempt to signal Meta — best-effort, call may already be ended on their side
-    if (call.whatsappCallId) {
-      try {
-        await this.whatsapp.respondToWhatsAppCall(tenantId, call.whatsappCallId, action, sdpAnswer);
-      } catch (err) {
-        this.logger.warn(`[calls] respondToWhatsAppCall non-fatal error for action=${action}: ${err}`);
-      }
-    }
-
-    const STATUS_MAP: Partial<Record<string, CallStatus>> = {
-      accept: CallStatus.ANSWERED,
-      reject: CallStatus.MISSED,
-      terminate: CallStatus.COMPLETED,
-    };
-
-    const newStatus = STATUS_MAP[action];
-    if (newStatus) {
-      const updateData: Prisma.CallLogUpdateInput = { status: newStatus };
-      if (action === 'accept') updateData.answeredAt = new Date();
-      if (action === 'reject' || action === 'terminate') updateData.endedAt = new Date();
-
-      const updated = await this.prisma.callLog.update({
-        where: { id: callLogId },
-        data: updateData,
-        include: CALL_INCLUDE,
-      });
-      this.realtime.emitCallEvent(tenantId, 'call_updated', updated as unknown as Record<string, unknown>);
-
-    }
-
-    return { success: true };
-  }
-
-  // Log a CALL_ENDED activity to the contact's most recent active conversation
-  private async logCallEndedActivity(
-    tenantId: string,
-    call: { id: string; contactId?: string | null; direction: CallDirection; status: CallStatus; answeredAt?: Date | null; endedAt?: Date | null; startedAt?: Date | null; userId?: string | null },
+    call: CallRecord,
+    action: ActivityAction,
     webhookDuration?: number,
   ) {
-    if (!call.contactId) {
-      this.logger.warn(`[calls] logCallEndedActivity skipped: no contactId for callId=${call.id}`);
-      return;
-    }
+    if (!call.contactId) return;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const conv = await (this.prisma as any).conversation.findFirst({
         where: {
           tenantId,
           contactId: call.contactId,
-          status: { in: [ConversationStatus.OPEN, ConversationStatus.REQUESTED, ConversationStatus.INTERVENED, ConversationStatus.RESOLVED, ConversationStatus.PENDING, ConversationStatus.SNOOZED] },
+          status: {
+            in: [
+              ConversationStatus.OPEN, ConversationStatus.REQUESTED,
+              ConversationStatus.INTERVENED, ConversationStatus.RESOLVED,
+              ConversationStatus.PENDING, ConversationStatus.SNOOZED,
+            ],
+          },
         },
         orderBy: { updatedAt: 'desc' },
         select: { id: true },
       }) as { id: string } | null;
-      this.logger.log(`[calls] logCallEndedActivity callId=${call.id} contactId=${call.contactId} → conv=${conv?.id ?? 'NONE'} duration=${webhookDuration}`);
+
       if (!conv) return;
 
       const duration = webhookDuration ??
@@ -554,52 +713,31 @@ export class CallsService {
           ? Math.floor((call.endedAt.getTime() - call.answeredAt.getTime()) / 1000)
           : 0);
 
-      // If COMPLETED but never answered, treat as MISSED visually
-      const effectiveStatus = (call.status === CallStatus.COMPLETED && !call.answeredAt)
-        ? CallStatus.MISSED
-        : call.status;
-
       await this.activityLogService.log({
         tenantId,
-        action: ActivityAction.CALL_ENDED,
+        action,
         conversationId: conv.id,
         userId: call.userId ?? undefined,
         metadata: {
           callLogId: call.id,
           direction: call.direction,
-          status: effectiveStatus,
+          status: call.status,
           duration,
         },
       });
     } catch (err) {
-      this.logger.warn(`[calls] Failed to log call activity: ${err}`);
+      this.logger.warn(`[calls] Failed to log call activity callId=${call.id}: ${err}`);
     }
   }
+}
 
-  async getCallPermission(tenantId: string, phone: string) {
-    return this.whatsapp.checkCallPermission(tenantId, phone);
-  }
-
-  async requestCallPermission(tenantId: string, phone: string) {
-    const messageId = await this.whatsapp.requestCallPermission(tenantId, phone);
-    return { success: true, messageId };
-  }
-
-  async getStats(tenantId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const [total, todayTotal, missed, scheduled, active] = await Promise.all([
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false } }),
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false, createdAt: { gte: today } } }),
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: CallStatus.MISSED, createdAt: { gte: today } } }),
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: CallStatus.SCHEDULED } }),
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: { in: [CallStatus.RINGING, CallStatus.ANSWERED, CallStatus.INITIATED] } } }),
-    ]);
-
-    const inbound = await this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.INBOUND, createdAt: { gte: today } } });
-    const outbound = await this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.OUTBOUND, createdAt: { gte: today } } });
-
-    return { total, todayTotal, missed, scheduled, active, inbound, outbound };
-  }
+/** Minimal call shape needed for activity logging */
+interface CallRecord {
+  id: string;
+  contactId?: string | null;
+  userId?: string | null;
+  direction: CallDirection;
+  status: CallStatus;
+  answeredAt?: Date | null;
+  endedAt?: Date | null;
 }

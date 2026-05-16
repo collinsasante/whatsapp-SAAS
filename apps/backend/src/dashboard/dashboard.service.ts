@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsappService: WhatsAppService,
+  ) {}
 
   async getOverview(tenantId: string) {
     const now = new Date();
@@ -188,6 +192,10 @@ export class DashboardService {
       this.prisma.conversation.count({ where: { tenantId, status: 'RESOLVED', updatedAt: { gte: from, lte: to } } }),
     ]);
     return { opened, closed };
+  }
+
+  async getBusinessProfile(tenantId: string) {
+    return this.whatsappService.getBusinessProfile(tenantId);
   }
 
   async getWhatsAppStatus(tenantId: string) {

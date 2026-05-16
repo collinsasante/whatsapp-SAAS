@@ -23,7 +23,7 @@ export class MessagesController {
     @CurrentUser() user: JwtPayload,
     @Body() dto: SendMessageDto,
   ) {
-    return this.messagesService.sendMessage(tenantId, conversationId, user.sub, dto);
+    return this.messagesService.sendMessage(tenantId, conversationId, user.sub, dto, user.role);
   }
 
   @Get()

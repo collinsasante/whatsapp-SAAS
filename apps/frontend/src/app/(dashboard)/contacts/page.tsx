@@ -1117,7 +1117,6 @@ export default function ContactsPage() {
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Phone</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Tags</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Country</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Language</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Conv. Status</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Assignee</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Message</th>
@@ -1174,7 +1173,6 @@ export default function ContactsPage() {
                                 ? <span title={country.name}>{country.flag} {country.name}</span>
                                 : <span className="text-gray-400">—</span>}
                             </td>
-                            <td className="px-4 py-3 text-gray-400 text-xs">{cf?.language ?? '—'}</td>
                             <td className="px-4 py-3">
                               {conv ? (
                                 <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', convStatusBadge(conv.status))}>

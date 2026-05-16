@@ -252,6 +252,7 @@ export const dashboardApi = {
   conversationTrend: (days = 30) => api.get('/dashboard/conversation-trend', { params: { days } }),
   conversationStats: (from: string, to: string) => api.get('/dashboard/conversation-stats', { params: { from, to } }),
   whatsappStatus: () => api.get('/dashboard/whatsapp-status'),
+  businessProfile: () => api.get('/dashboard/business-profile'),
 };
 
 export const channelsApi = {

@@ -1,0 +1,5 @@
+-- Add new ActivityAction values for call lifecycle events
+ALTER TYPE "ActivityAction" ADD VALUE IF NOT EXISTS 'CALL_INITIATED';
+ALTER TYPE "ActivityAction" ADD VALUE IF NOT EXISTS 'CALL_MISSED';
+ALTER TYPE "ActivityAction" ADD VALUE IF NOT EXISTS 'CALL_DECLINED';
+ALTER TYPE "ActivityAction" ADD VALUE IF NOT EXISTS 'CALL_CANCELED';

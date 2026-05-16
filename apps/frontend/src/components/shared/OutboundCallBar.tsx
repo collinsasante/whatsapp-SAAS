@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { PhoneCall, PhoneOff, Mic, MicOff, Pause, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
@@ -27,31 +27,67 @@ function formatDuration(seconds: number): string {
   return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/** Terminal statuses that should automatically close the bar */
+const TERMINAL = new Set([
+  'ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
+  // legacy values kept for safety
+  'COMPLETED', 'CANCELLED',
+]);
+
+/** Labels and colours for each lifecycle phase */
+type Phase = 'initiating' | 'ringing' | 'connected' | 'held' | 'declined' | 'unanswered' | 'canceled' | 'ended';
+
+function phaseOf(call: ReturnType<typeof useCallsStore.getState>['outboundCall']): Phase {
+  if (!call) return 'initiating';
+  if (call.endedReason === 'declined')   return 'declined';
+  if (call.endedReason === 'unanswered') return 'unanswered';
+  if (call.endedReason === 'canceled')   return 'canceled';
+  if (call.endedReason === 'ended')      return 'ended';
+  if (call.held)                         return 'held';
+  if (call.startedAt)                    return 'connected';
+  if (call.ringing)                      return 'ringing';
+  return 'initiating';
+}
+
+const PHASE_LABEL: Record<Phase, string> = {
+  initiating:  'Calling…',
+  ringing:     'Ringing…',
+  connected:   '',        // shows timer
+  held:        'On Hold',
+  declined:    'Declined',
+  unanswered:  'No answer',
+  canceled:    'Canceled',
+  ended:       'Call ended',
+};
+
 export function OutboundCallBar() {
   const { outboundCall, setOutboundCall, outboundSession, setOutboundSession } = useCallsStore();
   const [elapsed, setElapsed] = useState(0);
   const [muted, setMuted] = useState(false);
-  const [held, setHeld] = useState(false);
-  const barRef = useRef<HTMLDivElement>(null);
+  const [togglingMute, setTogglingMute] = useState(false);
+  const [togglingHold, setTogglingHold] = useState(false);
+  const [dismissing, setDismissing] = useState(false);
+
+  const barRef    = useRef<HTMLDivElement>(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
 
-  const connected = outboundCall?.startedAt !== null && outboundCall?.startedAt !== undefined;
-  const ringing = !connected && (outboundCall?.ringing ?? false);
+  const phase = phaseOf(outboundCall);
+  const connected = phase === 'connected';
+  const terminal  = ['declined', 'unanswered', 'canceled', 'ended'].includes(phase);
 
-  // Timer — only counts once user has answered (connected)
+  // ── Elapsed timer ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!connected) { setElapsed(0); return; }
     const t = setInterval(() => setElapsed(s => s + 1), 1000);
     return () => clearInterval(t);
   }, [connected]);
 
-  // Reset elapsed when a new call starts
   useEffect(() => {
-    if (outboundCall) setElapsed(0);
+    if (outboundCall) { setElapsed(0); setMuted(false); }
   }, [outboundCall?.callId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // WebRTC connection state → start timer when audio is actually flowing (user answered)
+  // ── WebRTC connection → start timer ───────────────────────────────────────
   useEffect(() => {
     const session = outboundSession;
     if (!session?.pc) return;
@@ -67,80 +103,165 @@ export function OutboundCallBar() {
     return () => session.pc.removeEventListener('connectionstatechange', handleStateChange);
   }, [outboundSession, setOutboundCall]);
 
-  // Socket: call_connected fires when user picks up (accept event from Meta)
-  // call_updated fires when remote hangs up
-  useEffect(() => {
-    const socket = getSocket();
-
-    socket.on('call_connected', (data: { call: { callLogId: string } }) => {
-      const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.callLogId) return;
-      if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
-    });
-
-    socket.on('call_updated', (data: { call: { id: string; status: string } }) => {
-      const ended = ['COMPLETED', 'MISSED', 'FAILED', 'CANCELLED'].includes(data.call?.status ?? '');
-      if (!ended) return;
-      const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.id) return;
-      cleanupSession();
-      setOutboundCall(null);
-      toast.success('Call ended');
-    });
-
-    return () => {
-      socket.off('call_connected');
-      socket.off('call_updated');
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const cleanupSession = () => {
+  // ── Cleanup WebRTC session ─────────────────────────────────────────────────
+  const cleanupSession = useCallback(() => {
     const session = useCallsStore.getState().outboundSession;
     if (!session) return;
     try { session.pc.close(); } catch { /* ignore */ }
     session.stream.getTracks().forEach(t => t.stop());
     try { session.remoteAudio.srcObject = null; session.remoteAudio.remove(); } catch { /* ignore */ }
     setOutboundSession(null);
-  };
+  }, [setOutboundSession]);
 
-  const handleHangUp = async () => {
+  // ── Dismiss bar (with fade animation) ─────────────────────────────────────
+  const dismiss = useCallback((delay = 0) => {
+    setTimeout(() => {
+      setDismissing(true);
+      setTimeout(() => {
+        setOutboundCall(null);
+        setDismissing(false);
+      }, 300);
+    }, delay);
+  }, [setOutboundCall]);
+
+  // ── Socket listeners ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const socket = getSocket();
+
+    // Customer's device is ringing (SDP negotiated)
+    socket.on('call_ringing', (data: { call: { callLogId: string } }) => {
+      const current = useCallsStore.getState().outboundCall;
+      if (!current || current.callId !== data.call?.callLogId) return;
+      setOutboundCall({ ...current, ringing: true });
+    });
+
+    // Customer answered
+    socket.on('call_accepted', (data: { callLogId: string }) => {
+      const current = useCallsStore.getState().outboundCall;
+      const id = data.callLogId ?? (data as unknown as { call: { callLogId: string } }).call?.callLogId;
+      if (!current || current.callId !== id) return;
+      if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
+    });
+
+    socket.on('call_connected', (data: { callLogId?: string; call?: { callLogId: string } }) => {
+      const current = useCallsStore.getState().outboundCall;
+      const id = data.callLogId ?? data.call?.callLogId;
+      if (!current || current.callId !== id) return;
+      if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
+    });
+
+    // Customer declined
+    socket.on('call_declined', (data: { call: { id: string } }) => {
+      const current = useCallsStore.getState().outboundCall;
+      if (!current || current.callId !== data.call?.id) return;
+      cleanupSession();
+      setOutboundCall({ ...current, endedReason: 'declined' });
+      toast.error('Call declined', { icon: '🚫' });
+      dismiss(2000);
+    });
+
+    // Customer didn't answer
+    socket.on('call_unanswered', (data: { call: { id: string } }) => {
+      const current = useCallsStore.getState().outboundCall;
+      if (!current || current.callId !== data.call?.id) return;
+      cleanupSession();
+      setOutboundCall({ ...current, endedReason: 'unanswered' });
+      toast('No answer', { icon: '📵' });
+      dismiss(2500);
+    });
+
+    // Remote side ended the call (or any terminal update)
+    socket.on('call_updated', (data: { call: { id: string; status: string } }) => {
+      const current = useCallsStore.getState().outboundCall;
+      if (!current || current.callId !== data.call?.id) return;
+      if (!TERMINAL.has(data.call?.status ?? '')) return;
+
+      cleanupSession();
+      const reason = data.call.status === 'DECLINED' ? 'declined' :
+                     data.call.status === 'UNANSWERED' ? 'unanswered' :
+                     data.call.status === 'CANCELED' ? 'canceled' : 'ended';
+      setOutboundCall({ ...current, endedReason: reason });
+      if (reason === 'ended') toast.success('Call ended');
+      dismiss(2000);
+    });
+
+    socket.on('call_ended', (data: { call: { id: string } }) => {
+      const current = useCallsStore.getState().outboundCall;
+      if (!current || current.callId !== data.call?.id) return;
+      cleanupSession();
+      setOutboundCall({ ...current, endedReason: 'ended' });
+      dismiss(2000);
+    });
+
+    return () => {
+      socket.off('call_ringing');
+      socket.off('call_accepted');
+      socket.off('call_connected');
+      socket.off('call_declined');
+      socket.off('call_unanswered');
+      socket.off('call_updated');
+      socket.off('call_ended');
+    };
+  }, [cleanupSession, dismiss, setOutboundCall]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Hang up ────────────────────────────────────────────────────────────────
+  const handleHangUp = useCallback(async () => {
     if (!outboundCall) return;
+    const duration = outboundCall.startedAt
+      ? Math.floor((Date.now() - outboundCall.startedAt.getTime()) / 1000)
+      : 0;
     try { await callsApi.respond(outboundCall.callId, 'terminate'); } catch { /* best-effort */ }
-    const duration = outboundCall.startedAt ? Math.floor((Date.now() - outboundCall.startedAt.getTime()) / 1000) : 0;
-    try { await callsApi.update(outboundCall.callId, { status: 'COMPLETED', duration, endedAt: new Date().toISOString() }); } catch { /* best-effort */ }
+    try {
+      await callsApi.update(outboundCall.callId, {
+        status: duration > 0 ? 'ENDED' : 'CANCELED',
+        duration,
+        endedAt: new Date().toISOString(),
+      });
+    } catch { /* best-effort */ }
     cleanupSession();
-    setOutboundCall(null);
-    toast.success(`Call ended${duration > 0 ? ` — ${formatDuration(duration)}` : ''}`);
-  };
+    const reason = duration > 0 ? 'ended' : 'canceled';
+    setOutboundCall({ ...outboundCall, endedReason: reason });
+    if (duration > 0) toast.success(`Call ended — ${formatDuration(duration)}`);
+    dismiss(1500);
+  }, [outboundCall, cleanupSession, dismiss, setOutboundCall]);
 
-  const handleMute = async () => {
-    if (!outboundCall) return;
+  // ── Mute ───────────────────────────────────────────────────────────────────
+  const handleMute = useCallback(async () => {
+    if (!outboundCall || togglingMute) return;
     const next = !muted;
+    setTogglingMute(true);
     setMuted(next);
     const session = useCallsStore.getState().outboundSession;
     if (session?.stream) {
       const track = session.stream.getAudioTracks()[0];
       if (track) track.enabled = !next;
     }
-    try { if (outboundCall.callId) await callsApi.mute(outboundCall.callId, next); } catch { setMuted(!next); }
-  };
+    try { if (outboundCall.callId) await callsApi.mute(outboundCall.callId, next); }
+    catch { setMuted(!next); }
+    finally { setTogglingMute(false); }
+  }, [outboundCall, muted, togglingMute]);
 
-  const handleHold = async () => {
-    if (!outboundCall) return;
-    const next = !held;
-    setHeld(next);
-    try { if (outboundCall.callId) await callsApi.hold(outboundCall.callId, next); } catch { setHeld(!next); }
-  };
+  // ── Hold ───────────────────────────────────────────────────────────────────
+  const handleHold = useCallback(async () => {
+    if (!outboundCall || togglingHold) return;
+    const next = !outboundCall.held;
+    setTogglingHold(true);
+    try {
+      if (outboundCall.callId) await callsApi.hold(outboundCall.callId, next);
+      setOutboundCall({ ...outboundCall, held: next });
+    } catch { /* ignore */ }
+    finally { setTogglingHold(false); }
+  }, [outboundCall, togglingHold, setOutboundCall]);
 
-  // Drag
+  // ── Drag ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
       if (barRef.current) {
         barRef.current.style.left = `${e.clientX - offset.x}px`;
-        barRef.current.style.top = `${e.clientY - offset.y}px`;
+        barRef.current.style.top  = `${e.clientY - offset.y}px`;
         barRef.current.style.bottom = 'auto';
-        barRef.current.style.right = 'auto';
+        barRef.current.style.right  = 'auto';
       }
     };
     const onUp = () => setDragging(false);
@@ -158,51 +279,99 @@ export function OutboundCallBar() {
 
   if (!outboundCall) return null;
 
-  const statusLabel = connected ? formatDuration(elapsed) : ringing ? 'Ringing…' : 'Calling…';
-  const statusColor = connected
-    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-    : ringing
-      ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse'
-      : 'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse';
+  // ── Status label / colour ──────────────────────────────────────────────────
+  const statusLabel = phase === 'connected' ? formatDuration(elapsed) : PHASE_LABEL[phase];
+  const statusColor =
+    terminal            ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+    phase === 'held'    ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
+    phase === 'connected' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+    phase === 'ringing' ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse' :
+                          'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse';
 
   return (
-    <div ref={barRef} onMouseDown={onMouseDown}
+    <div
+      ref={barRef}
+      onMouseDown={onMouseDown}
       className={cn(
-        'fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 border border-slate-700 rounded-2xl px-5 py-3 flex items-center gap-5 shadow-2xl min-w-80',
+        'fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 border border-slate-700 rounded-2xl px-5 py-3',
+        'flex items-center gap-5 shadow-2xl min-w-80 transition-all duration-300',
+        dismissing ? 'opacity-0 scale-95' : 'opacity-100 scale-100',
         dragging ? 'cursor-grabbing select-none' : 'cursor-grab',
-      )}>
-      <div className="flex items-center gap-3 min-w-0">
+      )}
+    >
+      {/* Contact info */}
+      <div className="flex items-center gap-3 min-w-0 flex-1">
         <div className="relative flex-shrink-0">
           <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <PhoneCall size={18} className="text-emerald-400" />
+            <PhoneCall size={18} className={cn(
+              terminal ? 'text-red-400' : 'text-emerald-400',
+            )} />
           </div>
-          <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-pulse border-2 border-slate-900" />
+          {!terminal && (
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-pulse border-2 border-slate-900" />
+          )}
         </div>
+
         <div className="min-w-0">
           <p className="text-white font-semibold text-sm leading-tight truncate">{outboundCall.contactName}</p>
           <p className="text-slate-400 text-xs truncate">{outboundCall.phone}</p>
         </div>
-        {connected && !held && <WaveformBars />}
-        {held && <span className="text-amber-400 text-xs font-bold animate-pulse">On Hold</span>}
+
+        {connected && !outboundCall.held && <WaveformBars />}
+        {outboundCall.held && <span className="text-amber-400 text-xs font-bold animate-pulse">On Hold</span>}
+
         <div className={cn('flex items-center gap-1 font-mono text-sm px-3 py-1 rounded-full border flex-shrink-0', statusColor)}>
           <Clock size={11} />
           {statusLabel}
         </div>
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <button onClick={() => { void handleMute(); }}
-          className={cn('w-9 h-9 rounded-full flex items-center justify-center transition-all', muted ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}>
-          {muted ? <MicOff size={15} /> : <Mic size={15} />}
+
+      {/* Controls — only visible when not terminal */}
+      {!terminal && (
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => { void handleMute(); }}
+            disabled={togglingMute || !connected}
+            className={cn(
+              'w-9 h-9 rounded-full flex items-center justify-center transition-all',
+              muted ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600',
+              (!connected || togglingMute) && 'opacity-40 cursor-not-allowed',
+            )}
+          >
+            {muted ? <MicOff size={15} /> : <Mic size={15} />}
+          </button>
+
+          <button
+            onClick={() => { void handleHold(); }}
+            disabled={togglingHold || !connected}
+            className={cn(
+              'w-9 h-9 rounded-full flex items-center justify-center transition-all',
+              outboundCall.held ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600',
+              (!connected || togglingHold) && 'opacity-40 cursor-not-allowed',
+            )}
+          >
+            <Pause size={15} />
+          </button>
+
+          <button
+            onClick={() => { void handleHangUp(); }}
+            className="h-9 px-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 text-sm font-bold transition-colors"
+          >
+            <PhoneOff size={15} />
+            {phase === 'ringing' || phase === 'initiating' ? 'Cancel' : 'End'}
+          </button>
+        </div>
+      )}
+
+      {/* Dismiss button when terminal */}
+      {terminal && (
+        <button
+          onClick={() => dismiss(0)}
+          className="flex-shrink-0 text-slate-400 hover:text-white text-xs font-medium px-3 py-1 rounded-lg border border-slate-700 hover:border-slate-500 transition-colors"
+        >
+          Dismiss
         </button>
-        <button onClick={() => { void handleHold(); }}
-          className={cn('w-9 h-9 rounded-full flex items-center justify-center transition-all', held ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}>
-          <Pause size={15} />
-        </button>
-        <button onClick={() => { void handleHangUp(); }}
-          className="w-9 h-9 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-white transition-all">
-          <PhoneOff size={15} />
-        </button>
-      </div>
+      )}
     </div>
   );
 }

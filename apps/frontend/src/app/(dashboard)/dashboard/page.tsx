@@ -36,6 +36,25 @@ interface WaStatus {
   qualityRating: string; messagingLimit: string; verificationStatus: string;
 }
 
+interface MetaBusinessProfile {
+  phone: {
+    verified_name?: string;
+    display_phone_number?: string;
+    quality_rating?: string;
+    messaging_limit_tier?: string;
+    code_verification_status?: string;
+  };
+  profile: {
+    about?: string;
+    address?: string;
+    description?: string;
+    email?: string;
+    profile_picture_url?: string;
+    websites?: string[];
+    vertical?: string;
+  };
+}
+
 interface ConvStats { opened: number; closed: number }
 interface TrendPoint { date: string; opened: number; closed: number }
 
@@ -146,6 +165,7 @@ export default function DashboardPage() {
   const [waStatus, setWaStatus] = useState<WaStatus | null>(null);
   const [convStats, setConvStats] = useState<ConvStats | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [metaBiz, setMetaBiz] = useState<MetaBusinessProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [preset, setPreset] = useState<DatePreset>('30d');
@@ -156,16 +176,18 @@ export default function DashboardPage() {
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
     try {
-      const [ovRes, teamRes, waRes, trendRes] = await Promise.allSettled([
+      const [ovRes, teamRes, waRes, trendRes, bizRes] = await Promise.allSettled([
         dashboardApi.overview(),
         dashboardApi.teamStats(),
         dashboardApi.whatsappStatus(),
         dashboardApi.conversationTrend(30),
+        dashboardApi.businessProfile(),
       ]);
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value.data as Overview);
       if (teamRes.status === 'fulfilled') setTeam(teamRes.value.data as TeamMember[]);
       if (waRes.status === 'fulfilled') setWaStatus(waRes.value.data as WaStatus);
       if (trendRes.status === 'fulfilled') setTrend((trendRes.value.data as TrendPoint[]) ?? []);
+      if (bizRes.status === 'fulfilled' && bizRes.value.data) setMetaBiz(bizRes.value.data as MetaBusinessProfile);
     } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
@@ -399,19 +421,25 @@ export default function DashboardPage() {
 
         {/* Business Info */}
         <Section title="Business Information" icon={Building2}>
-          <p className="text-xs text-gray-400 mb-3">Information provided to META</p>
+          <p className="text-xs text-gray-400 mb-3">Live data from Meta Business API</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
             <div>
-              <InfoRow label="Business Name" value={biz?.name} />
-              <InfoRow label="Phone Number"  value={biz?.phone} mono />
-              <InfoRow label="Description"   value={biz?.description} />
+              <InfoRow label="Business Name"   value={metaBiz?.phone?.verified_name ?? biz?.name} />
+              <InfoRow label="Phone Number"    value={metaBiz?.phone?.display_phone_number ?? biz?.phone} mono />
+              <InfoRow label="Description"     value={metaBiz?.profile?.description ?? biz?.description} />
+              <InfoRow label="About"           value={metaBiz?.profile?.about} />
+              <InfoRow label="Industry"        value={metaBiz?.profile?.vertical} />
             </div>
             <div>
-              <InfoRow label="Address"  value={biz?.address} />
-              <InfoRow label="Email"    value={biz?.email} />
-              <InfoRow label="Website"  value={
-                biz?.website
-                  ? <a href={biz.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">{biz.website}</a>
+              <InfoRow label="Address"         value={metaBiz?.profile?.address ?? biz?.address} />
+              <InfoRow label="Email"           value={metaBiz?.profile?.email ?? biz?.email} />
+              <InfoRow label="Quality Rating"  value={metaBiz?.phone?.quality_rating} />
+              <InfoRow label="Messaging Limit" value={metaBiz?.phone?.messaging_limit_tier} />
+              <InfoRow label="Website"         value={
+                (metaBiz?.profile?.websites?.[0] ?? biz?.website)
+                  ? <a href={metaBiz?.profile?.websites?.[0] ?? biz?.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+                      {metaBiz?.profile?.websites?.[0] ?? biz?.website}
+                    </a>
                   : null
               } />
             </div>

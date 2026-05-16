@@ -269,6 +269,45 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       },
     );
 
+    // Realtime notifications — surface visible toast + chime for high-signal events.
+    // (NotificationBell separately handles the same event to update the bell badge/store.)
+    type NotificationPayload = { id: string; type: string; title: string; body: string; link?: string | null; metadata?: Record<string, unknown> | null };
+    const notificationHandler = (data: NotificationPayload) => {
+      if (isMuted()) return;
+      if (data.type !== 'CONVERSATION_ASSIGNED') return;
+
+      playNotificationSound();
+      const convId = (data.metadata && typeof data.metadata === 'object' ? (data.metadata as { conversationId?: string }).conversationId : null) ?? null;
+      toast.custom(
+        (t) => (
+          <div
+            className={`flex items-center gap-3 bg-white rounded-2xl shadow-xl border border-indigo-100 px-4 py-3 max-w-xs cursor-pointer transition-all ${t.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
+            style={{ minWidth: 280 }}
+            onClick={() => {
+              if (convId) {
+                window.dispatchEvent(new CustomEvent('inbox:open-conversation', { detail: { conversationId: convId } }));
+              } else if (data.link) {
+                router.push(data.link);
+              }
+              toast.dismiss(t.id);
+            }}
+          >
+            <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center flex-shrink-0">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-gray-900 truncate">{data.title}</p>
+              <p className="text-xs text-gray-500 truncate">{data.body}</p>
+            </div>
+            <span className="text-[10px] text-gray-300 flex-shrink-0">now</span>
+          </div>
+        ),
+        { duration: 6000, id: `notif-${data.id}` },
+      );
+      showBrowserNotification(data.title, data.body);
+    };
+    socket.on('notification:new', notificationHandler);
+
     // Force logout — admin suspended/removed/forced or password reset
     socket.on(
       'force_logout',
@@ -340,12 +379,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       },
     );
 
-    // Close incoming call modal when client ends the call
+    // Close incoming call modal when one agent answers or the call terminates
     socket.on(
       'call_updated',
       (data: { tenantId: string; call: { id: string; status: string } }) => {
-        const ended = ['COMPLETED', 'MISSED', 'FAILED'].includes(data.call?.status ?? '');
-        if (ended && data.call?.id) clearCallIfMatches(data.call.id);
+        const dismiss = ['ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
+          'COMPLETED', 'CANCELLED', 'ONGOING'].includes(data.call?.status ?? '');
+        if (dismiss && data.call?.id) clearCallIfMatches(data.call.id);
       },
     );
 
@@ -388,6 +428,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off('member_updated');
       socket.off('conversations_reassigned');
       socket.off('canned_responses_updated');
+      // Pass the handler ref so we don't tear down NotificationBell's listener for the same event.
+      socket.off('notification:new', notificationHandler);
       socket.off('incoming_call');
       socket.off('call_updated');
       socket.off('call_ringing');

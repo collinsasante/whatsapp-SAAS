@@ -8,9 +8,9 @@ import {
   CheckCircle, RefreshCw, Copy, StickyNote, Archive,
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
-  ChevronUp, ChevronDown,
+  ChevronUp, ChevronDown, ChevronLeft,
 } from 'lucide-react';
-import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi } from '@/lib/api';
+import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi } from '@/lib/api';
 import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
 import toast from 'react-hot-toast';
@@ -192,6 +192,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [contacts, setContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
   const [popupPos, setPopupPos] = useState<{ left: number; bottom: number }>({ left: 0, bottom: 80 });
   const [liveLocation, setLiveLocation] = useState<{ active: boolean; expiresAt: number; intervalId: ReturnType<typeof setInterval> | null }>({ active: false, expiresAt: 0, intervalId: null });
@@ -831,7 +832,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   };
 
   const sessionBlocked = !loading && sessionExpired && !isResolved && !isRequested;
-  const inputDisabled = inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked);
+  // Read-only when this chat is assigned to someone else and the current user is an AGENT/VIEWER.
+  // Admins/super-admins can still respond — they supervise.
+  const isAgentLevelRole = user?.role === 'AGENT' || user?.role === 'VIEWER';
+  const assigneeId = conversation.assignedTo?.id ?? null;
+  const assignedToOther = isAgentLevelRole && !!assigneeId && assigneeId !== user?.id;
+  const inputDisabled = assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
   const sendDisabled = sending || inputDisabled;
   const statusColor =
     localStatus === 'RESOLVED' ? 'text-gray-400' :
@@ -1172,6 +1178,16 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
 
+            {/* Transferred-away banner — current user no longer owns this chat */}
+            {assignedToOther && (
+              <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200">
+                <ArrowRightLeft size={13} className="text-gray-500 flex-shrink-0" />
+                <span className="text-xs text-gray-700 flex-1">
+                  <span className="font-medium">This chat is assigned to {conversation.assignedTo?.name ?? 'another agent'}.</span> You can view it, but only the assignee can reply.
+                </span>
+              </div>
+            )}
+
             {/* Requesting banner — agent must intervene before typing */}
             {isRequested && inputMode === 'message' && (
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200">
@@ -1193,8 +1209,15 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-amber-50 rounded-xl border border-amber-200">
                 <AlertCircle size={13} className="text-amber-500 flex-shrink-0" />
                 <span className="text-xs text-amber-700 flex-1">
-                  <span className="font-medium">WhatsApp session has expired.</span> Send a template message to re-engage.
+                  <span className="font-medium">WhatsApp session has expired.</span> Send a template to re-engage.
                 </span>
+                <button
+                  onClick={() => setShowTemplatePicker(true)}
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  <MessageSquare size={11} />
+                  Send Template
+                </button>
               </div>
             )}
 
@@ -1471,6 +1494,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             </div>
           </div>
         </div>
+      )}
+
+      {/* Template picker (session expired) */}
+      {showTemplatePicker && (
+        <TemplatePicker
+          onClose={() => setShowTemplatePicker(false)}
+          onSend={async (templateId, variables) => {
+            try {
+              await messagesApi.send(conversation.id, { type: 'TEMPLATE', templateId, templateVariables: Object.keys(variables).length > 0 ? variables : undefined });
+            } catch (err: unknown) {
+              const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to send template';
+              toast.error(msg);
+            }
+            setShowTemplatePicker(false);
+          }}
+        />
       )}
 
       {/* File Library picker */}
@@ -1986,11 +2025,13 @@ const MessageBubble = memo(function MessageBubble({
                 </div>
               )}
 
-              {message.content && (
+              {message.content ? (
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">
                   {searchQuery ? highlightText(message.content, searchQuery) : message.content}
                 </p>
-              )}
+              ) : message.type === 'TEMPLATE' ? (
+                <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📋 Template message</p>
+              ) : null}
 
               {message.type === 'LOCATION' && (
                 <a href={`https://maps.google.com/?q=${message.metadata?.['latitude']},${message.metadata?.['longitude']}`} target="_blank" rel="noopener noreferrer"
@@ -2172,3 +2213,169 @@ const MessageBubble = memo(function MessageBubble({
     </>
   );
 });
+
+interface Template { id: string; name: string; language: string; status: string; category: string; components?: Array<{ type: string; text?: string }>; }
+
+function extractVarIndices(components: Array<{ type: string; text?: string }>): string[] {
+  const indices = new Set<string>();
+  for (const c of components) {
+    const matches = c.text?.match(/\{\{(\d+)\}\}/g) ?? [];
+    for (const m of matches) indices.add(m.replace(/[{}]/g, ''));
+  }
+  return [...indices].sort((a, b) => +a - +b);
+}
+
+function TemplatePicker({ onClose, onSend }: { onClose: () => void; onSend: (templateId: string, variables: Record<string, string>) => Promise<void> }) {
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [variables, setVariables] = useState<Record<string, string>>({});
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    templatesApi.list({ status: 'APPROVED', limit: 100 }).then((res) => {
+      setTemplates((res.data as { items?: Template[]; data?: Template[] }).items ?? (res.data as { items?: Template[]; data?: Template[] }).data ?? []);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!loading) setTimeout(() => searchRef.current?.focus(), 50);
+  }, [loading]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return templates;
+    const q = query.toLowerCase();
+    return templates.filter((t) => t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q));
+  }, [templates, query]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <MessageSquare size={16} className="text-teal-600" />
+            <h2 className="font-semibold text-gray-900">Send Template</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+        </div>
+        {selectedTemplate ? (
+          <>
+            <div className="px-4 pt-3 pb-2">
+              <button
+                onClick={() => setSelectedTemplate(null)}
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 mb-3"
+              >
+                <ChevronLeft size={13} /> Back
+              </button>
+              <p className="font-medium text-gray-900 text-sm">{selectedTemplate.name}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{selectedTemplate.language} · {selectedTemplate.category}</p>
+            </div>
+            <div className="max-h-[52vh] overflow-y-auto px-4 pb-4">
+              <div className="space-y-3 mt-1">
+                {Object.keys(variables).map((key) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Variable {`{{${key}}}`}</label>
+                    <input
+                      type="text"
+                      value={variables[key]}
+                      onChange={(e) => setVariables((v) => ({ ...v, [key]: e.target.value }))}
+                      placeholder={`Enter value for {{${key}}}`}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+              <button
+                disabled={Object.values(variables).some((v) => !v.trim()) || !!sending}
+                onClick={async () => {
+                  setSending(selectedTemplate.id);
+                  await onSend(selectedTemplate.id, variables);
+                  setSending(null);
+                }}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors disabled:opacity-50"
+              >
+                {sending ? <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" /> : <Send size={13} />}
+                Send
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="px-4 pt-3 pb-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-100">
+                <Search size={13} className="text-gray-400 flex-shrink-0" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search templates…"
+                  className="flex-1 bg-transparent text-sm text-gray-700 placeholder-gray-400 outline-none"
+                />
+                {query && (
+                  <button onClick={() => setQuery('')} className="text-gray-400 hover:text-gray-600">
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="max-h-[52vh] overflow-y-auto px-4 pb-4">
+              {loading ? (
+                <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
+              ) : filtered.length === 0 ? (
+                <p className="text-center text-sm text-gray-400 py-8">
+                  {query ? 'No templates match your search' : 'No approved templates found'}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {filtered.map((t) => (
+                    <button
+                      key={t.id}
+                      disabled={!!sending}
+                      onClick={async () => {
+                        const varIndices = extractVarIndices(t.components ?? []);
+                        if (varIndices.length === 0) {
+                          setSending(t.id);
+                          await onSend(t.id, {});
+                          setSending(null);
+                        } else {
+                          setSelectedTemplate(t);
+                          setVariables(Object.fromEntries(varIndices.map((v) => [v, ''])));
+                        }
+                      }}
+                      className="w-full text-left px-4 py-3 rounded-xl border border-gray-100 hover:border-teal-300 hover:bg-teal-50 transition-all flex items-center justify-between gap-3 disabled:opacity-50"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 text-sm truncate">{t.name}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{t.language} · {t.category}</p>
+                      </div>
+                      {sending === t.id ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-teal-600 flex-shrink-0" />
+                      ) : (
+                        <Send size={13} className="text-teal-500 flex-shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
