@@ -63,7 +63,8 @@ export function IncomingCallModal() {
   // Kept to upload recording when call ends remotely (incomingCall cleared from store)
   const recordingCallIdRef = useRef<string | null>(null);
 
-  const recording = useCallRecording();
+  // Destructure so useCallback deps are stable (useCallRecording uses useCallback internally)
+  const { start: startRecording, stop: stopRecording, isRecording } = useCallRecording();
   const elapsed = useElapsedSeconds(state === 'active');
 
   // ── Stop recording and upload (fire-and-forget) ───────────────────────────
@@ -71,10 +72,10 @@ export function IncomingCallModal() {
     const id = recordingCallIdRef.current;
     if (!id) return;
     recordingCallIdRef.current = null;
-    void recording.stop().then((blob) => {
+    void stopRecording().then((blob) => {
       if (blob) void uploadCallRecording(id, blob);
     });
-  }, [recording]);
+  }, [stopRecording]);
 
   // ── Clean up audio/WebRTC resources ──────────────────────────────────────
   const cleanup = useCallback(() => {
@@ -120,7 +121,7 @@ export function IncomingCallModal() {
 
   // ── Handle remote call termination (store cleared externally) ─────────────
   useEffect(() => {
-    if (!incomingCall && recording.isRecording()) {
+    if (!incomingCall && isRecording()) {
       stopAndUpload();
     }
   }, [incomingCall]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -212,7 +213,7 @@ export function IncomingCallModal() {
       setState('active');
       // Start recording once both local + remote streams are available
       recordingCallIdRef.current = incomingCall.callLogId;
-      recording.start(streamRef.current, remoteStreamRef.current);
+      startRecording(streamRef.current, remoteStreamRef.current);
     } catch (err) {
       console.error('[IncomingCallModal] WebRTC accept failed:', err);
       toast.error('Could not connect call — microphone may be blocked');
@@ -221,7 +222,7 @@ export function IncomingCallModal() {
       setState('declined');
       autoDismiss(1500);
     }
-  }, [incomingCall, cleanup, autoDismiss, recording]);
+  }, [incomingCall, cleanup, autoDismiss, startRecording]);
 
   // ── Hang up during active call ────────────────────────────────────────────
   const handleHangup = useCallback(async () => {

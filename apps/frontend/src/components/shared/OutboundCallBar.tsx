@@ -73,7 +73,8 @@ export function OutboundCallBar() {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
 
-  const recording           = useCallRecording();
+  // Destructure so useCallback deps are stable (useCallRecording uses useCallback internally)
+  const { start: startRecording, stop: stopRecording } = useCallRecording();
   const recordingStartedRef = useRef(false); // guard against double-start
 
   const phase = phaseOf(outboundCall);
@@ -107,8 +108,8 @@ export function OutboundCallBar() {
     const remoteStream = session.remoteAudio.srcObject instanceof MediaStream
       ? session.remoteAudio.srcObject
       : null;
-    recording.start(session.stream, remoteStream);
-  }, [connected, outboundSession]); // eslint-disable-line react-hooks/exhaustive-deps
+    startRecording(session.stream, remoteStream);
+  }, [connected, outboundSession, startRecording]);
 
   // ── Stop recording when call reaches a terminal phase ─────────────────────
   const recordingCallIdRef = useRef<string | null>(null);
@@ -121,10 +122,10 @@ export function OutboundCallBar() {
     if (!id) return;
     recordingCallIdRef.current = null;
     recordingStartedRef.current = false;
-    void recording.stop().then((blob) => {
+    void stopRecording().then((blob) => {
       if (blob) void uploadCallRecording(id, blob);
     });
-  }, [recording]);
+  }, [stopRecording]);
 
   // ── Cleanup WebRTC session ─────────────────────────────────────────────────
   const cleanupSession = useCallback(() => {
