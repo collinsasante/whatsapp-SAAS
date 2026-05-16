@@ -770,6 +770,17 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       updateConversation(conversation.id, { labels: updated });
       setLabelInput('');
       toast.success(`Label "${trimmed}" added`);
+
+      // Promote brand-new labels to managed Tags so they show up in /manage → Tags.
+      // Existing tag names (case-insensitive) are skipped; conflicts from a server-side
+      // race are swallowed since the tag already exists.
+      const alreadySaved = savedTags.some(t => t.name.toLowerCase() === trimmed.toLowerCase());
+      if (!alreadySaved) {
+        try {
+          const r = await tagsApi.create({ name: trimmed });
+          setSavedTags(prev => [...prev, r.data as { id: string; name: string; color?: string }]);
+        } catch { /* tag may already exist server-side — non-fatal */ }
+      }
     } catch { toast.error('Failed to add label'); }
   };
 
