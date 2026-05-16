@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { EmailService } from '../common/email.service';
 
 const WORKSPACE_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'AGENT', 'ANALYST', 'VIEWER'] as const;
 type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
@@ -29,6 +30,7 @@ export class WorkspaceService {
     private configService: ConfigService,
     private auditService: AuditService,
     private realtimeService: RealtimeService,
+    private emailService: EmailService,
   ) {}
 
   // ─── Member listing ──────────────────────────────────────────────────────────
@@ -383,6 +385,22 @@ export class WorkspaceService {
       resource: 'workspace_invitation',
       metadata: { email, role },
     });
+
+    // Send invite email (fire-and-forget; failures are logged, not thrown)
+    void (async () => {
+      const [inviter, workspace] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: invitedById }, select: { name: true } }),
+        this.prisma.tenantSettings.findFirst({ where: { tenantId }, select: { businessName: true } }),
+      ]).catch(() => [null, null]);
+      await this.emailService.sendInvite({
+        to: email,
+        inviteeName: name,
+        inviterName: inviter?.name ?? 'Your team',
+        workspaceName: workspace?.businessName ?? 'the workspace',
+        inviteLink: link,
+        expiresAt,
+      });
+    })();
 
     return { token, link, expiresAt };
   }
