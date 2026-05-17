@@ -17,6 +17,7 @@ import { getSocket } from '@/lib/socket';
 import { useInboxStore } from '@/store/inbox.store';
 import { useCallsStore } from '@/store/calls.store';
 import { cn } from '@/lib/utils';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/modern-ui/table';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -656,68 +657,73 @@ function CallRow({
   const phone = call.contact?.phone ?? call.phone ?? '—';
 
   return (
-    <div
+    <TableRow
+      data-selected={selected}
       onClick={onClick}
-      className={cn(
-        'flex items-center gap-4 px-5 py-3.5 cursor-pointer transition-colors border-b border-gray-50 group',
-        selected ? 'bg-teal-50 border-l-2 border-l-teal-500' : 'hover:bg-gray-50/80',
-      )}
+      className={cn('cursor-pointer group', selected && 'bg-teal-50 border-l-2 border-l-teal-500')}
     >
-      <Avatar call={call} size="md" />
+      {/* Contact */}
+      <TableCell>
+        <div className="flex items-center gap-3">
+          <Avatar call={call} size="md" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className={cn('text-sm font-semibold truncate', MISSED_STATUSES.has(call.status) ? 'text-red-600' : 'text-gray-900')}>{name}</span>
+              {call.callNotes.length > 0 && (
+                <span className="w-4 h-4 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0">{call.callNotes.length}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1 mt-0.5">
+              <DirectionIcon direction={call.direction} size={11} />
+              <span className="text-xs text-gray-400 truncate">{phone}</span>
+            </div>
+          </div>
+        </div>
+      </TableCell>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className={cn('text-sm font-semibold truncate', MISSED_STATUSES.has(call.status) ? 'text-red-600' : 'text-gray-900')}>{name}</p>
-          {call.isArchived && <Archive size={11} className="text-gray-400 flex-shrink-0" />}
-          {call.callNotes.length > 0 && (
-            <span className="w-4 h-4 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0">{call.callNotes.length}</span>
+      {/* Duration */}
+      <TableCell className="hidden md:table-cell">
+        <span className="text-sm font-mono text-gray-600">{call.duration ? formatDuration(call.duration) : '—'}</span>
+      </TableCell>
+
+      {/* Status */}
+      <TableCell className="hidden lg:table-cell">
+        <StatusBadge status={resolveDisplayStatus(call)} />
+      </TableCell>
+
+      {/* Agent */}
+      <TableCell className="hidden xl:table-cell">
+        {call.user ? (
+          <div className="flex items-center gap-1.5">
+            <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0', avatarColor(call.user.id))}>{call.user.name[0]}</div>
+            <span className="text-sm text-gray-700 truncate">{call.user.name.split(' ')[0]}</span>
+          </div>
+        ) : <span className="text-sm text-gray-400">—</span>}
+      </TableCell>
+
+      {/* Time + actions */}
+      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1.5 relative">
+          <span className="text-xs text-gray-400 group-hover:hidden">{timeAgo(call.createdAt)}</span>
+          <div className="hidden group-hover:flex items-center gap-1">
+            <button title="Call back" onClick={() => onDial(phone)}
+              className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center transition-colors">
+              <Phone size={12} className="text-white" />
+            </button>
+            <button onClick={() => setMenuOpen(p => !p)}
+              className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors">
+              <MoreVertical size={12} className="text-gray-600" />
+            </button>
+          </div>
+          {menuOpen && (
+            <CallContextMenu
+              call={call} agents={agents} onClose={() => setMenuOpen(false)}
+              onRefresh={onRefresh} onDial={onDial} onTransfer={onTransfer} onMessage={onMessage}
+            />
           )}
         </div>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <DirectionIcon direction={call.direction} size={11} />
-          <span className="text-xs text-gray-500 truncate">{phone}</span>
-        </div>
-      </div>
-
-      <div className="hidden md:block w-16 text-right">
-        <span className="text-xs font-mono text-gray-500">{call.duration ? formatDuration(call.duration) : '—'}</span>
-      </div>
-
-      <div className="hidden lg:flex w-28 justify-end">
-        <StatusBadge status={resolveDisplayStatus(call)} />
-      </div>
-
-      <div className="hidden xl:flex items-center gap-1.5 w-28 justify-end">
-        {call.user ? (
-          <>
-            <div className={cn('w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0', avatarColor(call.user.id))}>{call.user.name[0]}</div>
-            <span className="text-xs text-gray-600 truncate">{call.user.name.split(' ')[0]}</span>
-          </>
-        ) : <span className="text-xs text-gray-400">—</span>}
-      </div>
-
-      <div className="w-20 text-right flex-shrink-0 relative" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button title="Call back" onClick={() => onDial(phone)}
-            className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center transition-colors">
-            <Phone size={12} className="text-white" />
-          </button>
-          <button onClick={() => setMenuOpen(p => !p)}
-            className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors">
-            <MoreVertical size={12} className="text-gray-600" />
-          </button>
-        </div>
-        {!menuOpen && (
-          <span className="text-xs text-gray-400 group-hover:hidden">{timeAgo(call.createdAt)}</span>
-        )}
-        {menuOpen && (
-          <CallContextMenu
-            call={call} agents={agents} onClose={() => setMenuOpen(false)}
-            onRefresh={onRefresh} onDial={onDial} onTransfer={onTransfer} onMessage={onMessage}
-          />
-        )}
-      </div>
-    </div>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -999,20 +1005,12 @@ export default function CallsPage() {
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col overflow-hidden bg-white">
 
-          {/* Table header */}
-          <div className="flex items-center gap-4 px-5 py-2.5 bg-gray-50 border-b border-gray-200 text-[11px] font-bold text-gray-400 uppercase tracking-wider flex-shrink-0">
-            <div className="w-10 flex-shrink-0" />
-            <div className="flex-1">Contact</div>
-            <div className="hidden md:block w-16 text-right">Duration</div>
-            <div className="hidden lg:block w-28 text-right">Status</div>
-            <div className="hidden xl:block w-28 text-right">Agent</div>
-            <div className="w-20 text-right">Time</div>
-          </div>
-
-          {/* Rows */}
+          {/* Table */}
           <div className="flex-1 overflow-y-auto">
             {loading ? (
-              Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)
+              <div className="divide-y divide-gray-100">
+                {Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)}
+              </div>
             ) : calls.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full py-20 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
@@ -1028,16 +1026,29 @@ export default function CallsPage() {
               </div>
             ) : (
               <>
-                {calls.map(call => (
-                  <CallRow
-                    key={call.id} call={call} selected={selectedId === call.id} agents={agents}
-                    onClick={() => setSelectedId(selectedId === call.id ? null : call.id)}
-                    onDial={openDial}
-                    onTransfer={setTransferTarget}
-                    onMessage={call => { void handleMessageContact(call); }}
-                    onRefresh={() => void loadCalls(true)}
-                  />
-                ))}
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-gray-50 cursor-default">
+                      <TableHead>Contact</TableHead>
+                      <TableHead className="hidden md:table-cell">Duration</TableHead>
+                      <TableHead className="hidden lg:table-cell">Status</TableHead>
+                      <TableHead className="hidden xl:table-cell">Agent</TableHead>
+                      <TableHead className="text-right">Time</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {calls.map(call => (
+                      <CallRow
+                        key={call.id} call={call} selected={selectedId === call.id} agents={agents}
+                        onClick={() => setSelectedId(selectedId === call.id ? null : call.id)}
+                        onDial={openDial}
+                        onTransfer={setTransferTarget}
+                        onMessage={call => { void handleMessageContact(call); }}
+                        onRefresh={() => void loadCalls(true)}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
                 {total > limit && (
                   <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100 bg-gray-50/50">
                     <span className="text-xs text-gray-500">Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}</span>
