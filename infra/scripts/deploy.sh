@@ -27,6 +27,8 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
 
   echo "==> Hot-swapping backend dist..."
   docker cp apps/backend/dist/. wa_backend:/app/dist/
+  docker cp packages/shared-types/dist/. wa_backend:/app/node_modules/@whatsapp-platform/shared-types/dist/
+  docker cp apps/backend/node_modules/.prisma/. wa_backend:/app/node_modules/.prisma/
   docker restart wa_backend
 
   echo "==> Waiting for backend to be healthy..."
