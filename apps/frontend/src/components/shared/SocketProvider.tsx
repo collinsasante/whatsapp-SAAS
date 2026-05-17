@@ -328,7 +328,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           password_reset: 'Your password was reset. Please log in again.',
         };
         const msg = messages[data.reason] ?? 'You have been logged out.';
-        router.replace(`/login?reason=${encodeURIComponent(msg)}`);
+        router.replace(`/login?_r=force-logout&reason=${encodeURIComponent(msg)}`);
         void storedToken; // suppress unused warning
       },
     );

@@ -306,7 +306,7 @@ export default function Sidebar() {
     try { await authApi.logout(); } finally {
       disconnectSocket();
       clearAuth();
-      router.push('/login');
+      router.push('/login?_r=sidebar-logout');
     }
   };
 
