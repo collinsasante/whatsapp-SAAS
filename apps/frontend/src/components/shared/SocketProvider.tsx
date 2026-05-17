@@ -369,52 +369,44 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Inbound WhatsApp call arriving — skip if this agent is already on a call
-    socket.on(
-      'incoming_call',
-      (data: { tenantId: string; call: { callLogId: string; whatsappCallId: string; from: string; contactName: string | null; sdpOffer: string | null } }) => {
-        const { outboundCall, incomingCall } = useCallsStore.getState();
-        if (outboundCall || incomingCall) return; // agent already on a call
-        setIncomingCall({
-          callLogId: data.call.callLogId,
-          whatsappCallId: data.call.whatsappCallId,
-          from: data.call.from,
-          contactName: data.call.contactName,
-          sdpOffer: data.call.sdpOffer,
-        });
-      },
-    );
+    const onIncomingCall = (data: { tenantId: string; call: { callLogId: string; whatsappCallId: string; from: string; contactName: string | null; sdpOffer: string | null } }) => {
+      const { outboundCall, incomingCall } = useCallsStore.getState();
+      if (outboundCall || incomingCall) return; // agent already on a call
+      setIncomingCall({
+        callLogId: data.call.callLogId,
+        whatsappCallId: data.call.whatsappCallId,
+        from: data.call.from,
+        contactName: data.call.contactName,
+        sdpOffer: data.call.sdpOffer,
+      });
+    };
+    socket.on('incoming_call', onIncomingCall);
 
     // Close incoming call modal when one agent answers or the call terminates
-    socket.on(
-      'call_updated',
-      (data: { tenantId: string; call: { id: string; status: string } }) => {
-        const dismiss = ['ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
-          'COMPLETED', 'CANCELLED'].includes(data.call?.status ?? '');
-        if (dismiss && data.call?.id) clearCallIfMatches(data.call.id);
-      },
-    );
+    const onCallUpdated = (data: { tenantId: string; call: { id: string; status: string } }) => {
+      const shouldDismiss = ['ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
+        'COMPLETED', 'CANCELLED'].includes(data.call?.status ?? '');
+      if (shouldDismiss && data.call?.id) clearCallIfMatches(data.call.id);
+    };
+    socket.on('call_updated', onCallUpdated);
 
     // Outbound call ringing on user's device: apply Meta's SDP answer to establish WebRTC
-    // Timer starts separately when the user actually picks up (call_connected or WebRTC 'connected' state)
-    socket.on(
-      'call_ringing',
-      (data: { tenantId: string; call: { callLogId: string; sdpAnswer: string } }) => {
-        const session = useCallsStore.getState().outboundSession;
-        if (!session || !session.pc || session.callLogId !== data.call?.callLogId) return;
-        void (async () => {
-          try {
-            await session.pc!.setRemoteDescription({ type: 'answer', sdp: data.call.sdpAnswer });
-          } catch (err) {
-            console.error('[outbound] setRemoteDescription failed:', err);
-          }
-        })();
-        // Mark as ringing in store
-        const current = useCallsStore.getState().outboundCall;
-        if (current && current.callId === data.call?.callLogId) {
-          useCallsStore.getState().setOutboundCall({ ...current, ringing: true });
+    const onCallRinging = (data: { tenantId: string; call: { callLogId: string; sdpAnswer: string } }) => {
+      const session = useCallsStore.getState().outboundSession;
+      if (!session || !session.pc || session.callLogId !== data.call?.callLogId) return;
+      void (async () => {
+        try {
+          await session.pc!.setRemoteDescription({ type: 'answer', sdp: data.call.sdpAnswer });
+        } catch (err) {
+          console.error('[outbound] setRemoteDescription failed:', err);
         }
-      },
-    );
+      })();
+      const current = useCallsStore.getState().outboundCall;
+      if (current && current.callId === data.call?.callLogId) {
+        useCallsStore.getState().setOutboundCall({ ...current, ringing: true });
+      }
+    };
+    socket.on('call_ringing', onCallRinging);
 
     return () => {
       socket.off('connect', stopPolling);
@@ -433,11 +425,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off('member_updated');
       socket.off('conversations_reassigned');
       socket.off('canned_responses_updated');
-      // Pass the handler ref so we don't tear down NotificationBell's listener for the same event.
+      // Pass handler refs so we don't tear down other components' listeners for the same event.
       socket.off('notification:new', notificationHandler);
-      socket.off('incoming_call');
-      socket.off('call_updated');
-      socket.off('call_ringing');
+      socket.off('incoming_call', onIncomingCall);
+      socket.off('call_updated', onCallUpdated);
+      socket.off('call_ringing', onCallRinging);
     };
   // NOTE: activeConversationId intentionally excluded — we use activeConversationIdRef instead
   // to avoid tearing down all socket listeners on every conversation switch.

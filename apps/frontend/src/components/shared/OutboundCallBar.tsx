@@ -20,10 +20,10 @@ function WaveformBars() {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds < 60) return `0:${String(seconds).padStart(2, '0')}`;
+  if (seconds < 60) return `00:${String(seconds).padStart(2, '0')}`;
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  if (m < 60) return `${m}:${String(s).padStart(2, '0')}`;
+  if (m < 60) return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   const h = Math.floor(m / 60);
   return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
@@ -149,33 +149,32 @@ export function OutboundCallBar() {
   }, [setOutboundCall]);
 
   // ── Socket listeners ───────────────────────────────────────────────────────
+  // Named handler refs so socket.off(event, handler) only removes THIS component's
+  // listener — not other components' handlers for the same event (e.g. SocketProvider).
   useEffect(() => {
     const socket = getSocket();
 
-    // Customer's device is ringing (SDP negotiated)
-    socket.on('call_ringing', (data: { call: { callLogId: string } }) => {
+    const onRinging = (data: { call: { callLogId: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.callLogId) return;
       setOutboundCall({ ...current, ringing: true });
-    });
+    };
 
-    // Customer answered
-    socket.on('call_accepted', (data: { callLogId: string }) => {
+    const onAccepted = (data: { callLogId: string }) => {
       const current = useCallsStore.getState().outboundCall;
       const id = data.callLogId ?? (data as unknown as { call: { callLogId: string } }).call?.callLogId;
       if (!current || current.callId !== id) return;
       if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
-    });
+    };
 
-    socket.on('call_connected', (data: { callLogId?: string; call?: { callLogId: string } }) => {
+    const onConnected = (data: { callLogId?: string; call?: { callLogId: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       const id = data.callLogId ?? data.call?.callLogId;
       if (!current || current.callId !== id) return;
       if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
-    });
+    };
 
-    // Customer declined
-    socket.on('call_declined', (data: { call: { id: string } }) => {
+    const onDeclined = (data: { call: { id: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
       stopAndUpload();
@@ -183,10 +182,9 @@ export function OutboundCallBar() {
       setOutboundCall({ ...current, endedReason: 'declined' });
       toast.error('Call declined', { icon: '🚫' });
       dismiss(2000);
-    });
+    };
 
-    // Customer didn't answer
-    socket.on('call_unanswered', (data: { call: { id: string } }) => {
+    const onUnanswered = (data: { call: { id: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
       stopAndUpload();
@@ -194,10 +192,9 @@ export function OutboundCallBar() {
       setOutboundCall({ ...current, endedReason: 'unanswered' });
       toast('No answer', { icon: '📵' });
       dismiss(2500);
-    });
+    };
 
-    // Remote side ended the call (or any terminal update)
-    socket.on('call_updated', (data: { call: { id: string; status: string } }) => {
+    const onUpdated = (data: { call: { id: string; status: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
 
@@ -217,25 +214,33 @@ export function OutboundCallBar() {
       setOutboundCall({ ...current, endedReason: reason });
       if (reason === 'ended') toast.success('Call ended');
       dismiss(2000);
-    });
+    };
 
-    socket.on('call_ended', (data: { call: { id: string } }) => {
+    const onEnded = (data: { call: { id: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
       stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'ended' });
       dismiss(2000);
-    });
+    };
+
+    socket.on('call_ringing', onRinging);
+    socket.on('call_accepted', onAccepted);
+    socket.on('call_connected', onConnected);
+    socket.on('call_declined', onDeclined);
+    socket.on('call_unanswered', onUnanswered);
+    socket.on('call_updated', onUpdated);
+    socket.on('call_ended', onEnded);
 
     return () => {
-      socket.off('call_ringing');
-      socket.off('call_accepted');
-      socket.off('call_connected');
-      socket.off('call_declined');
-      socket.off('call_unanswered');
-      socket.off('call_updated');
-      socket.off('call_ended');
+      socket.off('call_ringing', onRinging);
+      socket.off('call_accepted', onAccepted);
+      socket.off('call_connected', onConnected);
+      socket.off('call_declined', onDeclined);
+      socket.off('call_unanswered', onUnanswered);
+      socket.off('call_updated', onUpdated);
+      socket.off('call_ended', onEnded);
     };
   }, [cleanupSession, dismiss, setOutboundCall, stopAndUpload]); // eslint-disable-line react-hooks/exhaustive-deps
 
