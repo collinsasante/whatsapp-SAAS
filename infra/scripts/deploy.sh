@@ -31,7 +31,6 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
   if [[ -n "$SHARED_TYPES_CONTAINER_PATH" ]]; then
     docker cp packages/shared-types/dist/. "wa_backend:${SHARED_TYPES_CONTAINER_PATH}/dist/"
   fi
-  docker cp apps/backend/node_modules/.prisma/. wa_backend:/app/node_modules/.prisma/
   docker restart wa_backend
 
   echo "==> Waiting for backend to be healthy..."
