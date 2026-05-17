@@ -43,5 +43,8 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   echo "==> Frontend deployed."
 fi
 
+echo "==> Reloading nginx to re-resolve upstream IPs..."
+docker exec wa_nginx nginx -s reload
+
 echo "==> Done. Container status:"
-docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "wa_backend|wa_frontend"
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "wa_backend|wa_frontend|wa_nginx"
