@@ -140,9 +140,10 @@ export class CallsController {
   respondToCall(
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
     @Body() dto: RespondCallDto,
   ) {
-    return this.callsService.respondToCall(tenantId, id, dto.action, dto.sdpAnswer);
+    return this.callsService.respondToCall(tenantId, id, dto.action, dto.sdpAnswer, user.sub);
   }
 
   @Post(':id/notes')

@@ -368,10 +368,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       invalidateCannedCache();
     });
 
-    // Inbound WhatsApp call arriving
+    // Inbound WhatsApp call arriving — skip if this agent is already on a call
     socket.on(
       'incoming_call',
       (data: { tenantId: string; call: { callLogId: string; whatsappCallId: string; from: string; contactName: string | null; sdpOffer: string | null } }) => {
+        const { outboundCall, incomingCall } = useCallsStore.getState();
+        if (outboundCall || incomingCall) return; // agent already on a call
         setIncomingCall({
           callLogId: data.call.callLogId,
           whatsappCallId: data.call.whatsappCallId,

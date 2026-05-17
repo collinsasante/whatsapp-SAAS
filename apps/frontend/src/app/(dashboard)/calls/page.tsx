@@ -591,17 +591,9 @@ function CallDetail({
       </div>
 
       <div className="px-4 py-3 border-t border-gray-100 flex gap-2">
-        <button onClick={() => { void handleArchive(); }}
-          className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 border border-gray-100 rounded-xl transition-colors font-medium flex-1 justify-center">
-          <Archive size={12} />{call.isArchived ? 'Unarchive' : 'Archive'}
-        </button>
         <button onClick={() => { downloadCallLog(call); }}
           className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 border border-gray-100 rounded-xl transition-colors font-medium flex-1 justify-center">
           <Download size={12} />Export
-        </button>
-        <button onClick={() => { void handleDelete(); }}
-          className="flex items-center gap-1.5 px-3 py-2 text-xs text-red-500 hover:bg-red-50 border border-red-100 rounded-xl transition-colors font-medium flex-1 justify-center">
-          <Trash2 size={12} />Delete
         </button>
       </div>
     </div>

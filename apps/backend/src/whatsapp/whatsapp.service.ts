@@ -504,6 +504,7 @@ export class WhatsAppService {
         interactive: {
           type: 'call_permission_request',
           body: { text: 'We would like to call you on WhatsApp to provide better support. Please tap Allow if you agree.' },
+          action: { name: 'call_permission_request' },
         },
       });
       return (response.data as { messages: Array<{ id: string }> }).messages[0].id;

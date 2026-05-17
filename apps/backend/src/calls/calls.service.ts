@@ -319,12 +319,13 @@ export class CallsService {
     callLogId: string,
     action: 'pre_accept' | 'accept' | 'reject' | 'terminate',
     sdpAnswer?: string,
+    agentUserId?: string,
   ) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const call = await (this.prisma as any).callLog.findFirst({
       where: { id: callLogId, tenantId },
-      select: { id: true, whatsappCallId: true, direction: true, status: true, answeredAt: true },
-    }) as { id: string; whatsappCallId: string | null; direction: string; status: string; answeredAt: Date | null } | null;
+      select: { id: true, whatsappCallId: true, direction: true, status: true, answeredAt: true, userId: true },
+    }) as { id: string; whatsappCallId: string | null; direction: string; status: string; answeredAt: Date | null; userId: string | null } | null;
 
     if (!call) throw new NotFoundException('Call not found');
 
@@ -345,6 +346,8 @@ export class CallsService {
         newStatus = CallStatus.ONGOING;
         // Keep the earliest answeredAt — pre_accept may have already set it.
         if (!call.answeredAt) updateData.answeredAt = new Date();
+        // Record which agent answered this inbound call
+        if (agentUserId && !call.userId) updateData.userId = agentUserId;
         break;
 
       case 'reject':
