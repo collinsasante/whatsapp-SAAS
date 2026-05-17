@@ -36,15 +36,6 @@ function ImpersonationBanner({ state, onExit }: { state: ImpersonationState; onE
   );
 }
 
-function dbg(src: string, extra?: Record<string, unknown>) {
-  if (typeof window === 'undefined') return;
-  try {
-    const prev = JSON.parse(localStorage.getItem('_auth_log') ?? '[]') as Array<Record<string, unknown>>;
-    prev.push({ s: src, t: Date.now(), u: window.location.pathname, ...extra });
-    localStorage.setItem('_auth_log', JSON.stringify(prev.slice(-10)));
-  } catch {}
-}
-
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isAuthenticated, _hasHydrated, accessToken, setAccessToken, clearAuth, user, tenant, setAuth } = useAuthStore();
@@ -70,15 +61,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Already have a valid access token in memory — nothing to do
     if (accessToken) return;
 
+    console.log('[DASH] restoreSession: calling silentRefresh…');
     setRestoring(true);
     try {
       // Try to get a new access token using the HttpOnly refresh cookie.
       // The cookie is sent automatically (withCredentials: true on the axios client).
       const newToken = await silentRefresh();
+      console.log('[DASH] restoreSession: silentRefresh succeeded');
       setAccessToken(newToken);
     } catch {
       // No valid cookie — session is truly expired, redirect to login
-      dbg('restore-fail');
+      console.log('[DASH] restoreSession failed → redirect to login');
       clearAuth();
       router.replace('/login?_r=restore-fail');
     } finally {
@@ -88,22 +81,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Run session restoration after Zustand has hydrated from localStorage
   useEffect(() => {
+    console.log('[DASH] layout effect fired', { _hasHydrated, isAuthenticated, hasToken: !!accessToken, tenantOC: tenant?.onboardingCompleted });
     if (!_hasHydrated) return;
 
     if (!isAuthenticated) {
-      dbg('no-auth', { isAuth: isAuthenticated, hasTok: !!accessToken });
+      console.log('[DASH] → no-auth redirect');
       router.replace('/login?_r=no-auth');
       return;
     }
 
     if (!accessToken) {
-      dbg('no-token', { isAuth: isAuthenticated });
+      console.log('[DASH] → no-token, calling restoreSession');
       void restoreSession();
       return;
     }
 
     // Gate: new users who haven't completed onboarding
     if (tenant?.onboardingCompleted === false) {
+      console.log('[DASH] → onboarding redirect');
       router.replace('/onboarding');
     }
   }, [_hasHydrated, isAuthenticated, accessToken, restoreSession, router, tenant]);
@@ -111,7 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Listen for session expiry events dispatched by the API interceptor
   useEffect(() => {
     const handler = () => {
-      dbg('session-exp');
+      console.log('[DASH] session-expired event → redirect to login');
       clearAuth();
       router.replace('/login?_r=session-exp');
     };

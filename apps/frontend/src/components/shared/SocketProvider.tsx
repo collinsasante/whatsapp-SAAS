@@ -75,15 +75,6 @@ function playRequestSound() {
   } catch { /* audio not available */ }
 }
 
-function dbg(src: string, extra?: Record<string, unknown>) {
-  if (typeof window === 'undefined') return;
-  try {
-    const prev = JSON.parse(localStorage.getItem('_auth_log') ?? '[]') as Array<Record<string, unknown>>;
-    prev.push({ s: src, t: Date.now(), u: window.location.pathname, ...extra });
-    localStorage.setItem('_auth_log', JSON.stringify(prev.slice(-10)));
-  } catch {}
-}
-
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, activeConversationId, addActivityLog, conversations } = useInboxStore();
   const { clearAuth } = useAuthStore();
@@ -117,7 +108,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setSocketAuthErrorHandler(() => {
-      dbg('socket-auth');
+      console.log('[SOCKET] auth error handler fired → redirect to login');
       clearAuth();
       router.replace('/login?_r=socket-auth');
     });
@@ -329,7 +320,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         // Only act if this event targets the current user (matched via stored JWT sub)
         // We use a loose check: if userId is present, we trust the server routed it correctly
         if (!data.userId) return;
-        dbg('force-logout', { reason: data.reason });
+        console.log('[SOCKET] force_logout event fired', { reason: data.reason, userId: data.userId });
         clearAuth();
         localStorage.removeItem('access_token');
         const messages: Record<string, string> = {

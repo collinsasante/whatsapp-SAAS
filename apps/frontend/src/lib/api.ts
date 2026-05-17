@@ -66,12 +66,15 @@ function createApiClient(): AxiosInstance {
       if (error.response?.status === 401 && !originalRequest._retry) {
         originalRequest._retry = true;
         try {
+          console.log('[API] 401 on', originalRequest.url, '— attempting silentRefresh');
           const newToken = await silentRefresh();
+          console.log('[API] silentRefresh succeeded after 401');
           if (originalRequest.headers) {
             (originalRequest.headers as Record<string, string>)['Authorization'] = `Bearer ${newToken}`;
           }
           return client(originalRequest);
         } catch {
+          console.log('[API] silentRefresh failed after 401 → dispatching auth:session-expired');
           localStorage.removeItem('access_token');
           // Only dispatch once — sessionDead flag prevents further refresh attempts
           // so this event fires exactly once per expired session

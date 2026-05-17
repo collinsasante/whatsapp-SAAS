@@ -12,10 +12,12 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   const checkedRef = useRef(false);
 
   useEffect(() => {
+    console.log('[AUTH-LAYOUT] effect fired', { _hasHydrated, isAuthenticated, checked: checkedRef.current });
     if (!_hasHydrated) return;
     if (checkedRef.current) return;
     checkedRef.current = true;
     if (isAuthenticated) {
+      console.log('[AUTH-LAYOUT] isAuthenticated=true → redirecting to /dashboard');
       router.replace('/dashboard');
     }
   }, [_hasHydrated, isAuthenticated, router]);
