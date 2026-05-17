@@ -450,8 +450,9 @@ export class CallsService {
     }) as { id: string; direction: string; status: string; answeredAt: Date | null } | null;
 
     // Outbound: Meta sends SDP answer as soon as customer's device rings
-    // (event=connect, direction=BUSINESS_INITIATED, sdp_type=answer)
-    if (event.event === 'connect' && event.direction === 'BUSINESS_INITIATED' && event.session?.sdp_type === 'answer') {
+    // sdp_type=answer is sufficient — only outbound (business-initiated) calls produce an SDP answer.
+    // Do NOT require event.direction here because Meta may omit it on some webhook deliveries.
+    if (event.event === 'connect' && event.session?.sdp_type === 'answer') {
       // Retry briefly — race condition between webhook arrival and DB write
       if (!existing) {
         for (let i = 0; i < 5; i++) {
@@ -516,7 +517,8 @@ export class CallsService {
     }
 
     // Outbound: customer accepted the call (agent's device can start audio)
-    if (existing && event.event === 'accept' && event.direction === 'BUSINESS_INITIATED') {
+    // Use existing.direction from DB — do NOT rely on event.direction which Meta may omit.
+    if (existing && event.event === 'accept' && existing.direction === CallDirection.OUTBOUND) {
       await this.prisma.callLog.update({
         where: { id: existing.id },
         data: { status: CallStatus.ONGOING, answeredAt: new Date() },
