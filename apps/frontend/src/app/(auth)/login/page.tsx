@@ -50,10 +50,7 @@ function LoginPage() {
       setAuth(user, tenant, accessToken);
       disconnectSocket();
       toast.success(`Welcome back, ${user.name}!`);
-      // Do NOT call router.push here — the (auth)/layout.tsx will redirect to /dashboard
-      // once it sees isAuthenticated become true. Calling router.push here concurrently
-      // with that effect creates a double-navigation that can race and bounce the user
-      // back to /login.
+      router.replace('/dashboard');
     } catch (err: unknown) {
       const message = err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Login failed'

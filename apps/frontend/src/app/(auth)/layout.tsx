@@ -1,17 +1,24 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isAuthenticated, _hasHydrated } = useAuthStore();
+  // Only redirect once — on the initial hydration check.
+  // The login page handles its own redirect after a fresh login so this
+  // effect must not re-fire when isAuthenticated changes mid-session.
+  const checkedRef = useRef(false);
 
   useEffect(() => {
-    if (_hasHydrated && isAuthenticated) {
+    if (!_hasHydrated) return;
+    if (checkedRef.current) return;
+    checkedRef.current = true;
+    if (isAuthenticated) {
       router.replace('/dashboard');
     }
-  }, [isAuthenticated, _hasHydrated, router]);
+  }, [_hasHydrated, isAuthenticated, router]);
   return (
     <div className="min-h-screen flex bg-white">
       {/* Left branding panel */}
