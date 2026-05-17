@@ -747,31 +747,20 @@ export default function ContactsPage() {
     tagsApi.list().then(r => setAvailableTags((r.data as { id: string; name: string; color?: string }[]) ?? [])).catch(() => {});
   }, []);
 
-  const openConversation = async (contact: Contact) => {
-    try {
-      const lc = contact.latestConversation;
-      if (lc && lc.status !== 'RESOLVED') {
-        // Non-resolved conversation exists — use the data we already have from the contacts API.
-        // Always prependConversation so it's guaranteed to be in the Zustand store.
-        prependConversation({
-          id: lc.id,
-          status: lc.status,
-          lastMessageAt: lc.lastMessageAt,
-          assignedTo: lc.assignedTo,
-          channel: lc.channel ?? undefined,
-          contact: { id: contact.id, name: contact.name, phone: contact.phone, avatarUrl: null },
-          labels: [],
-          unreadCount: 0,
-        });
-        setActiveContactConvId(lc.id);
-        return;
-      }
-      // No conversation or resolved → findOrCreate will create/reopen one
-      const res = await conversationsApi.findOrCreate(contact.id);
-      const conv = res.data as ConvPayload;
-      prependConversation(conv);
-      setActiveContactConvId(conv.id);
-    } catch { toast.error('Failed to open conversation'); }
+  const openConversation = (contact: Contact) => {
+    const lc = contact.latestConversation;
+    if (!lc) return; // no conversation to preview
+    prependConversation({
+      id: lc.id,
+      status: lc.status,
+      lastMessageAt: lc.lastMessageAt,
+      assignedTo: lc.assignedTo,
+      channel: lc.channel ?? undefined,
+      contact: { id: contact.id, name: contact.name, phone: contact.phone, avatarUrl: null },
+      labels: [],
+      unreadCount: 0,
+    });
+    setActiveContactConvId(lc.id);
   };
 
   const saveContact = async () => {
@@ -1186,7 +1175,7 @@ export default function ContactsPage() {
                         const country = cf?.country ? { name: cf.country, flag: '' } : phoneToCountry(contact.phone);
                         return (
                           <tr key={contact.id}
-                            onClick={() => { void openConversation(contact); }}
+                            onClick={() => { openConversation(contact); }}
                             className={cn('hover:bg-gray-50 cursor-pointer', contact.latestConversation?.id === activeContactConvId && 'bg-teal-50', selectedIds.has(contact.id) && 'bg-teal-50/60')}>
                             <td className={cn('px-4 py-3 w-8', contact.latestConversation?.id === activeContactConvId && 'border-l-2 border-l-teal-500')} onClick={(e) => toggleSelect(contact.id, e)}>
                               <input type="checkbox" checked={selectedIds.has(contact.id)} onChange={() => {}}
@@ -1241,7 +1230,7 @@ export default function ContactsPage() {
                                   className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
                                   <ExternalLink size={13} />
                                 </button>
-                                <button onClick={() => { void openConversation(contact); }} title="Message"
+                                <button onClick={() => { openConversation(contact); }} title="Message"
                                   className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors">
                                   <MessageSquare size={13} />
                                 </button>

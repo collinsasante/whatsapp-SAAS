@@ -330,7 +330,7 @@ export function OutboundCallBar() {
       onMouseDown={onMouseDown}
       className={cn(
         'fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 border border-slate-700 rounded-2xl px-5 py-3',
-        'flex items-center gap-5 shadow-2xl min-w-80 transition-all duration-300',
+        'flex items-center gap-5 shadow-2xl min-w-80 transition-[opacity,transform] duration-300',
         dismissing ? 'opacity-0 scale-95' : 'opacity-100 scale-100',
         dragging ? 'cursor-grabbing select-none' : 'cursor-grab',
       )}
