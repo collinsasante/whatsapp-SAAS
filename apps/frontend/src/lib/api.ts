@@ -37,10 +37,6 @@ async function silentRefresh(): Promise<string> {
   return refreshPromise;
 }
 
-// Reset the flag when the user logs in again
-if (typeof window !== 'undefined') {
-  window.addEventListener('auth:token-refreshed', () => { sessionDead = false; });
-}
 
 function createApiClient(): AxiosInstance {
   const client = axios.create({
@@ -59,7 +55,11 @@ function createApiClient(): AxiosInstance {
   });
 
   client.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      // Any successful response means we have a live session — reset the flag
+      sessionDead = false;
+      return response;
+    },
     async (error) => {
       const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
 
