@@ -48,12 +48,12 @@ function LoginPage() {
         tenant: { id: string; name: string; slug: string };
       };
       setAuth(user, tenant, accessToken);
-      // Kill any stale socket from an expired previous session before navigating.
-      // Without this, the old socket's auth errors can fire the new SocketProvider's
-      // handler and immediately log the user out of their fresh session.
       disconnectSocket();
       toast.success(`Welcome back, ${user.name}!`);
-      router.push('/dashboard');
+      // Do NOT call router.push here — the (auth)/layout.tsx will redirect to /dashboard
+      // once it sees isAuthenticated become true. Calling router.push here concurrently
+      // with that effect creates a double-navigation that can race and bounce the user
+      // back to /login.
     } catch (err: unknown) {
       const message = err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Login failed'
