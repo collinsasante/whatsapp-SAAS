@@ -24,7 +24,7 @@ export interface OutboundCall {
   muted: boolean;
   held: boolean;
   /** Set when the call reaches a terminal state so the bar shows the correct message */
-  endedReason?: 'declined' | 'unanswered' | 'canceled' | 'ended' | null;
+  endedReason?: 'declined' | 'unanswered' | 'canceled' | 'ended' | 'busy' | 'voicemail' | null;
 }
 
 export interface ConfirmDial {

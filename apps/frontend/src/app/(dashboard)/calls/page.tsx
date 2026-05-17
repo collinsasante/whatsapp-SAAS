@@ -22,12 +22,13 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type CallStatus =
-  | 'SCHEDULED' | 'INITIATED' | 'RINGING' | 'INCOMING'
+  | 'SCHEDULED' | 'INITIATED' | 'RINGING'
   | 'ONGOING' | 'MISSED' | 'DECLINED' | 'CANCELED'
   | 'UNANSWERED' | 'BUSY' | 'FAILED' | 'ENDED'
+  | 'RECONNECTING' | 'HOLD' | 'VOICEMAIL'
   // legacy values kept for old records
-  | 'ANSWERED' | 'COMPLETED' | 'CANCELLED' | 'TRANSFERRED';
-type CallDirection = 'INBOUND' | 'OUTBOUND';
+  | 'ANSWERED' | 'COMPLETED' | 'CANCELLED' | 'TRANSFERRED' | 'INCOMING';
+type CallDirection = 'INCOMING' | 'OUTGOING';
 type NavSection = 'all' | 'missed' | 'incoming' | 'outgoing' | 'scheduled' | 'archived';
 
 interface CallContact { id: string; name: string | null; phone: string; avatarUrl: string | null; }
@@ -111,28 +112,30 @@ function downloadCallLog(call: CallLog) {
 type DisplayStatus = CallStatus;
 
 const STATUS_CONFIG: Record<string, { label: string; dot: string; badge: string; text: string }> = {
-  // Current states
-  ENDED:       { label: 'Ended',       dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
-  ONGOING:     { label: 'Ongoing',     dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
-  INCOMING:    { label: 'Incoming',    dot: 'bg-emerald-400', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
-  MISSED:      { label: 'Missed',      dot: 'bg-red-500',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
-  UNANSWERED:  { label: 'Unanswered',  dot: 'bg-orange-500',  badge: 'bg-orange-50 border-orange-200',    text: 'text-orange-700' },
-  DECLINED:    { label: 'Declined',    dot: 'bg-gray-500',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-600' },
-  CANCELED:    { label: 'Canceled',    dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
-  BUSY:        { label: 'Busy',        dot: 'bg-yellow-500',  badge: 'bg-yellow-50 border-yellow-200',    text: 'text-yellow-700' },
-  RINGING:     { label: 'Ringing',     dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
-  SCHEDULED:   { label: 'Scheduled',   dot: 'bg-blue-500',    badge: 'bg-blue-50 border-blue-200',        text: 'text-blue-700' },
-  INITIATED:   { label: 'Calling…',    dot: 'bg-sky-500',     badge: 'bg-sky-50 border-sky-200',          text: 'text-sky-700' },
-  FAILED:      { label: 'Failed',      dot: 'bg-red-600',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
+  ENDED:        { label: 'Ended',        dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  ONGOING:      { label: 'Connected',    dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
+  MISSED:       { label: 'Missed',       dot: 'bg-red-500',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
+  UNANSWERED:   { label: 'Unanswered',   dot: 'bg-orange-500',  badge: 'bg-orange-50 border-orange-200',    text: 'text-orange-700' },
+  DECLINED:     { label: 'Declined',     dot: 'bg-gray-500',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-600' },
+  CANCELED:     { label: 'Canceled',     dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
+  BUSY:         { label: 'Busy',         dot: 'bg-yellow-500',  badge: 'bg-yellow-50 border-yellow-200',    text: 'text-yellow-700' },
+  RINGING:      { label: 'Ringing',      dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
+  SCHEDULED:    { label: 'Scheduled',    dot: 'bg-blue-500',    badge: 'bg-blue-50 border-blue-200',        text: 'text-blue-700' },
+  INITIATED:    { label: 'Calling…',     dot: 'bg-sky-500',     badge: 'bg-sky-50 border-sky-200',          text: 'text-sky-700' },
+  FAILED:       { label: 'Failed',       dot: 'bg-red-600',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
+  RECONNECTING: { label: 'Reconnecting', dot: 'bg-amber-400',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
+  HOLD:         { label: 'On Hold',      dot: 'bg-purple-400',  badge: 'bg-purple-50 border-purple-200',    text: 'text-purple-700' },
+  VOICEMAIL:    { label: 'Voicemail',    dot: 'bg-indigo-400',  badge: 'bg-indigo-50 border-indigo-200',    text: 'text-indigo-700' },
   // Legacy values (old records)
-  ANSWERED:    { label: 'Answered',    dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
-  COMPLETED:   { label: 'Completed',   dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
-  CANCELLED:   { label: 'Cancelled',   dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
-  TRANSFERRED: { label: 'Transferred', dot: 'bg-purple-500',  badge: 'bg-purple-50 border-purple-200',    text: 'text-purple-700' },
+  INCOMING:     { label: 'Ringing',      dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
+  ANSWERED:     { label: 'Answered',     dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
+  COMPLETED:    { label: 'Completed',    dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  CANCELLED:    { label: 'Cancelled',    dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
+  TRANSFERRED:  { label: 'Transferred',  dot: 'bg-purple-500',  badge: 'bg-purple-50 border-purple-200',    text: 'text-purple-700' },
 };
 
 const MISSED_STATUSES = new Set(['MISSED', 'UNANSWERED']);
-const ACTIVE_STATUSES = new Set(['INITIATED', 'RINGING', 'INCOMING', 'ONGOING', 'ANSWERED']);
+const ACTIVE_STATUSES = new Set(['INITIATED', 'RINGING', 'ONGOING', 'RECONNECTING', 'ANSWERED']);
 
 function resolveDisplayStatus(call: CallLog): DisplayStatus {
   return call.status;
@@ -149,7 +152,7 @@ function StatusBadge({ status }: { status: DisplayStatus }) {
 }
 
 function DirectionIcon({ direction, size = 14 }: { direction: CallDirection; size?: number }) {
-  if (direction === 'INBOUND') return <ArrowDownLeft size={size} className="text-emerald-500 flex-shrink-0" />;
+  if (direction === 'INCOMING') return <ArrowDownLeft size={size} className="text-emerald-500 flex-shrink-0" />;
   return <ArrowUpRight size={size} className="text-blue-500 flex-shrink-0" />;
 }
 
@@ -196,7 +199,7 @@ function ScheduleModal({ onClose, contacts, onScheduled }: { onClose: () => void
     setSaving(true);
     try {
       const scheduledAt = new Date(`${form.date}T${form.time}`).toISOString();
-      await callsApi.create({ ...(form.contactId ? { contactId: form.contactId } : { phone: form.phone }), direction: 'OUTBOUND', status: 'SCHEDULED', scheduledAt, notes: form.notes || undefined });
+      await callsApi.create({ ...(form.contactId ? { contactId: form.contactId } : { phone: form.phone }), direction: 'OUTGOING', status: 'SCHEDULED', scheduledAt, notes: form.notes || undefined });
       toast.success('Call scheduled'); onScheduled(); onClose();
     } catch { toast.error('Failed to schedule call'); }
     finally { setSaving(false); }
@@ -517,7 +520,7 @@ function CallDetail({
             <span className="text-gray-500">Direction</span>
             <span className="flex items-center justify-end gap-1 font-medium text-gray-700">
               <DirectionIcon direction={call.direction} size={12} />
-              {call.direction === 'INBOUND' ? 'Inbound' : 'Outbound'}
+              {call.direction === 'INCOMING' ? 'Incoming' : 'Outgoing'}
             </span>
             <span className="text-gray-500">Duration</span>
             <span className="text-right font-mono font-medium text-gray-700">{call.duration ? formatDuration(call.duration) : '—'}</span>
@@ -791,8 +794,8 @@ export default function CallsPage() {
   const navParams = (): Record<string, unknown> => {
     // 'MISSED' on the backend now filters status IN (MISSED, UNANSWERED)
     if (nav === 'missed')    return { status: 'MISSED' };
-    if (nav === 'incoming')  return { direction: 'INBOUND' };
-    if (nav === 'outgoing')  return { direction: 'OUTBOUND' };
+    if (nav === 'incoming')  return { direction: 'INCOMING' };
+    if (nav === 'outgoing')  return { direction: 'OUTGOING' };
     if (nav === 'scheduled') return { status: 'SCHEDULED' };
     if (nav === 'archived')  return { isArchived: 'true' };
     return {};

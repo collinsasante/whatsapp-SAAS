@@ -21,12 +21,12 @@ const CALL_INCLUDE = {
 } satisfies Prisma.CallLogInclude;
 
 /** Statuses that represent an active/live call */
-const ACTIVE_STATUSES = [CallStatus.INITIATED, CallStatus.RINGING, CallStatus.INCOMING, CallStatus.ONGOING];
+const ACTIVE_STATUSES = [CallStatus.INITIATED, CallStatus.RINGING, CallStatus.ONGOING, CallStatus.RECONNECTING];
 
 /** Statuses that represent a terminal (finished) call */
 const TERMINAL_STATUSES = [
   CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED,
-  CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED,
+  CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED, CallStatus.VOICEMAIL,
 ];
 
 @Injectable()
@@ -224,7 +224,7 @@ export class CallsService {
       data: {
         tenantId,
         userId,
-        direction: CallDirection.OUTBOUND,
+        direction: CallDirection.OUTGOING,
         status: CallStatus.SCHEDULED,
         callLinkToken: token,
         callLinkExpiresAt: expiresAt,
@@ -296,7 +296,7 @@ export class CallsService {
         userId,
         ...(contactId && { contactId }),
         phone,
-        direction: CallDirection.OUTBOUND,
+        direction: CallDirection.OUTGOING,
         status: CallStatus.INITIATED,
         startedAt: new Date(),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -328,6 +328,13 @@ export class CallsService {
     }) as { id: string; whatsappCallId: string | null; direction: string; status: string; answeredAt: Date | null; userId: string | null } | null;
 
     if (!call) throw new NotFoundException('Call not found');
+
+    // Prevent accepting a call that is already in a terminal state (race: WebRTC audio
+    // detection fires after WhatsApp terminate webhook already closed the call).
+    if (action === 'accept' && TERMINAL_STATUSES.includes(call.status as CallStatus)) {
+      this.logger.warn(`[calls] respondToCall accept skipped — already terminal status=${call.status} callLogId=${callLogId}`);
+      return { success: true };
+    }
 
     // Signal Meta (best-effort)
     if (call.whatsappCallId) {
@@ -501,8 +508,8 @@ export class CallsService {
           tenantId,
           ...(contact && { contactId: contact.id }),
           phone,
-          direction: CallDirection.INBOUND,
-          status: CallStatus.INCOMING,
+          direction: CallDirection.INCOMING,
+          status: CallStatus.RINGING,
           startedAt: new Date(),
           whatsappCallId: event.id,
           metadata: { sdpOffer } as Prisma.InputJsonValue,
@@ -528,7 +535,7 @@ export class CallsService {
       `[calls] accept-check: event.event=${event.event} existing=${existing?.id ?? 'null'} ` +
       `existing.direction=${existing?.direction ?? 'null'} existing.status=${existing?.status ?? 'null'}`,
     );
-    if (existing && event.event === 'accept' && existing.direction === CallDirection.OUTBOUND) {
+    if (existing && event.event === 'accept' && existing.direction === CallDirection.OUTGOING) {
       await this.prisma.callLog.update({
         where: { id: existing.id },
         data: { status: CallStatus.ONGOING, answeredAt: new Date() },
@@ -552,7 +559,7 @@ export class CallsService {
     // before the webhook arrives, so CANCELED should not be overwritten by UNANSWERED)
     const TERMINAL_STATUSES = new Set([
       CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED, CallStatus.CANCELED,
-      CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED,
+      CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED, CallStatus.VOICEMAIL,
     ]);
     if (TERMINAL_STATUSES.has(existing.status as CallStatus)) {
       this.logger.log(
@@ -580,7 +587,7 @@ export class CallsService {
           finalStatus = CallStatus.ENDED;
         } else {
           // Not answered: outbound=UNANSWERED, inbound=MISSED
-          finalStatus = direction === CallDirection.OUTBOUND ? CallStatus.UNANSWERED : CallStatus.MISSED;
+          finalStatus = direction === CallDirection.OUTGOING ? CallStatus.UNANSWERED : CallStatus.MISSED;
         }
         break;
       }
@@ -693,8 +700,8 @@ export class CallsService {
       }),
       this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: CallStatus.SCHEDULED } }),
       this.prisma.callLog.count({ where: { tenantId, isArchived: false, status: { in: ACTIVE_STATUSES } } }),
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.INBOUND, createdAt: { gte: today } } }),
-      this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.OUTBOUND, createdAt: { gte: today } } }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.INCOMING, createdAt: { gte: today } } }),
+      this.prisma.callLog.count({ where: { tenantId, isArchived: false, direction: CallDirection.OUTGOING, createdAt: { gte: today } } }),
     ]);
 
     return { total, todayTotal, missed, scheduled, active, inbound, outbound };

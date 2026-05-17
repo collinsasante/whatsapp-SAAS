@@ -5,6 +5,32 @@ import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
 import { useCallsStore } from '@/store/calls.store';
 
+function detectRemoteAudioActivity(stream: MediaStream, onDetected: () => void) {
+  try {
+    const ctx = new AudioContext();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let consecutive = 0;
+    const id = setInterval(() => {
+      analyser.getByteFrequencyData(data);
+      if (data.some(v => v > 12)) {
+        if (++consecutive >= 3) {
+          clearInterval(id);
+          source.disconnect();
+          void ctx.close();
+          onDetected();
+        }
+      } else {
+        consecutive = 0;
+      }
+    }, 200);
+    setTimeout(() => clearInterval(id), 90_000);
+  } catch { /* AudioContext unavailable */ }
+}
+
 export function ConfirmCallModal() {
   const { confirmDial, setConfirmDial, setOutboundSession, setOutboundCall } = useCallsStore();
   const [calling, setCalling] = useState(false);
@@ -42,6 +68,9 @@ export function ConfirmCallModal() {
       remoteAudio.setAttribute('playsinline', '');
       document.body.appendChild(remoteAudio);
 
+      // callId is populated after initiate() resolves; ontrack/onunmute fire later
+      let callIdLocal = '';
+
       pc.ontrack = (ev) => {
         const remoteStream = ev.streams[0] ?? new MediaStream([ev.track]);
         remoteAudio.srcObject = remoteStream;
@@ -49,10 +78,22 @@ export function ConfirmCallModal() {
           const retry = () => { void remoteAudio.play().catch(() => {}); document.removeEventListener('click', retry); };
           document.addEventListener('click', retry, { once: true });
         });
+
+        // Detect when remote audio energy starts flowing — that's the moment the callee answered.
+        // Meta's gateway routes audio only after pick-up, so this is a reliable real-time signal.
+        if (ev.track.kind === 'audio') {
+          detectRemoteAudioActivity(remoteStream, () => {
+            const currentCall = useCallsStore.getState().outboundCall;
+            if (callIdLocal && currentCall?.callId === callIdLocal && !currentCall.endedReason) {
+              void callsApi.respond(callIdLocal, 'accept');
+            }
+          });
+        }
       };
 
       const res = await callsApi.initiate({ phone, type: 'audio', sdpOffer });
       const data = res.data as { id: string };
+      callIdLocal = data.id;
       setOutboundSession({ callLogId: data.id, pc, stream, remoteAudio });
       setOutboundCall({ callId: data.id, phone, contactName: contactName || phone, startedAt: null, ringing: false, muted: false, held: false });
       setConfirmDial(null);

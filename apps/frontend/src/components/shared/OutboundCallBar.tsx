@@ -4,7 +4,7 @@ import { PhoneCall, PhoneOff, Mic, MicOff, Pause, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
-import { useCallsStore } from '@/store/calls.store';
+import { useCallsStore, type OutboundCall } from '@/store/calls.store';
 import { useCallRecording, uploadCallRecording } from '@/hooks/useCallRecording';
 import { cn } from '@/lib/utils';
 
@@ -30,13 +30,13 @@ function formatDuration(seconds: number): string {
 
 /** Terminal statuses that should automatically close the bar */
 const TERMINAL = new Set([
-  'ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
+  'ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED', 'VOICEMAIL',
   // legacy values kept for safety
   'COMPLETED', 'CANCELLED',
 ]);
 
 /** Labels and colours for each lifecycle phase */
-type Phase = 'initiating' | 'ringing' | 'connected' | 'held' | 'declined' | 'unanswered' | 'canceled' | 'ended';
+type Phase = 'initiating' | 'ringing' | 'connected' | 'held' | 'reconnecting' | 'voicemail' | 'declined' | 'unanswered' | 'canceled' | 'ended' | 'busy';
 
 function phaseOf(call: ReturnType<typeof useCallsStore.getState>['outboundCall']): Phase {
   if (!call) return 'initiating';
@@ -44,6 +44,8 @@ function phaseOf(call: ReturnType<typeof useCallsStore.getState>['outboundCall']
   if (call.endedReason === 'unanswered') return 'unanswered';
   if (call.endedReason === 'canceled')   return 'canceled';
   if (call.endedReason === 'ended')      return 'ended';
+  if (call.endedReason === 'busy')       return 'busy';
+  if (call.endedReason === 'voicemail')  return 'voicemail';
   if (call.held)                         return 'held';
   if (call.startedAt)                    return 'connected';
   if (call.ringing)                      return 'ringing';
@@ -53,14 +55,17 @@ function phaseOf(call: ReturnType<typeof useCallsStore.getState>['outboundCall']
 const LOG = (...args: unknown[]) => console.log('[OutboundCallBar]', ...args);
 
 const PHASE_LABEL: Record<Phase, string> = {
-  initiating:  'Calling…',
-  ringing:     'Ringing…',
-  connected:   '',        // shows timer
-  held:        'On Hold',
-  declined:    'Declined',
-  unanswered:  'No answer',
-  canceled:    'Canceled',
-  ended:       'Call ended',
+  initiating:    'Calling…',
+  ringing:       'Ringing…',
+  connected:     '',          // shows live timer
+  held:          'On Hold',
+  reconnecting:  'Reconnecting…',
+  voicemail:     'Voicemail',
+  declined:      'Declined',
+  unanswered:    'No answer',
+  canceled:      'Canceled',
+  ended:         'Call ended',
+  busy:          'Busy',
 };
 
 export function OutboundCallBar() {
@@ -81,7 +86,7 @@ export function OutboundCallBar() {
 
   const phase = phaseOf(outboundCall);
   const connected = phase === 'connected';
-  const terminal  = ['declined', 'unanswered', 'canceled', 'ended'].includes(phase);
+  const terminal  = ['declined', 'unanswered', 'canceled', 'ended', 'busy', 'voicemail'].includes(phase);
 
   // trace every render so we can see state driving the UI
   LOG(`render | phase=${phase} connected=${connected} startedAt=${outboundCall?.startedAt ?? null} ringing=${outboundCall?.ringing} callId=${outboundCall?.callId}`);
@@ -261,11 +266,16 @@ export function OutboundCallBar() {
       LOG('call_updated terminal status=', data.call.status, '→ ending call');
       stopAndUpload();
       cleanupSession();
-      const reason = data.call.status === 'DECLINED' ? 'declined' :
-                     data.call.status === 'UNANSWERED' ? 'unanswered' :
-                     data.call.status === 'CANCELED' ? 'canceled' : 'ended';
-      setOutboundCall({ ...current, ringing: false, endedReason: reason });
+      const reason =
+        data.call.status === 'DECLINED'   ? 'declined'  :
+        data.call.status === 'UNANSWERED' ? 'unanswered' :
+        data.call.status === 'CANCELED'   ? 'canceled'  :
+        data.call.status === 'BUSY'       ? 'busy'      :
+        data.call.status === 'VOICEMAIL'  ? 'voicemail' : 'ended';
+      setOutboundCall({ ...current, ringing: false, endedReason: reason as OutboundCall['endedReason'] });
       if (reason === 'ended') toast.success('Call ended');
+      else if (reason === 'busy') toast('Busy', { icon: '📵' });
+      else if (reason === 'voicemail') toast('Voicemail', { icon: '📨' });
       dismiss(2000);
     };
 
@@ -386,11 +396,12 @@ export function OutboundCallBar() {
   // ── Status label / colour ──────────────────────────────────────────────────
   const statusLabel = phase === 'connected' ? formatDuration(elapsed) : PHASE_LABEL[phase];
   const statusColor =
-    terminal            ? 'text-red-400 bg-red-500/10 border-red-500/20' :
-    phase === 'held'    ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' :
-    phase === 'connected' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
-    phase === 'ringing' ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse' :
-                          'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse';
+    terminal                  ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+    phase === 'held'          ? 'text-purple-400 bg-purple-500/10 border-purple-500/20' :
+    phase === 'reconnecting'  ? 'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse' :
+    phase === 'connected'     ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
+    phase === 'ringing'       ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse' :
+                                'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse';
 
   return (
     <div

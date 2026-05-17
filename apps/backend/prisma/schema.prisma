@@ -606,15 +606,14 @@ model CallNote {
 }
 
 enum CallDirection {
-  INBOUND
-  OUTBOUND
+  INCOMING
+  OUTGOING
 }
 
 enum CallStatus {
   SCHEDULED
   INITIATED
   RINGING
-  INCOMING
   ONGOING
   MISSED
   DECLINED
@@ -623,6 +622,9 @@ enum CallStatus {
   BUSY
   FAILED
   ENDED
+  RECONNECTING
+  HOLD
+  VOICEMAIL
 }
 
 model Template {
