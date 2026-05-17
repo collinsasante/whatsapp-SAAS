@@ -754,7 +754,7 @@ export default function ContactsPage() {
     try {
       const res = await conversationsApi.get(lc.id);
       const conv = res.data as ConvPayload;
-      prependConversation(conv);
+      prependConversation({ ...conv, channel: conv.channel ?? undefined });
       setActiveContactConvId(conv.id);
     } catch {
       // Fallback: use the data we already have from the contacts list
