@@ -372,6 +372,33 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* Business Info */}
+        <Section title="Business Information" icon={Building2}>
+          <p className="text-xs text-gray-400 mb-3">Live data from Meta Business API</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+            <div>
+              <InfoRow label="Business Name"   value={metaBiz?.phone?.verified_name ?? biz?.name} />
+              <InfoRow label="Phone Number"    value={metaBiz?.phone?.display_phone_number ?? biz?.phone} mono />
+              <InfoRow label="Description"     value={metaBiz?.profile?.description ?? biz?.description} />
+              <InfoRow label="About"           value={metaBiz?.profile?.about} />
+              <InfoRow label="Industry"        value={metaBiz?.profile?.vertical} />
+            </div>
+            <div>
+              <InfoRow label="Address"         value={metaBiz?.profile?.address ?? biz?.address} />
+              <InfoRow label="Email"           value={metaBiz?.profile?.email ?? biz?.email} />
+              <InfoRow label="Quality Rating"  value={metaBiz?.phone?.quality_rating} />
+              <InfoRow label="Messaging Limit" value={metaBiz?.phone?.messaging_limit_tier} />
+              <InfoRow label="Website"         value={
+                (metaBiz?.profile?.websites?.[0] ?? biz?.website)
+                  ? <a href={metaBiz?.profile?.websites?.[0] ?? biz?.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
+                      {metaBiz?.profile?.websites?.[0] ?? biz?.website}
+                    </a>
+                  : null
+              } />
+            </div>
+          </div>
+        </Section>
+
         {/* Row: WA Status + Team */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* WhatsApp Status */}
@@ -418,33 +445,6 @@ export default function DashboardPage() {
             )}
           </Section>
         </div>
-
-        {/* Business Info */}
-        <Section title="Business Information" icon={Building2}>
-          <p className="text-xs text-gray-400 mb-3">Live data from Meta Business API</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-            <div>
-              <InfoRow label="Business Name"   value={metaBiz?.phone?.verified_name ?? biz?.name} />
-              <InfoRow label="Phone Number"    value={metaBiz?.phone?.display_phone_number ?? biz?.phone} mono />
-              <InfoRow label="Description"     value={metaBiz?.profile?.description ?? biz?.description} />
-              <InfoRow label="About"           value={metaBiz?.profile?.about} />
-              <InfoRow label="Industry"        value={metaBiz?.profile?.vertical} />
-            </div>
-            <div>
-              <InfoRow label="Address"         value={metaBiz?.profile?.address ?? biz?.address} />
-              <InfoRow label="Email"           value={metaBiz?.profile?.email ?? biz?.email} />
-              <InfoRow label="Quality Rating"  value={metaBiz?.phone?.quality_rating} />
-              <InfoRow label="Messaging Limit" value={metaBiz?.phone?.messaging_limit_tier} />
-              <InfoRow label="Website"         value={
-                (metaBiz?.profile?.websites?.[0] ?? biz?.website)
-                  ? <a href={metaBiz?.profile?.websites?.[0] ?? biz?.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
-                      {metaBiz?.profile?.websites?.[0] ?? biz?.website}
-                    </a>
-                  : null
-              } />
-            </div>
-          </div>
-        </Section>
 
       </div>
     </div>
