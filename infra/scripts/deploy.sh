@@ -45,7 +45,15 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   pnpm --filter @whatsapp-platform/frontend build
 
   echo "==> Hot-swapping frontend build..."
-  docker cp apps/frontend/.next/. wa_frontend:/app/.next/
+  # Static JS/CSS chunks — served from /app/apps/frontend/.next/static/ in the container
+  docker cp apps/frontend/.next/static/. wa_frontend:/app/apps/frontend/.next/static/
+  # Server-side code and manifests — from standalone output
+  docker cp apps/frontend/.next/standalone/apps/frontend/.next/server/. wa_frontend:/app/apps/frontend/.next/server/
+  docker cp apps/frontend/.next/standalone/apps/frontend/server.js wa_frontend:/app/apps/frontend/server.js
+  # Build manifests at .next/ root
+  for f in apps/frontend/.next/standalone/apps/frontend/.next/*.json apps/frontend/.next/standalone/apps/frontend/.next/BUILD_ID; do
+    [[ -f "$f" ]] && docker cp "$f" "wa_frontend:/app/apps/frontend/.next/$(basename "$f")"
+  done
   docker restart wa_frontend
   echo "==> Frontend deployed."
 fi
