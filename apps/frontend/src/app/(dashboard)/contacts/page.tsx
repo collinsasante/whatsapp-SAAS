@@ -648,8 +648,8 @@ export default function ContactsPage() {
     setConversations, setStatusCounts,
   } = useInboxStore();
 
-  // Inline chat state — local to this page so it resets on navigation
-  const [activeContactConvId, setActiveContactConvId] = useState<string | null>(null);
+  // Inline chat state — stored directly to avoid race with setConversations
+  const [activeConversation, setActiveConversation] = useState<import('@/store/inbox.store').Conversation | null>(null);
   const [showDetails, setShowDetails] = useState(true);
 
   // Boot conversations into store so ChatWindow works
@@ -661,8 +661,6 @@ export default function ContactsPage() {
       setStatusCounts(res.data as StatusCounts);
     }).catch(() => {});
   }, [setConversations, setStatusCounts]);
-
-  const activeConversation = conversations.find((c) => c.id === activeContactConvId) ?? null;
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [total, setTotal] = useState(0);
@@ -753,12 +751,12 @@ export default function ContactsPage() {
     if (!lc) return;
     try {
       const res = await conversationsApi.get(lc.id);
-      const conv = res.data as ConvPayload;
+      const conv = res.data as import('@/store/inbox.store').Conversation;
       prependConversation({ ...conv, channel: conv.channel ?? undefined });
-      setActiveContactConvId(conv.id);
+      setActiveConversation(conv);
     } catch {
       // Fallback: use the data we already have from the contacts list
-      prependConversation({
+      const fallback: import('@/store/inbox.store').Conversation = {
         id: lc.id,
         status: lc.status,
         lastMessageAt: lc.lastMessageAt,
@@ -767,8 +765,9 @@ export default function ContactsPage() {
         contact: { id: contact.id, name: contact.name, phone: contact.phone, avatarUrl: null },
         labels: [],
         unreadCount: 0,
-      });
-      setActiveContactConvId(lc.id);
+      };
+      prependConversation(fallback);
+      setActiveConversation(fallback);
     }
   };
 
@@ -1185,8 +1184,8 @@ export default function ContactsPage() {
                         return (
                           <tr key={contact.id}
                             onClick={() => { void openConversation(contact); }}
-                            className={cn('hover:bg-gray-50 cursor-pointer', contact.latestConversation?.id === activeContactConvId && 'bg-teal-50', selectedIds.has(contact.id) && 'bg-teal-50/60')}>
-                            <td className={cn('px-4 py-3 w-8', contact.latestConversation?.id === activeContactConvId && 'border-l-2 border-l-teal-500')} onClick={(e) => toggleSelect(contact.id, e)}>
+                            className={cn('hover:bg-gray-50 cursor-pointer', contact.latestConversation?.id === activeConversation?.id && 'bg-teal-50', selectedIds.has(contact.id) && 'bg-teal-50/60')}>
+                            <td className={cn('px-4 py-3 w-8', contact.latestConversation?.id === activeConversation?.id && 'border-l-2 border-l-teal-500')} onClick={(e) => toggleSelect(contact.id, e)}>
                               <input type="checkbox" checked={selectedIds.has(contact.id)} onChange={() => {}}
                                 className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer" />
                             </td>
@@ -1300,7 +1299,7 @@ export default function ContactsPage() {
             conversation={activeConversation}
             showDetails={showDetails}
             onToggleDetails={() => setShowDetails((v) => !v)}
-            onClose={() => setActiveContactConvId(null)}
+            onClose={() => setActiveConversation(null)}
           />
           {showDetails && <ConversationDetails conversation={activeConversation} />}
         </>

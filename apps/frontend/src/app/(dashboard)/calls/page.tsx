@@ -418,8 +418,6 @@ function CallContextMenu({
     { icon: <MessageSquare size={13} />, label: 'Open in inbox', onClick: () => { onClose(); onMessage(call); } },
     { icon: <UserCheck size={13} />, label: 'Transfer call', onClick: () => { onClose(); onTransfer(call); }, disabled: !['RINGING', 'ANSWERED', 'INITIATED'].includes(call.status) },
     { icon: <Download size={13} />, label: 'Download log', onClick: () => { onClose(); downloadCallLog(call); } },
-    { icon: <Archive size={13} />, label: call.isArchived ? 'Unarchive' : 'Archive', onClick: () => { void handleArchive(); } },
-    { icon: <Trash2 size={13} />, label: 'Delete', onClick: () => { void handleDelete(); }, danger: true },
   ];
 
   return (
