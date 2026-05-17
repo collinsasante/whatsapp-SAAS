@@ -692,7 +692,7 @@ function CallRow({
       </TableCell>
 
       {/* Agent */}
-      <TableCell className="hidden xl:table-cell w-36">
+      <TableCell className="hidden xl:table-cell">
         {call.user ? (
           <div className="flex items-center gap-1.5">
             <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0', avatarColor(call.user.id))}>{call.user.name[0]}</div>
@@ -702,7 +702,7 @@ function CallRow({
       </TableCell>
 
       {/* Time + actions */}
-      <TableCell className="text-right w-28 pl-2" onClick={e => e.stopPropagation()}>
+      <TableCell className="w-28 pl-2" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-1.5 relative">
           <span className="text-xs text-gray-400 group-hover:hidden">{timeAgo(call.createdAt)}</span>
           <div className="hidden group-hover:flex items-center gap-1">
@@ -1032,8 +1032,8 @@ export default function CallsPage() {
                       <TableHead>Contact</TableHead>
                       <TableHead className="hidden md:table-cell">Duration</TableHead>
                       <TableHead className="hidden lg:table-cell">Status</TableHead>
-                      <TableHead className="hidden xl:table-cell w-36">Agent</TableHead>
-                      <TableHead className="text-right w-28 pl-2">Time</TableHead>
+                      <TableHead className="hidden xl:table-cell">Agent</TableHead>
+                      <TableHead className="w-28 pl-2">Time</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
