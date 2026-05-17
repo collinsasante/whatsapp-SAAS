@@ -387,7 +387,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       'call_updated',
       (data: { tenantId: string; call: { id: string; status: string } }) => {
         const dismiss = ['ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
-          'COMPLETED', 'CANCELLED', 'ONGOING'].includes(data.call?.status ?? '');
+          'COMPLETED', 'CANCELLED'].includes(data.call?.status ?? '');
         if (dismiss && data.call?.id) clearCallIfMatches(data.call.id);
       },
     );

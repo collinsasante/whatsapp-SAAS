@@ -200,6 +200,13 @@ export function OutboundCallBar() {
     socket.on('call_updated', (data: { call: { id: string; status: string } }) => {
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) return;
+
+      // ONGOING means the callee answered — start timer if not already started
+      if (data.call?.status === 'ONGOING' && !current.startedAt) {
+        setOutboundCall({ ...current, startedAt: new Date(), ringing: false });
+        return;
+      }
+
       if (!TERMINAL.has(data.call?.status ?? '')) return;
 
       stopAndUpload();

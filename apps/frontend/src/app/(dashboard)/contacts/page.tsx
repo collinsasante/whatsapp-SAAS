@@ -749,11 +749,24 @@ export default function ContactsPage() {
 
   const openConversation = async (contact: Contact) => {
     try {
-      const existingId = contact.latestConversation?.id;
-      if (existingId && conversations.find((c) => c.id === existingId)) {
-        setActiveContactConvId(existingId);
+      const lc = contact.latestConversation;
+      if (lc && lc.status !== 'RESOLVED') {
+        // Non-resolved conversation exists — use the data we already have from the contacts API.
+        // Always prependConversation so it's guaranteed to be in the Zustand store.
+        prependConversation({
+          id: lc.id,
+          status: lc.status,
+          lastMessageAt: lc.lastMessageAt,
+          assignedTo: lc.assignedTo,
+          channel: lc.channel ?? undefined,
+          contact: { id: contact.id, name: contact.name, phone: contact.phone, avatarUrl: null },
+          labels: [],
+          unreadCount: 0,
+        });
+        setActiveContactConvId(lc.id);
         return;
       }
+      // No conversation or resolved → findOrCreate will create/reopen one
       const res = await conversationsApi.findOrCreate(contact.id);
       const conv = res.data as ConvPayload;
       prependConversation(conv);
