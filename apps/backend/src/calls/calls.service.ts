@@ -441,6 +441,12 @@ export class CallsService {
       session?: { sdp_type: string; sdp: string };
     },
   ) {
+    // Log EVERY incoming webhook event so we can see exactly what WhatsApp sends
+    this.logger.log(
+      `[calls] webhook event=${event.event} direction=${event.direction ?? 'none'} ` +
+      `id=${event.id} sdp_type=${event.session?.sdp_type ?? 'none'} from=${event.from ?? 'none'}`,
+    );
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prismaAny = this.prisma as any;
 
@@ -518,6 +524,10 @@ export class CallsService {
 
     // Outbound: customer accepted the call (agent's device can start audio)
     // Use existing.direction from DB — do NOT rely on event.direction which Meta may omit.
+    this.logger.log(
+      `[calls] accept-check: event.event=${event.event} existing=${existing?.id ?? 'null'} ` +
+      `existing.direction=${existing?.direction ?? 'null'} existing.status=${existing?.status ?? 'null'}`,
+    );
     if (existing && event.event === 'accept' && existing.direction === CallDirection.OUTBOUND) {
       await this.prisma.callLog.update({
         where: { id: existing.id },
