@@ -573,7 +573,10 @@ export class CallsService {
         break;
 
       case 'terminate': {
-        if (wasAnswered) {
+        // duration > 0 means the callee was actually on the line — Meta never sends an
+        // `accept` event for outbound calls, so this is the only reliable signal.
+        const answeredViaWebhook = event.duration != null && event.duration > 0;
+        if (wasAnswered || answeredViaWebhook) {
           finalStatus = CallStatus.ENDED;
         } else {
           // Not answered: outbound=UNANSWERED, inbound=MISSED
@@ -596,8 +599,10 @@ export class CallsService {
       endedAt: new Date(),
     };
     if (event.duration != null) updateData.duration = event.duration;
-    if (finalStatus === CallStatus.ENDED && !existing.answeredAt) {
-      updateData.duration = 0;
+    // Retroactively set answeredAt when callee answered but Meta never emitted an accept webhook
+    if (finalStatus === CallStatus.ENDED && !existing.answeredAt && event.duration != null && event.duration > 0) {
+      updateData.answeredAt = new Date(Date.now() - event.duration * 1000);
+      this.logger.log(`[calls] Retroactive answeredAt set from duration=${event.duration} callLogId=${existing.id}`);
     }
 
     const updated = await this.prisma.callLog.update({
@@ -607,6 +612,15 @@ export class CallsService {
     });
 
     this.logger.log(`[calls] Terminal status=${finalStatus} callLogId=${existing.id}`);
+
+    // Emit synthetic call_accepted before terminal events so the frontend bar transitions
+    // through "connected" and can display the correct "Call ended" status (not "No answer").
+    // This is needed because Meta never emits a real `accept` webhook for outbound calls.
+    if (finalStatus === CallStatus.ENDED && updateData.answeredAt) {
+      this.logger.log(`[calls] Synthetic call_accepted emitted callLogId=${existing.id}`);
+      this.realtime.emitCallEvent(tenantId, 'call_accepted', { callLogId: existing.id, call: updated });
+    }
+
     this.emit(this.statusToEvent(finalStatus), tenantId, updated);
     this.emit('call_updated', tenantId, updated);
 

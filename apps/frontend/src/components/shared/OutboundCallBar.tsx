@@ -170,18 +170,21 @@ export function OutboundCallBar() {
       setOutboundCall({ ...current, ringing: true });
     };
 
-    const onAccepted = (data: { callLogId: string }) => {
+    const onAccepted = (data: { callLogId?: string; call?: { callLogId?: string; answeredAt?: string | null } }) => {
       LOG('call_accepted received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      const id = (data as unknown as { call?: { callLogId?: string } }).call?.callLogId ?? data.callLogId;
+      const id = data.call?.callLogId ?? data.callLogId;
       LOG('call_accepted | current.callId=', current?.callId, '| resolved id=', id);
       if (!current || current.callId !== id) {
         LOG('call_accepted IGNORED — id mismatch or no active call');
         return;
       }
       if (!current.startedAt) {
-        LOG('call_accepted → setting startedAt (timer start)');
-        setOutboundCall({ ...current, startedAt: new Date() });
+        // Use answeredAt from the payload so the timer starts from when the callee actually answered.
+        // Falls back to now() when the event arrives in real-time (no answeredAt yet).
+        const startedAt = data.call?.answeredAt ? new Date(data.call.answeredAt) : new Date();
+        LOG('call_accepted → setting startedAt (timer start)', startedAt);
+        setOutboundCall({ ...current, startedAt, ringing: false });
       } else {
         LOG('call_accepted — startedAt already set, skipping');
       }
@@ -266,7 +269,7 @@ export function OutboundCallBar() {
       dismiss(2000);
     };
 
-    const onEnded = (data: { call: { id: string } }) => {
+    const onEnded = (data: { call: { id: string; duration?: number | null; answeredAt?: string | null } }) => {
       LOG('call_ended received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) { LOG('call_ended IGNORED'); return; }
@@ -275,6 +278,12 @@ export function OutboundCallBar() {
       stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, ringing: false, endedReason: 'ended' });
+      // Show duration in toast — prefer server-provided duration, fall back to local timer
+      const dur = data.call?.duration != null && data.call.duration > 0
+        ? data.call.duration
+        : current.startedAt ? Math.floor((Date.now() - current.startedAt.getTime()) / 1000) : 0;
+      if (dur > 0) toast.success(`Call ended — ${formatDuration(dur)}`);
+      else toast.success('Call ended');
       dismiss(2000);
     };
 
