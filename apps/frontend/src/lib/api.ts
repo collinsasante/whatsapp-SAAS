@@ -4,8 +4,11 @@ const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001/api
 
 // Deduplicate concurrent refresh calls — only one in-flight at a time
 let refreshPromise: Promise<string> | null = null;
+// Once refresh fails, stop retrying until the user logs in again
+let sessionDead = false;
 
 async function silentRefresh(): Promise<string> {
+  if (sessionDead) return Promise.reject(new Error('Session expired'));
   if (refreshPromise) return refreshPromise;
   refreshPromise = axios
     .post<{ accessToken: string }>(
@@ -15,6 +18,7 @@ async function silentRefresh(): Promise<string> {
     )
     .then((r) => {
       const token = r.data.accessToken;
+      sessionDead = false;
       localStorage.setItem('access_token', token);
       // Update Zustand store without importing the hook (avoids circular deps)
       if (typeof window !== 'undefined') {
@@ -23,10 +27,19 @@ async function silentRefresh(): Promise<string> {
       }
       return token;
     })
+    .catch((err) => {
+      sessionDead = true;
+      throw err;
+    })
     .finally(() => {
       refreshPromise = null;
     });
   return refreshPromise;
+}
+
+// Reset the flag when the user logs in again
+if (typeof window !== 'undefined') {
+  window.addEventListener('auth:token-refreshed', () => { sessionDead = false; });
 }
 
 function createApiClient(): AxiosInstance {
@@ -59,10 +72,9 @@ function createApiClient(): AxiosInstance {
           }
           return client(originalRequest);
         } catch {
-          // Refresh failed — clear local access token and redirect to login
-          // Do NOT clear auth-storage (user/tenant identity); let the dashboard
-          // layout handle the redirect so it can show the login page gracefully.
           localStorage.removeItem('access_token');
+          // Only dispatch once — sessionDead flag prevents further refresh attempts
+          // so this event fires exactly once per expired session
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('auth:session-expired'));
           }
