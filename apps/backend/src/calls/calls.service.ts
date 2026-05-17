@@ -548,7 +548,19 @@ export class CallsService {
       return;
     }
 
-    // Terminal events
+    // Terminal events — skip if call is already in a terminal status (e.g. agent cancelled
+    // before the webhook arrives, so CANCELED should not be overwritten by UNANSWERED)
+    const TERMINAL_STATUSES = new Set([
+      CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED, CallStatus.CANCELED,
+      CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED,
+    ]);
+    if (TERMINAL_STATUSES.has(existing.status as CallStatus)) {
+      this.logger.log(
+        `[calls] webhook event=${event.event} skipped — call already terminal status=${existing.status} callLogId=${existing.id}`,
+      );
+      return;
+    }
+
     const direction = existing.direction as CallDirection;
     const wasAnswered = !!existing.answeredAt || existing.status === CallStatus.ONGOING;
 

@@ -208,10 +208,11 @@ export function OutboundCallBar() {
       LOG('call_declined received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) { LOG('call_declined IGNORED'); return; }
+      if (current.endedReason) { LOG('call_declined IGNORED — already terminal:', current.endedReason); return; }
       LOG('call_declined → ending call');
       stopAndUpload();
       cleanupSession();
-      setOutboundCall({ ...current, endedReason: 'declined' });
+      setOutboundCall({ ...current, ringing: false, endedReason: 'declined' });
       toast.error('Call declined', { icon: '🚫' });
       dismiss(2000);
     };
@@ -220,10 +221,11 @@ export function OutboundCallBar() {
       LOG('call_unanswered received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) { LOG('call_unanswered IGNORED'); return; }
+      if (current.endedReason) { LOG('call_unanswered IGNORED — already terminal:', current.endedReason); return; }
       LOG('call_unanswered → ending call');
       stopAndUpload();
       cleanupSession();
-      setOutboundCall({ ...current, endedReason: 'unanswered' });
+      setOutboundCall({ ...current, ringing: false, endedReason: 'unanswered' });
       toast('No answer', { icon: '📵' });
       dismiss(2500);
     };
@@ -248,13 +250,18 @@ export function OutboundCallBar() {
         return;
       }
 
+      if (current.endedReason) {
+        LOG('call_updated terminal IGNORED — already terminal:', current.endedReason);
+        return;
+      }
+
       LOG('call_updated terminal status=', data.call.status, '→ ending call');
       stopAndUpload();
       cleanupSession();
       const reason = data.call.status === 'DECLINED' ? 'declined' :
                      data.call.status === 'UNANSWERED' ? 'unanswered' :
                      data.call.status === 'CANCELED' ? 'canceled' : 'ended';
-      setOutboundCall({ ...current, endedReason: reason });
+      setOutboundCall({ ...current, ringing: false, endedReason: reason });
       if (reason === 'ended') toast.success('Call ended');
       dismiss(2000);
     };
@@ -263,10 +270,11 @@ export function OutboundCallBar() {
       LOG('call_ended received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
       if (!current || current.callId !== data.call?.id) { LOG('call_ended IGNORED'); return; }
+      if (current.endedReason) { LOG('call_ended IGNORED — already terminal:', current.endedReason); return; }
       LOG('call_ended → ending call');
       stopAndUpload();
       cleanupSession();
-      setOutboundCall({ ...current, endedReason: 'ended' });
+      setOutboundCall({ ...current, ringing: false, endedReason: 'ended' });
       dismiss(2000);
     };
 
