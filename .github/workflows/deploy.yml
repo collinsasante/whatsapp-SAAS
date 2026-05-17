@@ -12,6 +12,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Detect changed paths
         id: changes
         uses: dorny/paths-filter@v3
