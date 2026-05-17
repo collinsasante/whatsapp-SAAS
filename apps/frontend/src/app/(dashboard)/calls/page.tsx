@@ -6,7 +6,7 @@ import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff,
   Search, X, Plus, Link2, CalendarClock, MoreVertical,
   Copy, Check, Clock, RefreshCw,
-  Mic, MicOff, Pause, PhoneCall, MessageSquare,
+  MessageSquare,
   Edit3, Trash2, AlertCircle, ArrowUpRight, ArrowDownLeft,
   TrendingUp, Activity, Archive, UserCheck, BarChart2,
   ChevronRight, Download,
@@ -44,7 +44,6 @@ interface Contact { id: string; name: string | null; phone: string; }
 interface Agent { id: string; name: string; avatarUrl: string | null; }
 interface Stats { total: number; todayTotal: number; missed: number; scheduled: number; active: number; inbound: number; outbound: number; }
 interface Analytics { avgDuration: number; missedRate: number; completionRate: number; avgResponseTime: number; total: number; }
-interface ActiveCall { callId: string; contactName: string; phone: string; startedAt: Date | null; ringing: boolean; muted: boolean; held: boolean; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -605,140 +604,6 @@ function CallContextMenu({
   );
 }
 
-// ─── Active Call Bar ──────────────────────────────────────────────────────────
-
-function WaveformBars() {
-  return (
-    <div className="flex items-center gap-0.5 h-5">
-      {[3, 6, 9, 6, 4, 8, 5, 7, 3, 6].map((h, i) => (
-        <div key={i} className="w-0.5 bg-emerald-400 rounded-full animate-pulse"
-          style={{ height: `${h * 2}px`, animationDelay: `${i * 80}ms`, animationDuration: `${600 + i * 50}ms` }} />
-      ))}
-    </div>
-  );
-}
-
-function ActiveCallBar({
-  call, onEnd, onMuteChange, onHoldChange,
-}: {
-  call: ActiveCall;
-  onEnd: () => void;
-  onMuteChange: (muted: boolean) => void;
-  onHoldChange: (held: boolean) => void;
-}) {
-  const [elapsed, setElapsed] = useState(0);
-  const [muted, setMuted] = useState(call.muted);
-  const [held, setHeld] = useState(call.held);
-  const [togglingMute, setTogglingMute] = useState(false);
-  const [togglingHold, setTogglingHold] = useState(false);
-  const posRef = useRef({ x: 0, y: 0 });
-  const barRef = useRef<HTMLDivElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-
-  const connected = call.startedAt !== null;
-  useEffect(() => {
-    if (!connected) return;
-    const t = setInterval(() => setElapsed(s => s + 1), 1000);
-    return () => clearInterval(t);
-  }, [connected]);
-
-  const handleMute = async () => {
-    if (togglingMute) return;
-    const next = !muted;
-    setMuted(next);
-    setTogglingMute(true);
-    try {
-      if (call.callId) await callsApi.mute(call.callId, next);
-      onMuteChange(next);
-    } catch { setMuted(!next); toast.error('Failed to toggle mute'); }
-    finally { setTogglingMute(false); }
-  };
-
-  const handleHold = async () => {
-    if (togglingHold) return;
-    const next = !held;
-    setHeld(next);
-    setTogglingHold(true);
-    try {
-      if (call.callId) await callsApi.hold(call.callId, next);
-      onHoldChange(next);
-    } catch { setHeld(!next); toast.error('Failed to toggle hold'); }
-    finally { setTogglingHold(false); }
-  };
-
-  const onMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return;
-    setDragging(true);
-    posRef.current = { x: e.clientX, y: e.clientY };
-    const rect = barRef.current?.getBoundingClientRect();
-    if (rect) setOffset({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-  };
-
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
-      if (barRef.current) {
-        barRef.current.style.left = `${e.clientX - offset.x}px`;
-        barRef.current.style.top = `${e.clientY - offset.y}px`;
-        barRef.current.style.bottom = 'auto';
-        barRef.current.style.right = 'auto';
-      }
-    };
-    const onUp = () => setDragging(false);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [dragging, offset]);
-
-  return (
-    <div ref={barRef} onMouseDown={onMouseDown}
-      className={cn(
-        'fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900 border border-slate-700 rounded-2xl px-5 py-3 flex items-center gap-5 shadow-2xl min-w-80',
-        dragging ? 'cursor-grabbing select-none' : 'cursor-grab',
-      )}>
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="relative flex-shrink-0">
-          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <PhoneCall size={18} className="text-emerald-400" />
-          </div>
-          <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-pulse border-2 border-slate-900" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-white font-semibold text-sm leading-tight truncate">{call.contactName}</p>
-          <p className="text-slate-400 text-xs truncate">{call.phone}</p>
-        </div>
-        {connected && !held && <WaveformBars />}
-        {held && <span className="text-amber-400 text-xs font-bold animate-pulse">On Hold</span>}
-        <div className={cn(
-          'flex items-center gap-1 font-mono text-sm px-3 py-1 rounded-full border flex-shrink-0',
-          connected
-            ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-            : call.ringing
-              ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse'
-              : 'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse',
-        )}>
-          <Clock size={11} />
-          {connected ? formatDuration(elapsed) : call.ringing ? 'Ringing…' : 'Calling…'}
-        </div>
-      </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <button onClick={() => { void handleMute(); }} disabled={togglingMute}
-          className={cn('w-9 h-9 rounded-full flex items-center justify-center transition-all', muted ? 'bg-red-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}>
-          {muted ? <MicOff size={15} /> : <Mic size={15} />}
-        </button>
-        <button onClick={() => { void handleHold(); }} disabled={togglingHold}
-          className={cn('w-9 h-9 rounded-full flex items-center justify-center transition-all', held ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600')}>
-          <Pause size={15} />
-        </button>
-        <button onClick={onEnd}
-          className="h-9 px-5 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center gap-2 text-sm font-bold transition-colors">
-          <PhoneOff size={15} />End
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // ─── Call Detail Panel ────────────────────────────────────────────────────────
 
@@ -1080,12 +945,13 @@ export default function CallsPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
 
+  const { outboundCall } = useCallsStore();
+
   const [nav, setNav] = useState<NavSection>('all');
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [modal, setModal] = useState<'dial' | 'schedule' | 'link' | null>(null);
   const [dialPrefill, setDialPrefill] = useState('');
   const [transferTarget, setTransferTarget] = useState<CallLog | null>(null);
@@ -1149,107 +1015,37 @@ export default function CallsPage() {
     const socket = getSocket();
     const refresh = () => { void loadCalls(true); void loadAnalytics(); };
 
-    // Outbound call is ringing on user's device (SDP negotiated, not yet answered)
-    const onCallRinging = (data: { call: { callLogId: string } }) => {
-      setActiveCall(prev => {
-        if (!prev || prev.callId !== data.call?.callLogId) return prev;
-        return { ...prev, ringing: true };
-      });
-    };
-
-    // Start the call timer when the customer actually answers
-    const onCallConnected = (data: { call: { callLogId: string } }) => {
-      setActiveCall(prev => {
-        if (!prev || prev.callId !== data.call?.callLogId) return prev;
-        return { ...prev, startedAt: new Date() };
-      });
-    };
-
-    const TERMINAL_SET = new Set([
-      'ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
-      // legacy
-      'COMPLETED', 'CANCELLED',
-    ]);
-
-    // Auto-end the active call bar when any terminal status arrives
-    const onCallUpdated = (data: { call: { id: string; status: string } }) => {
-      refresh();
-      if (!TERMINAL_SET.has(data.call?.status ?? '')) return;
-      setActiveCall(prev => {
-        if (!prev || prev.callId !== data.call?.id) return prev;
-        const session = useCallsStore.getState().outboundSession;
-        if (session) {
-          try { session.pc.close(); } catch { /* ignore */ }
-          session.stream.getTracks().forEach(t => t.stop());
-          try { session.remoteAudio.srcObject = null; session.remoteAudio.remove(); } catch { /* ignore */ }
-          useCallsStore.getState().setOutboundSession(null);
-        }
-        return null;
-      });
-    };
-
-    // Listen for all terminal events so the list refreshes immediately
-    const refreshTerminal = () => { refresh(); };
-
     socket.on('call_created',    refresh);
-    socket.on('call_updated',    onCallUpdated);
+    socket.on('call_updated',    refresh);
     socket.on('call_transferred', refresh);
-    socket.on('call_ringing',    onCallRinging);
-    socket.on('call_connected',  onCallConnected);
-    socket.on('call_accepted',   refreshTerminal);
-    socket.on('call_declined',   refreshTerminal);
-    socket.on('call_missed',     refreshTerminal);
-    socket.on('call_canceled',   refreshTerminal);
-    socket.on('call_unanswered', refreshTerminal);
-    socket.on('call_ended',      refreshTerminal);
-    socket.on('incoming_call',   refreshTerminal);
+    socket.on('call_ringing',    refresh);
+    socket.on('call_connected',  refresh);
+    socket.on('call_accepted',   refresh);
+    socket.on('call_declined',   refresh);
+    socket.on('call_missed',     refresh);
+    socket.on('call_canceled',   refresh);
+    socket.on('call_unanswered', refresh);
+    socket.on('call_ended',      refresh);
+    socket.on('incoming_call',   refresh);
 
     return () => {
       socket.off('call_created',    refresh);
-      socket.off('call_updated',    onCallUpdated);
+      socket.off('call_updated',    refresh);
       socket.off('call_transferred', refresh);
-      socket.off('call_ringing',    onCallRinging);
-      socket.off('call_connected',  onCallConnected);
-      socket.off('call_accepted',   refreshTerminal);
-      socket.off('call_declined',   refreshTerminal);
-      socket.off('call_missed',     refreshTerminal);
-      socket.off('call_canceled',   refreshTerminal);
-      socket.off('call_unanswered', refreshTerminal);
-      socket.off('call_ended',      refreshTerminal);
-      socket.off('incoming_call',   refreshTerminal);
+      socket.off('call_ringing',    refresh);
+      socket.off('call_connected',  refresh);
+      socket.off('call_accepted',   refresh);
+      socket.off('call_declined',   refresh);
+      socket.off('call_missed',     refresh);
+      socket.off('call_canceled',   refresh);
+      socket.off('call_unanswered', refresh);
+      socket.off('call_ended',      refresh);
+      socket.off('incoming_call',   refresh);
     };
   }, [loadCalls, loadAnalytics]);
 
   const handleCallStarted = (phone: string, callId: string) => {
-    setActiveCall({ callId, contactName: phone, phone, startedAt: null, ringing: false, muted: false, held: false });
     useCallsStore.getState().setOutboundCall({ callId, contactName: phone, phone, startedAt: null, ringing: false, muted: false, held: false });
-    void loadCalls(true);
-  };
-
-  const handleEndCall = async () => {
-    if (!activeCall) return;
-    const duration = activeCall.startedAt ? Math.floor((Date.now() - activeCall.startedAt.getTime()) / 1000) : 0;
-
-    // Cleanup WebRTC session
-    const session = useCallsStore.getState().outboundSession;
-    if (session) {
-      try { await callsApi.respond(activeCall.callId, 'terminate'); } catch { /* best-effort */ }
-      if (session.pc) { session.pc.close(); }
-      if (session.stream) { session.stream.getTracks().forEach(t => t.stop()); }
-      if (session.remoteAudio) { session.remoteAudio.srcObject = null; session.remoteAudio.remove(); }
-      useCallsStore.getState().setOutboundSession(null);
-    }
-
-    try {
-      if (activeCall.callId) {
-        await callsApi.update(activeCall.callId, { status: 'ENDED', duration, endedAt: new Date().toISOString() });
-      } else {
-        const recent = calls.find(c => c.status === 'INITIATED' && c.direction === 'OUTBOUND');
-        if (recent) await callsApi.update(recent.id, { status: 'ENDED', duration, endedAt: new Date().toISOString() });
-      }
-    } catch { /* best-effort */ }
-    setActiveCall(null);
-    toast.success(`Call ended — ${formatDuration(duration)}`);
     void loadCalls(true);
   };
 
@@ -1277,7 +1073,7 @@ export default function CallsPage() {
   };
 
   return (
-    <div className={cn('h-full flex flex-col overflow-hidden bg-gray-50/50', activeCall && 'pb-20')}>
+    <div className={cn('h-full flex flex-col overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
 
       {/* ── Page header ── */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
@@ -1458,15 +1254,6 @@ export default function CallsPage() {
       {modal === 'link'     && <CallLinkModal onClose={() => setModal(null)} />}
       {transferTarget       && <TransferModal call={transferTarget} agents={agents} onClose={() => setTransferTarget(null)} onTransferred={() => void loadCalls(true)} />}
 
-      {/* Active call bar */}
-      {activeCall && (
-        <ActiveCallBar
-          call={activeCall}
-          onEnd={() => { void handleEndCall(); }}
-          onMuteChange={muted => setActiveCall(p => p ? { ...p, muted } : p)}
-          onHoldChange={held => setActiveCall(p => p ? { ...p, held } : p)}
-        />
-      )}
     </div>
   );
 }
