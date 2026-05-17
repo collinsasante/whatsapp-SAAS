@@ -304,14 +304,9 @@ export default function Sidebar() {
 
   const handleLogout = async () => {
     try { await authApi.logout(); } finally {
-      try {
-        const prev = JSON.parse(localStorage.getItem('_auth_log') ?? '[]') as Array<Record<string, unknown>>;
-        prev.push({ s: 'sidebar-logout', t: Date.now(), u: window.location.pathname });
-        localStorage.setItem('_auth_log', JSON.stringify(prev.slice(-10)));
-      } catch {}
       disconnectSocket();
       clearAuth();
-      router.push('/login?_r=sidebar-logout');
+      router.push('/login');
     }
   };
 

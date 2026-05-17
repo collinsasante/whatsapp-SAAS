@@ -34,9 +34,6 @@ function LoginPage() {
     else if (error === 'google_auth_failed') toast.error('Google sign-in failed. Please try again.');
   }, [searchParams]);
 
-  useEffect(() => {
-    console.log('[LOGIN] page mounted', { url: window.location.href });
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

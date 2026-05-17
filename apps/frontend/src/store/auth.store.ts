@@ -57,7 +57,6 @@ export const useAuthStore = create<AuthState>()(
       _hasHydrated: false,
 
       setAuth: (user, tenant, accessToken) => {
-        console.log('[AUTH] setAuth called — login-ok', { email: user.email, tenantId: tenant.id, hasToken: !!accessToken });
         if (typeof window !== 'undefined') {
           localStorage.setItem('access_token', accessToken);
         }
@@ -81,7 +80,6 @@ export const useAuthStore = create<AuthState>()(
       },
 
       clearAuth: () => {
-        console.log('[AUTH] clearAuth called', { url: typeof window !== 'undefined' ? window.location.href : 'ssr', stack: new Error().stack });
         if (typeof window !== 'undefined') {
           localStorage.removeItem('access_token');
         }

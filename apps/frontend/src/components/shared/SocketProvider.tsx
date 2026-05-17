@@ -108,7 +108,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setSocketAuthErrorHandler(() => {
-      console.log('[SOCKET] auth error handler fired → redirect to login');
       clearAuth();
       router.replace('/login?_r=socket-auth');
     });
@@ -320,7 +319,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         // Only act if this event targets the current user (matched via stored JWT sub)
         // We use a loose check: if userId is present, we trust the server routed it correctly
         if (!data.userId) return;
-        console.log('[SOCKET] force_logout event fired', { reason: data.reason, userId: data.userId });
         clearAuth();
         localStorage.removeItem('access_token');
         const messages: Record<string, string> = {
