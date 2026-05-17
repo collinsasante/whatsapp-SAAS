@@ -58,6 +58,11 @@ export const useAuthStore = create<AuthState>()(
 
       setAuth: (user, tenant, accessToken) => {
         if (typeof window !== 'undefined') {
+          try {
+            const prev = JSON.parse(localStorage.getItem('_auth_log') ?? '[]') as Array<Record<string, unknown>>;
+            prev.push({ s: 'login-ok', t: Date.now(), u: window.location.pathname });
+            localStorage.setItem('_auth_log', JSON.stringify(prev.slice(-10)));
+          } catch {}
           localStorage.setItem('access_token', accessToken);
         }
         set({ user, tenant, accessToken, isAuthenticated: true });

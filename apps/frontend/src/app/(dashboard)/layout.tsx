@@ -36,6 +36,15 @@ function ImpersonationBanner({ state, onExit }: { state: ImpersonationState; onE
   );
 }
 
+function dbg(src: string, extra?: Record<string, unknown>) {
+  if (typeof window === 'undefined') return;
+  try {
+    const prev = JSON.parse(localStorage.getItem('_auth_log') ?? '[]') as Array<Record<string, unknown>>;
+    prev.push({ s: src, t: Date.now(), u: window.location.pathname, ...extra });
+    localStorage.setItem('_auth_log', JSON.stringify(prev.slice(-10)));
+  } catch {}
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { isAuthenticated, _hasHydrated, accessToken, setAccessToken, clearAuth, user, tenant, setAuth } = useAuthStore();
@@ -69,6 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setAccessToken(newToken);
     } catch {
       // No valid cookie — session is truly expired, redirect to login
+      dbg('restore-fail');
       clearAuth();
       router.replace('/login?_r=restore-fail');
     } finally {
@@ -81,11 +91,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!_hasHydrated) return;
 
     if (!isAuthenticated) {
+      dbg('no-auth', { isAuth: isAuthenticated, hasTok: !!accessToken });
       router.replace('/login?_r=no-auth');
       return;
     }
 
     if (!accessToken) {
+      dbg('no-token', { isAuth: isAuthenticated });
       void restoreSession();
       return;
     }
@@ -99,6 +111,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Listen for session expiry events dispatched by the API interceptor
   useEffect(() => {
     const handler = () => {
+      dbg('session-exp');
       clearAuth();
       router.replace('/login?_r=session-exp');
     };

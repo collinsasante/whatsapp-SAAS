@@ -27,19 +27,21 @@ function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [authLog, setAuthLog] = useState<string>('');
 
   useEffect(() => {
     const error = searchParams.get('error');
     if (error === 'google_not_configured') toast.error('Google login is not configured on this server.');
     else if (error === 'google_auth_failed') toast.error('Google sign-in failed. Please try again.');
-    // Debug: show which logout path fired. Catches all tagged paths.
-    const r = searchParams.get('_r');
-    const reason = searchParams.get('reason');
-    if (r || reason) {
-      const label = r ? `_r=${r}` : `reason=${reason ?? ''}`;
-      toast.error(`DBG logout: ${label}`, { duration: 20000 });
-    }
   }, [searchParams]);
+
+  // Read persistent auth debug log from localStorage — survives hard reloads
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('_auth_log');
+      if (raw) setAuthLog(raw);
+    } catch {}
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +68,23 @@ function LoginPage() {
   const handleGoogle = () => { window.location.href = authApi.googleUrl(); };
 
   return (
+    <>
+    {authLog && (
+      <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+        background: '#7f1d1d', color: '#fecaca', padding: '10px 16px',
+        fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap',
+        wordBreak: 'break-all', maxHeight: '40vh', overflow: 'auto',
+        borderBottom: '2px solid #ef4444',
+      }}>
+        <strong style={{color:'#fca5a5'}}>AUTH LOG (latest events):</strong>
+        {'\n'}{JSON.stringify(JSON.parse(authLog), null, 2)}
+        <button
+          onClick={() => { try { localStorage.removeItem('_auth_log'); } catch {} setAuthLog(''); }}
+          style={{ marginLeft: 12, background: '#ef4444', color: 'white', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}
+        >clear</button>
+      </div>
+    )}
     <div className="w-full max-w-[420px]">
       <div className="lg:hidden flex items-center gap-2.5 mb-8 justify-center">
         <div className="w-9 h-9 bg-teal-600 rounded-xl flex items-center justify-center">
@@ -142,6 +161,7 @@ function LoginPage() {
         <Link href="/register" className="text-teal-600 font-semibold hover:underline">Create one free</Link>
       </p>
     </div>
+    </>
   );
 }
 
