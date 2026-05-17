@@ -82,10 +82,20 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
     const totals = { created: 0, skipped: 0, errors: [] as string[] };
     try {
       const contacts = rows.map(row => {
-        const obj: Record<string, string> = {};
-        headers.forEach((h, i) => { if (mapping[h]) obj[mapping[h]!] = row[i] ?? ''; });
+        const obj: Record<string, unknown> = {};
+        headers.forEach((h, i) => {
+          const field = mapping[h];
+          if (!field) return;
+          const val = (row[i] ?? '').trim();
+          if (!val) return; // skip empty cells so optional validators don't see ''
+          if (field === 'labels') {
+            obj[field] = val.split(/[,;|]/).map(s => s.trim()).filter(Boolean);
+          } else {
+            obj[field] = val;
+          }
+        });
         return obj;
-      }).filter(c => c.phone?.trim());
+      }).filter(c => (c.phone as string)?.trim());
 
       const totalChunks = Math.ceil(contacts.length / CHUNK);
       for (let i = 0; i < contacts.length; i += CHUNK) {
@@ -101,7 +111,11 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
 
       setResult(totals);
       setStep('result');
-    } catch { toast.error('Import failed'); }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+      const detail = Array.isArray(msg) ? msg[0] : msg;
+      toast.error(detail ? `Import failed: ${detail}` : 'Import failed');
+    }
     finally { setImporting(false); setImportProgress(''); }
   };
 
