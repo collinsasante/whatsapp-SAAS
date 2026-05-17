@@ -25,8 +25,8 @@ interface ManageSettings {
 
 const SECTIONS = [
   { id: 'members', icon: UserCog, label: 'Members' },
-  { id: 'canned', icon: MessageSquare, label: 'Canned Responses' },
   { id: 'teams', icon: Users, label: 'Teams' },
+  { id: 'canned', icon: MessageSquare, label: 'Canned Responses' },
   { id: 'tags', icon: Tag, label: 'Tags' },
   { id: 'attributes', icon: Sliders, label: 'Attributes' },
   { id: 'welcome', icon: MessageSquare, label: 'Welcome Message' },
@@ -1340,7 +1340,7 @@ function QrCodeSection() {
 
 // ─────────────────── Main Page ───────────────────
 export default function ManagePage() {
-  const [active, setActive] = useState('teams');
+  const [active, setActive] = useState('members');
   const [settings, setSettings] = useState<ManageSettings>({});
 
   const loadSettings = useCallback(() => {

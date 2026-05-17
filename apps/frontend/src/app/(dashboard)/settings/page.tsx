@@ -187,7 +187,7 @@ export default function SettingsPage() {
           {TABS.map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={cn('w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                activeTab === tab ? 'bg-teal-50 text-teal-700' : 'text-gray-600 hover:bg-gray-50')}>
+                activeTab === tab ? 'bg-teal-50 text-teal-700' : 'text-gray-500')}>
               {tab}
             </button>
           ))}
