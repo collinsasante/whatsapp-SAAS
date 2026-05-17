@@ -66,7 +66,7 @@ const INPUT_ICON = 'w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl te
 const BTN_PRIMARY = 'px-5 py-2.5 bg-teal-600 text-white text-sm rounded-xl font-semibold hover:bg-teal-700 disabled:opacity-50 transition-colors';
 
 
-const TABS = ['Business Profile', 'WhatsApp API', 'Team', 'API Keys', 'Automation'] as const;
+const TABS = ['Business Profile', 'WhatsApp API', 'API Keys', 'Automation'] as const;
 type Tab = typeof TABS[number];
 
 export default function SettingsPage() {
@@ -281,9 +281,6 @@ export default function SettingsPage() {
                 </div>
               </section>
             )}
-
-            {/* ── Team ── */}
-            {activeTab === 'Team' && <TeamManagement />}
 
             {/* ── API Keys ── */}
             {activeTab === 'API Keys' && (
