@@ -1755,7 +1755,7 @@ const ActivityBubble = memo(function ActivityBubble({ entry }: { entry: Activity
 
   // Call ended — WhatsApp-style call bubble
   if (entry.action === 'CALL_ENDED') {
-    const { direction, status, duration } = entry.metadata as { direction: string; status: string; duration: number };
+    const { direction, status, duration, recordingUrl } = entry.metadata as { direction: string; status: string; duration: number; recordingUrl?: string | null };
     const isOutbound = direction === 'OUTBOUND';
     const isMissed = status === 'MISSED' || status === 'FAILED';
     const durationLabel = formatCallDuration(duration ?? 0);
@@ -1763,24 +1763,36 @@ const ActivityBubble = memo(function ActivityBubble({ entry }: { entry: Activity
     return (
       <div className={cn('flex px-4 py-1', isOutbound ? 'justify-end' : 'justify-start')}>
         <div className={cn(
-          'flex items-center gap-3 rounded-2xl px-4 py-3 shadow-sm',
+          'flex flex-col gap-2 rounded-2xl px-4 py-3 shadow-sm min-w-[180px]',
           isMissed
             ? 'bg-red-50 border border-red-100'
             : 'bg-white border border-gray-200',
         )}>
-          <div className={cn(
-            'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0',
-            isMissed ? 'bg-red-100' : 'bg-emerald-100',
-          )}>
-            <IconEl size={16} className={isMissed ? 'text-red-500' : 'text-emerald-600'} />
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              'w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0',
+              isMissed ? 'bg-red-100' : 'bg-emerald-100',
+            )}>
+              <IconEl size={16} className={isMissed ? 'text-red-500' : 'text-emerald-600'} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className={cn('text-sm font-semibold', isMissed ? 'text-red-600' : 'text-gray-900')}>
+                {isMissed ? 'Missed voice call' : 'Voice call'}
+              </p>
+              {durationLabel && <p className="text-xs text-gray-400">{durationLabel}</p>}
+            </div>
+            <span className="text-xs text-gray-400 flex-shrink-0 ml-1">{time}</span>
           </div>
-          <div className="min-w-0">
-            <p className={cn('text-sm font-semibold', isMissed ? 'text-red-600' : 'text-gray-900')}>
-              {isMissed ? 'Missed voice call' : 'Voice call'}
-            </p>
-            {durationLabel && <p className="text-xs text-gray-400">{durationLabel}</p>}
-          </div>
-          <span className="text-xs text-gray-400 flex-shrink-0 ml-1">{time}</span>
+          {recordingUrl && (
+            <audio
+              controls
+              className="w-full h-8 [&::-webkit-media-controls-panel]:bg-emerald-50 [&::-webkit-media-controls-timeline]:accent-emerald-600"
+              style={{ minWidth: 200 }}
+            >
+              <source src={recordingUrl} />
+              Your browser does not support audio playback.
+            </audio>
+          )}
         </div>
       </div>
     );

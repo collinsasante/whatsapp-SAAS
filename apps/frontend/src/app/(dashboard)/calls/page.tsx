@@ -184,172 +184,6 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-type PermissionStatus = 'unknown' | 'checking' | 'no_permission' | 'temporary' | 'permanent' | 'requesting';
-
-function DialModal({ onClose, prefill = '', onCallStarted }: { onClose: () => void; prefill?: string; onCallStarted: (phone: string, callId: string) => void }) {
-  const [number, setNumber] = useState(prefill);
-  const [callType, setCallType] = useState<'audio' | 'video'>('audio');
-  const [calling, setCalling] = useState(false);
-  const [permission, setPermission] = useState<PermissionStatus>('unknown');
-  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '0', '⌫'];
-  const { setOutboundSession } = useCallsStore();
-  const permCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Debounced permission check when phone number is entered
-  useEffect(() => {
-    const phone = number.trim();
-    if (!phone || phone.length < 7) { setPermission('unknown'); return; }
-    if (permCheckRef.current) clearTimeout(permCheckRef.current);
-    permCheckRef.current = setTimeout(async () => {
-      setPermission('checking');
-      try {
-        const res = await callsApi.getPermission(phone);
-        const d = res.data as { status: string; canCall: boolean };
-        setPermission(d.status as PermissionStatus);
-      } catch {
-        setPermission('unknown');
-      }
-    }, 600);
-    return () => { if (permCheckRef.current) clearTimeout(permCheckRef.current); };
-  }, [number]);
-
-  const handleRequestPermission = async () => {
-    const phone = number.trim();
-    if (!phone) return;
-    setPermission('requesting');
-    try {
-      await callsApi.requestPermission(phone);
-      toast.success('Call permission request sent via WhatsApp');
-      setPermission('no_permission'); // Still no permission until user accepts
-    } catch (err: unknown) {
-      const raw = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
-      toast.error(raw || 'Failed to send permission request');
-      setPermission('no_permission');
-    }
-  };
-
-  const handleCall = async () => {
-    const phone = number.trim();
-    if (!phone) { toast.error('Enter a phone number'); return; }
-    setCalling(true);
-    try {
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-        ],
-      });
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      if (pc.iceGatheringState !== 'complete') {
-        await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 4000);
-          pc.addEventListener('icegatheringstatechange', () => {
-            if (pc.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
-          });
-        });
-      }
-      const sdpOffer = pc.localDescription!.sdp;
-
-      // DOM-attached audio element so autoplay policy is satisfied when ontrack fires
-      const remoteAudio = document.createElement('audio');
-      remoteAudio.autoplay = true;
-      remoteAudio.setAttribute('playsinline', '');
-      document.body.appendChild(remoteAudio);
-
-      pc.ontrack = (ev) => {
-        const remoteStream = ev.streams[0] ?? new MediaStream([ev.track]);
-        remoteAudio.srcObject = remoteStream;
-        void remoteAudio.play().catch(() => {
-          const retry = () => { void remoteAudio.play().catch(() => {}); document.removeEventListener('click', retry); };
-          document.addEventListener('click', retry, { once: true });
-        });
-      };
-
-      const res = await callsApi.initiate({ phone, type: callType, sdpOffer });
-      const data = res.data as { id: string };
-      setOutboundSession({ callLogId: data.id, pc, stream, remoteAudio });
-      onCallStarted(phone, data.id);
-      onClose();
-    } catch (err: unknown) {
-      const raw = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
-      const msg = raw.includes('call permission') || raw.includes('approved call') || raw.includes('138006')
-        ? 'This number has not granted call permission. Request permission first.'
-        : raw || 'Failed to initiate call';
-      toast.error(msg);
-    }
-    finally { setCalling(false); }
-  };
-
-  const permBadge = () => {
-    if (permission === 'checking') return <span className="text-[10px] text-gray-400 flex items-center gap-1"><span className="w-2 h-2 border border-gray-300 border-t-gray-500 rounded-full animate-spin inline-block" />Checking…</span>;
-    if (permission === 'permanent') return <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">✓ Call permission granted</span>;
-    if (permission === 'temporary') return <span className="text-[10px] text-teal-600 font-bold flex items-center gap-1">✓ Temporary permission granted</span>;
-    if (permission === 'no_permission') return <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">⚠ No call permission</span>;
-    return null;
-  };
-
-  return (
-    <ModalShell title="New call" onClose={onClose}>
-      <div className="px-6 py-4 space-y-4">
-        <div>
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-            <Phone size={14} className="text-gray-400 flex-shrink-0" />
-            <input value={number} onChange={e => setNumber(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') void handleCall(); }}
-              placeholder="+1 (555) 000-0000" autoFocus
-              className="flex-1 bg-transparent text-lg font-mono text-gray-900 outline-none placeholder-gray-300 tracking-wider" />
-            {number && <button onClick={() => setNumber(p => p.slice(0, -1))} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>}
-          </div>
-          {number.trim().length >= 7 && (
-            <div className="mt-1.5 px-1 flex items-center justify-between">
-              {permBadge()}
-              {permission === 'no_permission' && (
-                <button
-                  onClick={() => { void handleRequestPermission(); }}
-                  className="text-[10px] font-bold text-teal-600 hover:text-teal-800 underline">
-                  Send permission request
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {digits.map(d => (
-            <button key={d} onClick={() => d === '⌫' ? setNumber(p => p.slice(0, -1)) : setNumber(p => p + d)}
-              className="h-12 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-900 font-semibold text-lg transition-colors border border-gray-100 active:scale-95">{d}</button>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          {(['audio', 'video'] as const).map(t => (
-            <button key={t} onClick={() => setCallType(t)}
-              className={cn('flex-1 py-2 rounded-xl text-xs font-bold border transition-colors',
-                callType === t ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
-              {t === 'audio' ? '🎙 Audio' : '📹 Video'}
-            </button>
-          ))}
-        </div>
-        {permission === 'no_permission' && (
-          <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200">
-            <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-            <span>This number hasn&apos;t granted call permission. You can still try calling, or send a permission request first.</span>
-          </div>
-        )}
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={() => { void handleCall(); }} disabled={calling || !number.trim()}
-            className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition-colors">
-            {calling ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />Connecting…</> : <><Phone size={15} />Call</>}
-          </button>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
 function ScheduleModal({ onClose, contacts, onScheduled }: { onClose: () => void; contacts: Contact[]; onScheduled: () => void }) {
   const [form, setForm] = useState({ contactId: '', phone: '', date: '', time: '', notes: '' });
   const [saving, setSaving] = useState(false);
@@ -945,15 +779,14 @@ export default function CallsPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
 
-  const { outboundCall } = useCallsStore();
+  const { outboundCall, setPendingDial } = useCallsStore();
 
   const [nav, setNav] = useState<NavSection>('all');
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [modal, setModal] = useState<'dial' | 'schedule' | 'link' | null>(null);
-  const [dialPrefill, setDialPrefill] = useState('');
+  const [modal, setModal] = useState<'schedule' | 'link' | null>(null);
   const [transferTarget, setTransferTarget] = useState<CallLog | null>(null);
 
   const limit = 25;
@@ -1044,11 +877,6 @@ export default function CallsPage() {
     };
   }, [loadCalls, loadAnalytics]);
 
-  const handleCallStarted = (phone: string, callId: string) => {
-    useCallsStore.getState().setOutboundCall({ callId, contactName: phone, phone, startedAt: null, ringing: false, muted: false, held: false });
-    void loadCalls(true);
-  };
-
   const handleMessageContact = async (call: CallLog) => {
     if (!call.contact?.id) { toast.error('No contact linked to this call'); return; }
     try {
@@ -1059,7 +887,7 @@ export default function CallsPage() {
     } catch { toast.error('Failed to open conversation'); }
   };
 
-  const openDial = (prefill = '') => { setDialPrefill(prefill); setModal('dial'); };
+  const openDial = (prefill = '') => { setPendingDial(prefill || ''); };
   const selected = selectedId ? calls.find(c => c.id === selectedId) ?? null : null;
 
   const tabCount = (id: NavSection): number | undefined => {
@@ -1249,7 +1077,6 @@ export default function CallsPage() {
       </div>
 
       {/* Modals */}
-      {modal === 'dial'     && <DialModal prefill={dialPrefill} onClose={() => setModal(null)} onCallStarted={(phone, callId) => handleCallStarted(phone, callId)} />}
       {modal === 'schedule' && <ScheduleModal contacts={contacts} onClose={() => setModal(null)} onScheduled={() => void loadCalls(true)} />}
       {modal === 'link'     && <CallLinkModal onClose={() => setModal(null)} />}
       {transferTarget       && <TransferModal call={transferTarget} agents={agents} onClose={() => setTransferTarget(null)} onTransferred={() => void loadCalls(true)} />}

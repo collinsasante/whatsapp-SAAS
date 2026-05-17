@@ -735,6 +735,7 @@ export class CallsService {
           direction: call.direction,
           status: call.status,
           duration,
+          recordingUrl: call.recordingUrl ?? null,
         },
       });
     } catch (err) {
@@ -752,4 +753,5 @@ interface CallRecord {
   status: CallStatus;
   answeredAt?: Date | null;
   endedAt?: Date | null;
+  recordingUrl?: string | null;
 }
