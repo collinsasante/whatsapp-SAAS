@@ -11,6 +11,13 @@ echo "==> Pulling latest code..."
 cd "$REPO_ROOT"
 git pull origin main
 
+# Load production env vars so NEXT_PUBLIC_* are embedded correctly at build time
+if [[ -f "$REPO_ROOT/infra/.env" ]]; then
+  set -a
+  source "$REPO_ROOT/infra/.env"
+  set +a
+fi
+
 if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
   echo "==> Building backend..."
   pnpm --filter @whatsapp-platform/shared-types build
