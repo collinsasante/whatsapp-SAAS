@@ -32,6 +32,9 @@ function LoginPage() {
     const error = searchParams.get('error');
     if (error === 'google_not_configured') toast.error('Google login is not configured on this server.');
     else if (error === 'google_auth_failed') toast.error('Google sign-in failed. Please try again.');
+    // Debug: show which logout path fired (visible to user, not just nginx)
+    const r = searchParams.get('_r');
+    if (r) toast.error(`DBG: logout via [${r}]`, { duration: 15000 });
   }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
