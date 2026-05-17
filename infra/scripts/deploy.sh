@@ -31,6 +31,12 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
   if [[ -n "$SHARED_TYPES_CONTAINER_PATH" ]]; then
     docker cp packages/shared-types/dist/. "wa_backend:${SHARED_TYPES_CONTAINER_PATH}/dist/"
   fi
+  # Sync schema and migrations so container has up-to-date definitions
+  docker cp apps/backend/prisma/schema.prisma wa_backend:/app/prisma/schema.prisma
+  docker cp apps/backend/prisma/migrations/. wa_backend:/app/prisma/migrations/
+  # Regenerate Prisma client inside container so new models/enums are available
+  docker exec wa_backend sh -c "cd /app && prisma generate --schema prisma/schema.prisma" 2>&1 || true
+  # Container CMD runs `prisma migrate deploy` on restart, which applies any new migrations
   docker restart wa_backend
 
   echo "==> Waiting for backend to be healthy..."

@@ -182,3 +182,39 @@ export enum CallStatus {
   HOLD         = 'HOLD',
   VOICEMAIL    = 'VOICEMAIL',
 }
+
+export enum SubscriptionStatus {
+  TRIAL         = 'TRIAL',
+  ACTIVE        = 'ACTIVE',
+  PAST_DUE      = 'PAST_DUE',
+  SUSPENDED     = 'SUSPENDED',
+  CANCELED      = 'CANCELED',
+  EXPIRED       = 'EXPIRED',
+}
+
+export enum BillingCycle {
+  MONTHLY = 'MONTHLY',
+  YEARLY  = 'YEARLY',
+}
+
+export enum PaymentGateway {
+  STRIPE       = 'STRIPE',
+  PAYSTACK     = 'PAYSTACK',
+  FLUTTERWAVE  = 'FLUTTERWAVE',
+}
+
+export enum PaymentStatus {
+  PENDING    = 'PENDING',
+  SUCCEEDED  = 'SUCCEEDED',
+  FAILED     = 'FAILED',
+  REFUNDED   = 'REFUNDED',
+  DISPUTED   = 'DISPUTED',
+}
+
+export enum InvoiceStatus {
+  DRAFT          = 'DRAFT',
+  OPEN           = 'OPEN',
+  PAID           = 'PAID',
+  VOID           = 'VOID',
+  UNCOLLECTIBLE  = 'UNCOLLECTIBLE',
+}

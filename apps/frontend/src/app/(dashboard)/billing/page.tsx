@@ -1,211 +1,418 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  CreditCard, Zap, Users, MessageSquare, FileText, Layout,
-  CheckCircle2, ArrowUpRight, RefreshCw, Mail, Download,
-  BarChart3, AlertCircle,
+  AlertCircle, ArrowUpRight, BarChart3, Check, CheckCircle2,
+  CreditCard, Download, Mail, RefreshCw, Tag, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 
-interface PlanDetails {
-  name: string; price: number; messagesPerMonth: number;
-  contacts: number; agents: number; channels: number; templates: number;
+// ─── Types ─────────────────────────────────────────────────────────────────
+
+interface Plan {
+  id: string; slug: string; name: string; description: string | null;
+  monthlyPrice: number; yearlyPrice: number; currency: string;
+  trialDays: number; isActive: boolean;
+  limMaxAgents: number; limMaxChannels: number; limMaxContacts: number;
+  limMaxTemplates: number; limMessagesPerMonth: number;
+  limMaxCampaigns: number; limAiCreditsPerMonth: number; limStorageGb: number;
   features: string[];
 }
 
-interface BillingStatus {
-  currentPlan: string;
-  planDetails: PlanDetails;
-  planStartedAt: string | null;
-  planExpiresAt: string | null;
-  nextRenewal: string;
-  billingEmail: string | null;
-  plans: Record<string, PlanDetails>;
+interface Subscription {
+  id: string; planId: string; status: string; cycle: string;
+  trialEndsAt: string | null; currentPeriodStart: string; currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean; canceledAt: string | null;
+  plan: Plan;
 }
 
-interface Usage {
-  cycleStart: string;
-  messagesSent: number;
-  totalContacts: number;
-  totalAgents: number;
-  totalTemplates: number;
-  totalChannels: number;
-  totalCampaigns: number;
-  limits: { messagesPerMonth: number; contacts: number; agents: number; channels: number; templates: number };
+interface BillingStatus {
+  subscription: Subscription;
+  plan: Plan;
+  billingEmail: string | null;
+  workspaceName: string;
 }
+
+interface UsageLimits {
+  maxAgents: number; maxChannels: number; maxContacts: number;
+  maxTemplates: number; messagesPerMonth: number;
+  maxCampaigns: number; aiCreditsPerMonth: number; storageGb: number;
+}
+
+interface UsageData {
+  periodStart: string;
+  messagesSent: number; messagesReceived: number;
+  conversationsOpened: number; campaignsSent: number;
+  aiCreditsUsed: number; activeAgents: number; activeChannels: number;
+  totalContacts: number; totalTemplates: number;
+}
+
+interface UsageResponse { usage: UsageData; limits: UsageLimits; }
 
 interface Invoice {
-  id: string;
-  amount: number;
-  currency: string;
-  status: string;
-  description: string;
-  period: string;
-  paidAt: string | null;
-  createdAt: string;
+  id: string; invoiceNumber: string; status: string;
+  subtotal: number; tax: number; discount: number; total: number;
+  currency: string; billingPeriodStart: string; billingPeriodEnd: string;
+  dueDate: string; paidAt: string | null; gateway: string | null;
+  gatewayPaymentUrl: string | null; createdAt: string;
+  items: { description: string; quantity: number; unitPrice: number; amount: number }[];
 }
 
-const PLAN_COLORS: Record<string, string> = {
-  free:       'border-gray-200 bg-white',
-  starter:    'border-blue-200 bg-blue-50',
-  growth:     'border-teal-200 bg-teal-50',
-  enterprise: 'border-purple-200 bg-purple-50',
+interface PromoPreview {
+  code: string; discountType: string; discountValue: number;
+  monthlyDiscount: number; yearlyDiscount: number;
+}
+
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const PLAN_STYLE: Record<string, { border: string; bg: string; badge: string; ring: string; btn: string }> = {
+  free:       { border: 'border-gray-200', bg: 'bg-white',      badge: 'bg-gray-100 text-gray-600',   ring: 'ring-gray-300',   btn: 'bg-gray-800 text-white hover:bg-gray-900' },
+  starter:    { border: 'border-blue-200', bg: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700',   ring: 'ring-blue-400',   btn: 'bg-blue-600 text-white hover:bg-blue-700' },
+  growth:     { border: 'border-teal-200', bg: 'bg-teal-50',    badge: 'bg-teal-100 text-teal-700',   ring: 'ring-teal-500',   btn: 'bg-teal-600 text-white hover:bg-teal-700' },
+  enterprise: { border: 'border-purple-200', bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', ring: 'ring-purple-500', btn: 'bg-purple-600 text-white hover:bg-purple-700' },
 };
 
-const PLAN_BADGE: Record<string, string> = {
-  free:       'bg-gray-100 text-gray-600',
-  starter:    'bg-blue-100 text-blue-700',
-  growth:     'bg-teal-100 text-teal-700',
-  enterprise: 'bg-purple-100 text-purple-700',
+const STATUS_STYLE: Record<string, string> = {
+  ACTIVE:    'bg-teal-100 text-teal-700',
+  TRIAL:     'bg-blue-100 text-blue-700',
+  PAST_DUE:  'bg-red-100 text-red-700',
+  SUSPENDED: 'bg-orange-100 text-orange-700',
+  CANCELED:  'bg-gray-100 text-gray-600',
+  EXPIRED:   'bg-gray-100 text-gray-500',
 };
 
-function UsageBar({ label, used, limit, icon: Icon, color }: {
-  label: string; used: number; limit: number; icon: React.ElementType; color: string;
-}) {
-  const pct = limit < 0 ? 0 : Math.min(100, Math.round((used / limit) * 100));
-  const isUnlimited = limit < 0;
-  const isOver = pct >= 90 && !isUnlimited;
+const GATEWAY_INFO: Record<string, { label: string; color: string }> = {
+  STRIPE:       { label: 'Stripe', color: 'bg-indigo-600' },
+  PAYSTACK:     { label: 'Paystack', color: 'bg-teal-600' },
+  FLUTTERWAVE:  { label: 'Flutterwave', color: 'bg-yellow-500' },
+};
+
+// ─── UsageBar ───────────────────────────────────────────────────────────────
+
+function UsageBar({ label, used, limit, color }: { label: string; used: number; limit: number; color: string }) {
+  const unlimited = limit < 0;
+  const pct = unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
+  const warning = !unlimited && pct >= 85;
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-          <Icon size={14} className="text-gray-400" />
-          {label}
-        </div>
-        <span className={cn('text-xs font-semibold', isOver ? 'text-red-600' : 'text-gray-500')}>
-          {isUnlimited ? (
-            <span className="text-teal-600">Unlimited</span>
-          ) : (
-            <>{used.toLocaleString()} / {limit.toLocaleString()}</>
-          )}
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-gray-600">{label}</span>
+        <span className={cn('font-semibold', warning ? 'text-red-600' : 'text-gray-500')}>
+          {unlimited ? <span className="text-teal-600 font-semibold">Unlimited</span>
+            : <>{used.toLocaleString()} / {limit.toLocaleString()}</>}
         </span>
       </div>
-      {!isUnlimited && (
-        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className={cn('h-full rounded-full transition-all duration-500', color, isOver && 'bg-red-500')}
-            style={{ width: `${pct}%` }}
-          />
+      {!unlimited && (
+        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className={cn('h-full rounded-full transition-all', warning ? 'bg-red-500' : color)}
+            style={{ width: `${pct}%` }} />
         </div>
       )}
-      {isOver && (
+      {warning && (
         <p className="text-xs text-red-500 flex items-center gap-1">
-          <AlertCircle size={11} />Approaching limit — consider upgrading
+          <AlertCircle size={10} /> {pct}% used — consider upgrading
         </p>
       )}
     </div>
   );
 }
 
-function PlanCard({
-  planKey, plan, isCurrent, isUpgrade, isDowngrade, upgrading, onSelect,
-}: {
-  planKey: string; plan: PlanDetails; isCurrent: boolean; isUpgrade: boolean; isDowngrade: boolean;
-  upgrading: boolean; onSelect: () => void;
+// ─── PlanCard ───────────────────────────────────────────────────────────────
+
+function PlanCard({ plan, isCurrent, isUpgrade, onSelect }: {
+  plan: Plan; isCurrent: boolean; isUpgrade: boolean; onSelect: () => void;
 }) {
-  const color = PLAN_COLORS[planKey] ?? PLAN_COLORS['free'];
-  const badge = PLAN_BADGE[planKey] ?? PLAN_BADGE['free'];
-  const isPopular = planKey === 'growth';
+  const s = PLAN_STYLE[plan.slug] ?? PLAN_STYLE['free'];
+  const popular = plan.slug === 'growth';
+  const enterprise = plan.slug === 'enterprise';
 
   return (
-    <div className={cn('relative rounded-2xl border-2 p-5 flex flex-col transition-all', color,
-      isCurrent && 'ring-2 ring-offset-2',
-      planKey === 'free' && isCurrent && 'ring-gray-400',
-      planKey === 'starter' && isCurrent && 'ring-blue-400',
-      planKey === 'growth' && isCurrent && 'ring-teal-500',
-      planKey === 'enterprise' && isCurrent && 'ring-purple-500')}>
-      {isPopular && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-teal-600 text-white text-xs font-bold px-3 py-1 rounded-full whitespace-nowrap">
+    <div className={cn('relative rounded-2xl border-2 p-5 flex flex-col transition-all h-full', s.border, s.bg,
+      isCurrent && `ring-2 ring-offset-2 ${s.ring}`)}>
+      {popular && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-teal-600 text-white text-[10px] font-bold px-3 py-1 rounded-full whitespace-nowrap uppercase tracking-wide">
           Most Popular
         </div>
       )}
       <div className="mb-4">
-        <span className={cn('text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wide', badge)}>
+        <span className={cn('text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider', s.badge)}>
           {plan.name}
         </span>
-        <div className="mt-3">
-          {plan.price < 0 ? (
+        <div className="mt-3 mb-1">
+          {plan.monthlyPrice < 0 ? (
             <p className="text-2xl font-bold text-gray-900">Custom</p>
-          ) : plan.price === 0 ? (
+          ) : plan.monthlyPrice === 0 ? (
             <p className="text-2xl font-bold text-gray-900">Free</p>
           ) : (
             <p className="text-2xl font-bold text-gray-900">
-              ${plan.price}<span className="text-sm font-normal text-gray-400">/mo</span>
+              ${plan.monthlyPrice}
+              <span className="text-xs font-normal text-gray-400">/mo</span>
             </p>
           )}
         </div>
+        {plan.description && <p className="text-xs text-gray-500 leading-relaxed">{plan.description}</p>}
       </div>
 
       <ul className="space-y-2 flex-1 mb-5">
-        {plan.features.map((f) => (
-          <li key={f} className="flex items-center gap-2 text-xs text-gray-600">
-            <CheckCircle2 size={13} className="text-teal-500 flex-shrink-0" />
+        {(plan.features as string[]).map((f) => (
+          <li key={f} className="flex items-start gap-2 text-xs text-gray-600">
+            <CheckCircle2 size={12} className="text-teal-500 flex-shrink-0 mt-0.5" />
             {f}
           </li>
         ))}
       </ul>
 
       {isCurrent ? (
-        <div className="py-2.5 text-center text-sm font-semibold text-gray-500 bg-gray-100 rounded-xl">
+        <div className="py-2.5 text-center text-xs font-semibold text-gray-400 bg-gray-100 rounded-xl">
           Current Plan
         </div>
-      ) : planKey === 'enterprise' ? (
-        <button className="py-2.5 text-sm font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-xl hover:bg-purple-100 transition-colors flex items-center justify-center gap-1.5">
-          Contact Sales <ArrowUpRight size={13} />
+      ) : enterprise ? (
+        <button className="py-2.5 text-xs font-semibold text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50 transition-colors flex items-center justify-center gap-1.5">
+          Contact Sales <ArrowUpRight size={12} />
         </button>
       ) : (
-        <button onClick={onSelect} disabled={upgrading}
-          className={cn('py-2.5 text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60',
-            isUpgrade
-              ? 'bg-teal-600 text-white hover:bg-teal-700'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
-          {upgrading ? 'Processing…' : isUpgrade ? `Upgrade to ${plan.name}` : `Switch to ${plan.name}`}
-          {isUpgrade && <ArrowUpRight size={13} />}
+        <button onClick={onSelect}
+          className={cn('py-2.5 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5', s.btn)}>
+          {isUpgrade ? `Upgrade to ${plan.name}` : `Switch to ${plan.name}`}
+          {isUpgrade && <ArrowUpRight size={12} />}
         </button>
       )}
     </div>
   );
 }
 
+// ─── CheckoutModal ──────────────────────────────────────────────────────────
+
+function CheckoutModal({ plan, onClose, onSuccess }: {
+  plan: Plan; onClose: () => void; onSuccess: () => void;
+}) {
+  const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  const [gateway, setGateway] = useState<'STRIPE' | 'PAYSTACK' | 'FLUTTERWAVE'>('STRIPE');
+  const [email, setEmail] = useState('');
+  const [promoCode, setPromoCode] = useState('');
+  const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
+  const [promoError, setPromoError] = useState('');
+  const [checkingPromo, setCheckingPromo] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const basePrice = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+  const discount = promoPreview ? (cycle === 'YEARLY' ? promoPreview.yearlyDiscount : promoPreview.monthlyDiscount) : 0;
+  const finalPrice = Math.max(0, basePrice - discount);
+  const yearlyMonthlyRate = plan.yearlyPrice > 0 ? (plan.yearlyPrice / 12).toFixed(2) : '0';
+
+  const handleCheckPromo = async () => {
+    if (!promoCode.trim()) return;
+    setCheckingPromo(true);
+    setPromoError('');
+    try {
+      const res = await billingApi.applyPromoCode(promoCode.trim(), plan.slug);
+      setPromoPreview(res.data as PromoPreview);
+    } catch {
+      setPromoError('Invalid or expired promo code');
+      setPromoPreview(null);
+    } finally { setCheckingPromo(false); }
+  };
+
+  const handleCheckout = async () => {
+    if (!email.trim()) { toast.error('Enter a billing email'); return; }
+    setLoading(true);
+    try {
+      const res = await billingApi.initiateCheckout({
+        planSlug: plan.slug,
+        cycle,
+        gateway,
+        billingEmail: email.trim(),
+        promoCode: promoPreview?.code,
+      });
+      const data = res.data as { paymentUrl: string | null; free: boolean };
+      if (data.free) {
+        toast.success(`Switched to ${plan.name} plan!`);
+        onSuccess();
+      } else if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Checkout failed';
+      toast.error(msg);
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900">Upgrade to {plan.name}</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Billing cycle */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['MONTHLY', 'YEARLY'] as const).map((c) => {
+                const price = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+                return (
+                  <button key={c} onClick={() => setCycle(c)}
+                    className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
+                      cycle === c ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <div className="font-semibold text-gray-900">
+                      {c === 'MONTHLY' ? 'Monthly' : 'Yearly'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {c === 'YEARLY' ? `$${yearlyMonthlyRate}/mo · billed yearly` : `$${price}/mo`}
+                    </div>
+                    {c === 'YEARLY' && plan.monthlyPrice > 0 && (
+                      <div className="text-[10px] font-semibold text-teal-600 mt-1">
+                        Save ${((plan.monthlyPrice * 12) - plan.yearlyPrice).toFixed(0)}/yr
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Payment gateway */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
+            <div className="grid grid-cols-3 gap-2">
+              {(['STRIPE', 'PAYSTACK', 'FLUTTERWAVE'] as const).map((gw) => (
+                <button key={gw} onClick={() => setGateway(gw)}
+                  className={cn('p-2.5 rounded-xl border-2 text-center transition-all',
+                    gateway === gw ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
+                  <div className={cn('w-4 h-4 rounded-full mx-auto mb-1', GATEWAY_INFO[gw].color)} />
+                  <div className="text-[10px] font-semibold text-gray-700">{GATEWAY_INFO[gw].label}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Billing email */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Email</p>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="billing@yourcompany.com"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          </div>
+
+          {/* Promo code */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Promo Code</p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input value={promoCode} onChange={(e) => { setPromoCode(e.target.value); setPromoPreview(null); setPromoError(''); }}
+                  placeholder="PROMO2026"
+                  className="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <button onClick={() => { void handleCheckPromo(); }} disabled={!promoCode.trim() || checkingPromo}
+                className="px-4 py-2.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 disabled:opacity-50 transition-colors">
+                {checkingPromo ? '…' : 'Apply'}
+              </button>
+            </div>
+            {promoPreview && (
+              <p className="text-xs text-teal-600 flex items-center gap-1 mt-1.5">
+                <Check size={11} />
+                {promoPreview.discountType === 'PERCENTAGE'
+                  ? `${promoPreview.discountValue}% off applied`
+                  : `$${discount.toFixed(2)} off applied`}
+              </p>
+            )}
+            {promoError && <p className="text-xs text-red-500 mt-1.5">{promoError}</p>}
+          </div>
+
+          {/* Price summary */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
+            <div className="flex justify-between text-gray-600">
+              <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
+              <span>${basePrice.toFixed(2)}</span>
+            </div>
+            {discount > 0 && (
+              <div className="flex justify-between text-teal-600">
+                <span>Promo discount</span>
+                <span>-${discount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-200">
+              <span>Total</span>
+              <span>${finalPrice.toFixed(2)} {plan.currency}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 pb-5">
+          <button onClick={() => { void handleCheckout(); }} disabled={loading}
+            className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+            {loading ? (
+              <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Processing…</>
+            ) : finalPrice === 0 ? (
+              'Activate Free Plan'
+            ) : (
+              <>Pay ${finalPrice.toFixed(2)} via {GATEWAY_INFO[gateway].label} <ArrowUpRight size={14} /></>
+            )}
+          </button>
+          <p className="text-[10px] text-gray-400 text-center mt-2">
+            Your subscription will be activated after payment is verified by our server.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ──────────────────────────────────────────────────────────────
+
 export default function BillingPage() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
-  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usageData, setUsageData] = useState<UsageResponse | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [upgrading, setUpgrading] = useState<string | null>(null);
   const [billingEmail, setBillingEmail] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
+  const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, usageRes, invoicesRes] = await Promise.all([
+      const [statusRes, usageRes, invoicesRes, plansRes] = await Promise.all([
         billingApi.getStatus(),
         billingApi.getUsage(),
         billingApi.getInvoices(),
+        billingApi.getPlans(),
       ]);
       const s = statusRes.data as BillingStatus;
       setStatus(s);
       setBillingEmail(s.billingEmail ?? '');
-      setUsage(usageRes.data as Usage);
+      setUsageData(usageRes.data as UsageResponse);
       setInvoices((invoicesRes.data as Invoice[]) ?? []);
+      setPlans((plansRes.data as Plan[]) ?? []);
+    } catch {
+      toast.error('Failed to load billing data');
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
 
-  const handleUpgrade = async (planKey: string) => {
-    setUpgrading(planKey);
-    try {
-      await billingApi.upgradePlan(planKey);
-      await load();
-      toast.success(`Switched to ${status?.plans[planKey]?.name ?? planKey} plan!`);
-    } catch { toast.error('Failed to change plan'); }
-    finally { setUpgrading(null); }
-  };
+  // Handle success redirect from payment gateway
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const paymentStatus = params.get('payment');
+    const invoiceId = params.get('invoice');
+    if (paymentStatus === 'success' && invoiceId) {
+      window.history.replaceState({}, '', '/billing');
+      toast.success('Payment received! Your subscription is being activated.');
+    } else if (paymentStatus === 'cancelled') {
+      window.history.replaceState({}, '', '/billing');
+      toast('Payment cancelled.', { icon: 'ℹ️' });
+    }
+  }, []);
 
   const handleSaveEmail = async () => {
     if (!billingEmail.trim()) return;
@@ -225,179 +432,242 @@ export default function BillingPage() {
     );
   }
 
-  if (!status || !usage) return null;
+  if (!status || !usageData) return null;
 
-  const currentPlanKey = status.currentPlan;
-  const planOrder = ['free', 'starter', 'growth', 'enterprise'];
-  const currentPlanIdx = planOrder.indexOf(currentPlanKey);
+  const sub = status.subscription;
+  const plan = sub.plan;
+  const currentSlug = plan.slug;
+  const slugOrder = ['free', 'starter', 'growth', 'enterprise'];
+  const currentIdx = slugOrder.indexOf(currentSlug);
+  const { usage, limits } = usageData;
+
+  const periodLabel = new Date(usage.periodStart).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 overflow-auto">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Billing & Plans</h1>
-            <p className="text-sm text-gray-500">Manage your subscription and track usage</p>
-          </div>
-          <button onClick={() => { void load(); }}
-            className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors">
-            <RefreshCw size={16} />
-          </button>
-        </div>
-      </div>
+    <>
+      {checkoutPlan && (
+        <CheckoutModal
+          plan={checkoutPlan}
+          onClose={() => setCheckoutPlan(null)}
+          onSuccess={() => { setCheckoutPlan(null); void load(); }}
+        />
+      )}
 
-      <div className="p-6 space-y-6 max-w-5xl mx-auto w-full">
-        {/* Current plan banner */}
-        <div className={cn('rounded-2xl border-2 p-5 flex items-center justify-between', PLAN_COLORS[currentPlanKey] ?? PLAN_COLORS['free'])}>
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
-              <CreditCard size={22} className="text-teal-600" />
-            </div>
+      <div className="flex flex-col h-full bg-gray-50 overflow-auto">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
+          <div className="flex items-center justify-between">
             <div>
-              <div className="flex items-center gap-2 mb-0.5">
-                <h2 className="font-bold text-gray-900 text-lg">{status.planDetails.name} Plan</h2>
-                <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', PLAN_BADGE[currentPlanKey])}>Active</span>
-              </div>
-              <p className="text-sm text-gray-500">
-                {status.planDetails.price === 0 ? 'Free forever' : status.planDetails.price < 0 ? 'Custom pricing' : `$${status.planDetails.price}/month`}
-                {status.nextRenewal && status.planDetails.price > 0 && (
-                  <> · Renews {new Date(status.nextRenewal).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
-                )}
-              </p>
+              <h1 className="text-xl font-bold text-gray-900">Billing & Plans</h1>
+              <p className="text-sm text-gray-500">Manage your subscription, usage, and invoices</p>
             </div>
-          </div>
-          {status.planDetails.price > 0 && (
-            <div className="text-right">
-              <p className="text-2xl font-bold text-gray-900">${status.planDetails.price}</p>
-              <p className="text-xs text-gray-400">per month</p>
-            </div>
-          )}
-        </div>
-
-        {/* Usage meters */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-              <BarChart3 size={16} className="text-teal-600" />
-              Usage This Month
-            </h2>
-            <span className="text-xs text-gray-400">
-              Cycle started {new Date(usage.cycleStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-            <UsageBar label="Messages Sent"  used={usage.messagesSent}   limit={usage.limits.messagesPerMonth} icon={MessageSquare} color="bg-teal-500" />
-            <UsageBar label="Contacts"        used={usage.totalContacts}  limit={usage.limits.contacts}         icon={Users}         color="bg-blue-500" />
-            <UsageBar label="Active Agents"   used={usage.totalAgents}    limit={usage.limits.agents}           icon={Users}         color="bg-purple-500" />
-            <UsageBar label="Templates"       used={usage.totalTemplates} limit={usage.limits.templates}        icon={FileText}      color="bg-orange-400" />
-            <UsageBar label="Channels"        used={usage.totalChannels}  limit={usage.limits.channels}         icon={Layout}        color="bg-indigo-400" />
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <Zap size={14} className="text-gray-400" />Campaigns Sent
-                </div>
-                <span className="text-xs font-semibold text-gray-500">{usage.totalCampaigns.toLocaleString()}</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${Math.min(100, usage.totalCampaigns * 5)}%` }} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Plan comparison */}
-        <div>
-          <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Zap size={16} className="text-teal-600" />Available Plans
-          </h2>
-          <div className="grid grid-cols-4 gap-4">
-            {planOrder.map((planKey, idx) => (
-              <PlanCard
-                key={planKey}
-                planKey={planKey}
-                plan={status.plans[planKey]}
-                isCurrent={planKey === currentPlanKey}
-                isUpgrade={idx > currentPlanIdx}
-                isDowngrade={idx < currentPlanIdx}
-                upgrading={upgrading === planKey}
-                onSelect={() => { void handleUpgrade(planKey); }}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Billing email */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <Mail size={16} className="text-teal-600" />Billing Email
-          </h2>
-          <div className="flex items-center gap-3">
-            <input
-              type="email"
-              value={billingEmail}
-              onChange={(e) => setBillingEmail(e.target.value)}
-              placeholder="billing@yourcompany.com"
-              className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
-            <button onClick={() => { void handleSaveEmail(); }} disabled={savingEmail || !billingEmail.trim()}
-              className="px-5 py-2.5 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 font-medium whitespace-nowrap">
-              {savingEmail ? 'Saving…' : 'Save'}
+            <button onClick={() => { void load(); }}
+              className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors">
+              <RefreshCw size={16} />
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-2">Invoices and billing notices are sent to this address.</p>
         </div>
 
-        {/* Invoice history */}
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-              <Download size={15} className="text-teal-600" />Invoice History
-            </h2>
-          </div>
-          {invoices.length === 0 ? (
-            <div className="text-center py-10 text-gray-400">
-              <CreditCard size={32} className="mx-auto mb-2 opacity-20" />
-              <p className="text-sm">No invoices yet</p>
-              <p className="text-xs mt-1">Invoices appear here when you upgrade to a paid plan</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Period</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-gray-700 font-medium">{inv.period}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{inv.description}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-900">
-                      ${inv.amount.toFixed(2)} <span className="text-xs font-normal text-gray-400">{inv.currency}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium',
-                        inv.status === 'PAID' ? 'bg-teal-100 text-teal-700' :
-                        inv.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-600')}>
-                        {inv.status}
+        <div className="p-6 space-y-6 max-w-5xl mx-auto w-full">
+          {/* Subscription banner */}
+          <div className={cn('rounded-2xl border-2 p-5', PLAN_STYLE[currentSlug]?.border ?? 'border-gray-200', PLAN_STYLE[currentSlug]?.bg ?? 'bg-white')}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
+                  <CreditCard size={22} className="text-teal-600" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="font-bold text-gray-900 text-lg">{plan.name} Plan</h2>
+                    <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full', STATUS_STYLE[sub.status] ?? 'bg-gray-100 text-gray-500')}>
+                      {sub.status.replace('_', ' ')}
+                    </span>
+                    {sub.cancelAtPeriodEnd && (
+                      <span className="text-xs text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full font-medium">Cancels at period end</span>
+                    )}
+                  </div>
+                  <div className="text-sm text-gray-500 space-x-3">
+                    {plan.monthlyPrice === 0 && <span>Free forever</span>}
+                    {plan.monthlyPrice > 0 && sub.cycle === 'MONTHLY' && <span>${plan.monthlyPrice}/month</span>}
+                    {plan.monthlyPrice > 0 && sub.cycle === 'YEARLY' && <span>${plan.yearlyPrice}/year</span>}
+                    {sub.status === 'TRIAL' && sub.trialEndsAt && (
+                      <span className="text-blue-600 font-medium">
+                        Trial ends {new Date(sub.trialEndsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400">
-                      {inv.paidAt ? new Date(inv.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    )}
+                    {sub.status === 'ACTIVE' && plan.monthlyPrice > 0 && (
+                      <span>
+                        Renews {new Date(sub.currentPeriodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {plan.monthlyPrice > 0 && (
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-gray-900">
+                    ${sub.cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice}
+                  </p>
+                  <p className="text-xs text-gray-400">per {sub.cycle === 'YEARLY' ? 'year' : 'month'}</p>
+                </div>
+              )}
+            </div>
+
+            {sub.status === 'TRIAL' && (
+              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 flex items-center gap-2">
+                <AlertCircle size={14} className="flex-shrink-0" />
+                Your trial expires soon. Add a payment method to continue without interruption.
+              </div>
+            )}
+            {sub.status === 'PAST_DUE' && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
+                <AlertCircle size={14} className="flex-shrink-0" />
+                Payment failed. Please update your payment method to restore full access.
+              </div>
+            )}
+          </div>
+
+          {/* Usage meters */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                <BarChart3 size={16} className="text-teal-600" />Usage — {periodLabel}
+              </h2>
+              <span className="text-xs text-gray-400">Live counts · resets monthly</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+              <UsageBar label="Messages Sent"      used={usage.messagesSent}     limit={limits.messagesPerMonth} color="bg-teal-500" />
+              <UsageBar label="Total Contacts"     used={usage.totalContacts}    limit={limits.maxContacts}      color="bg-blue-500" />
+              <UsageBar label="Active Agents"      used={usage.activeAgents}     limit={limits.maxAgents}        color="bg-purple-500" />
+              <UsageBar label="Templates"          used={usage.totalTemplates}   limit={limits.maxTemplates}     color="bg-orange-400" />
+              <UsageBar label="Active Channels"    used={usage.activeChannels}   limit={limits.maxChannels}      color="bg-indigo-400" />
+              <UsageBar label="Campaigns Sent"     used={usage.campaignsSent}    limit={limits.maxCampaigns}     color="bg-yellow-400" />
+              {limits.aiCreditsPerMonth !== 0 && (
+                <UsageBar label="AI Credits Used"  used={usage.aiCreditsUsed}    limit={limits.aiCreditsPerMonth} color="bg-pink-500" />
+              )}
+            </div>
+          </div>
+
+          {/* Plan cards */}
+          <div>
+            <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Zap size={16} className="text-teal-600" />Available Plans
+            </h2>
+            <div className="grid grid-cols-4 gap-4">
+              {plans.map((p, idx) => (
+                <PlanCard
+                  key={p.id}
+                  plan={p}
+                  isCurrent={p.slug === currentSlug}
+                  isUpgrade={idx > currentIdx}
+                  onSelect={() => setCheckoutPlan(p)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Billing email */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-5">
+            <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Mail size={16} className="text-teal-600" />Billing Email
+            </h2>
+            <div className="flex items-center gap-3">
+              <input type="email" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)}
+                placeholder="billing@yourcompany.com"
+                className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              <button onClick={() => { void handleSaveEmail(); }} disabled={savingEmail || !billingEmail.trim()}
+                className="px-5 py-2.5 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 font-medium whitespace-nowrap transition-colors">
+                {savingEmail ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Invoices and payment notifications are sent here.</p>
+          </div>
+
+          {/* Invoice history */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+              <Download size={15} className="text-teal-600" />
+              <h2 className="font-semibold text-gray-900">Invoice History</h2>
+            </div>
+            {invoices.length === 0 ? (
+              <div className="text-center py-10">
+                <CreditCard size={32} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-sm text-gray-400">No invoices yet</p>
+                <p className="text-xs text-gray-300 mt-1">Invoices appear here when you upgrade to a paid plan</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      {['Invoice #', 'Period', 'Amount', 'Status', 'Gateway', 'Date'].map((h) => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {invoices.map((inv) => (
+                      <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-xs text-gray-700 font-medium">{inv.invoiceNumber}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500">
+                          {new Date(inv.billingPeriodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-gray-900">
+                          ${inv.total.toFixed(2)}
+                          {inv.discount > 0 && <span className="text-xs text-teal-600 ml-1">(-${inv.discount.toFixed(2)})</span>}
+                          <span className="text-xs font-normal text-gray-400 ml-1">{inv.currency}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium',
+                            inv.status === 'PAID'         ? 'bg-teal-100 text-teal-700' :
+                            inv.status === 'OPEN'         ? 'bg-yellow-100 text-yellow-700' :
+                            inv.status === 'VOID'         ? 'bg-gray-100 text-gray-500' :
+                            inv.status === 'UNCOLLECTIBLE' ? 'bg-red-100 text-red-600' :
+                            'bg-blue-100 text-blue-600')}>
+                            {inv.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400">
+                          {inv.gateway ? GATEWAY_INFO[inv.gateway]?.label ?? inv.gateway : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                          {inv.paidAt
+                            ? new Date(inv.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : new Date(inv.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Danger zone */}
+          {sub.status === 'ACTIVE' && currentSlug !== 'free' && (
+            <div className="bg-white rounded-2xl border border-red-100 p-5">
+              <h2 className="font-semibold text-red-700 mb-1 flex items-center gap-2">
+                <Users size={15} />Subscription Management
+              </h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Cancelling will keep your plan active until the end of the current billing period, then downgrade to Free.
+              </p>
+              <button
+                onClick={async () => {
+                  if (!confirm('Cancel subscription at period end?')) return;
+                  try {
+                    await billingApi.cancelSubscription(false);
+                    toast.success('Subscription will cancel at period end');
+                    void load();
+                  } catch { toast.error('Failed to cancel subscription'); }
+                }}
+                className="px-4 py-2 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium">
+                Cancel Subscription
+              </button>
+            </div>
           )}
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -374,10 +374,18 @@ export const attributesApi = {
 
 export const billingApi = {
   getStatus: () => api.get('/billing'),
+  getPlans: () => api.get('/billing/plans'),
   getUsage: () => api.get('/billing/usage'),
+  getUsageHistory: () => api.get('/billing/usage/history'),
   getInvoices: () => api.get('/billing/invoices'),
-  upgradePlan: (plan: string) => api.post('/billing/upgrade', { plan }),
-  updateBillingEmail: (billingEmail: string) => api.patch('/billing/email', { billingEmail }),
+  initiateCheckout: (data: { planSlug: string; cycle: string; gateway: string; billingEmail?: string; promoCode?: string }) =>
+    api.post('/billing/checkout', data),
+  verifyPayment: (data: { gateway: string; reference: string; invoiceId?: string }) =>
+    api.post('/billing/verify', data),
+  applyPromoCode: (code: string, planSlug: string) => api.post('/billing/promo', { code, planSlug }),
+  startTrial: (planSlug: string) => api.post(`/billing/trial/${planSlug}`),
+  cancelSubscription: (immediately?: boolean) => api.delete('/billing/cancel', { data: { immediately } }),
+  updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
 };
 
 export const teamsApi = {

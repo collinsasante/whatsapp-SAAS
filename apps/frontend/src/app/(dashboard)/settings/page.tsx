@@ -66,7 +66,7 @@ const INPUT_ICON = 'w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl te
 const BTN_PRIMARY = 'px-5 py-2.5 bg-teal-600 text-white text-sm rounded-xl font-semibold hover:bg-teal-700 disabled:opacity-50 transition-colors';
 
 
-const TABS = ['Business Profile', 'WhatsApp API', 'API Keys', 'Automation'] as const;
+const TABS = ['Business Information', 'WhatsApp Business API', 'API Keys', 'Automation'] as const;
 type Tab = typeof TABS[number];
 
 export default function SettingsPage() {
@@ -74,7 +74,7 @@ export default function SettingsPage() {
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('Business Profile');
+  const [activeTab, setActiveTab] = useState<Tab>('Business Information');
 
   // Forms
   const [waForm, setWaForm] = useState({ phoneNumberId: '', wabaId: '', accessToken: '' });
@@ -205,7 +205,7 @@ export default function SettingsPage() {
           <div className="max-w-2xl space-y-6">
 
             {/* ── Business Profile ── */}
-            {activeTab === 'Business Profile' && (
+            {activeTab === 'Business Information' && (
               <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
                 <h2 className="text-base font-semibold text-gray-900 mb-1">Business Profile</h2>
                 <p className="text-sm text-gray-500 mb-5">Shown to your team and used in reports.</p>
@@ -250,7 +250,7 @@ export default function SettingsPage() {
             )}
 
             {/* ── WhatsApp API ── */}
-            {activeTab === 'WhatsApp API' && (
+            {activeTab === 'WhatsApp Business API' && (
               <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
                 <h2 className="text-base font-semibold text-gray-900 mb-1">WhatsApp API Configuration</h2>
                 <p className="text-sm text-gray-500 mb-5">Connect your WhatsApp Business API via Meta Business Manager.</p>
