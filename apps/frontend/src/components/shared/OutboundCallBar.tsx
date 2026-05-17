@@ -50,6 +50,8 @@ function phaseOf(call: ReturnType<typeof useCallsStore.getState>['outboundCall']
   return 'initiating';
 }
 
+const LOG = (...args: unknown[]) => console.log('[OutboundCallBar]', ...args);
+
 const PHASE_LABEL: Record<Phase, string> = {
   initiating:  'Calling…',
   ringing:     'Ringing…',
@@ -80,6 +82,9 @@ export function OutboundCallBar() {
   const phase = phaseOf(outboundCall);
   const connected = phase === 'connected';
   const terminal  = ['declined', 'unanswered', 'canceled', 'ended'].includes(phase);
+
+  // trace every render so we can see state driving the UI
+  LOG(`render | phase=${phase} connected=${connected} startedAt=${outboundCall?.startedAt ?? null} ringing=${outboundCall?.ringing} callId=${outboundCall?.callId}`);
 
   // ── Elapsed timer ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -149,34 +154,61 @@ export function OutboundCallBar() {
   }, [setOutboundCall]);
 
   // ── Socket listeners ───────────────────────────────────────────────────────
-  // Named handler refs so socket.off(event, handler) only removes THIS component's
-  // listener — not other components' handlers for the same event (e.g. SocketProvider).
   useEffect(() => {
     const socket = getSocket();
+    LOG('socket handlers registered');
 
     const onRinging = (data: { call: { callLogId: string } }) => {
+      LOG('call_ringing received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.callLogId) return;
+      LOG('call_ringing | current.callId=', current?.callId, '| event callLogId=', data.call?.callLogId);
+      if (!current || current.callId !== data.call?.callLogId) {
+        LOG('call_ringing IGNORED — id mismatch or no active call');
+        return;
+      }
+      LOG('call_ringing → setting ringing=true');
       setOutboundCall({ ...current, ringing: true });
     };
 
     const onAccepted = (data: { callLogId: string }) => {
+      LOG('call_accepted received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      const id = data.callLogId ?? (data as unknown as { call: { callLogId: string } }).call?.callLogId;
-      if (!current || current.callId !== id) return;
-      if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
+      const id = (data as unknown as { call?: { callLogId?: string } }).call?.callLogId ?? data.callLogId;
+      LOG('call_accepted | current.callId=', current?.callId, '| resolved id=', id);
+      if (!current || current.callId !== id) {
+        LOG('call_accepted IGNORED — id mismatch or no active call');
+        return;
+      }
+      if (!current.startedAt) {
+        LOG('call_accepted → setting startedAt (timer start)');
+        setOutboundCall({ ...current, startedAt: new Date() });
+      } else {
+        LOG('call_accepted — startedAt already set, skipping');
+      }
     };
 
     const onConnected = (data: { callLogId?: string; call?: { callLogId: string } }) => {
+      LOG('call_connected received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
       const id = data.callLogId ?? data.call?.callLogId;
-      if (!current || current.callId !== id) return;
-      if (!current.startedAt) setOutboundCall({ ...current, startedAt: new Date() });
+      LOG('call_connected | current.callId=', current?.callId, '| resolved id=', id);
+      if (!current || current.callId !== id) {
+        LOG('call_connected IGNORED — id mismatch or no active call');
+        return;
+      }
+      if (!current.startedAt) {
+        LOG('call_connected → setting startedAt (timer start)');
+        setOutboundCall({ ...current, startedAt: new Date() });
+      } else {
+        LOG('call_connected — startedAt already set, skipping');
+      }
     };
 
     const onDeclined = (data: { call: { id: string } }) => {
+      LOG('call_declined received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.id) return;
+      if (!current || current.callId !== data.call?.id) { LOG('call_declined IGNORED'); return; }
+      LOG('call_declined → ending call');
       stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'declined' });
@@ -185,8 +217,10 @@ export function OutboundCallBar() {
     };
 
     const onUnanswered = (data: { call: { id: string } }) => {
+      LOG('call_unanswered received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.id) return;
+      if (!current || current.callId !== data.call?.id) { LOG('call_unanswered IGNORED'); return; }
+      LOG('call_unanswered → ending call');
       stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'unanswered' });
@@ -195,17 +229,26 @@ export function OutboundCallBar() {
     };
 
     const onUpdated = (data: { call: { id: string; status: string } }) => {
+      LOG('call_updated received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.id) return;
+      LOG('call_updated | current.callId=', current?.callId, '| event call.id=', data.call?.id, '| status=', data.call?.status);
+      if (!current || current.callId !== data.call?.id) {
+        LOG('call_updated IGNORED — id mismatch or no active call');
+        return;
+      }
 
-      // ONGOING means the callee answered — start timer if not already started
       if (data.call?.status === 'ONGOING' && !current.startedAt) {
+        LOG('call_updated ONGOING → setting startedAt + ringing=false (timer start)');
         setOutboundCall({ ...current, startedAt: new Date(), ringing: false });
         return;
       }
 
-      if (!TERMINAL.has(data.call?.status ?? '')) return;
+      if (!TERMINAL.has(data.call?.status ?? '')) {
+        LOG('call_updated status', data.call?.status, '— not terminal, skipping');
+        return;
+      }
 
+      LOG('call_updated terminal status=', data.call.status, '→ ending call');
       stopAndUpload();
       cleanupSession();
       const reason = data.call.status === 'DECLINED' ? 'declined' :
@@ -217,8 +260,10 @@ export function OutboundCallBar() {
     };
 
     const onEnded = (data: { call: { id: string } }) => {
+      LOG('call_ended received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
-      if (!current || current.callId !== data.call?.id) return;
+      if (!current || current.callId !== data.call?.id) { LOG('call_ended IGNORED'); return; }
+      LOG('call_ended → ending call');
       stopAndUpload();
       cleanupSession();
       setOutboundCall({ ...current, endedReason: 'ended' });
@@ -234,6 +279,7 @@ export function OutboundCallBar() {
     socket.on('call_ended', onEnded);
 
     return () => {
+      LOG('socket handlers removed');
       socket.off('call_ringing', onRinging);
       socket.off('call_accepted', onAccepted);
       socket.off('call_connected', onConnected);

@@ -384,6 +384,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     // Close incoming call modal when one agent answers or the call terminates
     const onCallUpdated = (data: { tenantId: string; call: { id: string; status: string } }) => {
+      console.log('[SocketProvider] call_updated received', JSON.stringify(data));
       const shouldDismiss = ['ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
         'COMPLETED', 'CANCELLED'].includes(data.call?.status ?? '');
       if (shouldDismiss && data.call?.id) clearCallIfMatches(data.call.id);
@@ -392,13 +393,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     // Outbound call ringing on user's device: apply Meta's SDP answer to establish WebRTC
     const onCallRinging = (data: { tenantId: string; call: { callLogId: string; sdpAnswer: string } }) => {
+      console.log('[SocketProvider] call_ringing received', JSON.stringify({ ...data, call: { ...data.call, sdpAnswer: data.call?.sdpAnswer ? '[SDP]' : null } }));
       const session = useCallsStore.getState().outboundSession;
-      if (!session || !session.pc || session.callLogId !== data.call?.callLogId) return;
+      console.log('[SocketProvider] call_ringing | session.callLogId=', session?.callLogId, '| event callLogId=', data.call?.callLogId);
+      if (!session || !session.pc || session.callLogId !== data.call?.callLogId) {
+        console.log('[SocketProvider] call_ringing — SDP skipped (session mismatch or missing)');
+        return;
+      }
       void (async () => {
         try {
           await session.pc!.setRemoteDescription({ type: 'answer', sdp: data.call.sdpAnswer });
+          console.log('[SocketProvider] call_ringing — setRemoteDescription OK');
         } catch (err) {
-          console.error('[outbound] setRemoteDescription failed:', err);
+          console.error('[SocketProvider] call_ringing — setRemoteDescription FAILED:', err);
         }
       })();
       const current = useCallsStore.getState().outboundCall;
@@ -407,6 +414,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     };
     socket.on('call_ringing', onCallRinging);
+
+    // Log call_accepted and call_connected so we can cross-check with OutboundCallBar
+    socket.on('call_accepted', (data: unknown) => {
+      console.log('[SocketProvider] call_accepted received', JSON.stringify(data));
+    });
+    socket.on('call_connected', (data: unknown) => {
+      console.log('[SocketProvider] call_connected received', JSON.stringify(data));
+    });
 
     return () => {
       socket.off('connect', stopPolling);
@@ -430,6 +445,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off('incoming_call', onIncomingCall);
       socket.off('call_updated', onCallUpdated);
       socket.off('call_ringing', onCallRinging);
+      socket.off('call_accepted');
+      socket.off('call_connected');
     };
   // NOTE: activeConversationId intentionally excluded — we use activeConversationIdRef instead
   // to avoid tearing down all socket listeners on every conversation switch.
