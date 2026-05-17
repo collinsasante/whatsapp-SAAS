@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
 import { authApi } from '@/lib/api';
+import { disconnectSocket } from '@/lib/socket';
 import { useAuthStore } from '@/store/auth.store';
 import { UserRole } from '@whatsapp-platform/shared-types';
 
@@ -44,6 +45,10 @@ function LoginPage() {
         tenant: { id: string; name: string; slug: string };
       };
       setAuth(user, tenant, accessToken);
+      // Kill any stale socket from an expired previous session before navigating.
+      // Without this, the old socket's auth errors can fire the new SocketProvider's
+      // handler and immediately log the user out of their fresh session.
+      disconnectSocket();
       toast.success(`Welcome back, ${user.name}!`);
       router.push('/dashboard');
     } catch (err: unknown) {

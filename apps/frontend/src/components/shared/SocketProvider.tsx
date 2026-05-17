@@ -2,7 +2,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { getSocket, setSocketAuthErrorHandler, SocketEvent } from '@/lib/socket';
+import { getSocket, setSocketAuthErrorHandler, clearSocketAuth, SocketEvent } from '@/lib/socket';
 import { callsApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import type { ActivityEntry } from '@/store/inbox.store';
@@ -111,6 +111,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       clearAuth();
       router.replace('/login');
     });
+    // On unmount: clear the handler and deauthorize the socket so stale connect_error
+    // events can't fire the handler for a new session that's being set up.
+    return () => clearSocketAuth();
   }, [clearAuth, router]);
 
   useEffect(() => {
