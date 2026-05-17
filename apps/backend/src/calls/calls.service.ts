@@ -347,7 +347,7 @@ export class CallsService {
         // Keep the earliest answeredAt — pre_accept may have already set it.
         if (!call.answeredAt) updateData.answeredAt = new Date();
         // Record which agent answered this inbound call
-        if (agentUserId && !call.userId) updateData.userId = agentUserId;
+        if (agentUserId && !call.userId) updateData.user = { connect: { id: agentUserId } };
         break;
 
       case 'reject':
