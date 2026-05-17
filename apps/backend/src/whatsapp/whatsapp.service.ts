@@ -595,7 +595,7 @@ export class WhatsAppService {
         type: 'interactive',
         interactive: {
           type: 'list',
-          header: { type: 'text', text: '⭐ Rate your experience' },
+          header: { type: 'text', text: 'Rate your experience' },
           body: { text: 'How would you rate the support you received today? Tap below to select your rating.' },
           footer: { text: 'Your feedback helps us improve' },
           action: {
@@ -604,11 +604,11 @@ export class WhatsAppService {
               {
                 title: 'Your rating',
                 rows: [
-                  { id: 'csat_1', title: '⭐ Poor', description: 'I was not satisfied' },
-                  { id: 'csat_2', title: '⭐⭐ Fair', description: 'Could be better' },
-                  { id: 'csat_3', title: '⭐⭐⭐ Good', description: 'Satisfied' },
-                  { id: 'csat_4', title: '⭐⭐⭐⭐ Very Good', description: 'Very satisfied' },
-                  { id: 'csat_5', title: '⭐⭐⭐⭐⭐ Excellent', description: 'Extremely satisfied' },
+                  { id: 'csat_1', title: 'Poor', description: 'I was not satisfied' },
+                  { id: 'csat_2', title: 'Fair', description: 'Could be better' },
+                  { id: 'csat_3', title: 'Good', description: 'Satisfied' },
+                  { id: 'csat_4', title: 'Very Good', description: 'Very satisfied' },
+                  { id: 'csat_5', title: 'Excellent', description: 'Extremely satisfied' },
                 ],
               },
             ],

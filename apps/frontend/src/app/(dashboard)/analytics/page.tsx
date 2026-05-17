@@ -22,6 +22,7 @@ interface TeamMember {
   id: string; name: string; email: string; avatarUrl: string | null;
   assignedConversations: number; activeConversations: number;
   resolvedToday: number; isOnline: boolean; avgResponseMs: number | null;
+  avgCsatScore: number | null; csatCount: number;
 }
 interface TrendPoint { date: string; opened: number; resolved: number; }
 interface CallStats { total: number; todayTotal: number; missed: number; inbound: number; outbound: number; }
@@ -424,13 +425,15 @@ export default function AnalyticsPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        {(member as unknown as { avgCsatScore?: number | null }).avgCsatScore != null ? (
+                        {member.avgCsatScore != null ? (
                           <div className="flex items-center justify-end gap-1">
-                            <span className="text-amber-400 text-sm">★</span>
                             <span className="text-sm font-semibold text-gray-900">
-                              {((member as unknown as { avgCsatScore: number }).avgCsatScore).toFixed(1)}
+                              {member.avgCsatScore.toFixed(1)}
                             </span>
                             <span className="text-xs text-gray-400">/5</span>
+                            {member.csatCount > 0 && (
+                              <span className="text-xs text-gray-300">({member.csatCount})</span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs text-gray-300">—</span>

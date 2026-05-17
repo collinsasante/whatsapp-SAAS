@@ -294,6 +294,15 @@ export class MessagesService {
       if (replyId.startsWith('csat_')) {
         const score = parseInt(replyId.replace('csat_', ''), 10);
         if (score >= 1 && score <= 5) {
+          // Idempotency guard — only process first rating, ignore re-submissions
+          const existing = await this.prisma.conversation.findUnique({
+            where: { id: conversation.id },
+            select: { csatScore: true },
+          });
+          if (existing?.csatScore != null) {
+            await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
+            return null;
+          }
           // Save score on conversation
           await this.prisma.conversation.update({
             where: { id: conversation.id },
@@ -307,9 +316,9 @@ export class MessagesService {
             contactId: contact.id,
             metadata: { score },
           });
-          // Mark read + send thank-you
+          // Mark read + send thank-you once
           await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
-          await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for rating this chat! ⭐ Your feedback helps us improve.').catch(() => null);
+          await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for your feedback! It helps us improve.').catch(() => null);
           return null;
         }
       }
