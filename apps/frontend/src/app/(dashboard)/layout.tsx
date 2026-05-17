@@ -70,7 +70,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } catch {
       // No valid cookie — session is truly expired, redirect to login
       clearAuth();
-      router.replace('/login');
+      router.replace('/login?_r=restore-fail');
     } finally {
       setRestoring(false);
     }
@@ -81,7 +81,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!_hasHydrated) return;
 
     if (!isAuthenticated) {
-      router.replace('/login');
+      router.replace('/login?_r=no-auth');
       return;
     }
 
@@ -100,7 +100,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const handler = () => {
       clearAuth();
-      router.replace('/login');
+      router.replace('/login?_r=session-exp');
     };
     window.addEventListener('auth:session-expired', handler);
     return () => window.removeEventListener('auth:session-expired', handler);
