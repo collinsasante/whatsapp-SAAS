@@ -27,7 +27,10 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
 
   echo "==> Hot-swapping backend dist..."
   docker cp apps/backend/dist/. wa_backend:/app/dist/
-  docker cp packages/shared-types/dist/. wa_backend:/app/node_modules/@whatsapp-platform/shared-types/dist/
+  SHARED_TYPES_CONTAINER_PATH=$(docker exec wa_backend node -e "console.log(require.resolve('@whatsapp-platform/shared-types'))" 2>/dev/null | sed 's|/dist/index.js||')
+  if [[ -n "$SHARED_TYPES_CONTAINER_PATH" ]]; then
+    docker cp packages/shared-types/dist/. "wa_backend:${SHARED_TYPES_CONTAINER_PATH}/dist/"
+  fi
   docker cp apps/backend/node_modules/.prisma/. wa_backend:/app/node_modules/.prisma/
   docker restart wa_backend
 

@@ -163,7 +163,7 @@ export function OutboundCallBar() {
     const socket = getSocket();
     LOG('socket handlers registered');
 
-    const onRinging = (data: { call: { callLogId: string } }) => {
+    const onRinging = (data: { call: { callLogId: string; sdpAnswer?: string | null } }) => {
       LOG('call_ringing received', JSON.stringify(data));
       const current = useCallsStore.getState().outboundCall;
       LOG('call_ringing | current.callId=', current?.callId, '| event callLogId=', data.call?.callLogId);
@@ -173,6 +173,18 @@ export function OutboundCallBar() {
       }
       LOG('call_ringing → setting ringing=true');
       setOutboundCall({ ...current, ringing: true });
+
+      // Set the SDP answer on the peer connection so WebRTC ICE can negotiate
+      // and audio can flow once the callee answers.
+      const session = useCallsStore.getState().outboundSession;
+      if (session?.pc && data.call?.sdpAnswer) {
+        LOG('call_ringing → setRemoteDescription with SDP answer');
+        void session.pc.setRemoteDescription({ type: 'answer', sdp: data.call.sdpAnswer }).catch((err) => {
+          LOG('setRemoteDescription failed:', err);
+        });
+      } else {
+        LOG('call_ringing → no session or no sdpAnswer, skipping setRemoteDescription');
+      }
     };
 
     const onAccepted = (data: { callLogId?: string; call?: { callLogId?: string; answeredAt?: string | null } }) => {
