@@ -43,7 +43,7 @@ interface CallLog {
 interface Contact { id: string; name: string | null; phone: string; }
 interface Agent { id: string; name: string; avatarUrl: string | null; }
 interface Stats { total: number; todayTotal: number; missed: number; scheduled: number; active: number; inbound: number; outbound: number; }
-interface Analytics { avgDuration: number; missedRate: number; completionRate: number; avgResponseTime: number; total: number; }
+interface Analytics { avgDuration: number; totalDuration: number; missedRate: number; completionRate: number; avgResponseTime: number; total: number; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -603,6 +603,7 @@ function CallDetail({
 function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
   const items = [
     { label: 'Total Calls', value: analytics.total, icon: <Phone size={14} className="text-gray-500" />, color: 'text-gray-700' },
+    { label: 'Total Duration', value: formatDuration(analytics.totalDuration), icon: <Clock size={14} className="text-indigo-500" />, color: 'text-indigo-700' },
     { label: 'Avg Duration', value: formatDuration(analytics.avgDuration), icon: <Clock size={14} className="text-teal-500" />, color: 'text-teal-700' },
     { label: 'Missed Rate', value: `${analytics.missedRate}%`, icon: <PhoneMissed size={14} className="text-red-500" />, color: analytics.missedRate > 20 ? 'text-red-600' : 'text-gray-700' },
     { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: <TrendingUp size={14} className="text-emerald-500" />, color: 'text-emerald-700' },
