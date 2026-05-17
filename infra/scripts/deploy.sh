@@ -46,6 +46,7 @@ fi
 
 if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   echo "==> Building frontend..."
+  rm -rf apps/frontend/.next
   pnpm --filter @whatsapp-platform/frontend build
 
   echo "==> Hot-swapping frontend build..."
