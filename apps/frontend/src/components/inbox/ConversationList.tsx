@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { cn, formatMessageTime, getInitials, truncate } from '@/lib/utils';
 import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
+import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import toast from 'react-hot-toast';
 
 interface Conversation {
@@ -144,7 +145,29 @@ const ConvRow = memo(function ConvRow({
   isActive: boolean;
   onSelect: (id: string) => void;
 }) {
-  const { activityLogs: storeActivityLogs } = useInboxStore();
+  const { activityLogs: storeActivityLogs, prependConversation } = useInboxStore();
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [ctxMenu]);
+
+  const handleMarkUnread = async () => {
+    setCtxMenu(null);
+    try {
+      await conversationsApi.markUnread(conv.id);
+      prependConversation({ ...conv, unreadCount: 1 });
+    } catch {
+      toast.error('Failed to mark as unread');
+    }
+  };
+
   if (!conv.contact) return null;
   const name = conv.contact.name ?? conv.contact.phone;
   const lastMsg = conv.messages?.[0];
@@ -156,9 +179,31 @@ const ConvRow = memo(function ConvRow({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -8, height: 0, marginBottom: 0 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
+      className="relative"
     >
+      {ctxMenu && (
+        <div
+          ref={ctxRef}
+          className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-100 py-1 min-w-[170px]"
+          style={{ top: ctxMenu.y, left: ctxMenu.x }}
+        >
+          <button
+            onClick={() => { void handleMarkUnread(); }}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
+          >
+            <span className="w-4 h-4 rounded-full bg-teal-500 flex-shrink-0" />
+            Mark as unread
+          </button>
+        </div>
+      )}
       <button
         onClick={() => onSelect(conv.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const x = Math.min(e.clientX, window.innerWidth - 180);
+          const y = Math.min(e.clientY, window.innerHeight - 60);
+          setCtxMenu({ x, y });
+        }}
         className={cn(
           'w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-50 transition-colors text-left border-l-2',
           isActive ? 'bg-gray-50 border-l-teal-600' : 'border-l-transparent',
@@ -266,13 +311,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const [channelFilter, setChannelFilter] = useState('All');
   const [labelFilter, setLabelFilter] = useState('All');
   const [memberFilter, setMemberFilter] = useState('All');
-  const [showChannelDropdown, setShowChannelDropdown] = useState(false);
-  const [showLabelDropdown, setShowLabelDropdown] = useState(false);
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
-  const channelDropdownRef = useRef<HTMLDivElement>(null);
-  const labelDropdownRef = useRef<HTMLDivElement>(null);
   const memberDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
@@ -463,69 +504,61 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
         {/* Filters: channel + label row, then status row */}
         <div className="flex flex-col gap-2">
-          {/* Row 1: Channel + Label + Member */}
+          {/* Row 1: Channel + Label */}
           <div className="flex items-center gap-2">
             {/* Channel filter */}
-            <div className="relative flex-1" ref={channelDropdownRef}>
-              <button
-                onClick={() => setShowChannelDropdown((v) => !v)}
-                className={cn(
+            <Dropdown
+              className="flex-1"
+              menuClassName="min-w-full"
+              trigger={
+                <div className={cn(
                   'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
-                  channelFilter === 'All'
-                    ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                    : 'bg-teal-600 border-teal-600 text-white',
-                )}
-              >
-                <span>{channelFilter === 'All' ? 'All Channels' : CHANNEL_FILTERS.find((f) => f.key === channelFilter)?.label ?? 'Channel'}</span>
-                <ChevronDown className={cn('w-3 h-3 flex-shrink-0 transition-transform', showChannelDropdown && 'rotate-180')} />
-              </button>
-              {showChannelDropdown && (
-                <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 min-w-full py-1">
-                  {CHANNEL_FILTERS.map((f) => (
-                    <button key={f.key} onClick={() => { setChannelFilter(f.key); setShowChannelDropdown(false); }}
-                      className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 transition-colors text-gray-700">
-                      <span className={channelFilter === f.key ? 'font-semibold text-teal-600' : ''}>{f.label}</span>
-                      {channelFilter === f.key && <Check className="w-3 h-3 text-teal-600" />}
-                    </button>
-                  ))}
+                  channelFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
+                )}>
+                  <span>{channelFilter === 'All' ? 'All Channels' : CHANNEL_FILTERS.find((f) => f.key === channelFilter)?.label ?? 'Channel'}</span>
+                  <ChevronDown className="w-3 h-3 flex-shrink-0" />
                 </div>
-              )}
-            </div>
+              }
+            >
+              {CHANNEL_FILTERS.map((f) => (
+                <DropdownItem key={f.key} onClick={() => setChannelFilter(f.key)} className="text-xs justify-between">
+                  <span className={channelFilter === f.key ? 'font-semibold text-teal-600' : ''}>{f.label}</span>
+                  {channelFilter === f.key && <Check className="w-3 h-3 text-teal-600" />}
+                </DropdownItem>
+              ))}
+            </Dropdown>
 
             {/* Label filter */}
             {savedTags.length > 0 && (
-              <div className="relative flex-1" ref={labelDropdownRef}>
-                <button onClick={() => setShowLabelDropdown(v => !v)}
-                  className={cn('w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
+              <Dropdown
+                className="flex-1"
+                menuClassName="min-w-full"
+                trigger={
+                  <div className={cn('w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
                     labelFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white')}>
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <Tag size={11} className="flex-shrink-0" />
-                    <span className="truncate">{labelFilter === 'All' ? 'All Labels' : labelFilter}</span>
-                  </span>
-                  <ChevronDown className={cn('w-3 h-3 flex-shrink-0 transition-transform', showLabelDropdown && 'rotate-180')} />
-                </button>
-                {showLabelDropdown && (
-                  <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 min-w-full py-1">
-                    <button onClick={() => { setLabelFilter('All'); setShowLabelDropdown(false); }}
-                      className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
-                      <span className={labelFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Labels</span>
-                      {labelFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
-                    </button>
-                    {savedTags.map(tag => (
-                      <button key={tag.id} onClick={() => { setLabelFilter(tag.name); setShowLabelDropdown(false); }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
-                        <span className={cn('flex items-center gap-1.5', labelFilter === tag.name && 'font-semibold text-teal-600')}>
-                          {tag.color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />}
-                          {tag.name}
-                        </span>
-                        {labelFilter === tag.name && <Check className="w-3 h-3 text-teal-600" />}
-                      </button>
-                    ))}
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Tag size={11} className="flex-shrink-0" />
+                      <span className="truncate">{labelFilter === 'All' ? 'All Labels' : labelFilter}</span>
+                    </span>
+                    <ChevronDown className="w-3 h-3 flex-shrink-0" />
                   </div>
-                )}
-              </div>
+                }
+              >
+                <DropdownItem onClick={() => setLabelFilter('All')} className="text-xs justify-between">
+                  <span className={labelFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Labels</span>
+                  {labelFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
+                </DropdownItem>
+                {savedTags.map(tag => (
+                  <DropdownItem key={tag.id} onClick={() => setLabelFilter(tag.name)} className="text-xs justify-between">
+                    <span className={cn('flex items-center gap-1.5', labelFilter === tag.name && 'font-semibold text-teal-600')}>
+                      {tag.color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />}
+                      {tag.name}
+                    </span>
+                    {labelFilter === tag.name && <Check className="w-3 h-3 text-teal-600" />}
+                  </DropdownItem>
+                ))}
+              </Dropdown>
             )}
-
           </div>
 
           {/* Row 2: Status tabs */}

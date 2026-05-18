@@ -42,6 +42,10 @@ export class RealtimeService {
     void this.emit('activity_log', { tenantId, conversationId, activity });
   }
 
+  emitActivityLogUpdated(tenantId: string, conversationId: string, activity: Record<string, unknown>) {
+    void this.emit('activity_log_updated', { tenantId, conversationId, activity });
+  }
+
   emitCallEvent(tenantId: string, event: string, call: Record<string, unknown>) {
     void this.emit(event, { tenantId, call });
   }

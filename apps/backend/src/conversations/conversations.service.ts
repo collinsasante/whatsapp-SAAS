@@ -290,29 +290,26 @@ export class ConversationsService {
     return result;
   }
 
-  /** Manually reopen a resolved conversation → RESOLVED → REQUESTING */
+  /** Manually reopen a resolved conversation → RESOLVED → OPEN (agent can reply immediately) */
   async reopen(tenantId: string, id: string, userId?: string) {
     const existing = await this.findOne(tenantId, id);
 
-    const slaDeadline = new Date(Date.now() + SLA_MINUTES.REQUESTED * 60_000);
     const result = await this.prisma.conversation.update({
       where: { id },
       data: {
-        status: ConversationStatus.REQUESTED,
-        requestedAt: new Date(),
-        slaDeadline,
+        status: ConversationStatus.OPEN,
         reopenedAt: new Date(),
         reopenedCount: { increment: 1 },
         resolvedAt: null,
         resolvedById: null,
+        slaDeadline: null,
+        requestedAt: null,
       },
       include: CONV_INCLUDE,
     });
 
-    await this.recordEvent(tenantId, id, ConversationEventType.REQUESTED, userId);
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_REOPENED, conversationId: id, contactId: existing.contactId, userId });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result);
-    void this.notifyAllAgents(tenantId, id, result as unknown as Record<string, unknown>, 'CONVERSATION_REQUESTED' as NotificationType);
     return result;
   }
 
@@ -442,9 +439,44 @@ export class ConversationsService {
   async markRead(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
     const updated = await this.prisma.conversation.update({ where: { id }, data: { unreadCount: 0 } });
-    // Notify other connected clients (e.g. mobile, other browser tabs) that unread count cleared
     this.realtimeService.emitConversationUpdated(tenantId, id, { id, unreadCount: 0 });
     return updated;
+  }
+
+  async markUnread(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+    const updated = await this.prisma.conversation.update({ where: { id }, data: { unreadCount: 1 } });
+    this.realtimeService.emitConversationUpdated(tenantId, id, { id, unreadCount: 1 });
+    return updated;
+  }
+
+  async takeover(tenantId: string, id: string, agentId: string) {
+    const existing = await this.findOne(tenantId, id);
+    const slaDeadline = new Date(Date.now() + SLA_MINUTES.INTERVENED * 60_000);
+
+    const result = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        assignedToId: agentId,
+        status: ConversationStatus.INTERVENED,
+        intervenedAt: new Date(),
+        slaDeadline,
+      },
+      include: CONV_INCLUDE,
+    });
+
+    const agent = await this.prisma.user.findUnique({ where: { id: agentId }, select: { name: true } });
+    await this.recordEvent(tenantId, id, ConversationEventType.INTERVENED, agentId, { agentName: agent?.name ?? '', takeover: true });
+    void this.activityLogService.log({
+      tenantId,
+      action: ActivityAction.CONVERSATION_INTERVENED,
+      conversationId: id,
+      contactId: existing.contactId,
+      userId: agentId,
+      metadata: { agentName: agent?.name ?? '', takeover: true },
+    });
+    this.realtimeService.emitConversationStateChanged(tenantId, id, result as unknown as Record<string, unknown>);
+    return result;
   }
 
   async addNote(tenantId: string, conversationId: string, authorId: string, dto: CreateNoteDto) {

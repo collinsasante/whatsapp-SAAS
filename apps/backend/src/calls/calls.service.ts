@@ -171,10 +171,15 @@ export class CallsService {
       });
       if (log) {
         const meta = (log.metadata as Record<string, unknown>) ?? {};
+        const updatedMeta = { ...meta, recordingUrl: dto.recordingUrl };
         await this.prisma.activityLog.update({
           where: { id: log.id },
-          data: { metadata: { ...meta, recordingUrl: dto.recordingUrl } as Prisma.InputJsonValue },
+          data: { metadata: updatedMeta as Prisma.InputJsonValue },
         });
+        const convId = meta.conversationId as string | undefined;
+        if (convId) {
+          this.realtime.emitActivityLogUpdated(tenantId, convId, { id: log.id, metadata: updatedMeta });
+        }
       }
     }
 

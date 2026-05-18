@@ -8,8 +8,11 @@ import {
   CheckCircle, RefreshCw, Copy, StickyNote, Archive,
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
-  ChevronUp, ChevronDown, ChevronLeft,
+  ChevronUp, ChevronDown, ChevronLeft, LogIn,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import emojiData from '@emoji-mart/data';
+const EmojiPicker = dynamic(() => import('@emoji-mart/react'), { ssr: false });
 import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi } from '@/lib/api';
 import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
@@ -61,15 +64,6 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   [MessageStatus.FAILED]: <XCircle size={11} className="text-red-300" />,
 };
 
-const EMOJI_CATEGORIES = [
-  { label: '😊', name: 'Smileys', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','☺️','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'] },
-  { label: '👋', name: 'People', emojis: ['👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦵','🦶','👂','👃','🧠','🦷','🦴','👀','👁️','👅','👄','💋','👶','🧒','👦','👧','🧑','👱','👨','🧔','👩','🧓','👴','👵','🙍','🙎','🙅','🙆','💁','🙋','🧏','🙇','🤦','🤷','👮','🕵️','💂','🥷','👷','🤴','👸','👳','👲','🧕','🤵','👰','🤰','🤱','🧑‍🍼','🦸','🦹','🧙','🧝','🧛','🧟','🧞','🧜','🧚','🧌','👼','🎅','🤶'] },
-  { label: '🐶', name: 'Animals', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐻‍❄️','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️','🦂','🐢','🐍','🦎','🦖','🦕','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈','🦭','🐊','🐅','🐆','🦓','🦍','🦧','🦣','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛','🪶','🐓','🦃','🦤','🦚','🦜','🦢','🕊️','🐇','🦝','🦨','🦡','🦫','🦦','🦥','🐁','🐀','🐿️','🦔'] },
-  { label: '🍔', name: 'Food', emojis: ['🍏','🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🧄','🧅','🥔','🍠','🥜','🍞','🥐','🥖','🫓','🥨','🥯','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫔','🌮','🌯','🥙','🧆','🍛','🍜','🍝','🍢','🍣','🍤','🍙','🍱','🥟','🍱','🍘','🍥','🥮','🍡','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯','🧃','🥤','🧋','☕','🍵','🫖','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾'] },
-  { label: '⚽', name: 'Activities', emojis: ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🏓','🏸','🏒','🏑','🥍','🏏','🪃','🥅','⛳','🪁','🤿','🎽','🎿','🛷','🥌','🎯','🪀','🪆','🎮','🎲','♟️','🎭','🎨','🖼️','🎰','🏋️','🤼','🤺','🏇','⛷️','🏂','🤾','🏌️','🧗','🚵','🎠','🎡','🎢','🎪','🤹','🎬','🎤','🎧','🎼','🎹','🥁','🪘','🎷','🎺','🪗','🎸','🪕','🎻'] },
-  { label: '❤️', name: 'Symbols', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','✡️','☯️','☦️','⚛️','🆔','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯','💢','♨️','🔔','❓','❔','❕','❗','✅','❎','🌐','💠','➕','➖','➗','✖️','🟰','♾️','💱','™️','©️','®️','⚡','🌟','💫','✨','🎉','🎊','🎈','🎁','🎀'] },
-];
-const ALL_EMOJIS = EMOJI_CATEGORIES.flatMap((c) => c.emojis);
 
 const LOCATION_DURATIONS = [
   { label: '15 minutes', minutes: 15 },
@@ -187,8 +181,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [recording, setRecording] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [emojiSearch, setEmojiSearch] = useState('');
-  const [emojiCategory, setEmojiCategory] = useState(0);
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [addrQuery, setAddrQuery] = useState('');
@@ -493,7 +485,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setShowAttachMenu(false);
     setShowEmojiPicker(false);
     setShowHeaderMenu(false);
-    setEmojiSearch('');
   }, []);
 
   const handleTyping = useCallback(() => {
@@ -773,12 +764,26 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const handleReopen = async () => {
     setShowHeaderMenu(false);
     try {
-      const res = await conversationsApi.reopen(conversation.id);
-      const data = res.data as { status: string; slaDeadline?: string; requestedAt?: string };
-      setLocalStatus('REQUESTED');
-      updateConversation(conversation.id, { status: 'REQUESTED', slaDeadline: data.slaDeadline, requestedAt: data.requestedAt });
+      await conversationsApi.reopen(conversation.id);
+      setLocalStatus('OPEN');
+      updateConversation(conversation.id, { status: 'OPEN', slaDeadline: undefined, requestedAt: undefined });
       toast.success('Conversation reopened');
     } catch { toast.error('Failed to reopen'); }
+  };
+
+  const handleTakeover = async () => {
+    try {
+      const res = await conversationsApi.takeover(conversation.id);
+      const data = res.data as { status: string; assignedTo?: { id: string; name: string }; slaDeadline?: string; intervenedAt?: string };
+      setLocalStatus('INTERVENED');
+      updateConversation(conversation.id, {
+        status: 'INTERVENED',
+        assignedTo: data.assignedTo ?? (user ? { id: user.id, name: user.name } : null),
+        slaDeadline: data.slaDeadline,
+        intervenedAt: data.intervenedAt,
+      });
+      toast.success('You have taken over this conversation');
+    } catch { toast.error('Failed to take over'); }
   };
 
   const handleIntervene = async () => {
@@ -900,12 +905,13 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   };
 
   const sessionBlocked = !loading && sessionExpired && !isResolved && !isRequested;
-  // Read-only when this chat is assigned to someone else and the current user is an AGENT/VIEWER.
-  // Admins/super-admins can still respond — they supervise.
+  const isViewer = user?.role === 'VIEWER';
+  // AGENT/VIEWER can't reply to chats assigned to someone else; admins supervise freely.
   const isAgentLevelRole = user?.role === 'AGENT' || user?.role === 'VIEWER';
   const assigneeId = conversation.assignedTo?.id ?? null;
   const assignedToOther = isAgentLevelRole && !!assigneeId && assigneeId !== user?.id;
-  const inputDisabled = assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
+  // VIEWERs are read-only — they can observe but never send or note.
+  const inputDisabled = isViewer || assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
   const sendDisabled = sending || inputDisabled;
   const statusColor =
     localStatus === 'RESOLVED' ? 'text-gray-400' :
@@ -955,7 +961,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 <p className={cn('text-xs font-medium', statusColor)}>
                   {localStatus === 'RESOLVED' ? (isExpiredResolved ? 'Session expired' : 'Resolved') :
                    localStatus === 'ARCHIVED' ? 'Archived' :
-                   localStatus === 'REQUESTED' ? 'Support requested' :
+                   localStatus === 'REQUESTED' ? 'Awaiting agent' :
                    localStatus === 'INTERVENED' ? 'Agent intervened' :
                    localStatus}
                 </p>
@@ -970,8 +976,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
             {/* Action buttons */}
             <div className="flex items-center gap-0.5">
-              {/* Intervene button — shown only for REQUESTING conversations */}
-              {isRequested && (
+              {/* Intervene button — shown only for AWAITING conversations */}
+              {isRequested && !assignedToOther && (
                 <button
                   onClick={() => { void handleIntervene(); }}
                   title="Take over this conversation"
@@ -982,8 +988,20 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </button>
               )}
 
-              {/* Resolve / Reopen quick button */}
-              {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' ? (
+              {/* Take over button — shown when conversation is assigned to another agent */}
+              {assignedToOther && localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
+                <button
+                  onClick={() => { void handleTakeover(); }}
+                  title="Take over from current agent"
+                  className="h-8 px-2.5 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <LogIn size={13} />
+                  Take over
+                </button>
+              )}
+
+              {/* Resolve / Reopen quick button — only for assignee or admin+ */}
+              {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && !assignedToOther ? (
                 <button
                   onClick={() => { void handleResolve(); }}
                   title="Resolve"
@@ -1251,8 +1269,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200">
                 <ArrowRightLeft size={13} className="text-gray-500 flex-shrink-0" />
                 <span className="text-xs text-gray-700 flex-1">
-                  <span className="font-medium">This chat is assigned to {conversation.assignedTo?.name ?? 'another agent'}.</span> You can view it, but only the assignee can reply.
+                  <span className="font-medium">Assigned to {conversation.assignedTo?.name ?? 'another agent'}.</span> Take over to reply or resolve.
                 </span>
+                <button
+                  onClick={() => { void handleTakeover(); }}
+                  className="text-xs font-semibold text-orange-700 hover:text-orange-900 px-2 py-0.5 rounded hover:bg-orange-100 flex-shrink-0 flex items-center gap-1"
+                >
+                  <LogIn size={11} />Take over
+                </button>
               </div>
             )}
 
@@ -1366,24 +1390,17 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
             {/* Emoji picker */}
             {showEmojiPicker && (
-              <div className="fixed z-50 bg-white rounded-2xl shadow-xl border border-gray-100 flex flex-col" style={{ bottom: popupPos.bottom, left: popupPos.left, width: 320, maxHeight: 380 }} onClick={(e) => e.stopPropagation()}>
-                <div className="p-2 border-b border-gray-100">
-                  <input type="text" placeholder="Search emoji…" value={emojiSearch} onChange={(e) => setEmojiSearch(e.target.value)} className="w-full px-3 py-1.5 text-sm bg-gray-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" autoFocus />
-                </div>
-                {!emojiSearch && (
-                  <div className="flex border-b border-gray-100 overflow-x-auto">
-                    {EMOJI_CATEGORIES.map((cat, i) => (
-                      <button key={cat.name} onClick={() => setEmojiCategory(i)} title={cat.name} className={cn('px-3 py-2 text-base flex-shrink-0 transition-colors', emojiCategory === i ? 'border-b-2 border-teal-600' : 'hover:bg-gray-50')}>{cat.label}</button>
-                    ))}
-                  </div>
-                )}
-                <div className="overflow-y-auto p-2 flex-1">
-                  <div className="grid grid-cols-9 gap-0.5">
-                    {(emojiSearch ? ALL_EMOJIS.filter((e) => e.includes(emojiSearch)) : EMOJI_CATEGORIES[emojiCategory].emojis).map((emoji, i) => (
-                      <button key={`${emoji}-${i}`} onClick={() => { setText((t) => t + emoji); }} className="text-xl hover:bg-gray-100 rounded-lg p-1 transition-colors leading-none aspect-square flex items-center justify-center">{emoji}</button>
-                    ))}
-                  </div>
-                </div>
+              <div className="fixed z-50" style={{ bottom: popupPos.bottom, left: popupPos.left }} onClick={(e) => e.stopPropagation()}>
+                <EmojiPicker
+                  data={emojiData}
+                  onEmojiSelect={(emoji: { native: string }) => { setText((t) => t + emoji.native); setShowEmojiPicker(false); }}
+                  theme="light"
+                  set="native"
+                  locale="en"
+                  previewPosition="none"
+                  skinTonePosition="search"
+                  maxFrequentRows={2}
+                />
               </div>
             )}
 
@@ -1435,6 +1452,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 ref={inputRef}
                 type="text"
                 value={text}
+                spellCheck={true}
                 onChange={(e) => { void handleTextChange(e.target.value); }}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') { setShowMentions(false); }
@@ -2209,7 +2227,7 @@ const MessageBubble = memo(function MessageBubble({
                           src={proxied}
                           alt={message.mediaCaption ?? 'Image'}
                           className={cn('rounded-xl transition-opacity', isUploading ? 'opacity-60 cursor-default' : 'cursor-zoom-in hover:opacity-90')}
-                          style={{ maxWidth: '320px', maxHeight: '400px', width: 'auto', height: 'auto', display: 'block', objectFit: 'cover' }}
+                          style={{ width: '238px', height: '150px', display: 'block', objectFit: 'cover' }}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           onContextMenu={(e) => e.preventDefault()}
                         />

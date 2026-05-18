@@ -59,6 +59,7 @@ interface InboxState {
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void;
   setActivityLogs: (conversationId: string, entries: ActivityEntry[]) => void;
   addActivityLog: (conversationId: string, entry: ActivityEntry) => void;
+  patchActivityLog: (conversationId: string, entryId: string, patch: Partial<ActivityEntry>) => void;
   setStatusCounts: (counts: StatusCounts) => void;
   markConversationRead: (id: string) => void;
 }
@@ -219,6 +220,13 @@ export const useInboxStore = create<InboxState>((set) => ({
       const existing = state.activityLogs[conversationId] ?? [];
       if (existing.some((e) => e.id === entry.id)) return state;
       return { activityLogs: { ...state.activityLogs, [conversationId]: [...existing, entry] } };
+    }),
+
+  patchActivityLog: (conversationId, entryId, patch) =>
+    set((state) => {
+      const existing = state.activityLogs[conversationId] ?? [];
+      const updated = existing.map((e) => e.id === entryId ? { ...e, ...patch } : e);
+      return { activityLogs: { ...state.activityLogs, [conversationId]: updated } };
     }),
 
   setStatusCounts: (counts) => set({ statusCounts: counts }),

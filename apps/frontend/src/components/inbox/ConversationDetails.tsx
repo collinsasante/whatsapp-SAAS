@@ -15,7 +15,7 @@ function formatJourneyLabel(entry: { action: string; metadata: Record<string, un
     case 'CONVERSATION_RESOLVED': return who ? `Chat Closed by ${who}` : 'Chat Closed';
     case 'CONVERSATION_REOPENED': return who ? `Chat Reopened by ${who}` : 'Chat Reopened';
     case 'CONVERSATION_ARCHIVED': return who ? `Chat Archived by ${who}` : 'Chat Archived';
-    case 'CONVERSATION_REQUESTED': return 'Support requested';
+    case 'CONVERSATION_REQUESTED': return 'Awaiting agent';
     case 'CONVERSATION_INTERVENED': return who ? `${who} intervened` : 'Agent intervened';
     case 'CONVERSATION_TRANSFERRED': {
       const from = entry.metadata?.fromAgentName ? String(entry.metadata.fromAgentName) : who;

@@ -76,7 +76,7 @@ function playRequestSound() {
 }
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, markConversationRead, activeConversationId, addActivityLog, conversations } = useInboxStore();
+  const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, markConversationRead, activeConversationId, addActivityLog, patchActivityLog, conversations } = useInboxStore();
   const { clearAuth } = useAuthStore();
   const { setIncomingCall, clearCallIfMatches, outboundSession, setOutboundSession } = useCallsStore();
   const router = useRouter();
@@ -271,6 +271,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     );
 
     socket.on(
+      'activity_log_updated',
+      (data: { conversationId: string; activity: { id: string; metadata: Record<string, unknown> } }) => {
+        if (data.conversationId && data.activity?.id) {
+          patchActivityLog(data.conversationId, data.activity.id, { metadata: data.activity.metadata });
+        }
+      },
+    );
+
+    socket.on(
       'reaction_updated',
       (data: { conversationId: string; messageId: string; reactions: Array<{ id: string; emoji: string; userId: string | null }> }) => {
         if (data.conversationId && data.messageId) {
@@ -340,17 +349,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       },
     );
 
-    // Role changed — user needs a fresh token with updated role
+    // Role changed — refresh token + update auth store immediately so UI reflects new role
     socket.on(
       'role_changed',
-      (_data: { userId: string; newRole: string; tenantId: string }) => {
-        // Trigger a silent token refresh so the new role is reflected in the JWT
+      (data: { userId: string; newRole: string; tenantId: string }) => {
         import('@/lib/api').then(({ silentRefresh }) => {
           silentRefresh().catch(() => {
             clearAuth();
             router.replace('/login?_r=role-change');
           });
         });
+        // Also patch the role in the auth store immediately so role-gated UI updates without reload
+        const { user: currentUser, tenant, setAuth, accessToken } = useAuthStore.getState();
+        if (currentUser && currentUser.id === data.userId && accessToken) {
+          setAuth({ ...currentUser, role: data.newRole as import('@whatsapp-platform/shared-types').UserRole }, tenant!, accessToken);
+        }
       },
     );
 
@@ -418,6 +431,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off(SocketEvent.TYPING_START);
       socket.off(SocketEvent.TYPING_STOP);
       socket.off(SocketEvent.ACTIVITY_LOG);
+      socket.off('activity_log_updated');
       socket.off('reaction_updated');
       socket.off('force_logout');
       socket.off('role_changed');
@@ -432,7 +446,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   // NOTE: activeConversationId intentionally excluded — we use activeConversationIdRef instead
   // to avoid tearing down all socket listeners on every conversation switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, addActivityLog, clearAuth, router, startPolling, stopPolling, setIncomingCall, clearCallIfMatches]);
+  }, [addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, addActivityLog, patchActivityLog, clearAuth, router, startPolling, stopPolling, setIncomingCall, clearCallIfMatches]);
 
   return <>{children}</>;
 }

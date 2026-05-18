@@ -4,9 +4,10 @@ import { MessagesService } from './messages.service';
 import { SendMessageDto } from './dto/message.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
-import { JwtPayload } from '@whatsapp-platform/shared-types';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Messages')
 @ApiBearerAuth()
@@ -16,6 +17,7 @@ export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
 
   @Post()
+  @Roles(UserRole.AGENT)
   @ApiOperation({ summary: 'Send a message in a conversation' })
   send(
     @CurrentTenant() tenantId: string,

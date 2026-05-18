@@ -137,6 +137,8 @@ export const conversationsApi = {
   archive: (id: string) => api.patch(`/conversations/${id}`, { status: 'ARCHIVED' }),
   delete: (id: string) => api.delete(`/conversations/${id}`),
   markRead: (id: string) => api.patch(`/conversations/${id}/read`),
+  markUnread: (id: string) => api.patch(`/conversations/${id}/mark-unread`),
+  takeover: (id: string) => api.post(`/conversations/${id}/takeover`),
   addNote: (id: string, content: string) => api.post(`/conversations/${id}/notes`, { content }),
   getNotes: (id: string) => api.get(`/conversations/${id}/notes`),
   // State machine transitions

@@ -8,9 +8,10 @@ import {
 } from './dto/conversation.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
-import { JwtPayload, ConversationStatus } from '@whatsapp-platform/shared-types';
+import { JwtPayload, ConversationStatus, UserRole } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Conversations')
 @ApiBearerAuth()
@@ -95,6 +96,7 @@ export class ConversationsController {
   }
 
   @Post(':id/intervene')
+  @Roles(UserRole.AGENT)
   @ApiOperation({ summary: 'Agent takes over the conversation (→ INTERVENED)' })
   intervene(
     @CurrentTenant() tenantId: string,
@@ -105,9 +107,17 @@ export class ConversationsController {
   }
 
   @Patch(':id/resolve')
+  @Roles(UserRole.AGENT)
   @ApiOperation({ summary: 'Resolve a conversation (→ RESOLVED)' })
   resolve(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.conversationsService.resolve(tenantId, id, user.sub);
+  }
+
+  @Post(':id/takeover')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Agent takes over a conversation assigned to someone else' })
+  takeover(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.conversationsService.takeover(tenantId, id, user.sub);
   }
 
   @Post(':id/reopen')
@@ -132,6 +142,11 @@ export class ConversationsController {
   @Patch(':id/read')
   markRead(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.conversationsService.markRead(tenantId, id);
+  }
+
+  @Patch(':id/mark-unread')
+  markUnread(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.conversationsService.markUnread(tenantId, id);
   }
 
   @Get(':id/notes')
