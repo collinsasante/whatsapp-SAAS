@@ -37,7 +37,7 @@ export function ConfirmCallModal() {
 
   if (!confirmDial) return null;
 
-  const { phone, contactName } = confirmDial;
+  const { phone, contactName, contactId } = confirmDial;
 
   const handleCall = async () => {
     setCalling(true);
@@ -91,7 +91,7 @@ export function ConfirmCallModal() {
         }
       };
 
-      const res = await callsApi.initiate({ phone, type: 'audio', sdpOffer });
+      const res = await callsApi.initiate({ phone, type: 'audio', sdpOffer, ...(contactId && { contactId }) });
       const data = res.data as { id: string };
       callIdLocal = data.id;
       setOutboundSession({ callLogId: data.id, pc, stream, remoteAudio });

@@ -30,6 +30,7 @@ export interface OutboundCall {
 export interface ConfirmDial {
   phone: string;
   contactName: string;
+  contactId?: string;
 }
 
 interface CallsStore {

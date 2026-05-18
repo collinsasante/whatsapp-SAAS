@@ -30,7 +30,7 @@ interface TeamMember { id: string; name: string; email: string; avatarUrl?: stri
 
 interface Conversation {
   id: string;
-  contact: { name: string | null; phone: string; avatarUrl: string | null };
+  contact: { id: string; name: string | null; phone: string; avatarUrl: string | null };
   assignedTo: { id: string; name: string } | null;
   status: string;
   labels?: string[];
@@ -1096,7 +1096,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               {/* Call */}
               <button
                 onClick={() => {
-                  if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone });
+                  if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone, contactId: conversation.contact.id });
                 }}
                 title="Call"
                 className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
