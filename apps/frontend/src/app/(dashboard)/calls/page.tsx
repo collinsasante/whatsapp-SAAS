@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, PhoneOff,
-  Search, X, Plus, Link2, CalendarClock, MoreVertical,
+  Search, X, Plus, Link2, MoreVertical,
   Copy, Check, Clock, RefreshCw,
   MessageSquare,
   Edit3, Trash2, AlertCircle, ArrowUpRight, ArrowDownLeft,
@@ -22,14 +22,14 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type CallStatus =
-  | 'SCHEDULED' | 'INITIATED' | 'RINGING'
+  | 'INITIATED' | 'RINGING'
   | 'ONGOING' | 'MISSED' | 'DECLINED' | 'CANCELED'
   | 'UNANSWERED' | 'BUSY' | 'FAILED' | 'ENDED'
   | 'RECONNECTING' | 'HOLD' | 'VOICEMAIL'
   // legacy values kept for old records
   | 'ANSWERED' | 'COMPLETED' | 'CANCELLED' | 'TRANSFERRED' | 'INCOMING';
 type CallDirection = 'INCOMING' | 'OUTGOING';
-type NavSection = 'all' | 'missed' | 'incoming' | 'outgoing' | 'scheduled' | 'archived';
+type NavSection = 'all' | 'missed' | 'incoming' | 'outgoing' | 'archived';
 
 interface CallContact { id: string; name: string | null; phone: string; avatarUrl: string | null; }
 interface CallUser { id: string; name: string; avatarUrl: string | null; }
@@ -38,13 +38,13 @@ interface CallLog {
   id: string; direction: CallDirection; status: CallStatus;
   duration: number | null; phone: string | null; notes: string | null;
   isArchived: boolean; endReason: string | null; recordingUrl: string | null;
-  scheduledAt: string | null; startedAt: string | null; answeredAt: string | null; endedAt: string | null;
+  startedAt: string | null; answeredAt: string | null; endedAt: string | null;
   createdAt: string; contact: CallContact | null; user: CallUser | null;
   callNotes: CallNote[];
 }
 interface Contact { id: string; name: string | null; phone: string; }
 interface Agent { id: string; name: string; avatarUrl: string | null; }
-interface Stats { total: number; todayTotal: number; missed: number; scheduled: number; active: number; inbound: number; outbound: number; }
+interface Stats { total: number; todayTotal: number; missed: number; active: number; inbound: number; outbound: number; }
 interface Analytics { avgDuration: number; totalDuration: number; missedRate: number; completionRate: number; avgResponseTime: number; total: number; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -185,73 +185,6 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
         {children}
       </div>
     </div>
-  );
-}
-
-function ScheduleModal({ onClose, contacts, onScheduled }: { onClose: () => void; contacts: Contact[]; onScheduled: () => void }) {
-  const [form, setForm] = useState({ contactId: '', phone: '', date: '', time: '', notes: '' });
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if ((!form.contactId && !form.phone) || !form.date || !form.time) {
-      toast.error('Select a contact (or enter phone), date and time'); return;
-    }
-    setSaving(true);
-    try {
-      const scheduledAt = new Date(`${form.date}T${form.time}`).toISOString();
-      await callsApi.create({ ...(form.contactId ? { contactId: form.contactId } : { phone: form.phone }), direction: 'OUTGOING', status: 'SCHEDULED', scheduledAt, notes: form.notes || undefined });
-      toast.success('Call scheduled'); onScheduled(); onClose();
-    } catch { toast.error('Failed to schedule call'); }
-    finally { setSaving(false); }
-  };
-
-  return (
-    <ModalShell title="Schedule a call" onClose={onClose}>
-      <div className="px-6 py-4 space-y-3">
-        <div>
-          <label className="text-xs font-semibold text-gray-500 block mb-1.5">Contact</label>
-          <select value={form.contactId} onChange={e => setForm(p => ({ ...p, contactId: e.target.value, phone: '' }))}
-            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500">
-            <option value="">Select a contact…</option>
-            {contacts.map(c => <option key={c.id} value={c.id}>{c.name ?? c.phone} — {c.phone}</option>)}
-          </select>
-        </div>
-        {!form.contactId && (
-          <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1.5">Or enter phone number</label>
-            <input type="text" placeholder="+1 555 000 0000" value={form.phone}
-              onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1.5">Date</label>
-            <input type="date" value={form.date} min={new Date().toISOString().split('T')[0]}
-              onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-gray-500 block mb-1.5">Time</label>
-            <input type="time" value={form.time} onChange={e => setForm(p => ({ ...p, time: e.target.value }))}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500" />
-          </div>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-gray-500 block mb-1.5">Notes (optional)</label>
-          <textarea rows={2} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
-            placeholder="Purpose of the call…"
-            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 resize-none" />
-        </div>
-      </div>
-      <div className="px-6 pb-5 flex gap-2.5">
-        <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-        <button onClick={() => { void handleSave(); }} disabled={saving}
-          className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition-colors">
-          {saving ? 'Scheduling…' : 'Schedule Call'}
-        </button>
-      </div>
-    </ModalShell>
   );
 }
 
@@ -534,12 +467,6 @@ function CallDetail({
                 <span className="text-right text-gray-700">{new Date(call.answeredAt).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
               </>
             )}
-            {call.scheduledAt && (
-              <>
-                <span className="text-gray-500">Scheduled</span>
-                <span className="text-right text-blue-600 font-medium">{new Date(call.scheduledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-              </>
-            )}
             {call.endReason && (
               <>
                 <span className="text-gray-500">End reason</span>
@@ -761,7 +688,6 @@ const TABS: { id: NavSection; label: string; icon: React.ReactNode }[] = [
   { id: 'missed',    label: 'Missed',     icon: <PhoneMissed size={13} /> },
   { id: 'incoming',  label: 'Incoming',   icon: <PhoneIncoming size={13} /> },
   { id: 'outgoing',  label: 'Outgoing',   icon: <PhoneOutgoing size={13} /> },
-  { id: 'scheduled', label: 'Scheduled',  icon: <CalendarClock size={13} /> },
   { id: 'archived',  label: 'Archived',   icon: <Archive size={13} /> },
 ];
 
@@ -786,7 +712,7 @@ export default function CallsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [modal, setModal] = useState<'schedule' | 'link' | null>(null);
+  const [modal, setModal] = useState<'link' | null>(null);
   const [transferTarget, setTransferTarget] = useState<CallLog | null>(null);
 
   const limit = 25;
@@ -796,7 +722,6 @@ export default function CallsPage() {
     if (nav === 'missed')    return { status: 'MISSED' };
     if (nav === 'incoming')  return { direction: 'INCOMING' };
     if (nav === 'outgoing')  return { direction: 'OUTGOING' };
-    if (nav === 'scheduled') return { status: 'SCHEDULED' };
     if (nav === 'archived')  return { isArchived: 'true' };
     return {};
   };
@@ -896,7 +821,6 @@ export default function CallsPage() {
     if (id === 'missed') return stats.missed;
     if (id === 'incoming') return stats.inbound;
     if (id === 'outgoing') return stats.outbound;
-    if (id === 'scheduled') return stats.scheduled;
     return undefined;
   };
 
@@ -920,10 +844,6 @@ export default function CallsPage() {
               className="flex items-center gap-2 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
               <Link2 size={14} />Call Link
             </button>
-            <button onClick={() => setModal('schedule')}
-              className="flex items-center gap-2 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-              <CalendarClock size={14} />Schedule
-            </button>
             <button onClick={() => openDial()}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">
               <Phone size={14} />New Call
@@ -941,11 +861,7 @@ export default function CallsPage() {
             <StatCard label="Missed" value={stats.missed} icon={<PhoneMissed size={18} className="text-red-500" />} color="bg-red-50" onClick={() => setNav('missed')} active={nav === 'missed'} />
             <StatCard label="Inbound" value={stats.inbound} icon={<PhoneIncoming size={18} className="text-emerald-600" />} color="bg-emerald-50" onClick={() => setNav('incoming')} active={nav === 'incoming'} />
             <StatCard label="Outbound" value={stats.outbound} icon={<PhoneOutgoing size={18} className="text-blue-500" />} color="bg-blue-50" onClick={() => setNav('outgoing')} active={nav === 'outgoing'} />
-            {stats.active > 0 ? (
-              <StatCard label="Live Calls" value={stats.active} icon={<Activity size={18} className="text-orange-500" />} sub="Active now" color="bg-orange-50" onClick={() => setNav('all')} active={false} />
-            ) : (
-              <StatCard label="Scheduled" value={stats.scheduled} icon={<CalendarClock size={18} className="text-blue-600" />} color="bg-indigo-50" onClick={() => setNav('scheduled')} active={nav === 'scheduled'} />
-            )}
+            <StatCard label="Live Calls" value={stats.active} icon={<Activity size={18} className="text-orange-500" />} sub="Active now" color="bg-orange-50" onClick={() => setNav('all')} active={false} />
           </div>
         )}
 
@@ -1082,8 +998,7 @@ export default function CallsPage() {
       </div>
 
       {/* Modals */}
-      {modal === 'schedule' && <ScheduleModal contacts={contacts} onClose={() => setModal(null)} onScheduled={() => void loadCalls(true)} />}
-      {modal === 'link'     && <CallLinkModal onClose={() => setModal(null)} />}
+      {modal === 'link' && <CallLinkModal onClose={() => setModal(null)} />}
       {transferTarget       && <TransferModal call={transferTarget} agents={agents} onClose={() => setTransferTarget(null)} onTransferred={() => void loadCalls(true)} />}
 
     </div>

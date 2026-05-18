@@ -255,7 +255,7 @@ export class MessagesService {
     from: string;
     timestamp: string;
     type: string;
-    context?: { id: string; from?: string };
+    context?: { id: string; from?: string; forwarded?: boolean };
     text?: { body: string };
     image?: { id: string; mime_type: string; sha256: string; caption?: string };
     video?: { id: string; mime_type: string };
@@ -398,6 +398,10 @@ export class MessagesService {
         );
         mediaUrl = uploadResult.fileUrl;
       }
+    }
+
+    if (waMessage.context?.forwarded) {
+      messageMetadata['isForwarded'] = true;
     }
 
     // Resolve replyToId from WhatsApp context field

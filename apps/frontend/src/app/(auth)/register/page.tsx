@@ -24,10 +24,30 @@ function PasswordStrength({ password }: { password: string }) {
   );
 }
 
+const COUNTRY_CODES = [
+  { code: '+1', label: '🇺🇸 +1' }, { code: '+44', label: '🇬🇧 +44' }, { code: '+233', label: '🇬🇭 +233' },
+  { code: '+234', label: '🇳🇬 +234' }, { code: '+27', label: '🇿🇦 +27' }, { code: '+254', label: '🇰🇪 +254' },
+  { code: '+255', label: '🇹🇿 +255' }, { code: '+256', label: '🇺🇬 +256' }, { code: '+20', label: '🇪🇬 +20' },
+  { code: '+212', label: '🇲🇦 +212' }, { code: '+33', label: '🇫🇷 +33' }, { code: '+49', label: '🇩🇪 +49' },
+  { code: '+34', label: '🇪🇸 +34' }, { code: '+39', label: '🇮🇹 +39' }, { code: '+31', label: '🇳🇱 +31' },
+  { code: '+46', label: '🇸🇪 +46' }, { code: '+47', label: '🇳🇴 +47' }, { code: '+45', label: '🇩🇰 +45' },
+  { code: '+358', label: '🇫🇮 +358' }, { code: '+41', label: '🇨🇭 +41' }, { code: '+43', label: '🇦🇹 +43' },
+  { code: '+32', label: '🇧🇪 +32' }, { code: '+351', label: '🇵🇹 +351' }, { code: '+48', label: '🇵🇱 +48' },
+  { code: '+7', label: '🇷🇺 +7' }, { code: '+380', label: '🇺🇦 +380' }, { code: '+90', label: '🇹🇷 +90' },
+  { code: '+971', label: '🇦🇪 +971' }, { code: '+966', label: '🇸🇦 +966' }, { code: '+972', label: '🇮🇱 +972' },
+  { code: '+91', label: '🇮🇳 +91' }, { code: '+92', label: '🇵🇰 +92' }, { code: '+880', label: '🇧🇩 +880' },
+  { code: '+94', label: '🇱🇰 +94' }, { code: '+86', label: '🇨🇳 +86' }, { code: '+81', label: '🇯🇵 +81' },
+  { code: '+82', label: '🇰🇷 +82' }, { code: '+65', label: '🇸🇬 +65' }, { code: '+60', label: '🇲🇾 +60' },
+  { code: '+62', label: '🇮🇩 +62' }, { code: '+63', label: '🇵🇭 +63' }, { code: '+66', label: '🇹🇭 +66' },
+  { code: '+84', label: '🇻🇳 +84' }, { code: '+61', label: '🇦🇺 +61' }, { code: '+64', label: '🇳🇿 +64' },
+  { code: '+55', label: '🇧🇷 +55' }, { code: '+52', label: '🇲🇽 +52' }, { code: '+54', label: '🇦🇷 +54' },
+  { code: '+57', label: '🇨🇴 +57' }, { code: '+56', label: '🇨🇱 +56' }, { code: '+51', label: '🇵🇪 +51' },
+];
+
 export default function RegisterPage() {
   const router = useRouter();
   const { setAuth } = useAuthStore();
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '', phoneNumber: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '', phoneNumber: '', countryCode: '+1' });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -36,8 +56,9 @@ export default function RegisterPage() {
     e.preventDefault();
     if (form.password !== form.confirmPassword) { toast.error('Passwords do not match'); return; }
     setLoading(true);
+    const fullPhone = form.phoneNumber ? `${form.countryCode}${form.phoneNumber.replace(/^\+/, '')}` : '';
     try {
-      const res = await authApi.register(form.name, form.email, form.password, form.phoneNumber || undefined);
+      const res = await authApi.register(form.name, form.email, form.password, fullPhone || undefined);
       const { accessToken, user, tenant } = res.data as {
         accessToken: string;
         user: { id: string; email: string; name: string; role: UserRole; tenantId: string };
@@ -94,11 +115,17 @@ export default function RegisterPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone Number <span className="text-gray-400 font-normal">(optional)</span></label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input type="tel" placeholder="+1 234 567 8900" value={form.phoneNumber}
-                onChange={(e) => setForm((f) => ({ ...f, phoneNumber: e.target.value }))}
-                className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white" />
+            <div className="flex gap-2">
+              <select value={form.countryCode} onChange={(e) => setForm((f) => ({ ...f, countryCode: e.target.value }))}
+                className="w-28 px-2 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white flex-shrink-0">
+                {COUNTRY_CODES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+              <div className="relative flex-1">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input type="tel" placeholder="234 567 8900" value={form.phoneNumber}
+                  onChange={(e) => setForm((f) => ({ ...f, phoneNumber: e.target.value }))}
+                  className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white" />
+              </div>
             </div>
           </div>
 

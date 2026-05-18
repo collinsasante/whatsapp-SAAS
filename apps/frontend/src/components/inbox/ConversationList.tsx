@@ -224,7 +224,7 @@ const ConvRow = memo(function ConvRow({
                 return conv.requestedAt ? 'Conversation opened' : 'New conversation';
               })()}
             </span>
-            {conv.unreadCount > 0 && (
+            {conv.unreadCount > 0 && conv.status !== 'OPEN' && conv.status !== 'INTERVENED' && (
               <motion.span
                 key={conv.unreadCount}
                 initial={{ scale: 0.7 }}
@@ -381,17 +381,33 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
   const sourceConversations = statusFilter === 'RESOLVED' ? resolvedConversations : conversations;
 
-  const filtered = useMemo(() => sourceConversations.filter((c) => {
-    if (!c.contact) return false;
-    const name = c.contact.name ?? c.contact.phone;
-    const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
-    const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
-    const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
-    const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
-    const matchesMember = statusFilter !== 'RESOLVED' || memberFilter === 'All'
-      || (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
-    return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
-  }), [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
+  const TWENTY_FOUR_HOURS = 24 * 3600 * 1000;
+
+  const filtered = useMemo(() => {
+    const now = Date.now();
+    return sourceConversations
+      .filter((c) => {
+        if (!c.contact) return false;
+        // Hide expired (24h session elapsed) conversations from the active list
+        if (c.lastInboundAt && c.status !== 'RESOLVED') {
+          const elapsed = now - new Date(c.lastInboundAt).getTime();
+          if (elapsed > TWENTY_FOUR_HOURS) return false;
+        }
+        const name = c.contact.name ?? c.contact.phone;
+        const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
+        const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
+        const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
+        const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
+        const matchesMember = statusFilter !== 'RESOLVED' || memberFilter === 'All'
+          || (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
+        return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
+      })
+      .sort((a, b) => {
+        const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+        const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+        return tb - ta;
+      });
+  }, [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
 
   const filteredContacts = contacts.filter((c) => {
     const name = c.name ?? c.phone;

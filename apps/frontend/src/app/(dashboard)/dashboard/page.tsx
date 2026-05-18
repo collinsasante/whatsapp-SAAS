@@ -98,8 +98,8 @@ function Section({ title, icon: Icon, children, className }: {
 function InfoRow({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2 border-b border-gray-100 last:border-0">
-      <span className="text-xs text-gray-500 flex-shrink-0">{label}</span>
-      <span className={cn('text-xs font-medium text-gray-800 text-right truncate max-w-48', mono && 'font-mono')}>
+      <span className="text-sm text-gray-500 flex-shrink-0">{label}</span>
+      <span className={cn('text-sm font-medium text-gray-800 text-right truncate max-w-48', mono && 'font-mono')}>
         {value || <span className="text-gray-400 italic">Not set</span>}
       </span>
     </div>

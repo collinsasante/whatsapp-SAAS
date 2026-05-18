@@ -1411,8 +1411,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             )}
 
             <div className="flex items-center gap-2">
-              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
-              <input ref={photoInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv,image/*" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
+              <input ref={photoInputRef} type="file" accept="image/*,.heic,.heif,video/*" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
 
               {/* Attach button — LEFT side, only in message mode */}
               {inputMode === 'message' && !recording && (
@@ -2178,7 +2178,7 @@ const MessageBubble = memo(function MessageBubble({
               onTouchEnd={handleTouchEnd}
             >
               {/* Forwarded indicator */}
-              {(message as Message & { isForwarded?: boolean }).isForwarded && (
+              {!!(message.metadata as Record<string, unknown> | null | undefined)?.isForwarded && (
                 <div className={cn('flex items-center gap-1 mb-1 opacity-70', isOutbound ? 'text-teal-200' : 'text-gray-400')}>
                   <Forward size={10} />
                   <span className="text-xs italic">Forwarded</span>

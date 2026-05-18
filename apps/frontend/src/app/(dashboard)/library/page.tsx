@@ -432,6 +432,9 @@ function MediaList({ items, onSend, onDelete, title }: { items: MediaItem[]; onS
                     {initials(name)}
                   </div>
                   <span className="text-xs text-gray-400">{name}</span>
+                  {item.contact.phone && item.contact.name && (
+                    <><span className="text-xs text-gray-300">·</span><span className="text-xs text-gray-400 font-mono">{item.contact.phone}</span></>
+                  )}
                   {item.mediaSize && <><span className="text-xs text-gray-300">·</span><span className="text-xs text-gray-400">{formatBytes(item.mediaSize)}</span></>}
                   <span className="text-xs text-gray-300">·</span>
                   <span className="text-xs text-gray-400">{formatRelativeTime(item.createdAt)}</span>
