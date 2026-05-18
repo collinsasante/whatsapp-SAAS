@@ -383,7 +383,16 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on('incoming_call', onIncomingCall);
 
     // Close incoming call modal when one agent answers or the call terminates
-    const onCallUpdated = (data: { tenantId: string; call: { id: string; status: string } }) => {
+    const onCallUpdated = (data: { tenantId: string; call: { id: string; status: string; userId?: string | null } }) => {
+      if (data.call?.status === 'ONGOING') {
+        // Another agent answered — dismiss for everyone except the agent who answered,
+        // since that agent's IncomingCallModal still needs incomingCall to hang up.
+        const currentUserId = useAuthStore.getState().user?.id;
+        if (data.call?.id && data.call.userId !== currentUserId) {
+          clearCallIfMatches(data.call.id);
+        }
+        return;
+      }
       const shouldDismiss = ['ENDED', 'MISSED', 'DECLINED', 'CANCELED', 'UNANSWERED', 'BUSY', 'FAILED',
         'COMPLETED', 'CANCELLED'].includes(data.call?.status ?? '');
       if (shouldDismiss && data.call?.id) clearCallIfMatches(data.call.id);

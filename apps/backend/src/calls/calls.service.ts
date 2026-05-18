@@ -429,9 +429,27 @@ export class CallsService {
 
     if (newStatus) {
       updateData.status = newStatus;
-      await this.prisma.callLog.update({ where: { id: callLogId }, data: updateData });
 
-      // Fetch full call for emit
+      // For terminal transitions, use a conditional updateMany so only one writer
+      // (us OR the webhook) calls logCallActivity — whichever wins count > 0.
+      const TERMINAL_ARRAY = [
+        CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED, CallStatus.CANCELED,
+        CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED, CallStatus.VOICEMAIL,
+      ];
+      const isTerminal = TERMINAL_ARRAY.includes(newStatus);
+      let weSetTerminalStatus = true;
+
+      if (isTerminal) {
+        const result = await this.prisma.callLog.updateMany({
+          where: { id: callLogId, status: { notIn: TERMINAL_ARRAY } },
+          data: updateData,
+        });
+        weSetTerminalStatus = result.count > 0;
+      } else {
+        await this.prisma.callLog.update({ where: { id: callLogId }, data: updateData });
+      }
+
+      // Fetch full call for emit (always needed for socket events)
       const updated = await this.prisma.callLog.findFirst({
         where: { id: callLogId },
         include: CALL_INCLUDE,
@@ -441,11 +459,9 @@ export class CallsService {
       this.emit(eventName, tenantId, updated!);
       this.emit('call_updated', tenantId, updated!);
 
-      // Log activity for terminal statuses set via agent action (hang-up, reject).
-      // The Meta webhook path also calls logCallActivity but will skip if status is
-      // already terminal here — so this is the canonical place for agent-initiated endings.
+      // Only log activity if we won the race against the webhook
       const AGENT_TERMINAL = new Set([CallStatus.ENDED, CallStatus.CANCELED, CallStatus.DECLINED]);
-      if (AGENT_TERMINAL.has(newStatus)) {
+      if (weSetTerminalStatus && AGENT_TERMINAL.has(newStatus)) {
         void this.logCallActivity(
           tenantId,
           updated as unknown as CallRecord,
