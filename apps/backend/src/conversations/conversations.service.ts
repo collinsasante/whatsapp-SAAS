@@ -326,16 +326,20 @@ export class ConversationsService {
       include: CONV_INCLUDE,
     });
 
-    const toAgent = await this.prisma.user.findUnique({ where: { id: dto.toAgentId }, select: { name: true } });
+    const [toAgent, fromAgent] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: dto.toAgentId }, select: { name: true } }),
+      this.prisma.user.findUnique({ where: { id: fromAgentId }, select: { name: true } }),
+    ]);
 
-    await this.recordEvent(tenantId, id, ConversationEventType.TRANSFERRED, fromAgentId, { fromAgentId, toAgentId: dto.toAgentId, toAgentName: toAgent?.name ?? '', reason: dto.reason });
+    const transferMeta = { toAgentId: dto.toAgentId, toAgentName: toAgent?.name ?? '', fromAgentId, fromAgentName: fromAgent?.name ?? '', reason: dto.reason };
+    await this.recordEvent(tenantId, id, ConversationEventType.TRANSFERRED, fromAgentId, transferMeta);
     void this.activityLogService.log({
       tenantId,
       action: ActivityAction.CONVERSATION_TRANSFERRED,
       conversationId: id,
       contactId: existing.contactId,
       userId: fromAgentId,
-      metadata: { toAgentId: dto.toAgentId, toAgentName: toAgent?.name ?? '', fromAgentId, reason: dto.reason },
+      metadata: transferMeta,
     });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result);
 

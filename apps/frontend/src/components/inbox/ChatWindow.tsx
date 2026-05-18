@@ -1722,7 +1722,9 @@ const ACTIVITY_LABELS: Record<string, (who: string, meta: Record<string, unknown
   CONVERSATION_REQUESTED:    ()    => ({ text: 'Customer requested human support', color: 'text-orange-600' }),
   CONVERSATION_INTERVENED:   (who) => ({ text: `${who} intervened and took over`, color: 'text-indigo-600' }),
   CONVERSATION_TRANSFERRED:  (who, m) => ({
-    text: m.toAgentName ? `${who} transferred to ${String(m.toAgentName)}` : `${who} transferred this conversation`,
+    text: m.toAgentName
+      ? `${m.fromAgentName ? String(m.fromAgentName) : who} transferred to ${String(m.toAgentName)}`
+      : `${m.fromAgentName ? String(m.fromAgentName) : who} transferred this conversation`,
     color: 'text-purple-600',
   }),
   CONVERSATION_ASSIGNED:     (who) => ({ text: `${who} assigned this conversation`, color: 'text-purple-600' }),
@@ -2198,30 +2200,47 @@ const MessageBubble = memo(function MessageBubble({
 
               {message.mediaUrl && (() => {
                 const proxied = getProxiedMediaUrl(message.mediaUrl);
+                const isUploading = message.status === 'QUEUED' && message.id.startsWith('temp-');
                 return (
                   <div className="mt-1">
                     {message.type === 'IMAGE' && (
-                      <button onClick={() => setLightboxSrc(proxied)} className="block group relative">
+                      <button onClick={() => !isUploading && setLightboxSrc(proxied)} className="block group relative">
                         <img
                           src={proxied}
                           alt={message.mediaCaption ?? 'Image'}
-                          className="rounded-xl cursor-zoom-in hover:opacity-90 transition-opacity"
+                          className={cn('rounded-xl transition-opacity', isUploading ? 'opacity-60 cursor-default' : 'cursor-zoom-in hover:opacity-90')}
                           style={{ maxWidth: '320px', maxHeight: '400px', width: 'auto', height: 'auto', display: 'block', objectFit: 'cover' }}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           onContextMenu={(e) => e.preventDefault()}
                         />
+                        {isUploading && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        )}
                       </button>
                     )}
                     {message.type === 'VIDEO' && (
-                      <video controls className="rounded-xl" preload="metadata" style={{ maxWidth: '320px', maxHeight: '260px' }}>
-                        <source src={proxied} />
-                      </video>
+                      <div className="relative rounded-xl overflow-hidden" style={{ maxWidth: '320px' }}>
+                        <video controls={!isUploading} className="rounded-xl" preload="metadata" style={{ maxWidth: '320px', maxHeight: '260px' }}>
+                          <source src={proxied} />
+                        </video>
+                        {isUploading && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-xl gap-2">
+                            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            <span className="text-white text-xs font-medium">Uploading…</span>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {message.type === 'AUDIO' && <audio controls className="w-56 mt-1"><source src={proxied} /></audio>}
                     {message.type === 'DOCUMENT' && (
-                      <a href={proxied} target="_blank" rel="noopener noreferrer" className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white hover:bg-teal-900' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')}>
-                        <FileText size={14} /><span>{message.mediaCaption ?? 'Download document'}</span>
-                      </a>
+                      <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
+                        {isUploading
+                          ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{message.mediaCaption ?? 'Uploading…'}</span></>
+                          : <a href={proxied} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Download document'}</span></a>
+                        }
+                      </div>
                     )}
                     {message.mediaCaption && message.type !== 'DOCUMENT' && message.type !== 'VIDEO' && (
                       <p className={cn('text-xs mt-1', isOutbound ? 'text-teal-200' : 'text-gray-500')}>{message.mediaCaption}</p>

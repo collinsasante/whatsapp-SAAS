@@ -17,7 +17,11 @@ function formatJourneyLabel(entry: { action: string; metadata: Record<string, un
     case 'CONVERSATION_ARCHIVED': return who ? `Chat Archived by ${who}` : 'Chat Archived';
     case 'CONVERSATION_REQUESTED': return 'Support requested';
     case 'CONVERSATION_INTERVENED': return who ? `${who} intervened` : 'Agent intervened';
-    case 'CONVERSATION_TRANSFERRED': return entry.metadata?.toAgentName ? `Transferred to ${String(entry.metadata.toAgentName)}` : who ? `Transferred by ${who}` : 'Transferred';
+    case 'CONVERSATION_TRANSFERRED': {
+      const from = entry.metadata?.fromAgentName ? String(entry.metadata.fromAgentName) : who;
+      const to = entry.metadata?.toAgentName ? String(entry.metadata.toAgentName) : null;
+      return to ? `${from} transferred to ${to}` : from ? `${from} transferred` : 'Transferred';
+    }
     case 'CONVERSATION_ASSIGNED': return who ? `Transferred to ${who}` : 'Transferred';
     case 'CONVERSATION_UNASSIGNED': return who ? `Unassigned by ${who}` : 'Unassigned';
     case 'NOTE_ADDED': return who ? `Note added by ${who}` : 'Note added';

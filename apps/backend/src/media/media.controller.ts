@@ -32,7 +32,7 @@ export class MediaController {
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 100 * 1024 * 1024 },
+      limits: { fileSize: 512 * 1024 * 1024 },
     }),
   )
   @ApiConsumes('multipart/form-data')
