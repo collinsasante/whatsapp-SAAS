@@ -336,42 +336,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Conversation Trend Chart */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={15} className="text-teal-600" />
-            <h2 className="text-sm font-semibold text-gray-900">30-Day Trend</h2>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Last 30 days</span>
-          </div>
-          {trendData.length === 0 ? (
-            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">
-              No conversation data yet
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gradOpened" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#0d9488" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradClosed" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                <Area type="monotone" dataKey="opened" name="Opened" stroke="#0d9488" strokeWidth={2} fill="url(#gradOpened)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-                <Area type="monotone" dataKey="closed" name="Resolved" stroke="#22c55e" strokeWidth={2} fill="url(#gradClosed)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
         {/* Business Info */}
         <Section title="Business Information" icon={Building2}>
           <p className="text-xs text-gray-400 mb-3">Live data from Meta Business API</p>
@@ -444,6 +408,42 @@ export default function DashboardPage() {
               </div>
             )}
           </Section>
+        </div>
+
+        {/* Conversation Trend Chart */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp size={15} className="text-teal-600" />
+            <h2 className="text-sm font-semibold text-gray-900">30-Day Trend</h2>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Last 30 days</span>
+          </div>
+          {trendData.length === 0 ? (
+            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">
+              No conversation data yet
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradOpened" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#0d9488" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradClosed" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
+                <Area type="monotone" dataKey="opened" name="Opened" stroke="#0d9488" strokeWidth={2} fill="url(#gradOpened)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+                <Area type="monotone" dataKey="closed" name="Resolved" stroke="#22c55e" strokeWidth={2} fill="url(#gradClosed)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
       </div>
