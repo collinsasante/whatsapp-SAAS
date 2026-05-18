@@ -452,6 +452,17 @@ export class MessagesService {
 
     await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
 
+    // Send welcome message on first-ever inbound message from this contact
+    const priorMessageCount = await this.prisma.message.count({
+      where: { tenantId, conversation: { contactId: contact.id }, id: { not: message.id } },
+    });
+    if (priorMessageCount === 0) {
+      const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { welcomeEnabled: true, welcomeMessage: true } });
+      if (tenantSettings?.welcomeEnabled && tenantSettings.welcomeMessage) {
+        void this.whatsappService.sendTextMessage(tenantId, contact.phone, tenantSettings.welcomeMessage).catch(() => null);
+      }
+    }
+
     // Trigger chatbot flow if one matches this message
     if (content) {
       const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content);

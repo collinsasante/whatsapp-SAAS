@@ -21,7 +21,7 @@ import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatMessageTime, getProxiedMediaUrl } from '@/lib/utils';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-const META_VIDEO_LIMIT_MB = 16;
+const META_VIDEO_LIMIT_MB = 2048;
 import { MessageStatus, MessageDirection } from '@whatsapp-platform/shared-types';
 import type { Message } from '@whatsapp-platform/shared-types';
 import type { ActivityEntry } from '@/store/inbox.store';
@@ -482,7 +482,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setTransferring(true);
     try {
       await conversationsApi.transfer(conversation.id, memberId);
-      updateConversation(conversation.id, { assignedTo: { id: memberId, name: memberName } });
+      updateConversation(conversation.id, { assignedTo: { id: memberId, name: memberName }, status: 'REQUESTED' });
       toast.success(`Transferred to ${memberName}`);
       setShowTransfer(false);
     } catch { toast.error('Failed to transfer conversation'); }
@@ -1733,7 +1733,7 @@ const ACTIVITY_LABELS: Record<string, (who: string, meta: Record<string, unknown
   MESSAGE_EDITED:            (who) => ({ text: `${who} edited a message`, color: 'text-gray-400' }),
   CONTACT_UPDATED:           (who) => ({ text: `${who} updated contact info`, color: 'text-gray-500' }),
   CONTACT_BLOCKED:           (who) => ({ text: `${who} blocked this contact`, color: 'text-red-500' }),
-  SURVEY_RESPONSE:           (_who, m) => ({ text: `Customer rated this chat ${m.score}/5`, color: 'text-amber-600' }),
+
 };
 
 function formatCallDuration(secs: number): string {
@@ -1793,24 +1793,6 @@ const ActivityBubble = memo(function ActivityBubble({ entry }: { entry: Activity
               Your browser does not support audio playback.
             </audio>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  // Survey response gets a special star-rating card
-  if (entry.action === 'SURVEY_RESPONSE') {
-    const score = Number((entry.metadata as Record<string, unknown>)?.score ?? 0);
-    return (
-      <div className="flex justify-center px-4 py-2">
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 shadow-sm max-w-xs w-full text-center">
-          <p className="text-xs font-semibold text-amber-700 mb-1.5">Customer rated this chat</p>
-          <div className="flex justify-center gap-1 mb-1">
-            {[1,2,3,4,5].map(n => (
-              <span key={n} className={n <= score ? 'text-amber-400 text-xl' : 'text-gray-200 text-xl'}>★</span>
-            ))}
-          </div>
-          <p className="text-xs text-amber-500">{score}/5 · {time}</p>
         </div>
       </div>
     );
@@ -2178,7 +2160,7 @@ const MessageBubble = memo(function MessageBubble({
               onTouchEnd={handleTouchEnd}
             >
               {/* Forwarded indicator */}
-              {!!(message.metadata as Record<string, unknown> | null | undefined)?.isForwarded && (
+              {!!(message as unknown as { metadata?: Record<string, unknown> | null }).metadata?.isForwarded && (
                 <div className={cn('flex items-center gap-1 mb-1 opacity-70', isOutbound ? 'text-teal-200' : 'text-gray-400')}>
                   <Forward size={10} />
                   <span className="text-xs italic">Forwarded</span>

@@ -322,7 +322,7 @@ export class ConversationsService {
 
     const result = await this.prisma.conversation.update({
       where: { id },
-      data: { assignedToId: dto.toAgentId },
+      data: { assignedToId: dto.toAgentId, status: ConversationStatus.REQUESTED },
       include: CONV_INCLUDE,
     });
 

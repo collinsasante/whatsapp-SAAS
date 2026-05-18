@@ -75,6 +75,7 @@ export default function ConversationDetails({ conversation }: Props) {
   const [addingNote, setAddingNote] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [mediaExpanded, setMediaExpanded] = useState(false);
+  const [voiceNotesExpanded, setVoiceNotesExpanded] = useState(false);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [activityLoaded, setActivityLoaded] = useState(false);
   const [journeyExpanded, setJourneyExpanded] = useState(false);
@@ -84,6 +85,7 @@ export default function ConversationDetails({ conversation }: Props) {
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
   const mediaMessages = convMessages.filter((m) => (m.type === 'IMAGE' || m.type === 'VIDEO') && m.mediaUrl);
+  const audioMessages = convMessages.filter((m) => m.type === 'AUDIO' && m.mediaUrl);
   const templateMessages = convMessages.filter((m) => m.type === MessageType.TEMPLATE);
   const sessionMessages = convMessages.filter((m) => m.type !== MessageType.TEMPLATE);
   const firstMessage = convMessages.length > 0 ? convMessages[0] : null;
@@ -313,6 +315,38 @@ export default function ConversationDetails({ conversation }: Props) {
         )}
       </div>
 
+
+      {/* Voice Notes section */}
+      <div className="border-b border-gray-100">
+        <button
+          onClick={() => setVoiceNotesExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+        >
+          <span className="text-sm font-semibold text-gray-900">Voice Notes</span>
+          {voiceNotesExpanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+        </button>
+        {voiceNotesExpanded && (
+          <div className="px-4 pb-3">
+            {audioMessages.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">No voice notes yet</p>
+            ) : (
+              <div className="space-y-2">
+                {audioMessages.slice(0, 10).map((msg) => (
+                  <div key={msg.id} className="flex flex-col gap-1 p-2 hover:bg-gray-50 rounded-xl transition-colors">
+                    <audio
+                      src={getProxiedMediaUrl(msg.mediaUrl) || ''}
+                      controls
+                      className="w-full h-8"
+                      style={{ minWidth: 0 }}
+                    />
+                    <p className="text-xs text-gray-400">{formatRelativeTime(msg.createdAt)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Notes */}
       <div className="p-4 flex-1">

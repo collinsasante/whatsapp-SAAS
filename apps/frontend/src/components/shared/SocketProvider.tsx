@@ -76,7 +76,7 @@ function playRequestSound() {
 }
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, activeConversationId, addActivityLog, conversations } = useInboxStore();
+  const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, markConversationRead, activeConversationId, addActivityLog, conversations } = useInboxStore();
   const { clearAuth } = useAuthStore();
   const { setIncomingCall, clearCallIfMatches, outboundSession, setOutboundSession } = useCallsStore();
   const router = useRouter();
@@ -124,6 +124,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     socket.on(SocketEvent.NEW_MESSAGE, (data: { conversationId: string; message: Message }) => {
       addMessage(data.conversationId, data.message);
+
+      // If the message is for the currently open conversation, clear the unread badge
+      if (data.message.direction === MessageDirection.INBOUND && data.conversationId === activeConversationIdRef.current) {
+        markConversationRead(data.conversationId);
+        void import('@/lib/api').then(({ conversationsApi }) => conversationsApi.markRead(data.conversationId).catch(() => {}));
+      }
+
       if (
         data.message.direction === MessageDirection.INBOUND &&
         data.conversationId !== activeConversationIdRef.current

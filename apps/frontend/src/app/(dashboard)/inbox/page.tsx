@@ -8,7 +8,7 @@ import ChatWindow from '@/components/inbox/ChatWindow';
 import ConversationDetails from '@/components/inbox/ConversationDetails';
 
 export default function InboxPage() {
-  const { conversations, activeConversationId, setConversations, setActiveConversation, statusCounts, setStatusCounts } = useInboxStore();
+  const { conversations, activeConversationId, setConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Parameters<typeof setConversations>[0]>([]);
@@ -61,6 +61,12 @@ export default function InboxPage() {
   // Close details panel when switching conversations
   useEffect(() => { setShowDetails(false); }, [activeConversationId]);
 
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveConversation(id);
+    markConversationRead(id);
+    void conversationsApi.markRead(id).catch(() => {});
+  }, [setActiveConversation, markConversationRead]);
+
   // Open conversation from toast notification click
   useEffect(() => {
     const handler = (e: Event) => {
@@ -80,7 +86,7 @@ export default function InboxPage() {
       <ConversationList
         conversations={conversations}
         activeId={activeConversationId}
-        onSelect={setActiveConversation}
+        onSelect={handleSelectConversation}
         loading={loading}
         statusCounts={statusCounts}
         onResolvedLoaded={(convs) => setResolvedConversations(convs as Parameters<typeof setConversations>[0])}

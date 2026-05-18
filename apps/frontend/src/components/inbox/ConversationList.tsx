@@ -213,7 +213,7 @@ const ConvRow = memo(function ConvRow({
                       const isOutbound = meta?.direction === 'OUTBOUND';
                       return isMissed ? (isOutbound ? '📞 Missed outbound call' : '📞 Missed call') : '📞 Voice call';
                     }
-                    case 'SURVEY_RESPONSE': return `Customer rated ${meta?.score}/5`;
+
                     case 'CONVERSATION_RESOLVED': return 'Conversation resolved';
                     case 'CONVERSATION_TRANSFERRED': return 'Conversation transferred';
                     case 'NOTE_ADDED': return 'Note added';
@@ -224,7 +224,7 @@ const ConvRow = memo(function ConvRow({
                 return conv.requestedAt ? 'Conversation opened' : 'New conversation';
               })()}
             </span>
-            {conv.unreadCount > 0 && conv.status !== 'OPEN' && conv.status !== 'INTERVENED' && (
+            {conv.unreadCount > 0 && (
               <motion.span
                 key={conv.unreadCount}
                 initial={{ scale: 0.7 }}

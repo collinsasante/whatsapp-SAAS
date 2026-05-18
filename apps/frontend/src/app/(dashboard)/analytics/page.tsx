@@ -22,7 +22,7 @@ interface TeamMember {
   id: string; name: string; email: string; avatarUrl: string | null;
   assignedConversations: number; activeConversations: number;
   resolvedToday: number; isOnline: boolean; avgResponseMs: number | null;
-  avgCsatScore: number | null; csatCount: number;
+  avgCsatScore?: number | null; csatCount?: number;
 }
 interface TrendPoint { date: string; opened: number; resolved: number; }
 interface CallStats { total: number; todayTotal: number; missed: number; inbound: number; outbound: number; }
@@ -370,7 +370,6 @@ export default function AnalyticsPage() {
                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Active</th>
                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Resolved Today</th>
                     <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Response</th>
-                    <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Rating</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -423,21 +422,6 @@ export default function AnalyticsPage() {
                         )}>
                           {fmtMs(member.avgResponseMs)}
                         </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        {member.avgCsatScore != null ? (
-                          <div className="flex items-center justify-end gap-1">
-                            <span className="text-sm font-semibold text-gray-900">
-                              {member.avgCsatScore.toFixed(1)}
-                            </span>
-                            <span className="text-xs text-gray-400">/5</span>
-                            {member.csatCount > 0 && (
-                              <span className="text-xs text-gray-300">({member.csatCount})</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
                       </td>
                     </tr>
                   ))}
