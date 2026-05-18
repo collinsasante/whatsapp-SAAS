@@ -31,11 +31,14 @@ export class EmailService {
     inviteLink: string;
     expiresAt: Date;
   }): Promise<void> {
-    // The sending address is the platform SMTP account; the display name reflects
-    // who is actually inviting so the recipient knows it's a real person.
+    // Outgoing mail always comes from the notifications alias so the main support
+    // inbox stays clean. Replies route to support@verzchat.com (or SMTP_REPLY_TO).
     const smtpAddress = this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER') || 'noreply@example.com';
-    const from = `"${opts.inviterName} via ${opts.workspaceName}" <${smtpAddress}>`;
-    const replyTo = opts.inviterEmail ? `"${opts.inviterName}" <${opts.inviterEmail}>` : undefined;
+    const supportAddress = this.config.get<string>('SMTP_REPLY_TO') || smtpAddress;
+    const from = `"VerzChat (via ${opts.workspaceName})" <${smtpAddress}>`;
+    const replyTo = opts.inviterEmail
+      ? `"${opts.inviterName}" <${opts.inviterEmail}>`
+      : `"VerzChat Support" <${supportAddress}>`;
     const subject = `${opts.inviterName} invited you to join ${opts.workspaceName}`;
 
     const expiryStr = opts.expiresAt.toLocaleDateString(undefined, {

@@ -987,15 +987,15 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </button>
               )}
 
-              {/* Take over button — shown when conversation is assigned to another agent */}
+              {/* Take over button — shown in header when assigned to another agent */}
               {assignedToOther && localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
                 <button
                   onClick={() => { void handleTakeover(); }}
                   title="Take over from current agent"
-                  className="h-8 px-2.5 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors flex items-center gap-1.5"
+                  className="h-8 px-3 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
                 >
                   <LogIn size={13} />
-                  Take over
+                  Take Over
                 </button>
               )}
 
@@ -1263,24 +1263,30 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
 
-            {/* Transferred-away banner — current user no longer owns this chat */}
-            {assignedToOther && (
-              <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200">
-                <ArrowRightLeft size={13} className="text-gray-500 flex-shrink-0" />
-                <span className="text-xs text-gray-700 flex-1">
-                  <span className="font-medium">Assigned to {conversation.assignedTo?.name ?? 'another agent'}.</span> Take over to reply or resolve.
-                </span>
+            {/* Assigned-to-other gate — fully replaces input for active conversations */}
+            {assignedToOther && !isResolved && localStatus !== 'ARCHIVED' && (
+              <div className="flex items-center gap-3 py-3">
+                <div className="w-9 h-9 rounded-full bg-orange-100 border-2 border-orange-200 flex items-center justify-center text-orange-700 text-sm font-bold flex-shrink-0 select-none">
+                  {(conversation.assignedTo?.name ?? 'A').slice(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-900 text-sm font-semibold leading-tight">
+                    {conversation.assignedTo?.name ?? 'Another agent'} is handling this chat
+                  </p>
+                  <p className="text-gray-400 text-xs mt-0.5">Take over to reply, add notes, or resolve</p>
+                </div>
                 <button
                   onClick={() => { void handleTakeover(); }}
-                  className="text-xs font-semibold text-orange-700 hover:text-orange-900 px-2 py-0.5 rounded hover:bg-orange-100 flex-shrink-0 flex items-center gap-1"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl transition-colors flex-shrink-0 shadow-sm"
                 >
-                  <LogIn size={11} />Take over
+                  <LogIn size={13} />
+                  Take Over
                 </button>
               </div>
             )}
 
             {/* Requesting banner — agent must intervene before typing */}
-            {isRequested && inputMode === 'message' && (
+            {isRequested && !assignedToOther && inputMode === 'message' && (
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200">
                 <AlertCircle size={13} className="text-orange-500 flex-shrink-0" />
                 <span className="text-xs text-orange-700 flex-1">
@@ -1296,7 +1302,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             )}
 
             {/* Session expired banner */}
-            {sessionBlocked && inputMode === 'message' && (
+            {sessionBlocked && !assignedToOther && inputMode === 'message' && (
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-amber-50 rounded-xl border border-amber-200">
                 <AlertCircle size={13} className="text-amber-500 flex-shrink-0" />
                 <span className="text-xs text-amber-700 flex-1">
@@ -1346,7 +1352,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               />
             )}
 
-            {/* Mode tabs */}
+            {/* Mode tabs + input row — hidden while another agent owns this active chat */}
+            {!(assignedToOther && !isResolved && localStatus !== 'ARCHIVED') && (<>
             <div className="flex items-center gap-1 mb-1.5">
               <button
                 onClick={() => setInputMode('message')}
@@ -1544,6 +1551,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </button>
               )}
             </div>
+            </>)}
           </div>
         </div>
 
