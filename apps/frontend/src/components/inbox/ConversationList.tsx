@@ -145,7 +145,7 @@ const ConvRow = memo(function ConvRow({
   isActive: boolean;
   onSelect: (id: string) => void;
 }) {
-  const { activityLogs: storeActivityLogs, prependConversation } = useInboxStore();
+  const { activityLogs: storeActivityLogs, updateConversation } = useInboxStore();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
 
@@ -162,7 +162,7 @@ const ConvRow = memo(function ConvRow({
     setCtxMenu(null);
     try {
       await conversationsApi.markUnread(conv.id);
-      prependConversation({ ...conv, unreadCount: 1 });
+      updateConversation(conv.id, { unreadCount: 1 });
     } catch {
       toast.error('Failed to mark as unread');
     }
