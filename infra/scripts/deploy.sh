@@ -70,6 +70,12 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
 fi
 
 echo "==> Reloading nginx to re-resolve upstream IPs..."
+# Sync config to the directory the container was started from, then reload
+NGINX_CONF_SRC="$REPO_ROOT/infra/nginx/nginx.conf"
+NGINX_CONF_OPT="/opt/whatsapp-platform/infra/nginx/nginx.conf"
+if [[ -f "$NGINX_CONF_OPT" ]]; then
+  cp "$NGINX_CONF_SRC" "$NGINX_CONF_OPT"
+fi
 docker exec wa_nginx nginx -s reload
 
 echo "==> Done. Container status:"
