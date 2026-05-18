@@ -1733,7 +1733,7 @@ const ACTIVITY_LABELS: Record<string, (who: string, meta: Record<string, unknown
   MESSAGE_EDITED:            (who) => ({ text: `${who} edited a message`, color: 'text-gray-400' }),
   CONTACT_UPDATED:           (who) => ({ text: `${who} updated contact info`, color: 'text-gray-500' }),
   CONTACT_BLOCKED:           (who) => ({ text: `${who} blocked this contact`, color: 'text-red-500' }),
-  SURVEY_RESPONSE:           (_who, m) => ({ text: `Customer rated: ${'⭐'.repeat(Number(m.score ?? 0))} (${m.score}/5)`, color: 'text-amber-600' }),
+  SURVEY_RESPONSE:           (_who, m) => ({ text: `Customer rated this chat ${m.score}/5`, color: 'text-amber-600' }),
 };
 
 function formatCallDuration(secs: number): string {

@@ -267,6 +267,44 @@ export class MessagesService {
     contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
     interactive?: { type: 'list_reply' | 'button_reply'; list_reply?: { id: string; title: string }; button_reply?: { id: string; title: string } };
   }, profileName?: string) {
+    // Handle CSAT survey reply BEFORE findOrCreate — prevents reopening the resolved conversation
+    // and ensures the score is written back to the correct (resolved) conversation so resolvedById
+    // remains intact and the agent's rating appears in the analytics table.
+    if (waMessage.type === 'interactive' && waMessage.interactive) {
+      const replyId = waMessage.interactive.list_reply?.id ?? waMessage.interactive.button_reply?.id ?? '';
+      if (replyId.startsWith('csat_')) {
+        const score = parseInt(replyId.replace('csat_', ''), 10);
+        if (score >= 1 && score <= 5) {
+          const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
+          // Find the most-recently resolved conversation for this contact that hasn't been rated yet
+          const resolvedConv = await this.prisma.conversation.findFirst({
+            where: { tenantId, contactId: contact.id, csatScore: null, resolvedAt: { not: null } },
+            orderBy: { resolvedAt: 'desc' },
+            select: { id: true },
+          });
+          if (resolvedConv) {
+            // Atomic update — only one concurrent webhook delivery wins; prevents duplicate sends
+            const updated = await this.prisma.conversation.updateMany({
+              where: { id: resolvedConv.id, csatScore: null },
+              data: { csatScore: score, csatSubmittedAt: new Date() } as { csatScore: number; csatSubmittedAt: Date },
+            });
+            if (updated.count > 0) {
+              void this.activityLogService.log({
+                tenantId,
+                action: ActivityAction.SURVEY_RESPONSE,
+                conversationId: resolvedConv.id,
+                contactId: contact.id,
+                metadata: { score },
+              });
+              await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for your feedback!').catch(() => null);
+            }
+          }
+          await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
+          return null;
+        }
+      }
+    }
+
     // Idempotency: skip if this WA message was already processed for this tenant.
     // Protects against Meta webhook retries AND fan-out re-delivery.
     const alreadyProcessed = await this.prisma.message.findFirst({
@@ -286,42 +324,6 @@ export class MessagesService {
     // Handle customer-deleted message — mark it deleted in our DB
     if (waMessage.type === 'deleted') {
       return null;
-    }
-
-    // Handle CSAT survey reply (interactive list_reply with csat_N id)
-    if (waMessage.type === 'interactive' && waMessage.interactive) {
-      const replyId = waMessage.interactive.list_reply?.id ?? waMessage.interactive.button_reply?.id ?? '';
-      if (replyId.startsWith('csat_')) {
-        const score = parseInt(replyId.replace('csat_', ''), 10);
-        if (score >= 1 && score <= 5) {
-          // Idempotency guard — only process first rating, ignore re-submissions
-          const existing = await this.prisma.conversation.findUnique({
-            where: { id: conversation.id },
-            select: { csatScore: true },
-          });
-          if (existing?.csatScore != null) {
-            await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
-            return null;
-          }
-          // Save score on conversation
-          await this.prisma.conversation.update({
-            where: { id: conversation.id },
-            data: { csatScore: score, csatSubmittedAt: new Date() } as { csatScore: number; csatSubmittedAt: Date },
-          });
-          // Log as activity (renders inline in chat)
-          void this.activityLogService.log({
-            tenantId,
-            action: ActivityAction.SURVEY_RESPONSE,
-            conversationId: conversation.id,
-            contactId: contact.id,
-            metadata: { score },
-          });
-          // Mark read + send thank-you once
-          await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
-          await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for your feedback! It helps us improve.').catch(() => null);
-          return null;
-        }
-      }
     }
 
     // Handle incoming reaction — update DB reaction, don't create a new message

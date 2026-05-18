@@ -184,27 +184,45 @@ const ConvRow = memo(function ConvRow({
           </div>
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-400 truncate">
-              {lastMsg?.content
-                ? truncate(lastMsg.content, 38)
-                : lastMsg?.type === 'IMAGE' ? '📷 Photo'
-                : lastMsg?.type === 'VIDEO' ? '🎥 Video'
-                : lastMsg?.type === 'AUDIO' ? '🎵 Audio'
-                : lastMsg?.type === 'DOCUMENT' ? '📄 Document'
-                : lastMsg?.type === 'LOCATION' ? '📍 Location'
-                : lastMsg?.type === 'CONTACTS' ? '👤 Contact'
-                : (() => {
-                    const liveLogs = storeActivityLogs[conv.id];
-                    const lastActivity = liveLogs
-                      ? liveLogs[liveLogs.length - 1]
-                      : conv.activityLogs?.[0];
-                    if (lastActivity?.action === 'CALL_ENDED') {
-                      const meta = lastActivity.metadata as { direction?: string; status?: string } | null;
+              {(() => {
+                const liveLogs = storeActivityLogs[conv.id];
+                const lastActivity = liveLogs
+                  ? liveLogs[liveLogs.length - 1]
+                  : conv.activityLogs?.[0];
+
+                // Use activity label if it's newer than (or there is no) last message
+                const msgTime = conv.lastMessageAt ? new Date(conv.lastMessageAt).getTime() : 0;
+                const actTime = lastActivity?.createdAt ? new Date(lastActivity.createdAt).getTime() : 0;
+                const showActivity = actTime > msgTime;
+
+                if (!showActivity) {
+                  if (lastMsg?.content) return truncate(lastMsg.content, 38);
+                  if (lastMsg?.type === 'IMAGE') return '📷 Photo';
+                  if (lastMsg?.type === 'VIDEO') return '🎥 Video';
+                  if (lastMsg?.type === 'AUDIO') return '🎵 Audio';
+                  if (lastMsg?.type === 'DOCUMENT') return '📄 Document';
+                  if (lastMsg?.type === 'LOCATION') return '📍 Location';
+                  if (lastMsg?.type === 'CONTACTS') return '👤 Contact';
+                }
+
+                if (lastActivity) {
+                  const meta = lastActivity.metadata as Record<string, unknown> | null;
+                  switch (lastActivity.action) {
+                    case 'CALL_ENDED': {
                       const isMissed = meta?.status === 'MISSED' || meta?.status === 'FAILED';
                       const isOutbound = meta?.direction === 'OUTBOUND';
                       return isMissed ? (isOutbound ? '📞 Missed outbound call' : '📞 Missed call') : '📞 Voice call';
                     }
-                    return conv.requestedAt ? 'Conversation opened' : 'New conversation';
-                  })()}
+                    case 'SURVEY_RESPONSE': return `Customer rated ${meta?.score}/5`;
+                    case 'CONVERSATION_RESOLVED': return 'Conversation resolved';
+                    case 'CONVERSATION_TRANSFERRED': return 'Conversation transferred';
+                    case 'NOTE_ADDED': return 'Note added';
+                    default: break;
+                  }
+                }
+
+                return conv.requestedAt ? 'Conversation opened' : 'New conversation';
+              })()}
             </span>
             {conv.unreadCount > 0 && (
               <motion.span

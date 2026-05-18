@@ -143,6 +143,26 @@ export class CallsService {
       include: CALL_INCLUDE,
     });
 
+    // Backfill recording URL into the CALL_ENDED activity log so the chat window can render
+    // the audio player — the log is created before upload completes so recordingUrl was null.
+    if (dto.recordingUrl) {
+      const log = await this.prisma.activityLog.findFirst({
+        where: {
+          tenantId,
+          action: ActivityAction.CALL_ENDED,
+          metadata: { path: ['callLogId'], equals: id },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (log) {
+        const meta = (log.metadata as Record<string, unknown>) ?? {};
+        await this.prisma.activityLog.update({
+          where: { id: log.id },
+          data: { metadata: { ...meta, recordingUrl: dto.recordingUrl } as Prisma.InputJsonValue },
+        });
+      }
+    }
+
     this.emit('call_updated', tenantId, call);
     return call;
   }
