@@ -441,6 +441,17 @@ export class CallsService {
       this.emit(eventName, tenantId, updated!);
       this.emit('call_updated', tenantId, updated!);
 
+      // Log activity for terminal statuses set via agent action (hang-up, reject).
+      // The Meta webhook path also calls logCallActivity but will skip if status is
+      // already terminal here — so this is the canonical place for agent-initiated endings.
+      const AGENT_TERMINAL = new Set([CallStatus.ENDED, CallStatus.CANCELED, CallStatus.DECLINED]);
+      if (AGENT_TERMINAL.has(newStatus)) {
+        void this.logCallActivity(
+          tenantId,
+          updated as unknown as CallRecord,
+          this.statusToActivityAction(newStatus),
+        );
+      }
     }
 
     return { success: true };

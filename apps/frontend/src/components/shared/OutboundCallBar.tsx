@@ -335,18 +335,17 @@ export function OutboundCallBar() {
     const duration = outboundCall.startedAt
       ? Math.floor((Date.now() - outboundCall.startedAt.getTime()) / 1000)
       : 0;
+    const reason = duration > 0 ? 'ended' : 'canceled';
+    // Mark terminal before any awaits so socket handlers (onEnded, onUpdated) see
+    // endedReason and bail early — prevents duplicate toast from the race condition.
+    setOutboundCall({ ...outboundCall, endedReason: reason });
     stopAndUpload();
     try { await callsApi.respond(outboundCall.callId, 'terminate'); } catch { /* best-effort */ }
+    // Persist duration for analytics — activity logging happens inside respondToCall now
     try {
-      await callsApi.update(outboundCall.callId, {
-        status: duration > 0 ? 'ENDED' : 'CANCELED',
-        duration,
-        endedAt: new Date().toISOString(),
-      });
+      await callsApi.update(outboundCall.callId, { duration, endedAt: new Date().toISOString() });
     } catch { /* best-effort */ }
     cleanupSession();
-    const reason = duration > 0 ? 'ended' : 'canceled';
-    setOutboundCall({ ...outboundCall, endedReason: reason });
     if (duration > 0) toast.success(`Call ended — ${formatDuration(duration)}`);
     dismiss(1500);
   }, [outboundCall, cleanupSession, dismiss, setOutboundCall, stopAndUpload]);
