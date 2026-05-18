@@ -311,10 +311,8 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const [channelFilter, setChannelFilter] = useState('All');
   const [labelFilter, setLabelFilter] = useState('All');
   const [memberFilter, setMemberFilter] = useState('All');
-  const [showMemberDropdown, setShowMemberDropdown] = useState(false);
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
-  const memberDropdownRef = useRef<HTMLDivElement>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -324,7 +322,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
-  const [memberSearch, setMemberSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Conversation[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Conversation[]>([]);
@@ -345,13 +342,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       .finally(() => setResolvedLoading(false));
   }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (memberDropdownRef.current && !memberDropdownRef.current.contains(e.target as Node)) setShowMemberDropdown(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
 
   useEffect(() => {
     tagsApi.list().then(r => setSavedTags((r.data as { id: string; name: string; color?: string }[]) ?? [])).catch(() => {});
@@ -437,7 +427,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
         const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
-        const matchesMember = statusFilter !== 'RESOLVED' || memberFilter === 'All'
+        const matchesMember = memberFilter === 'All'
           || (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
         return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
       })
@@ -568,7 +558,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
               const isActive = statusFilter === f.key;
               const isUrgent = (f.key === 'REQUESTED' || f.key === 'INTERVENED') && (count ?? 0) > 0;
               return (
-                <button key={f.key} onClick={() => { setStatusFilter(f.key); if (f.key !== 'RESOLVED') setMemberFilter('All'); }}
+                <button key={f.key} onClick={() => { setStatusFilter(f.key); setMemberFilter('All'); }}
                   className={cn(
                     'flex-1 flex items-center justify-center gap-1 px-1.5 py-1.5 text-[10px] rounded-lg transition-colors font-semibold whitespace-nowrap',
                     isActive ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
@@ -583,71 +573,50 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
               );
             })}
           </div>
+
+          {/* Row 3: Assigned-to filter */}
+          {teamMembers.length > 0 && (
+            <Dropdown
+              className="flex-1"
+              menuClassName="min-w-full"
+              trigger={
+                <div className={cn(
+                  'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
+                  memberFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
+                )}>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Users size={11} className="flex-shrink-0" />
+                    <span className="truncate">
+                      {memberFilter === 'All' ? 'All Agents' :
+                       memberFilter === 'unassigned' ? 'Unassigned' :
+                       (teamMembers.find(m => m.id === memberFilter)?.name ?? 'Agent')}
+                    </span>
+                  </span>
+                  <ChevronDown className="w-3 h-3 flex-shrink-0" />
+                </div>
+              }
+            >
+              <DropdownItem onClick={() => setMemberFilter('All')} className="text-xs justify-between">
+                <span className={memberFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Agents</span>
+                {memberFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
+              </DropdownItem>
+              <DropdownItem onClick={() => setMemberFilter('unassigned')} className="text-xs justify-between">
+                <span className={memberFilter === 'unassigned' ? 'font-semibold text-teal-600' : ''}>Unassigned</span>
+                {memberFilter === 'unassigned' && <Check className="w-3 h-3 text-teal-600" />}
+              </DropdownItem>
+              {teamMembers.map(m => (
+                <DropdownItem key={m.id} onClick={() => setMemberFilter(m.id)} className="text-xs justify-between">
+                  <span className={cn(memberFilter === m.id && 'font-semibold text-teal-600')}>{m.name}</span>
+                  {memberFilter === m.id && <Check className="w-3 h-3 text-teal-600" />}
+                </DropdownItem>
+              ))}
+            </Dropdown>
+          )}
         </div>
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {/* Member filter — only shown for Resolved tab */}
-        {statusFilter === 'RESOLVED' && teamMembers.length > 0 && (
-          <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-3 py-2" ref={memberDropdownRef}>
-            <button
-              onClick={() => { setShowMemberDropdown(v => !v); setMemberSearch(''); }}
-              className={cn(
-                'w-full flex items-center justify-between gap-1.5 px-3 py-1.5 text-xs rounded-xl border transition-colors font-medium',
-                memberFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
-              )}
-            >
-              <span className="flex items-center gap-1.5 min-w-0">
-                <Users size={11} className="flex-shrink-0" />
-                <span className="truncate">
-                  {memberFilter === 'All' ? 'Filter by member' :
-                   memberFilter === 'unassigned' ? 'Unassigned' :
-                   (teamMembers.find(m => m.id === memberFilter)?.name ?? 'Member')}
-                </span>
-              </span>
-              <ChevronDown className={cn('w-3 h-3 flex-shrink-0 transition-transform', showMemberDropdown && 'rotate-180')} />
-            </button>
-            {showMemberDropdown && (
-              <div className="absolute left-3 right-3 top-full mt-0.5 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 overflow-hidden">
-                <div className="px-2 pt-1 pb-1">
-                  <div className="relative">
-                    <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      autoFocus
-                      type="text"
-                      placeholder="Search members…"
-                      value={memberSearch}
-                      onChange={e => setMemberSearch(e.target.value)}
-                      className="w-full pl-7 pr-2 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-teal-500"
-                    />
-                  </div>
-                </div>
-                <div className="max-h-48 overflow-y-auto">
-                  <button onClick={() => { setMemberFilter('All'); setShowMemberDropdown(false); }}
-                    className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
-                    <span className={memberFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Members</span>
-                    {memberFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
-                  </button>
-                  <button onClick={() => { setMemberFilter('unassigned'); setShowMemberDropdown(false); }}
-                    className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
-                    <span className={memberFilter === 'unassigned' ? 'font-semibold text-teal-600' : ''}>Unassigned</span>
-                    {memberFilter === 'unassigned' && <Check className="w-3 h-3 text-teal-600" />}
-                  </button>
-                  {teamMembers
-                    .filter(m => !memberSearch || (m.name ?? '').toLowerCase().includes(memberSearch.toLowerCase()))
-                    .map(m => (
-                      <button key={m.id} onClick={() => { setMemberFilter(m.id); setShowMemberDropdown(false); }}
-                        className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 text-gray-700">
-                        <span className={cn(memberFilter === m.id && 'font-semibold text-teal-600')}>{m.name}</span>
-                        {memberFilter === m.id && <Check className="w-3 h-3 text-teal-600" />}
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
         {(loading || resolvedLoading) ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />

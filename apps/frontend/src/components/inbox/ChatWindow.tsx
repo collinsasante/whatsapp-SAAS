@@ -1388,12 +1388,13 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
 
-            {/* Emoji picker — portal so fixed positioning is never clipped by ancestor stacking contexts */}
+            {/* Emoji picker — portal avoids ancestor stacking context clipping */}
             {showEmojiPicker && createPortal(
               <div
                 className="fixed z-[9999]"
-                style={{ bottom: popupPos.bottom, left: popupPos.left }}
+                style={{ bottom: popupPos.bottom, left: popupPos.left, width: 352, height: 435 }}
                 onClick={(e) => e.stopPropagation()}
+                onWheel={(e) => e.stopPropagation()}
               >
                 <EmojiPicker
                   data={emojiData}
