@@ -323,7 +323,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   }, []);
 
   useEffect(() => {
-    if (!search.trim()) { setSearchResults([]); return; }
+    if (!search.trim()) { setSearchResults([]); setSearchLoading(false); return; }
     setSearchLoading(true);
     const timer = setTimeout(async () => {
       try {
