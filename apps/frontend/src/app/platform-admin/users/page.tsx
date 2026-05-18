@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Search, ChevronLeft, ChevronRight, Ban, RefreshCw, LogOut, Users } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Ban, RefreshCw, LogOut, Users, SlidersHorizontal } from 'lucide-react';
 import { adminUsersApi } from '@/lib/admin-api';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -19,14 +19,14 @@ const ROLE_BADGE: Record<string, string> = {
 };
 
 const PLAN_BADGE: Record<string, string> = {
-  free: 'bg-slate-100 text-slate-500 border-slate-200',
   FREE: 'bg-slate-100 text-slate-500 border-slate-200',
-  pro: 'bg-blue-50 text-blue-700 border-blue-200',
+  free: 'bg-slate-100 text-slate-500 border-slate-200',
   PRO: 'bg-blue-50 text-blue-700 border-blue-200',
-  business: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  pro: 'bg-blue-50 text-blue-700 border-blue-200',
   BUSINESS: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  enterprise: 'bg-purple-50 text-purple-700 border-purple-200',
+  business: 'bg-indigo-50 text-indigo-700 border-indigo-200',
   ENTERPRISE: 'bg-purple-50 text-purple-700 border-purple-200',
+  enterprise: 'bg-purple-50 text-purple-700 border-purple-200',
 };
 
 function relativeTime(date: string | null) {
@@ -79,72 +79,71 @@ export default function UsersPage() {
       if (action === 'suspend') await adminUsersApi.suspend(id);
       else if (action === 'reactivate') await adminUsersApi.reactivate(id);
       else await adminUsersApi.forceLogout(id);
-      toast.success(`User ${action === 'force-logout' ? 'logged out' : action + 'd'}`);
+      toast.success(action === 'force-logout' ? 'User logged out' : `User ${action}d`);
       void load();
     } catch { toast.error('Action failed'); }
     finally { setActionLoading(null); }
   };
 
-  const pageNumbers = () => {
-    const nums = [];
-    const start = Math.max(1, page - 2);
-    const end = Math.min(pages, page + 2);
-    for (let i = start; i <= end; i++) nums.push(i);
-    return nums;
-  };
-
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-7 max-w-[1400px] mx-auto">
+      <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-slate-900 text-xl font-bold">Users</h1>
-          <p className="text-slate-500 text-sm mt-0.5">All users across all workspaces</p>
+          <h1 className="text-slate-900 text-2xl font-bold tracking-tight">Users</h1>
+          <p className="text-slate-400 text-sm mt-0.5">All users across every workspace on the platform</p>
         </div>
-        <span className="bg-indigo-50 text-indigo-700 text-sm font-semibold px-3 py-1 rounded-full border border-indigo-100">
-          {total.toLocaleString()} total
-        </span>
+        <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2">
+          <Users size={14} className="text-blue-500" />
+          <span className="text-blue-700 text-sm font-bold">{total.toLocaleString()}</span>
+          <span className="text-blue-400 text-xs">users</span>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3 mb-5">
-        <div className="relative flex-1 min-w-[220px] max-w-sm">
+      {/* Filter bar */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-5 flex flex-wrap items-center gap-3">
+        <SlidersHorizontal size={13} className="text-slate-400 flex-shrink-0" />
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name or email…"
-            className="w-full bg-white border border-slate-200 text-slate-900 text-sm rounded-xl pl-9 pr-3 py-2 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent shadow-sm"
+            className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg pl-8 pr-3 py-1.5 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
         </div>
-        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
           {(['all', 'active', 'suspended'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
               className={cn(
-                'px-3 py-1.5 text-xs font-medium rounded-lg transition-colors capitalize',
-                statusFilter === s ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
+                'px-3 py-1 text-xs font-medium rounded-md transition-colors capitalize',
+                statusFilter === s ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700',
               )}
             >
               {s}
             </button>
           ))}
         </div>
+        {(search || statusFilter !== 'all') && (
+          <button onClick={() => { setSearch(''); setStatusFilter('all'); }} className="text-slate-400 hover:text-slate-600 text-xs transition-colors">
+            Clear
+          </button>
+        )}
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/60">
-                {['User', 'Workspace', 'Role', 'Status', 'Last Login', 'Actions'].map((h) => (
-                  <th key={h} className={cn('px-4 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider', h === 'Actions' ? 'text-right' : 'text-left')}>
-                    {h}
-                  </th>
-                ))}
+              <tr className="border-b border-slate-100">
+                <th className="text-left px-5 py-3.5 text-slate-400 text-[11px] font-semibold uppercase tracking-wider">User</th>
+                <th className="text-left px-5 py-3.5 text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Workspace</th>
+                <th className="text-left px-5 py-3.5 text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Role</th>
+                <th className="text-left px-5 py-3.5 text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Status</th>
+                <th className="text-left px-5 py-3.5 text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Last Login</th>
+                <th className="text-right px-5 py-3.5 text-slate-400 text-[11px] font-semibold uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -153,66 +152,62 @@ export default function UsersPage() {
                   <td colSpan={6} className="text-center py-16">
                     <div className="flex items-center justify-center gap-2 text-slate-400">
                       <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-sm">Loading users…</span>
+                      <span className="text-sm">Loading…</span>
                     </div>
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-16">
-                    <div className="flex flex-col items-center gap-2 text-slate-400">
-                      <Users size={24} className="text-slate-300" />
-                      <span className="text-sm">No users found</span>
-                    </div>
+                  <td colSpan={6} className="text-center py-20">
+                    <Users size={28} className="text-slate-200 mx-auto mb-2" />
+                    <p className="text-slate-400 text-sm">No users found</p>
                   </td>
                 </tr>
               ) : users.map((u) => (
-                <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3">
+                <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors group">
+                  <td className="px-5 py-3.5">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 text-[10px] font-bold flex-shrink-0">
+                      <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 text-[10px] font-bold flex-shrink-0">
                         {u.name?.slice(0, 2).toUpperCase() ?? 'U'}
                       </div>
                       <div>
-                        <p className="text-slate-800 text-sm font-semibold">{u.name}</p>
+                        <p className="text-slate-800 text-sm font-semibold leading-tight">{u.name}</p>
                         <p className="text-slate-400 text-xs">{u.email}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="text-slate-700 text-sm">{u.tenant.name}</p>
-                    <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full border uppercase', PLAN_BADGE[u.tenant.plan] ?? PLAN_BADGE.free)}>
+                  <td className="px-5 py-3.5">
+                    <p className="text-slate-700 text-sm font-medium">{u.tenant.name}</p>
+                    <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full border uppercase tracking-wide', PLAN_BADGE[u.tenant.plan] ?? PLAN_BADGE.FREE)}>
                       {u.tenant.plan}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border capitalize', ROLE_BADGE[u.role] ?? 'bg-slate-100 text-slate-500 border-slate-200')}>
-                      {u.role.replace('_', ' ').toLowerCase()}
+                  <td className="px-5 py-3.5">
+                    <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border capitalize', ROLE_BADGE[u.role] ?? 'bg-slate-100 text-slate-500 border-slate-200')}>
+                      {u.role.replace(/_/g, ' ').toLowerCase()}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-5 py-3.5">
                     {u.isActive ? (
                       <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" /> Active
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Active
                       </span>
                     ) : (
                       <span className="flex items-center gap-1.5 text-red-500 text-xs font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" /> Suspended
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-400" /> Suspended
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">{relativeTime(u.lastLoginAt)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
+                  <td className="px-5 py-3.5 text-slate-400 text-xs">{relativeTime(u.lastLoginAt)}</td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => { void act(u.id, 'force-logout'); }}
                         disabled={!!actionLoading}
                         className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-30"
                         title="Force logout"
                       >
-                        {actionLoading === `${u.id}_force-logout` ? (
-                          <div className="w-3.5 h-3.5 border border-amber-500 border-t-transparent rounded-full animate-spin" />
-                        ) : <LogOut size={14} />}
+                        {actionLoading === `${u.id}_force-logout` ? <div className="w-3.5 h-3.5 border border-amber-500 border-t-transparent rounded-full animate-spin" /> : <LogOut size={14} />}
                       </button>
                       {u.isActive ? (
                         <button
@@ -221,20 +216,16 @@ export default function UsersPage() {
                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30"
                           title="Suspend user"
                         >
-                          {actionLoading === `${u.id}_suspend` ? (
-                            <div className="w-3.5 h-3.5 border border-red-500 border-t-transparent rounded-full animate-spin" />
-                          ) : <Ban size={14} />}
+                          {actionLoading === `${u.id}_suspend` ? <div className="w-3.5 h-3.5 border border-red-500 border-t-transparent rounded-full animate-spin" /> : <Ban size={14} />}
                         </button>
                       ) : (
                         <button
                           onClick={() => { void act(u.id, 'reactivate'); }}
                           disabled={!!actionLoading}
                           className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-30"
-                          title="Reactivate user"
+                          title="Reactivate"
                         >
-                          {actionLoading === `${u.id}_reactivate` ? (
-                            <div className="w-3.5 h-3.5 border border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                          ) : <RefreshCw size={14} />}
+                          {actionLoading === `${u.id}_reactivate` ? <div className="w-3.5 h-3.5 border border-emerald-500 border-t-transparent rounded-full animate-spin" /> : <RefreshCw size={14} />}
                         </button>
                       )}
                     </div>
@@ -245,37 +236,23 @@ export default function UsersPage() {
           </table>
         </div>
 
-        {/* Pagination */}
         {pages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/40">
             <p className="text-slate-400 text-xs">
-              Page {page} of {pages} · <span className="font-medium text-slate-600">{total.toLocaleString()}</span> users
+              Page <span className="font-medium text-slate-600">{page}</span> of <span className="font-medium text-slate-600">{pages}</span>
+              {' · '}<span className="font-medium text-slate-600">{total.toLocaleString()}</span> users
             </p>
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors"
-              >
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors">
                 <ChevronLeft size={14} />
               </button>
-              {pageNumbers().map((n) => (
-                <button
-                  key={n}
-                  onClick={() => setPage(n)}
-                  className={cn(
-                    'w-7 h-7 text-xs font-medium rounded-lg transition-colors',
-                    n === page ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100',
-                  )}
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                onClick={() => setPage((p) => Math.min(pages, p + 1))}
-                disabled={page === pages}
-                className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors"
-              >
+              {Array.from({ length: Math.min(5, pages) }, (_, i) => {
+                const n = Math.max(1, Math.min(pages - 4, page - 2)) + i;
+                return n <= pages ? (
+                  <button key={n} onClick={() => setPage(n)} className={cn('w-7 h-7 text-xs font-medium rounded-lg transition-colors', n === page ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100')}>{n}</button>
+                ) : null;
+              })}
+              <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages} className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors">
                 <ChevronRight size={14} />
               </button>
             </div>

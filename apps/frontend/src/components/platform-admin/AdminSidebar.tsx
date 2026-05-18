@@ -3,14 +3,14 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Building2, Users, BarChart3, Settings,
-  LogOut, Radio, ScrollText, Zap,
+  LogOut, Radio, ScrollText, Zap, ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAdminStore } from '@/store/admin.store';
 import { adminAuthApi } from '@/lib/admin-api';
 
 const NAV = [
-  { href: '/platform-admin',           icon: LayoutDashboard, label: 'Dashboard'   },
+  { href: '/platform-admin',           icon: LayoutDashboard, label: 'Overview'    },
   { href: '/platform-admin/workspaces', icon: Building2,       label: 'Workspaces'  },
   { href: '/platform-admin/users',      icon: Users,           label: 'Users'       },
   { href: '/platform-admin/channels',   icon: Radio,           label: 'Channels'    },
@@ -35,24 +35,26 @@ export default function AdminSidebar() {
     : 'SA';
 
   return (
-    <aside className="w-60 flex flex-col h-full flex-shrink-0" style={{ backgroundColor: '#0c1117' }}>
+    <aside className="w-56 flex flex-col h-full flex-shrink-0 select-none" style={{ backgroundColor: '#0a0f1a', borderRight: '1px solid rgba(255,255,255,0.04)' }}>
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-white/[0.06]">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/30">
-            <Zap size={15} className="text-white" fill="white" />
+      <div className="px-4 pt-5 pb-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Zap size={13} className="text-white" fill="white" />
           </div>
-          <div>
-            <p className="text-white text-sm font-bold leading-tight tracking-tight">VerzChat</p>
-            <p className="text-white/30 text-[9px] uppercase tracking-[0.12em] font-medium">Admin Console</p>
+          <div className="min-w-0">
+            <p className="text-white text-sm font-bold leading-none">VerzChat</p>
+            <p className="text-white/25 text-[9px] uppercase tracking-[0.14em] font-medium mt-0.5">Admin Console</p>
           </div>
         </div>
       </div>
 
+      <div className="mx-4 border-t border-white/[0.05] mb-3" />
+
       {/* Nav */}
-      <nav className="flex-1 px-3 py-5 overflow-y-auto">
-        <p className="text-white/25 text-[9px] uppercase tracking-[0.15em] font-semibold px-3 mb-2.5">Platform</p>
-        <div className="space-y-0.5">
+      <nav className="flex-1 px-2 overflow-y-auto">
+        <p className="text-white/20 text-[9px] uppercase tracking-[0.16em] font-bold px-2 mb-2">Platform</p>
+        <div className="space-y-px">
           {NAV.map(({ href, icon: Icon, label }) => {
             const isActive = href === '/platform-admin'
               ? pathname === '/platform-admin'
@@ -62,14 +64,17 @@ export default function AdminSidebar() {
                 key={href}
                 href={href}
                 className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150',
+                  'group flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-all',
                   isActive
-                    ? 'bg-indigo-500/15 text-indigo-400'
-                    : 'text-white/45 hover:text-white/85 hover:bg-white/[0.05]',
+                    ? 'bg-indigo-500/20 text-indigo-300'
+                    : 'text-white/35 hover:text-white/70 hover:bg-white/[0.04]',
                 )}
               >
-                <Icon size={14} className="flex-shrink-0" />
-                {label}
+                <div className="flex items-center gap-2.5">
+                  <Icon size={13} className="flex-shrink-0" />
+                  {label}
+                </div>
+                {isActive && <ChevronRight size={10} className="text-indigo-400/60" />}
               </Link>
             );
           })}
@@ -77,21 +82,21 @@ export default function AdminSidebar() {
       </nav>
 
       {/* Admin profile */}
-      <div className="border-t border-white/[0.06] px-3 py-3">
-        <div className="group flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.05] transition-all cursor-default">
-          <div className="w-7 h-7 rounded-full border border-indigo-500/50 bg-indigo-500/15 flex items-center justify-center text-indigo-400 text-[10px] font-bold flex-shrink-0">
+      <div className="p-2 border-t border-white/[0.05]">
+        <div className="group flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/[0.04] transition-all cursor-default">
+          <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300 text-[10px] font-bold flex-shrink-0">
             {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white/80 text-xs font-semibold truncate">{admin?.name ?? 'Admin'}</p>
-            <p className="text-white/30 text-[10px] truncate">{admin?.email ?? ''}</p>
+            <p className="text-white/75 text-[11px] font-semibold truncate leading-none">{admin?.name ?? 'Admin'}</p>
+            <p className="text-white/25 text-[9px] truncate mt-0.5">{admin?.email ?? ''}</p>
           </div>
           <button
             onClick={() => { void handleLogout(); }}
-            className="opacity-0 group-hover:opacity-100 p-1 text-white/30 hover:text-red-400 hover:bg-red-500/10 rounded transition-all flex-shrink-0"
+            className="opacity-0 group-hover:opacity-100 p-1 text-white/25 hover:text-red-400 rounded-md transition-all flex-shrink-0"
             title="Sign out"
           >
-            <LogOut size={12} />
+            <LogOut size={11} />
           </button>
         </div>
       </div>
