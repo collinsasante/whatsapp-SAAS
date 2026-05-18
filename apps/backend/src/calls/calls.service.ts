@@ -127,7 +127,7 @@ export class CallsService {
   }
 
   async update(tenantId: string, id: string, dto: UpdateCallDto) {
-    await this.findOne(tenantId, id);
+    const existing = await this.findOne(tenantId, id);
     const call = await this.prisma.callLog.update({
       where: { id },
       data: {
@@ -142,6 +142,21 @@ export class CallsService {
       },
       include: CALL_INCLUDE,
     });
+
+    // Log call activity when a terminal status is set via the app (hang-up, cancel, etc.)
+    // The Meta webhook path already calls logCallActivity; guard against double-logging.
+    const TERMINAL_STATUSES = new Set([
+      CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED,
+      CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.FAILED,
+    ]);
+    const wasAlreadyTerminal = existing?.status != null && TERMINAL_STATUSES.has(existing.status as CallStatus);
+    if (dto.status && TERMINAL_STATUSES.has(dto.status as CallStatus) && !wasAlreadyTerminal) {
+      void this.logCallActivity(
+        tenantId,
+        call as unknown as CallRecord,
+        this.statusToActivityAction(dto.status as CallStatus),
+      );
+    }
 
     // Backfill recording URL into the CALL_ENDED activity log so the chat window can render
     // the audio player — the log is created before upload completes so recordingUrl was null.
