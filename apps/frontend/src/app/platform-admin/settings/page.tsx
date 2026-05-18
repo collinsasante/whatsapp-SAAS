@@ -1,30 +1,82 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Save, Plus, AlertCircle, CheckCircle2, Settings } from 'lucide-react';
+import { Save, Plus, AlertCircle, CheckCircle2, Settings, Lock, Sliders, Cpu, Puzzle } from 'lucide-react';
 import { adminSettingsApi } from '@/lib/admin-api';
+import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 interface PlatformSetting {
   id: string; key: string; value: unknown; description: string | null; updatedAt: string; updatedBy: string | null;
 }
 
-const DEFAULT_SETTINGS = [
-  { key: 'maintenance_mode', value: false, description: 'Put the platform in maintenance mode (blocks all workspace logins)' },
-  { key: 'registration_enabled', value: true, description: 'Allow new workspace registrations' },
-  { key: 'max_free_agents', value: 3, description: 'Maximum agents allowed on the free plan' },
-  { key: 'max_free_contacts', value: 500, description: 'Maximum contacts allowed on the free plan' },
-  { key: 'max_free_messages_per_day', value: 1000, description: 'Maximum messages per day on the free plan' },
-  { key: 'ai_enabled', value: true, description: 'Enable AI features across the platform' },
-  { key: 'upload_max_mb', value: 64, description: 'Maximum file upload size in MB' },
-  { key: 'default_plan', value: 'free', description: 'Default plan assigned to new workspaces' },
-  { key: 'support_email', value: '', description: 'Platform support email address' },
+interface SettingDef {
+  key: string;
+  label: string;
+  description: string;
+  type: 'boolean' | 'number' | 'text' | 'select';
+  options?: string[];
+  section: string;
+}
+
+const SETTING_DEFS: SettingDef[] = [
+  // Access & Registration
+  { key: 'registration_enabled', label: 'New Registrations', description: 'Allow new workspace registrations on the platform', type: 'boolean', section: 'Access & Registration' },
+  { key: 'maintenance_mode', label: 'Maintenance Mode', description: 'Put the platform in maintenance mode — blocks all workspace logins', type: 'boolean', section: 'Access & Registration' },
+  { key: 'default_plan', label: 'Default Plan', description: 'Plan assigned to newly registered workspaces', type: 'select', options: ['FREE', 'PRO', 'BUSINESS', 'ENTERPRISE'], section: 'Access & Registration' },
+  { key: 'support_email', label: 'Support Email', description: 'Platform support email shown to users', type: 'text', section: 'Access & Registration' },
+  // Limits & Quotas
+  { key: 'max_free_agents', label: 'Free Plan Agent Limit', description: 'Maximum agents allowed on the free plan', type: 'number', section: 'Limits & Quotas' },
+  { key: 'max_free_contacts', label: 'Free Plan Contact Limit', description: 'Maximum contacts allowed on the free plan', type: 'number', section: 'Limits & Quotas' },
+  { key: 'max_free_messages_per_day', label: 'Free Plan Daily Messages', description: 'Maximum messages per day on the free plan', type: 'number', section: 'Limits & Quotas' },
+  { key: 'upload_max_mb', label: 'Max Upload Size (MB)', description: 'Maximum file upload size in megabytes', type: 'number', section: 'Limits & Quotas' },
+  // Features
+  { key: 'ai_enabled', label: 'AI Features', description: 'Enable or disable AI features across the entire platform', type: 'boolean', section: 'Features' },
 ];
+
+const SECTION_ICONS: Record<string, React.ElementType> = {
+  'Access & Registration': Lock,
+  'Limits & Quotas': Sliders,
+  'Features': Cpu,
+  'Custom': Puzzle,
+};
+
+const DEFAULT_VALUES: Record<string, unknown> = {
+  maintenance_mode: false,
+  registration_enabled: true,
+  max_free_agents: 3,
+  max_free_contacts: 500,
+  max_free_messages_per_day: 1000,
+  ai_enabled: true,
+  upload_max_mb: 64,
+  default_plan: 'FREE',
+  support_email: '',
+};
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative w-10 h-5.5 h-[22px] rounded-full transition-colors flex-shrink-0',
+        checked ? 'bg-indigo-600' : 'bg-slate-200',
+      )}
+    >
+      <span
+        className={cn(
+          'absolute top-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm transition-transform',
+          checked ? 'translate-x-[20px]' : 'translate-x-[2px]',
+        )}
+      />
+    </button>
+  );
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<PlatformSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [editValues, setEditValues] = useState<Record<string, unknown>>({});
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -34,8 +86,8 @@ export default function SettingsPage() {
       .then((r) => {
         const existing = r.data as PlatformSetting[];
         setSettings(existing);
-        const vals: Record<string, string> = {};
-        existing.forEach((s) => { vals[s.key] = JSON.stringify(s.value); });
+        const vals: Record<string, unknown> = {};
+        existing.forEach((s) => { vals[s.key] = s.value; });
         setEditValues(vals);
       })
       .catch(() => toast.error('Failed to load settings'))
@@ -43,21 +95,17 @@ export default function SettingsPage() {
   }, []);
 
   const handleSave = async (key: string, description?: string | null) => {
-    const rawVal = editValues[key] ?? '';
-    let parsed: unknown;
-    try { parsed = JSON.parse(rawVal); }
-    catch { parsed = rawVal; } // treat as string if not valid JSON
-
+    const rawVal = editValues[key] ?? DEFAULT_VALUES[key] ?? '';
     setSaving(key);
     try {
-      const res = await adminSettingsApi.upsert(key, parsed, description ?? undefined);
+      const res = await adminSettingsApi.upsert(key, rawVal, description ?? undefined);
       const updated = res.data as PlatformSetting;
       setSettings((prev) => {
         const idx = prev.findIndex((s) => s.key === key);
         if (idx >= 0) { const next = [...prev]; next[idx] = updated; return next; }
         return [...prev, updated];
       });
-      toast.success(`Setting "${key}" saved`);
+      toast.success(`"${key}" saved`);
     } catch { toast.error('Failed to save setting'); }
     finally { setSaving(null); }
   };
@@ -72,135 +120,249 @@ export default function SettingsPage() {
       const res = await adminSettingsApi.upsert(newKey.trim(), parsed, newDesc || undefined);
       const created = res.data as PlatformSetting;
       setSettings((prev) => [...prev.filter((s) => s.key !== newKey.trim()), created]);
-      setEditValues((prev) => ({ ...prev, [newKey.trim()]: newValue }));
+      setEditValues((prev) => ({ ...prev, [newKey.trim()]: parsed }));
       setNewKey(''); setNewValue(''); setNewDesc('');
       toast.success(`Setting "${newKey.trim()}" created`);
     } catch { toast.error('Failed to create setting'); }
     finally { setSaving(null); }
   };
 
-  // Merge stored + defaults
-  const mergedSettings = [
-    ...DEFAULT_SETTINGS.filter((d) => !settings.find((s) => s.key === d.key)),
-    ...settings,
-  ].sort((a, b) => a.key.localeCompare(b.key));
+  const getValue = (key: string) => {
+    return key in editValues ? editValues[key] : DEFAULT_VALUES[key];
+  };
+
+  const getStored = (key: string) => settings.find((s) => s.key === key);
+
+  const isDirty = (def: SettingDef) => {
+    const stored = getStored(def.key);
+    const currentVal = getValue(def.key);
+    const storedVal = stored?.value ?? DEFAULT_VALUES[def.key];
+    return JSON.stringify(currentVal) !== JSON.stringify(storedVal);
+  };
+
+  // Group known settings by section
+  const sections = ['Access & Registration', 'Limits & Quotas', 'Features'];
+
+  // Find custom settings (in DB but not in SETTING_DEFS)
+  const knownKeys = new Set(SETTING_DEFS.map((d) => d.key));
+  const customSettings = settings.filter((s) => !knownKeys.has(s.key));
 
   if (loading) return (
-    <div className="p-6 flex items-center justify-center py-20">
-      <div className="w-6 h-6 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
+    <div className="p-6 flex items-center justify-center py-24">
+      <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
+  const maintenanceSetting = settings.find((s) => s.key === 'maintenance_mode');
+  const maintenanceOn = (getValue('maintenance_mode') as boolean) === true;
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
+      {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-white text-xl font-bold">Platform Settings</h1>
-        <p className="text-gray-500 text-sm mt-0.5">Global configuration for the entire platform</p>
+        <h1 className="text-slate-900 text-xl font-bold">Settings</h1>
+        <p className="text-slate-500 text-sm mt-0.5">Platform-wide configuration</p>
       </div>
 
       {/* Maintenance banner */}
-      {(() => {
-        const maintenanceSetting = settings.find((s) => s.key === 'maintenance_mode');
-        if (maintenanceSetting?.value) {
-          return (
-            <div className="flex items-center gap-3 bg-amber-950/60 border border-amber-900 rounded-xl px-4 py-3 mb-5">
-              <AlertCircle size={14} className="text-amber-400 flex-shrink-0" />
-              <p className="text-amber-400 text-sm font-medium">Maintenance mode is ON — workspace logins are blocked</p>
-            </div>
-          );
-        }
-        return null;
-      })()}
-
-      {/* Settings list */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl divide-y divide-gray-800 mb-5">
-        {mergedSettings.map((setting) => {
-          const key = setting.key;
-          const storedSetting = settings.find((s) => s.key === key);
-          const isDirty = storedSetting
-            ? editValues[key] !== JSON.stringify(storedSetting.value)
-            : (editValues[key] ?? '') !== '';
-          const isBoolean = typeof (storedSetting?.value ?? (DEFAULT_SETTINGS.find((d) => d.key === key)?.value)) === 'boolean';
-
-          return (
-            <div key={key} className="px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <code className="text-rose-400 text-xs font-mono bg-rose-950/30 px-1.5 py-0.5 rounded">{key}</code>
-                    {storedSetting ? (
-                      <span className="text-emerald-400 text-[10px] flex items-center gap-0.5"><CheckCircle2 size={9} />Saved</span>
-                    ) : (
-                      <span className="text-gray-600 text-[10px]">Default</span>
-                    )}
-                    {storedSetting?.updatedAt && (
-                      <span className="text-gray-700 text-[10px]">· {new Date(storedSetting.updatedAt).toLocaleDateString()}</span>
-                    )}
-                  </div>
-                  <p className="text-gray-600 text-xs mb-2">{storedSetting?.description ?? (DEFAULT_SETTINGS.find((d) => d.key === key)?.description ?? '')}</p>
-
-                  {isBoolean ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          const current = editValues[key];
-                          const newVal = current === 'true' ? 'false' : 'true';
-                          setEditValues((prev) => ({ ...prev, [key]: newVal }));
-                        }}
-                        className={`relative w-9 h-5 rounded-full transition-colors ${editValues[key] === 'true' ? 'bg-rose-600' : 'bg-gray-700'}`}
-                      >
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow ${editValues[key] === 'true' ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                      </button>
-                      <span className="text-gray-400 text-xs">{editValues[key] === 'true' ? 'Enabled' : 'Disabled'}</span>
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      value={editValues[key] ?? (storedSetting ? JSON.stringify(storedSetting.value) : JSON.stringify(DEFAULT_SETTINGS.find((d) => d.key === key)?.value ?? ''))}
-                      onChange={(e) => setEditValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                      className="bg-gray-800 border border-gray-700 text-white text-xs rounded-lg px-3 py-1.5 w-full max-w-xs font-mono focus:outline-none focus:ring-2 focus:ring-rose-600"
-                    />
-                  )}
-                </div>
-
-                <button
-                  onClick={() => { void handleSave(key, storedSetting?.description ?? DEFAULT_SETTINGS.find((d) => d.key === key)?.description); }}
-                  disabled={!isDirty || saving === key}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-30 text-white text-xs font-semibold rounded-lg transition-colors flex-shrink-0"
-                >
-                  {saving === key ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={11} />}
-                  Save
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Add custom setting */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Settings size={13} className="text-gray-400" />
-          <h2 className="text-gray-300 text-sm font-semibold">Add Custom Setting</h2>
+      {maintenanceOn && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+          <AlertCircle size={15} className="text-amber-600 flex-shrink-0" />
+          <p className="text-amber-700 text-sm font-medium">Maintenance mode is <strong>ON</strong> — workspace logins are currently blocked</p>
         </div>
-        <div className="grid grid-cols-1 gap-3">
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="block text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Key</label>
-              <input type="text" value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="setting_key"
-                className="w-full bg-gray-800 border border-gray-700 text-white text-xs rounded-lg px-3 py-2 font-mono placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-600" />
+      )}
+
+      {/* Settings sections */}
+      {sections.map((section) => {
+        const defs = SETTING_DEFS.filter((d) => d.section === section);
+        const SectionIcon = SECTION_ICONS[section] ?? Settings;
+        return (
+          <div key={section} className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-5 overflow-hidden">
+            {/* Section header */}
+            <div className="flex items-center gap-2.5 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
+              <SectionIcon size={14} className="text-slate-500" />
+              <h2 className="text-slate-800 text-sm font-semibold">{section}</h2>
             </div>
-            <div className="flex-1">
-              <label className="block text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-1">Value (JSON)</label>
-              <input type="text" value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder='"value" or true or 42'
-                className="w-full bg-gray-800 border border-gray-700 text-white text-xs rounded-lg px-3 py-2 font-mono placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-600" />
+            <div className="divide-y divide-slate-100">
+              {defs.map((def) => {
+                const stored = getStored(def.key);
+                const currentVal = getValue(def.key);
+                const dirty = isDirty(def);
+
+                return (
+                  <div key={def.key} className="px-5 py-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <p className="text-slate-800 text-sm font-semibold">{def.label}</p>
+                          {stored ? (
+                            <span className="text-emerald-600 text-[10px] flex items-center gap-0.5 font-medium">
+                              <CheckCircle2 size={9} /> Saved
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">Default</span>
+                          )}
+                          {stored?.updatedAt && (
+                            <span className="text-slate-300 text-[10px]">· {new Date(stored.updatedAt).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                        <p className="text-slate-400 text-xs mb-3">{def.description}</p>
+
+                        {def.type === 'boolean' ? (
+                          <div className="flex items-center gap-2.5">
+                            <Toggle
+                              checked={currentVal === true}
+                              onChange={(v) => setEditValues((prev) => ({ ...prev, [def.key]: v }))}
+                            />
+                            <span className={cn('text-sm font-medium', currentVal === true ? 'text-indigo-600' : 'text-slate-400')}>
+                              {currentVal === true ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        ) : def.type === 'number' ? (
+                          <input
+                            type="number"
+                            value={typeof currentVal === 'number' ? currentVal : (parseInt(String(currentVal), 10) || 0)}
+                            onChange={(e) => setEditValues((prev) => ({ ...prev, [def.key]: parseInt(e.target.value, 10) || 0 }))}
+                            className="bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 w-40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                        ) : def.type === 'select' && def.options ? (
+                          <select
+                            value={String(currentVal ?? '')}
+                            onChange={(e) => setEditValues((prev) => ({ ...prev, [def.key]: e.target.value }))}
+                            className="bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          >
+                            {def.options.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={String(currentVal ?? '')}
+                            onChange={(e) => setEditValues((prev) => ({ ...prev, [def.key]: e.target.value }))}
+                            placeholder={def.key}
+                            className="bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 w-72 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                          />
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => { void handleSave(def.key, def.description); }}
+                        disabled={!dirty || saving === def.key}
+                        className={cn(
+                          'flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl transition-colors flex-shrink-0 mt-6',
+                          dirty
+                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-500/20'
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed',
+                        )}
+                      >
+                        {saving === def.key ? (
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <Save size={12} />
+                        )}
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <input type="text" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Description (optional)"
-            className="w-full bg-gray-800 border border-gray-700 text-white text-xs rounded-lg px-3 py-2 placeholder-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-600" />
-          <button onClick={() => { void handleAddNew(); }} disabled={!newKey.trim() || saving === '__new__'}
-            className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-30 text-white text-xs font-semibold rounded-lg transition-colors w-fit">
-            {saving === '__new__' ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={11} />}
+        );
+      })}
+
+      {/* Custom settings */}
+      {customSettings.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-5 overflow-hidden">
+          <div className="flex items-center gap-2.5 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
+            <Puzzle size={14} className="text-slate-500" />
+            <h2 className="text-slate-800 text-sm font-semibold">Custom</h2>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {customSettings.map((s) => (
+              <div key={s.key} className="px-5 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <code className="text-indigo-600 text-xs font-mono bg-indigo-50 px-1.5 py-0.5 rounded">{s.key}</code>
+                      <span className="text-emerald-600 text-[10px] flex items-center gap-0.5 font-medium">
+                        <CheckCircle2 size={9} /> Saved
+                      </span>
+                      <span className="text-slate-300 text-[10px]">· {new Date(s.updatedAt).toLocaleDateString()}</span>
+                    </div>
+                    {s.description && <p className="text-slate-400 text-xs mb-2">{s.description}</p>}
+                    <input
+                      type="text"
+                      value={String(editValues[s.key] ?? JSON.stringify(s.value))}
+                      onChange={(e) => setEditValues((prev) => ({ ...prev, [s.key]: e.target.value }))}
+                      className="bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 w-72 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button
+                    onClick={() => { void handleSave(s.key, s.description); }}
+                    disabled={saving === s.key}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl disabled:opacity-40 transition-colors flex-shrink-0 mt-6"
+                  >
+                    {saving === s.key ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save size={12} />}
+                    Save
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add custom setting */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-slate-100 bg-slate-50/60">
+          <Plus size={14} className="text-slate-500" />
+          <h2 className="text-slate-800 text-sm font-semibold">Add Custom Setting</h2>
+        </div>
+        <div className="p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="block text-xs text-slate-600 font-medium mb-1.5">Key</label>
+              <input
+                type="text"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+                placeholder="setting_key"
+                className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 font-medium mb-1.5">Value (JSON or plain)</label>
+              <input
+                type="text"
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                placeholder='"value" or true or 42'
+                className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 font-mono placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className="block text-xs text-slate-600 font-medium mb-1.5">Description <span className="text-slate-400">(optional)</span></label>
+            <input
+              type="text"
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              placeholder="What does this setting control?"
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-3.5 py-2 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+          <button
+            onClick={() => { void handleAddNew(); }}
+            disabled={!newKey.trim() || saving === '__new__'}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-indigo-500/20"
+          >
+            {saving === '__new__' ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Plus size={13} />
+            )}
             Add Setting
           </button>
         </div>

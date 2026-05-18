@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Search, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Radio } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Radio, MessageCircle, Instagram, Mail, Globe } from 'lucide-react';
 import { adminChannelsApi } from '@/lib/admin-api';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -10,19 +10,36 @@ interface Channel {
   tenant: { id: string; name: string; plan: string };
 }
 
-const CHANNEL_ICONS: Record<string, string> = {
-  WHATSAPP: '💬', INSTAGRAM: '📸', FACEBOOK_MESSENGER: '💙', TELEGRAM: '✈️', EMAIL: '📧', TIKTOK: '🎵', WEB_CHAT: '🌐',
+const TYPE_BADGE: Record<string, string> = {
+  WHATSAPP: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  INSTAGRAM: 'bg-pink-50 text-pink-700 border-pink-200',
+  FACEBOOK_MESSENGER: 'bg-blue-50 text-blue-700 border-blue-200',
+  TELEGRAM: 'bg-sky-50 text-sky-700 border-sky-200',
+  EMAIL: 'bg-orange-50 text-orange-700 border-orange-200',
+  TIKTOK: 'bg-slate-100 text-slate-600 border-slate-200',
+  WEB_CHAT: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 
-const TYPE_COLORS: Record<string, string> = {
-  WHATSAPP: 'text-emerald-400 bg-emerald-950/40 border-emerald-900/50',
-  INSTAGRAM: 'text-pink-400 bg-pink-950/40 border-pink-900/50',
-  FACEBOOK_MESSENGER: 'text-blue-400 bg-blue-950/40 border-blue-900/50',
-  TELEGRAM: 'text-sky-400 bg-sky-950/40 border-sky-900/50',
-  EMAIL: 'text-amber-400 bg-amber-950/40 border-amber-900/50',
-  TIKTOK: 'text-gray-300 bg-gray-800 border-gray-700',
-  WEB_CHAT: 'text-violet-400 bg-violet-950/40 border-violet-900/50',
+const TYPE_DOT: Record<string, string> = {
+  WHATSAPP: 'bg-emerald-500',
+  INSTAGRAM: 'bg-pink-500',
+  FACEBOOK_MESSENGER: 'bg-blue-500',
+  TELEGRAM: 'bg-sky-500',
+  EMAIL: 'bg-orange-500',
+  TIKTOK: 'bg-slate-500',
+  WEB_CHAT: 'bg-gray-500',
 };
+
+function TypeIcon({ type }: { type: string }) {
+  const cls = 'flex-shrink-0';
+  if (type === 'WHATSAPP') return <MessageCircle size={14} className={cn(cls, 'text-emerald-600')} />;
+  if (type === 'INSTAGRAM') return <Instagram size={14} className={cn(cls, 'text-pink-600')} />;
+  if (type === 'EMAIL') return <Mail size={14} className={cn(cls, 'text-orange-500')} />;
+  if (type === 'WEB_CHAT') return <Globe size={14} className={cn(cls, 'text-gray-500')} />;
+  return <Radio size={14} className={cn(cls, 'text-slate-500')} />;
+}
+
+const ALL_TYPES = ['WHATSAPP', 'INSTAGRAM', 'FACEBOOK_MESSENGER', 'TELEGRAM', 'EMAIL', 'WEB_CHAT'];
 
 export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -31,6 +48,7 @@ export default function ChannelsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState('');
+  const [typeCounts, setTypeCounts] = useState<Record<string, number>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,6 +58,14 @@ export default function ChannelsPage() {
       setChannels(data.data);
       setTotal(data.total);
       setPages(data.pages);
+      // Only recalculate counts when no filter is active (to show global counts)
+      if (!typeFilter) {
+        const counts: Record<string, number> = {};
+        (data.data as Channel[]).forEach((ch) => {
+          counts[ch.type] = (counts[ch.type] ?? 0) + 1;
+        });
+        setTypeCounts(counts);
+      }
     } catch { toast.error('Failed to load channels'); }
     finally { setLoading(false); }
   }, [page, typeFilter]);
@@ -48,111 +74,162 @@ export default function ChannelsPage() {
   useEffect(() => { setPage(1); }, [typeFilter]);
 
   const activeCount = channels.filter((c) => c.isActive).length;
-  const inactiveCount = channels.filter((c) => !c.isActive).length;
+
+  const statCards = ALL_TYPES.map((t) => ({ type: t, count: typeCounts[t] ?? 0 }))
+    .filter((s) => s.count > 0);
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-white text-xl font-bold">Channels</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{total} total · {activeCount} active · {inactiveCount} inactive</p>
+          <h1 className="text-slate-900 text-xl font-bold">Channels</h1>
+          <p className="text-slate-500 text-sm mt-0.5">All connected channels across workspaces</p>
         </div>
+        <span className="bg-indigo-50 text-indigo-700 text-sm font-semibold px-3 py-1 rounded-full border border-indigo-100">
+          {total.toLocaleString()} total
+        </span>
       </div>
 
-      {/* Quick stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        {Object.entries(
-          channels.reduce<Record<string, number>>((acc, ch) => {
-            acc[ch.type] = (acc[ch.type] ?? 0) + 1;
-            return acc;
-          }, {})
-        ).map(([type, count]) => (
-          <button key={type} onClick={() => setTypeFilter((v) => v === type ? '' : type)}
-            className={cn('bg-gray-900 border rounded-xl p-3 text-center transition-colors',
-              typeFilter === type ? 'border-rose-700' : 'border-gray-800 hover:border-gray-700')}>
-            <p className="text-xl mb-1">{CHANNEL_ICONS[type] ?? '📡'}</p>
-            <p className="text-white text-sm font-bold">{count}</p>
-            <p className="text-gray-600 text-[10px] capitalize">{type.replace('_', ' ').toLowerCase()}</p>
+      {/* Stat cards by type */}
+      {statCards.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-5">
+          {statCards.map(({ type, count }) => (
+            <button
+              key={type}
+              onClick={() => setTypeFilter((v) => v === type ? '' : type)}
+              className={cn(
+                'bg-white rounded-xl p-4 shadow-sm border text-left transition-all hover:shadow-md',
+                typeFilter === type ? 'border-indigo-300 ring-2 ring-indigo-500/20' : 'border-slate-200',
+              )}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', TYPE_DOT[type] ?? 'bg-slate-400')} />
+                <span className="text-slate-500 text-xs font-medium">{type.replace(/_/g, ' ')}</span>
+              </div>
+              <p className="text-slate-900 text-xl font-bold">{count}</p>
+              <p className="text-slate-400 text-[10px] mt-0.5">channels</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Type filter pills */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <button
+          onClick={() => setTypeFilter('')}
+          className={cn(
+            'px-3 py-1.5 text-xs font-medium rounded-full border transition-colors',
+            !typeFilter ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300',
+          )}
+        >
+          All types
+        </button>
+        {ALL_TYPES.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTypeFilter((v) => v === t ? '' : t)}
+            className={cn(
+              'px-3 py-1.5 text-xs font-medium rounded-full border transition-colors',
+              typeFilter === t
+                ? (TYPE_BADGE[t] ?? 'bg-slate-100 text-slate-600 border-slate-200')
+                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300',
+            )}
+          >
+            {t.replace(/_/g, ' ')}
           </button>
         ))}
       </div>
 
-      {typeFilter && (
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-gray-500 text-xs">Filtering by:</span>
-          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full border', TYPE_COLORS[typeFilter] ?? 'text-gray-400 bg-gray-800 border-gray-700')}>
-            {typeFilter}
-          </span>
-          <button onClick={() => setTypeFilter('')} className="text-gray-600 hover:text-gray-400 text-xs">Clear</button>
-        </div>
-      )}
-
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+      {/* Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-800">
-                {['Channel', 'Type', 'Workspace', 'Status', 'Created'].map((h) => (
-                  <th key={h} className="text-left px-4 py-3 text-gray-500 text-xs font-semibold uppercase tracking-wider">{h}</th>
-                ))}
+              <tr className="border-b border-slate-100 bg-slate-50/60">
+                <th className="text-left px-4 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">Channel</th>
+                <th className="text-left px-4 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">Type</th>
+                <th className="text-left px-4 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">Workspace</th>
+                <th className="text-left px-4 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">Status</th>
+                <th className="text-left px-4 py-3 text-slate-500 text-xs font-semibold uppercase tracking-wider">Created</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="text-center py-12">
-                  <div className="flex items-center justify-center gap-2 text-gray-600">
-                    <div className="w-4 h-4 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm">Loading…</span>
-                  </div>
-                </td></tr>
+                <tr>
+                  <td colSpan={5} className="text-center py-16">
+                    <div className="flex items-center justify-center gap-2 text-slate-400">
+                      <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-sm">Loading channels…</span>
+                    </div>
+                  </td>
+                </tr>
               ) : channels.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-12">
-                  <div className="flex flex-col items-center gap-2 text-gray-600">
-                    <Radio size={20} className="text-gray-700" />
-                    <span className="text-sm">No channels found</span>
-                  </div>
-                </td></tr>
+                <tr>
+                  <td colSpan={5} className="text-center py-16">
+                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                      <Radio size={24} className="text-slate-300" />
+                      <span className="text-sm">No channels found</span>
+                    </div>
+                  </td>
+                </tr>
               ) : channels.map((ch) => (
-                <tr key={ch.id} className="border-b border-gray-800/60 hover:bg-gray-800/30 transition-colors">
+                <tr key={ch.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base flex-shrink-0">{CHANNEL_ICONS[ch.type] ?? '📡'}</span>
-                      <p className="text-white text-xs font-medium">{ch.name}</p>
+                    <div className="flex items-center gap-2.5">
+                      <TypeIcon type={ch.type} />
+                      <p className="text-slate-800 text-sm font-medium">{ch.name}</p>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border', TYPE_COLORS[ch.type] ?? 'text-gray-400 bg-gray-800 border-gray-700')}>
-                      {ch.type.replace('_', ' ')}
+                    <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded-full border uppercase', TYPE_BADGE[ch.type] ?? 'bg-slate-100 text-slate-500 border-slate-200')}>
+                      {ch.type.replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <p className="text-gray-300 text-xs">{ch.tenant.name}</p>
-                    <p className="text-gray-600 text-[10px] capitalize">{ch.tenant.plan}</p>
+                    <p className="text-slate-700 text-sm">{ch.tenant.name}</p>
+                    <p className="text-slate-400 text-xs uppercase">{ch.tenant.plan}</p>
                   </td>
                   <td className="px-4 py-3">
                     {ch.isActive ? (
-                      <span className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle2 size={10} />Active</span>
+                      <span className="flex items-center gap-1.5 text-emerald-600 text-xs font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" /> Active
+                      </span>
                     ) : (
-                      <span className="flex items-center gap-1 text-red-400 text-xs"><XCircle size={10} />Inactive</span>
+                      <span className="flex items-center gap-1.5 text-red-500 text-xs font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" /> Inactive
+                      </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600 text-xs">
-                    {new Date(ch.createdAt).toLocaleDateString()}
-                  </td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">{new Date(ch.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
 
+        {/* Pagination */}
         {pages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
-            <p className="text-gray-600 text-xs">Page {page} of {pages} · {total} channels</p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                className="p-1.5 text-gray-500 hover:text-white disabled:opacity-30 hover:bg-gray-800 rounded-lg transition-colors"><ChevronLeft size={14} /></button>
-              <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages}
-                className="p-1.5 text-gray-500 hover:text-white disabled:opacity-30 hover:bg-gray-800 rounded-lg transition-colors"><ChevronRight size={14} /></button>
+          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/40">
+            <p className="text-slate-400 text-xs">
+              Page {page} of {pages} · <span className="font-medium text-slate-600">{total}</span> channels
+              {typeFilter && <> · {activeCount} active</>}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                disabled={page === pages}
+                className="p-1.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <ChevronRight size={14} />
+              </button>
             </div>
           </div>
         )}

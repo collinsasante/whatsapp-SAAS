@@ -1,7 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Building2, Users, MessageSquare, Radio, BarChart3, TrendingUp, AlertCircle, CheckCircle2, Package } from 'lucide-react';
-import { adminDashboardApi } from '@/lib/admin-api';
+import {
+  Building2, Users, MessageSquare, Radio, BarChart3, TrendingUp,
+  AlertCircle, CheckCircle2, Package, Activity, Megaphone, Contact,
+  Gauge, ShieldCheck, Wrench, Sparkles,
+} from 'lucide-react';
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer,
+} from 'recharts';
+import { adminDashboardApi, adminAnalyticsApi, adminAuditApi, adminSettingsApi } from '@/lib/admin-api';
 import { cn } from '@/lib/utils';
 
 interface GlobalStats {
@@ -14,176 +22,349 @@ interface GlobalStats {
   contacts: { total: number };
 }
 
+interface AnalyticsData {
+  workspaceGrowth: { date: string; count: number }[];
+  messageVolume: { date: string; count: number }[];
+  activeUsers: { date: string; count: number }[];
+  planDistribution: { plan: string; count: number }[];
+  channelDistribution: { type: string; count: number }[];
+}
+
+interface AuditLog {
+  id: string; action: string; resourceType: string | null; resourceId: string | null;
+  metadata: Record<string, unknown> | null; ipAddress: string | null; createdAt: string;
+  admin: { id: string; email: string; name: string } | null;
+}
+
+interface PlatformSetting {
+  id: string; key: string; value: unknown; description: string | null; updatedAt: string;
+}
+
 function StatCard({
-  icon: Icon, label, value, sub, color, trend,
+  icon: Icon, label, value, sub, iconBg, trend,
 }: {
-  icon: React.ElementType;
-  label: string;
-  value: string | number;
-  sub?: string;
-  color: string;
-  trend?: string;
+  icon: React.ElementType; label: string; value: string | number; sub?: string; iconBg: string; trend?: string;
 }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-gray-700 transition-colors">
-      <div className="flex items-start justify-between mb-3">
-        <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', color)}>
-          <Icon size={16} className="text-white" />
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between mb-4">
+        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', iconBg)}>
+          <Icon size={17} className="text-white" />
         </div>
         {trend && (
-          <span className="text-xs text-emerald-400 font-medium bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-900/50">
+          <span className="text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
             {trend}
           </span>
         )}
       </div>
-      <p className="text-gray-500 text-xs font-medium mb-1">{label}</p>
-      <p className="text-white text-2xl font-bold">{typeof value === 'number' ? value.toLocaleString() : value}</p>
-      {sub && <p className="text-gray-600 text-xs mt-1">{sub}</p>}
+      <p className="text-slate-500 text-xs font-medium mb-1">{label}</p>
+      <p className="text-slate-900 text-2xl font-bold">{typeof value === 'number' ? value.toLocaleString() : value}</p>
+      {sub && <p className="text-slate-400 text-xs mt-1">{sub}</p>}
     </div>
   );
 }
 
+const ACTION_BADGE: Record<string, string> = {
+  ADMIN_LOGIN: 'bg-blue-50 text-blue-600 border-blue-100',
+  ADMIN_LOGOUT: 'bg-slate-100 text-slate-500 border-slate-200',
+  WORKSPACE_SUSPENDED: 'bg-red-50 text-red-600 border-red-100',
+  WORKSPACE_REACTIVATED: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+  WORKSPACE_DELETED: 'bg-red-50 text-red-700 border-red-100',
+  WORKSPACE_PLAN_CHANGED: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+  IMPERSONATION_STARTED: 'bg-amber-50 text-amber-600 border-amber-100',
+  USER_SUSPENDED: 'bg-orange-50 text-orange-600 border-orange-100',
+  USER_REACTIVATED: 'bg-teal-50 text-teal-600 border-teal-100',
+  SETTING_UPDATED: 'bg-purple-50 text-purple-600 border-purple-100',
+};
+
+function relativeTime(date: string) {
+  const diff = Date.now() - new Date(date).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<GlobalStats | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [settings, setSettings] = useState<PlatformSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    adminDashboardApi.stats()
-      .then((r) => setStats(r.data as GlobalStats))
-      .catch(() => setError('Failed to load dashboard stats'))
+    Promise.all([
+      adminDashboardApi.stats(),
+      adminAnalyticsApi.get(7),
+      adminAuditApi.list({ limit: 5 }),
+      adminSettingsApi.getAll(),
+    ])
+      .then(([statsRes, analyticsRes, auditRes, settingsRes]) => {
+        setStats(statsRes.data as GlobalStats);
+        setAnalytics(analyticsRes.data as AnalyticsData);
+        const auditData = auditRes.data as { data: AuditLog[] };
+        setAuditLogs(auditData.data ?? []);
+        setSettings(settingsRes.data as PlatformSetting[]);
+      })
+      .catch(() => setError('Failed to load dashboard data'))
       .finally(() => setLoading(false));
   }, []);
+
+  const getSetting = (key: string) => settings.find((s) => s.key === key)?.value;
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const deliveryRate = stats?.campaigns?.sent
+    ? Math.round((stats.campaigns.delivered / stats.campaigns.sent) * 100)
+    : 0;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-white text-xl font-bold">Platform Dashboard</h1>
-        <p className="text-gray-500 text-sm mt-0.5">Global metrics across all workspaces</p>
+        <h1 className="text-slate-900 text-xl font-bold">Overview</h1>
+        <p className="text-slate-500 text-sm mt-0.5">{today}</p>
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-6 h-6 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center justify-center py-24">
+          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
       {error && (
-        <div className="flex items-center gap-2 bg-red-950/60 border border-red-900 rounded-xl px-4 py-3 text-red-400 text-sm">
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-600 text-sm mb-6">
           <AlertCircle size={14} /> {error}
         </div>
       )}
 
       {stats && !loading && (
         <>
-          {/* Primary stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {/* Row 1 — primary stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <StatCard
-              icon={Building2} label="Total Workspaces" value={stats.workspaces.total}
+              icon={Building2} label="Workspaces" value={stats.workspaces.total}
               sub={`${stats.workspaces.active} active · ${stats.workspaces.suspended} suspended`}
-              color="bg-violet-600" trend={`+${stats.workspaces.newThisMonth} this month`}
+              iconBg="bg-indigo-500" trend={`+${stats.workspaces.newThisMonth} this month`}
             />
             <StatCard
               icon={Users} label="Total Users" value={stats.users.total}
-              sub={`${stats.users.active} active users`}
-              color="bg-blue-600"
+              sub={`${stats.users.active} active`}
+              iconBg="bg-blue-500"
             />
             <StatCard
-              icon={MessageSquare} label="Conversations" value={stats.conversations.total}
-              sub={`${stats.conversations.open} currently open`}
-              color="bg-teal-600"
+              icon={MessageSquare} label="Total Messages (7d)" value={stats.messages.today}
+              sub="sent in last 7 days"
+              iconBg="bg-teal-500"
             />
             <StatCard
-              icon={BarChart3} label="Total Messages" value={stats.messages.total}
-              sub={`${stats.messages.today.toLocaleString()} sent today`}
-              color="bg-emerald-600"
+              icon={Radio} label="Active Channels" value={stats.channels.active}
+              sub={`of ${stats.channels.total} total channels`}
+              iconBg="bg-emerald-500"
             />
           </div>
 
-          {/* Secondary stats */}
+          {/* Row 2 — secondary stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <StatCard
-              icon={Radio} label="Channels" value={stats.channels.total}
-              sub={`${stats.channels.active} active`}
-              color="bg-orange-600"
+              icon={Activity} label="Conversations" value={stats.conversations.total}
+              sub={`${stats.conversations.open} currently open`}
+              iconBg="bg-violet-500"
             />
             <StatCard
-              icon={TrendingUp} label="Campaigns" value={stats.campaigns.total}
+              icon={Megaphone} label="Campaigns" value={stats.campaigns.total}
               sub={`${stats.campaigns.sent.toLocaleString()} messages sent`}
-              color="bg-rose-600"
+              iconBg="bg-orange-500"
             />
             <StatCard
-              icon={Users} label="Contacts" value={stats.contacts.total}
+              icon={Contact} label="Contacts" value={stats.contacts.total}
               sub="across all workspaces"
-              color="bg-indigo-600"
+              iconBg="bg-pink-500"
             />
             <StatCard
-              icon={Package} label="Delivered" value={stats.campaigns.delivered.toLocaleString()}
-              sub={`${stats.campaigns.read.toLocaleString()} read · ${stats.campaigns.failed.toLocaleString()} failed`}
-              color="bg-cyan-600"
+              icon={BarChart3} label="Delivery Rate" value={`${deliveryRate}%`}
+              sub={`${stats.campaigns.delivered.toLocaleString()} delivered`}
+              iconBg="bg-cyan-500"
             />
           </div>
 
-          {/* Campaign delivery health */}
-          {stats.campaigns.sent > 0 && (
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-6">
-              <h2 className="text-white text-sm font-semibold mb-4">Campaign Delivery Health</h2>
-              <div className="space-y-3">
-                {[
-                  { label: 'Delivery Rate', value: stats.campaigns.sent > 0 ? Math.round((stats.campaigns.delivered / stats.campaigns.sent) * 100) : 0, color: 'bg-emerald-500' },
-                  { label: 'Read Rate', value: stats.campaigns.sent > 0 ? Math.round((stats.campaigns.read / stats.campaigns.sent) * 100) : 0, color: 'bg-blue-500' },
-                  { label: 'Failure Rate', value: stats.campaigns.sent > 0 ? Math.round((stats.campaigns.failed / stats.campaigns.sent) * 100) : 0, color: 'bg-rose-500' },
-                ].map(({ label, value, color }) => (
-                  <div key={label}>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-400 text-xs">{label}</span>
-                      <span className="text-white text-xs font-semibold">{value}%</span>
-                    </div>
-                    <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                      <div className={cn('h-full rounded-full transition-all', color)} style={{ width: `${value}%` }} />
-                    </div>
+          {/* Charts row */}
+          {analytics && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+              {/* Message Volume Area Chart */}
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-slate-800 text-sm font-semibold">Message Volume</h2>
+                    <p className="text-slate-400 text-xs mt-0.5">Last 7 days</p>
                   </div>
-                ))}
+                  <span className="text-xs text-teal-600 font-medium bg-teal-50 px-2 py-0.5 rounded-full border border-teal-100">
+                    {analytics.messageVolume.reduce((s, d) => s + d.count, 0).toLocaleString()} msgs
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={analytics.messageVolume} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <defs>
+                      <linearGradient id="msgGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 12 }}
+                      labelStyle={{ color: '#475569' }}
+                    />
+                    <Area type="monotone" dataKey="count" stroke="#14b8a6" strokeWidth={2} fill="url(#msgGrad)" name="Messages" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* New Workspaces Bar Chart */}
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-slate-800 text-sm font-semibold">New Workspaces</h2>
+                    <p className="text-slate-400 text-xs mt-0.5">Last 7 days</p>
+                  </div>
+                  <span className="text-xs text-indigo-600 font-medium bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                    {analytics.workspaceGrowth.reduce((s, d) => s + d.count, 0)} new
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={analytics.workspaceGrowth} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 12 }}
+                      labelStyle={{ color: '#475569' }}
+                    />
+                    <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} name="Workspaces" />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           )}
 
-          {/* Status summary */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
-              <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">Workspace Health</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><CheckCircle2 size={13} className="text-emerald-500" /><span className="text-gray-300 text-xs">Active workspaces</span></div>
-                  <span className="text-white text-xs font-semibold">{stats.workspaces.active}</span>
+          {/* Bottom row: Audit events + System health */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Recent Audit Events */}
+            <div className="lg:col-span-2 bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+              <h2 className="text-slate-800 text-sm font-semibold mb-4">Recent Activity</h2>
+              {auditLogs.length === 0 ? (
+                <p className="text-slate-400 text-xs text-center py-6">No recent events</p>
+              ) : (
+                <div className="space-y-3">
+                  {auditLogs.map((log) => (
+                    <div key={log.id} className="flex items-start gap-3">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 text-[10px] font-bold flex-shrink-0 mt-0.5">
+                        {log.admin?.name?.slice(0, 2).toUpperCase() ?? 'SY'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={cn('text-[10px] font-semibold px-2 py-0.5 rounded border', ACTION_BADGE[log.action] ?? 'bg-slate-50 text-slate-500 border-slate-200')}>
+                            {log.action.replace(/_/g, ' ')}
+                          </span>
+                          <span className="text-slate-600 text-xs truncate">{log.admin?.email ?? 'System'}</span>
+                        </div>
+                        {log.metadata && typeof log.metadata['name'] === 'string' && (
+                          <p className="text-slate-400 text-[10px] mt-0.5 italic">"{log.metadata['name'] as string}"</p>
+                        )}
+                      </div>
+                      <span className="text-slate-400 text-[10px] flex-shrink-0">{relativeTime(log.createdAt)}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><AlertCircle size={13} className="text-amber-500" /><span className="text-gray-300 text-xs">Suspended workspaces</span></div>
-                  <span className="text-white text-xs font-semibold">{stats.workspaces.suspended}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><TrendingUp size={13} className="text-blue-400" /><span className="text-gray-300 text-xs">New this month</span></div>
-                  <span className="text-white text-xs font-semibold">+{stats.workspaces.newThisMonth}</span>
-                </div>
-              </div>
+              )}
             </div>
 
-            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
-              <h3 className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-3">Channel Status</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><CheckCircle2 size={13} className="text-emerald-500" /><span className="text-gray-300 text-xs">Active channels</span></div>
-                  <span className="text-white text-xs font-semibold">{stats.channels.active}</span>
+            {/* System Health */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+              <h2 className="text-slate-800 text-sm font-semibold mb-4">System Health</h2>
+              <div className="space-y-3">
+                {/* Registration */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck size={14} className="text-slate-500" />
+                    <div>
+                      <p className="text-slate-700 text-xs font-medium">Registrations</p>
+                      <p className="text-slate-400 text-[10px]">New workspace sign-ups</p>
+                    </div>
+                  </div>
+                  {getSetting('registration_enabled') !== false ? (
+                    <span className="flex items-center gap-1 text-emerald-600 text-[10px] font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                      <CheckCircle2 size={9} /> Open
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-red-600 text-[10px] font-semibold bg-red-50 px-2 py-0.5 rounded-full border border-red-100">
+                      <AlertCircle size={9} /> Closed
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><AlertCircle size={13} className="text-red-500" /><span className="text-gray-300 text-xs">Inactive channels</span></div>
-                  <span className="text-white text-xs font-semibold">{stats.channels.total - stats.channels.active}</span>
+
+                {/* Maintenance */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <Wrench size={14} className="text-slate-500" />
+                    <div>
+                      <p className="text-slate-700 text-xs font-medium">Maintenance</p>
+                      <p className="text-slate-400 text-[10px]">Platform-wide mode</p>
+                    </div>
+                  </div>
+                  {getSetting('maintenance_mode') ? (
+                    <span className="flex items-center gap-1 text-amber-600 text-[10px] font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                      <AlertCircle size={9} /> Active
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-emerald-600 text-[10px] font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                      <CheckCircle2 size={9} /> Normal
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2"><Radio size={13} className="text-violet-400" /><span className="text-gray-300 text-xs">Total channels</span></div>
-                  <span className="text-white text-xs font-semibold">{stats.channels.total}</span>
+
+                {/* AI Features */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <Sparkles size={14} className="text-slate-500" />
+                    <div>
+                      <p className="text-slate-700 text-xs font-medium">AI Features</p>
+                      <p className="text-slate-400 text-[10px]">Platform-wide AI</p>
+                    </div>
+                  </div>
+                  {getSetting('ai_enabled') !== false ? (
+                    <span className="flex items-center gap-1 text-emerald-600 text-[10px] font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                      <CheckCircle2 size={9} /> Enabled
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-slate-500 text-[10px] font-semibold bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                      Disabled
+                    </span>
+                  )}
                 </div>
+
+                {/* Delivery rate bar */}
+                {stats.campaigns.sent > 0 && (
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Gauge size={13} className="text-slate-500" />
+                        <span className="text-slate-700 text-xs font-medium">Delivery Rate</span>
+                      </div>
+                      <span className="text-slate-700 text-xs font-bold">{deliveryRate}%</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className={cn('h-full rounded-full transition-all', deliveryRate >= 80 ? 'bg-emerald-500' : deliveryRate >= 60 ? 'bg-amber-500' : 'bg-red-500')}
+                        style={{ width: `${deliveryRate}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -2,8 +2,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  LayoutDashboard, Building2, Users, BarChart3, ClipboardList,
-  Settings, LogOut, Radio, Globe, ShieldAlert,
+  LayoutDashboard, Building2, Users, BarChart3, Settings,
+  LogOut, Radio, ScrollText, Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAdminStore } from '@/store/admin.store';
@@ -15,7 +15,7 @@ const NAV = [
   { href: '/platform-admin/users',      icon: Users,           label: 'Users'       },
   { href: '/platform-admin/channels',   icon: Radio,           label: 'Channels'    },
   { href: '/platform-admin/analytics',  icon: BarChart3,       label: 'Analytics'   },
-  { href: '/platform-admin/audit',      icon: ClipboardList,   label: 'Audit Logs'  },
+  { href: '/platform-admin/audit',      icon: ScrollText,      label: 'Audit Log'   },
   { href: '/platform-admin/settings',   icon: Settings,        label: 'Settings'    },
 ];
 
@@ -30,63 +30,70 @@ export default function AdminSidebar() {
     router.push('/platform-admin/login');
   };
 
+  const initials = admin?.name
+    ? admin.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+    : 'SA';
+
   return (
-    <aside className="w-56 bg-gray-950 flex flex-col h-full flex-shrink-0">
-      {/* Logo / brand */}
-      <div className="px-5 py-5 border-b border-gray-800">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 bg-rose-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <ShieldAlert size={14} className="text-white" />
+    <aside className="w-60 flex flex-col h-full flex-shrink-0" style={{ backgroundColor: '#0c1117' }}>
+      {/* Logo */}
+      <div className="px-5 py-5 border-b border-white/[0.06]">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg shadow-indigo-500/30">
+            <Zap size={15} className="text-white" fill="white" />
           </div>
           <div>
-            <p className="text-white text-xs font-bold leading-tight">Platform Admin</p>
-            <p className="text-gray-500 text-[10px]">Super Admin Console</p>
+            <p className="text-white text-sm font-bold leading-tight tracking-tight">VerzChat</p>
+            <p className="text-white/30 text-[9px] uppercase tracking-[0.12em] font-medium">Admin Console</p>
           </div>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV.map(({ href, icon: Icon, label }) => {
-          const isActive = href === '/platform-admin'
-            ? pathname === '/platform-admin'
-            : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                isActive
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900',
-              )}
-            >
-              <Icon size={14} className="flex-shrink-0" />
-              {label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-3 py-5 overflow-y-auto">
+        <p className="text-white/25 text-[9px] uppercase tracking-[0.15em] font-semibold px-3 mb-2.5">Platform</p>
+        <div className="space-y-0.5">
+          {NAV.map(({ href, icon: Icon, label }) => {
+            const isActive = href === '/platform-admin'
+              ? pathname === '/platform-admin'
+              : pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={cn(
+                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150',
+                  isActive
+                    ? 'bg-indigo-500/15 text-indigo-400'
+                    : 'text-white/45 hover:text-white/85 hover:bg-white/[0.05]',
+                )}
+              >
+                <Icon size={14} className="flex-shrink-0" />
+                {label}
+              </Link>
+            );
+          })}
+        </div>
       </nav>
 
-      {/* Admin info + logout */}
-      <div className="border-t border-gray-800 px-4 py-3">
-        <div className="flex items-center gap-2 mb-2.5">
-          <div className="w-7 h-7 bg-rose-900 rounded-full flex items-center justify-center text-rose-300 text-xs font-bold flex-shrink-0">
-            {admin?.name?.slice(0, 2).toUpperCase() ?? 'SA'}
+      {/* Admin profile */}
+      <div className="border-t border-white/[0.06] px-3 py-3">
+        <div className="group flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.05] transition-all cursor-default">
+          <div className="w-7 h-7 rounded-full border border-indigo-500/50 bg-indigo-500/15 flex items-center justify-center text-indigo-400 text-[10px] font-bold flex-shrink-0">
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white text-xs font-semibold truncate">{admin?.name ?? 'Admin'}</p>
-            <p className="text-gray-500 text-[10px] truncate">{admin?.email ?? ''}</p>
+            <p className="text-white/80 text-xs font-semibold truncate">{admin?.name ?? 'Admin'}</p>
+            <p className="text-white/30 text-[10px] truncate">{admin?.email ?? ''}</p>
           </div>
+          <button
+            onClick={() => { void handleLogout(); }}
+            className="opacity-0 group-hover:opacity-100 p-1 text-white/30 hover:text-red-400 hover:bg-red-500/10 rounded transition-all flex-shrink-0"
+            title="Sign out"
+          >
+            <LogOut size={12} />
+          </button>
         </div>
-        <button
-          onClick={() => { void handleLogout(); }}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-500 hover:text-red-400 hover:bg-gray-900 rounded-lg transition-colors"
-        >
-          <LogOut size={12} />
-          Sign out
-        </button>
       </div>
     </aside>
   );
