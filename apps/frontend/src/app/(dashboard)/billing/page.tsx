@@ -169,9 +169,11 @@ function PlanCard({ plan, isCurrent, isUpgrade, onSelect }: {
           Current Plan
         </div>
       ) : enterprise ? (
-        <button className="py-2.5 text-xs font-semibold text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50 transition-colors flex items-center justify-center gap-1.5">
+        <a
+          href="mailto:sales@packglamour.com?subject=Enterprise%20Plan%20Inquiry"
+          className="py-2.5 text-xs font-semibold text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50 transition-colors flex items-center justify-center gap-1.5">
           Contact Sales <ArrowUpRight size={12} />
-        </button>
+        </a>
       ) : (
         <button onClick={onSelect}
           className={cn('py-2.5 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5', s.btn)}>
