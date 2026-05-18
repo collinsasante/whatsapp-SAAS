@@ -22,3 +22,22 @@
   }
 }
 
+/* Landing page custom scrollbar */
+html {
+  scroll-behavior: auto; /* Lenis handles this */
+}
+
+body::-webkit-scrollbar {
+  width: 6px;
+}
+body::-webkit-scrollbar-track {
+  background: #030712;
+}
+body::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.3);
+  border-radius: 3px;
+}
+body::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.5);
+}
+
