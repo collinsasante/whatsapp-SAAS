@@ -347,8 +347,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (channelDropdownRef.current && !channelDropdownRef.current.contains(e.target as Node)) setShowChannelDropdown(false);
-      if (labelDropdownRef.current && !labelDropdownRef.current.contains(e.target as Node)) setShowLabelDropdown(false);
       if (memberDropdownRef.current && !memberDropdownRef.current.contains(e.target as Node)) setShowMemberDropdown(false);
     };
     document.addEventListener('mousedown', handler);
