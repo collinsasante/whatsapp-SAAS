@@ -65,7 +65,7 @@ export function Dropdown({ trigger, children, align = 'left', className, menuCla
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        className="dropdown-toggle"
+        className="dropdown-toggle w-full"
       >
         {trigger}
       </button>

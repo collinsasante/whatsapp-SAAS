@@ -1388,9 +1388,13 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
 
-            {/* Emoji picker */}
-            {showEmojiPicker && (
-              <div className="fixed z-50" style={{ bottom: popupPos.bottom, left: popupPos.left }} onClick={(e) => e.stopPropagation()}>
+            {/* Emoji picker — portal so fixed positioning is never clipped by ancestor stacking contexts */}
+            {showEmojiPicker && createPortal(
+              <div
+                className="fixed z-[9999]"
+                style={{ bottom: popupPos.bottom, left: popupPos.left }}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <EmojiPicker
                   data={emojiData}
                   onEmojiSelect={(emoji: { native: string }) => { setText((t) => t + emoji.native); setShowEmojiPicker(false); }}
@@ -1401,7 +1405,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   skinTonePosition="search"
                   maxFrequentRows={2}
                 />
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* @mention dropdown */}
