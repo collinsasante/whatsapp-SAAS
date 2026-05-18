@@ -490,11 +490,10 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           </div>
         )}
 
-        {/* Filters: channel + label row, then status row */}
+        {/* Filters */}
         <div className="flex flex-col gap-2">
-          {/* Row 1: Channel + Label */}
+          {/* Row 1: Channel + Agent — always on same line */}
           <div className="flex items-center gap-2">
-            {/* Channel filter */}
             <Dropdown
               className="flex-1"
               menuClassName="min-w-full"
@@ -503,7 +502,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
                   channelFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
                 )}>
-                  <span>{channelFilter === 'All' ? 'All Channels' : CHANNEL_FILTERS.find((f) => f.key === channelFilter)?.label ?? 'Channel'}</span>
+                  <span className="truncate">{channelFilter === 'All' ? 'All Channels' : CHANNEL_FILTERS.find((f) => f.key === channelFilter)?.label ?? 'Channel'}</span>
                   <ChevronDown className="w-3 h-3 flex-shrink-0" />
                 </div>
               }
@@ -516,40 +515,78 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
               ))}
             </Dropdown>
 
-            {/* Label filter */}
-            {savedTags.length > 0 && (
+            {teamMembers.length > 0 && (
               <Dropdown
                 className="flex-1"
-                menuClassName="min-w-full"
+                menuClassName="right-0 min-w-full"
                 trigger={
-                  <div className={cn('w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
-                    labelFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white')}>
+                  <div className={cn(
+                    'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
+                    memberFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
+                  )}>
                     <span className="flex items-center gap-1.5 min-w-0">
-                      <Tag size={11} className="flex-shrink-0" />
-                      <span className="truncate">{labelFilter === 'All' ? 'All Labels' : labelFilter}</span>
+                      <Users size={11} className="flex-shrink-0" />
+                      <span className="truncate">
+                        {memberFilter === 'All' ? 'All Agents' :
+                         memberFilter === 'unassigned' ? 'Unassigned' :
+                         (teamMembers.find(m => m.id === memberFilter)?.name ?? 'Agent')}
+                      </span>
                     </span>
                     <ChevronDown className="w-3 h-3 flex-shrink-0" />
                   </div>
                 }
               >
-                <DropdownItem onClick={() => setLabelFilter('All')} className="text-xs justify-between">
-                  <span className={labelFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Labels</span>
-                  {labelFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
+                <DropdownItem onClick={() => setMemberFilter('All')} className="text-xs justify-between">
+                  <span className={memberFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Agents</span>
+                  {memberFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
                 </DropdownItem>
-                {savedTags.map(tag => (
-                  <DropdownItem key={tag.id} onClick={() => setLabelFilter(tag.name)} className="text-xs justify-between">
-                    <span className={cn('flex items-center gap-1.5', labelFilter === tag.name && 'font-semibold text-teal-600')}>
-                      {tag.color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />}
-                      {tag.name}
-                    </span>
-                    {labelFilter === tag.name && <Check className="w-3 h-3 text-teal-600" />}
+                <DropdownItem onClick={() => setMemberFilter('unassigned')} className="text-xs justify-between">
+                  <span className={memberFilter === 'unassigned' ? 'font-semibold text-teal-600' : ''}>Unassigned</span>
+                  {memberFilter === 'unassigned' && <Check className="w-3 h-3 text-teal-600" />}
+                </DropdownItem>
+                {teamMembers.map(m => (
+                  <DropdownItem key={m.id} onClick={() => setMemberFilter(m.id)} className="text-xs justify-between">
+                    <span className={cn(memberFilter === m.id && 'font-semibold text-teal-600')}>{m.name}</span>
+                    {memberFilter === m.id && <Check className="w-3 h-3 text-teal-600" />}
                   </DropdownItem>
                 ))}
               </Dropdown>
             )}
           </div>
 
-          {/* Row 2: Status tabs */}
+          {/* Row 2: Label filter (only when labels exist) */}
+          {savedTags.length > 0 && (
+            <Dropdown
+              className="flex-1"
+              menuClassName="min-w-full"
+              trigger={
+                <div className={cn('w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
+                  labelFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white')}>
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <Tag size={11} className="flex-shrink-0" />
+                    <span className="truncate">{labelFilter === 'All' ? 'All Labels' : labelFilter}</span>
+                  </span>
+                  <ChevronDown className="w-3 h-3 flex-shrink-0" />
+                </div>
+              }
+            >
+              <DropdownItem onClick={() => setLabelFilter('All')} className="text-xs justify-between">
+                <span className={labelFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Labels</span>
+                {labelFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
+              </DropdownItem>
+              {savedTags.map(tag => (
+                <DropdownItem key={tag.id} onClick={() => setLabelFilter(tag.name)} className="text-xs justify-between">
+                  <span className={cn('flex items-center gap-1.5', labelFilter === tag.name && 'font-semibold text-teal-600')}>
+                    {tag.color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />}
+                    {tag.name}
+                  </span>
+                  {labelFilter === tag.name && <Check className="w-3 h-3 text-teal-600" />}
+                </DropdownItem>
+              ))}
+            </Dropdown>
+          )}
+
+          {/* Row 3: Status tabs */}
           <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
             {STATUS_FILTERS.map((f) => {
               const count = f.key === 'All'
@@ -573,45 +610,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
               );
             })}
           </div>
-
-          {/* Row 3: Assigned-to filter */}
-          {teamMembers.length > 0 && (
-            <Dropdown
-              className="flex-1"
-              menuClassName="min-w-full"
-              trigger={
-                <div className={cn(
-                  'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
-                  memberFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
-                )}>
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <Users size={11} className="flex-shrink-0" />
-                    <span className="truncate">
-                      {memberFilter === 'All' ? 'All Agents' :
-                       memberFilter === 'unassigned' ? 'Unassigned' :
-                       (teamMembers.find(m => m.id === memberFilter)?.name ?? 'Agent')}
-                    </span>
-                  </span>
-                  <ChevronDown className="w-3 h-3 flex-shrink-0" />
-                </div>
-              }
-            >
-              <DropdownItem onClick={() => setMemberFilter('All')} className="text-xs justify-between">
-                <span className={memberFilter === 'All' ? 'font-semibold text-teal-600' : ''}>All Agents</span>
-                {memberFilter === 'All' && <Check className="w-3 h-3 text-teal-600" />}
-              </DropdownItem>
-              <DropdownItem onClick={() => setMemberFilter('unassigned')} className="text-xs justify-between">
-                <span className={memberFilter === 'unassigned' ? 'font-semibold text-teal-600' : ''}>Unassigned</span>
-                {memberFilter === 'unassigned' && <Check className="w-3 h-3 text-teal-600" />}
-              </DropdownItem>
-              {teamMembers.map(m => (
-                <DropdownItem key={m.id} onClick={() => setMemberFilter(m.id)} className="text-xs justify-between">
-                  <span className={cn(memberFilter === m.id && 'font-semibold text-teal-600')}>{m.name}</span>
-                  {memberFilter === m.id && <Check className="w-3 h-3 text-teal-600" />}
-                </DropdownItem>
-              ))}
-            </Dropdown>
-          )}
         </div>
       </div>
 

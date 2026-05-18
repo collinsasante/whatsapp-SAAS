@@ -22,7 +22,3 @@
   }
 }
 
-/* emoji-mart web component needs explicit display to render */
-em-emoji-picker {
-  display: block;
-}

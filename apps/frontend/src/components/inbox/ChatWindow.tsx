@@ -11,8 +11,7 @@ import {
   ChevronUp, ChevronDown, ChevronLeft, LogIn,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import emojiData from '@emoji-mart/data';
-const EmojiPicker = dynamic(() => import('@emoji-mart/react'), { ssr: false });
+const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi } from '@/lib/api';
 import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
@@ -1392,19 +1391,18 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             {showEmojiPicker && createPortal(
               <div
                 className="fixed z-[9999]"
-                style={{ bottom: popupPos.bottom, left: popupPos.left, width: 352, height: 435 }}
+                style={{ bottom: popupPos.bottom, left: popupPos.left }}
                 onClick={(e) => e.stopPropagation()}
                 onWheel={(e) => e.stopPropagation()}
               >
                 <EmojiPicker
-                  data={emojiData}
-                  onEmojiSelect={(emoji: { native: string }) => { setText((t) => t + emoji.native); setShowEmojiPicker(false); }}
-                  theme="light"
-                  set="native"
-                  locale="en"
-                  previewPosition="none"
-                  skinTonePosition="search"
-                  maxFrequentRows={2}
+                  onEmojiClick={(emojiData: { emoji: string }) => { setText((t) => t + emojiData.emoji); setShowEmojiPicker(false); }}
+                  lazyLoadEmojis
+                  searchPlaceholder="Search emoji…"
+                  skinTonesDisabled
+                  previewConfig={{ showPreview: false }}
+                  height={435}
+                  width={352}
                 />
               </div>,
               document.body
