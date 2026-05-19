@@ -9,6 +9,9 @@ import { useRouter } from 'next/navigation';
 import { campaignsApi, templatesApi, segmentsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { offlineQueue } from '@/lib/offline-queue';
+import { useOfflineStore } from '@/store/offline.store';
 
 interface Campaign {
   id: string;
@@ -99,6 +102,8 @@ function DeliveryBar({ campaign }: { campaign: Campaign }) {
 
 export default function CampaignsPage() {
   const router = useRouter();
+  const isOnline = useNetworkStatus();
+  const { setQueuedCounts } = useOfflineStore();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [total, setTotal] = useState(0);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -189,6 +194,37 @@ export default function CampaignsPage() {
   const createCampaign = async () => {
     if (!validate()) return;
     setSubmitting(true);
+
+    if (!isOnline) {
+      try {
+        const draftId = `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await offlineQueue.enqueueDraft({
+          id: draftId,
+          audienceMode,
+          form: {
+            name: form.name,
+            templateId: form.templateId,
+            segmentId: form.segmentId || undefined,
+            labels: form.labels || undefined,
+            csvPhones: form.csvPhones.length ? form.csvPhones : undefined,
+            scheduledAt: form.scheduledAt || undefined,
+            templateVariables: Object.keys(form.templateVariables).length ? form.templateVariables : undefined,
+          },
+          createdAt: new Date().toISOString(),
+        });
+        const [msgs, drafts] = await Promise.all([offlineQueue.getAllMessages(), offlineQueue.getAllDrafts()]);
+        setQueuedCounts(msgs.length, drafts.length);
+        setShowCreate(false);
+        resetForm();
+        toast.success('Campaign saved — will be created when you reconnect.');
+      } catch {
+        toast.error('Failed to save campaign draft.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     try {
       const audiencePayload: Record<string, unknown> = {};
       if (audienceMode === 'segment' && form.segmentId) audiencePayload['segmentId'] = form.segmentId;

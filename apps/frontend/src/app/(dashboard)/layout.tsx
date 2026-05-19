@@ -11,6 +11,8 @@ import { OutboundDialModal } from '@/components/shared/OutboundDialModal';
 import { OutboundCallBar } from '@/components/shared/OutboundCallBar';
 import { ConfirmCallModal } from '@/components/shared/ConfirmCallModal';
 import FeedbackWidget from '@/components/FeedbackWidget';
+import OfflineBanner from '@/components/OfflineBanner';
+import { SyncProvider } from '@/components/shared/SyncProvider';
 import { ShieldAlert, LogOut } from 'lucide-react';
 
 interface ImpersonationState {
@@ -138,6 +140,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <SocketProvider>
+      <SyncProvider />
       <IncomingCallModal />
       <OutboundDialModal />
       <OutboundCallBar />
@@ -145,6 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <FeedbackWidget />
       <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
         {impersonation && <ImpersonationBanner state={impersonation} onExit={exitImpersonation} />}
+        <OfflineBanner />
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
           <div className="flex-1 flex flex-col overflow-hidden">

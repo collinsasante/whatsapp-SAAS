@@ -1,241 +1,153 @@
 'use client';
-import { motion } from 'framer-motion';
-import { ArrowRight, CheckCheck } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { ArrowRight, CheckCircle2, Clock, TrendingUp, Zap, Star, MessageSquare } from 'lucide-react';
 
-function InboxPreview() {
-  const conversations = [
-    { name: 'Sarah K.', preview: 'My order still hasn\'t arrived...', time: '2m', unread: 2, color: 'bg-violet-500', channel: 'WA', active: true },
-    { name: 'Gulf Trading Co.', preview: 'Can we schedule a call?', time: '14m', unread: 1, color: 'bg-blue-500', channel: 'Email', active: false },
-    { name: 'Ahmed Hassan', preview: 'Thanks, sorted! 👍', time: '1h', unread: 0, color: 'bg-emerald-500', channel: 'WA', active: false },
-    { name: 'Maria R.', preview: 'Price for bulk order?', time: '2h', unread: 0, color: 'bg-orange-400', channel: 'WA', active: false },
-  ];
+const MESSAGES = [
+  { from: 'customer', name: 'Amara S.', text: "Hi, I ordered last week and still haven't gotten a shipping update?" },
+  { from: 'ai', text: "Hi Amara! 👋 I can see your order #7283 — it was dispatched today. You'll get a tracking link within the hour." },
+  { from: 'customer', name: 'Amara S.', text: 'Amazing! Can I still change the delivery address?' },
+  { from: 'ai', text: "Absolutely — let me connect you with our team right now so we can update that before it ships. 🙌" },
+  { from: 'agent', name: 'Kezia (Support)', text: "Hi Amara! Address updated to 42 Elm St. All sorted — thanks for your patience! 😊" },
+];
 
-  const messages = [
-    { text: "Hi, my order #4821 still hasn't arrived and it's been 5 days.", from: 'them', time: '14:31' },
-    { text: "Hi Sarah! I'm sorry about that. Let me pull up your order right now.", from: 'me', time: '14:32' },
-    { text: "I can see it's at your local post office since yesterday. They tried delivery at 9am. Want me to rebook the delivery?", from: 'me', time: '14:32' },
-    { text: "Yes please! Afternoon would be better.", from: 'them', time: '14:33' },
-  ];
+export default function Hero() {
+  const [shown, setShown] = useState(0);
+
+  useEffect(() => {
+    if (shown >= MESSAGES.length) return;
+    const t = setTimeout(() => setShown(n => n + 1), 1600);
+    return () => clearTimeout(t);
+  }, [shown]);
 
   return (
-    <div className="w-full rounded-2xl overflow-hidden border border-gray-200 shadow-2xl bg-[#0d1117]" style={{ height: 400 }}>
-      {/* Title bar */}
-      <div className="flex items-center gap-1.5 px-4 py-2.5 bg-[#161b22] border-b border-white/[0.07]">
-        <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
-        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
-        <div className="w-2.5 h-2.5 rounded-full bg-[#25D366]/70" />
-        <span className="text-[10px] text-slate-500 ml-2 font-medium select-none">VerzChat Inbox</span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse" />
-          <span className="text-[10px] text-[#25D366] font-semibold">3 agents online</span>
-        </div>
-      </div>
+    <section className="relative min-h-screen flex items-center pt-16 overflow-hidden" style={{ background: '#020917' }}>
+      {/* Grid */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: 'linear-gradient(rgba(20,184,166,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(20,184,166,0.05) 1px,transparent 1px)',
+        backgroundSize: '60px 60px',
+      }} />
+      {/* Glow */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] bg-teal-500/10 blur-[140px] rounded-full pointer-events-none" />
 
-      <div className="flex h-[calc(100%-36px)]">
-        {/* Conversation list */}
-        <div className="w-[40%] border-r border-white/[0.06] bg-[#0d1117] flex flex-col">
-          <div className="px-2.5 py-2.5">
-            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-white/[0.05] rounded-lg">
-              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-500"><circle cx="6" cy="6" r="4"/><path d="M11 11l3 3"/></svg>
-              <span className="text-[9px] text-slate-500">Search…</span>
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28 w-full">
+        <div className="grid lg:grid-cols-[1fr_1.15fr] gap-14 lg:gap-20 items-center">
+
+          {/* Copy */}
+          <div className="text-center lg:text-left">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-500/10 border border-teal-500/25 text-teal-400 text-xs font-semibold mb-6 tracking-wide uppercase">
+              <Zap size={11} className="fill-teal-400" />
+              AI that learns your business in 30 days
+            </div>
+
+            <h1 className="text-5xl sm:text-[3.75rem] lg:text-[4.5rem] font-extrabold text-white leading-[1.06] tracking-tight mb-5">
+              Customer support{' '}
+              <span className="bg-gradient-to-r from-teal-400 via-emerald-300 to-teal-400 bg-clip-text text-transparent">
+                that feels human
+              </span>
+              <br />at AI scale
+            </h1>
+
+            <p className="text-lg text-slate-400 leading-relaxed max-w-lg mx-auto lg:mx-0 mb-8">
+              VerzChat trains on your real conversations, then responds across WhatsApp, Instagram, and Messenger — empathetically, personally, just like your best team member.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start mb-8">
+              <Link href="/register" className="flex items-center justify-center gap-2 px-6 py-3.5 bg-teal-500 hover:bg-teal-400 text-white font-bold rounded-xl transition-all duration-200 text-sm shadow-xl shadow-teal-500/30 hover:shadow-teal-500/50 hover:-translate-y-px">
+                Start 14-day free trial
+                <ArrowRight size={15} />
+              </Link>
+              <Link href="#how-it-works" className="flex items-center justify-center gap-2 px-6 py-3.5 bg-white/5 hover:bg-white/8 text-white font-medium rounded-xl border border-white/12 transition-colors text-sm">
+                See how it works
+              </Link>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-5 justify-center lg:justify-start text-sm text-slate-500">
+              {['No credit card required', 'Setup in 10 minutes', 'Cancel anytime'].map(t => (
+                <span key={t} className="flex items-center gap-1.5">
+                  <CheckCircle2 size={13} className="text-teal-500 flex-shrink-0" />
+                  {t}
+                </span>
+              ))}
             </div>
           </div>
 
-          <div className="flex gap-1 px-2.5 pb-2">
-            {['All', 'Open', 'Resolved'].map((tab, i) => (
-              <span key={tab} className={`text-[8px] px-2 py-0.5 rounded-full font-semibold cursor-pointer ${i === 0 ? 'bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/30' : 'text-slate-600 border border-white/[0.06] hover:text-slate-400'}`}>
-                {tab}
-              </span>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-hidden">
-            {conversations.map((c, i) => (
-              <div
-                key={c.name}
-                className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer border-b border-white/[0.04] ${
-                  c.active ? 'bg-[#25D366]/[0.08] border-l-[2px] border-l-[#25D366]' : 'hover:bg-white/[0.03]'
-                }`}
-              >
-                <div className={`w-7 h-7 rounded-full ${c.color} flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0 relative mt-0.5`}>
-                  {c.name[0]}
-                  <span className={`absolute -bottom-0.5 -right-0.5 text-[7px] w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold ${c.channel === 'WA' ? 'bg-[#25D366]' : 'bg-orange-500'} text-white`}>
-                    {c.channel === 'WA' ? 'W' : 'E'}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-center">
-                    <span className={`text-[10px] font-semibold truncate ${c.active ? 'text-white' : 'text-slate-300'}`}>{c.name}</span>
-                    <span className="text-[8px] text-slate-600 flex-shrink-0 ml-1">{c.time}</span>
+          {/* Chat mockup */}
+          <div className="relative mx-auto w-full max-w-md lg:max-w-none">
+            <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl shadow-black/50" style={{ background: '#0d1117' }}>
+              {/* Window chrome */}
+              <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/6" style={{ background: '#161b22' }}>
+                <div className="w-3 h-3 rounded-full bg-red-500/70" />
+                <div className="w-3 h-3 rounded-full bg-amber-500/70" />
+                <div className="w-3 h-3 rounded-full bg-emerald-500/70" />
+                <div className="ml-3 flex items-center gap-2 flex-1 min-w-0">
+                  <div className="w-7 h-7 rounded-full bg-teal-500/20 flex items-center justify-center text-teal-400 text-[10px] font-bold flex-shrink-0">AS</div>
+                  <div className="min-w-0">
+                    <p className="text-white text-xs font-semibold">Amara S.</p>
+                    <p className="text-slate-500 text-[10px]">WhatsApp · Online</p>
                   </div>
-                  <p className="text-[9px] text-slate-500 truncate mt-0.5">{c.preview}</p>
+                  <div className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-500/10 border border-teal-500/25 flex-shrink-0">
+                    <div className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                    <span className="text-teal-400 text-[10px] font-semibold">VerzAI</span>
+                  </div>
                 </div>
-                {c.unread > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-[#25D366] text-white text-[8px] flex items-center justify-center flex-shrink-0 mt-0.5 font-bold">{c.unread}</span>
+              </div>
+
+              {/* Messages */}
+              <div className="p-4 space-y-3 min-h-[300px] max-h-[320px] overflow-hidden">
+                {MESSAGES.slice(0, shown).map((msg, i) => (
+                  <div key={i} className={`flex ${msg.from === 'customer' ? 'justify-start' : 'justify-end'}`} style={{ animation: 'fadeUp 0.4s ease-out' }}>
+                    <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                      msg.from === 'customer' ? 'bg-white/8 text-slate-200 rounded-tl-sm' :
+                      msg.from === 'ai' ? 'bg-teal-600 text-white rounded-tr-sm' :
+                      'bg-blue-600 text-white rounded-tr-sm'
+                    }`}>
+                      {msg.from !== 'customer' && (
+                        <p className="text-[10px] font-semibold mb-1 opacity-75">
+                          {msg.from === 'ai' ? '🤖 VerzAI' : `👤 ${msg.name}`}
+                        </p>
+                      )}
+                      <p>{msg.text}</p>
+                    </div>
+                  </div>
+                ))}
+                {shown < MESSAGES.length && shown > 0 && (
+                  <div className="flex justify-end">
+                    <div className="bg-teal-600/60 rounded-2xl rounded-tr-sm px-4 py-3">
+                      <div className="flex gap-1 items-center">
+                        {[0, 150, 300].map(d => (
+                          <span key={d} className="w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Active chat */}
-        <div className="flex-1 flex flex-col bg-[#0a0f1a]">
-          {/* Chat header */}
-          <div className="px-3.5 py-2.5 border-b border-white/[0.06] flex items-center justify-between bg-[#0d1117]">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-[9px] font-bold text-white relative">
-                S
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#25D366] border border-[#0d1117] flex items-center justify-center">
-                  <span className="text-[6px] text-white font-bold">W</span>
-                </div>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-white leading-none">Sarah K.</p>
-                <p className="text-[8px] text-[#25D366] mt-0.5">WhatsApp · online now</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[7px] px-1.5 py-0.5 rounded bg-[#25D366]/20 text-[#25D366] border border-[#25D366]/30 font-bold">OPEN</span>
-              <div className="flex -space-x-1">
-                {['bg-violet-500', 'bg-blue-500'].map((c, i) => (
-                  <div key={i} className={`w-4.5 h-4.5 rounded-full ${c} border border-[#0d1117] flex items-center justify-center text-[7px] font-bold text-white`} style={{ width: 18, height: 18 }}>
-                    {['A', 'B'][i]}
+              {/* Stats footer */}
+              <div className="grid grid-cols-3 border-t border-white/6 divide-x divide-white/6">
+                {[
+                  { val: '94%', sub: 'Auto-resolved', Icon: MessageSquare },
+                  { val: '<2s', sub: 'Response time', Icon: Clock },
+                  { val: '4.9★', sub: 'CSAT score', Icon: TrendingUp },
+                ].map(({ val, sub, Icon }) => (
+                  <div key={sub} className="flex flex-col items-center py-3 px-2">
+                    <span className="text-white font-bold text-sm">{val}</span>
+                    <span className="text-slate-500 text-[10px] mt-0.5">{sub}</span>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
 
-          {/* Messages */}
-          <div className="flex-1 px-3.5 py-3 space-y-2.5 overflow-hidden">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.from === 'me' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[9px] leading-relaxed ${
-                  msg.from === 'me'
-                    ? 'bg-[#25D366] text-white rounded-br-sm'
-                    : 'bg-white/[0.08] text-slate-200 rounded-bl-sm border border-white/[0.08]'
-                }`}>
-                  {msg.text}
-                  {msg.from === 'me' && (
-                    <div className="flex items-center justify-end gap-0.5 mt-1">
-                      <span className="text-[8px] text-green-200/70">{msg.time}</span>
-                      <CheckCheck size={9} className="text-green-200/70" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* AI suggestion bar */}
-          <div className="px-3 pb-2.5">
-            <div className="flex items-center gap-2 px-3 py-2 bg-[#25D366]/10 border border-[#25D366]/25 rounded-xl">
-              <div className="w-4 h-4 rounded bg-[#25D366]/20 flex items-center justify-center flex-shrink-0">
-                <span className="text-[8px] text-[#25D366] font-bold">AI</span>
-              </div>
-              <p className="text-[9px] text-[#25D366]/80 flex-1 truncate">Suggested: "Of course! I've rebooked for between 1–5pm today. You'll get a confirmation SMS."</p>
-              <span className="text-[8px] text-[#25D366] font-bold flex-shrink-0 cursor-pointer hover:text-white transition-colors">Use ↵</span>
+            {/* Floating badges */}
+            <div className="absolute -top-3 -right-3 bg-emerald-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-lg shadow-emerald-500/30">
+              🧠 AI learning…
+            </div>
+            <div className="absolute -bottom-3 -left-3 bg-[#0d1117] border border-white/12 text-slate-300 text-[11px] px-2.5 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5">
+              <Star size={11} className="text-amber-400 fill-amber-400" />
+              Powered by your own data
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Hero() {
-  return (
-    <section className="pt-20 pb-16 lg:pb-0 relative overflow-hidden">
-      {/* Very subtle green tint at the very top */}
-      <div className="absolute top-0 left-0 right-0 h-px bg-[#25D366]/30" />
-      <div className="absolute top-0 left-0 right-0 h-80 bg-gradient-to-b from-[#f0fdf4] to-white pointer-events-none" />
-
-      <div className="relative max-w-6xl mx-auto px-5 sm:px-8">
-        <div className="grid lg:grid-cols-[1fr_1.1fr] gap-12 lg:gap-16 items-center min-h-[calc(100vh-60px)] lg:min-h-0 py-16 lg:py-24">
-
-          {/* Left */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#f0fdf4] border border-[#bbf7d0] text-[#15803d] text-xs font-semibold mb-6">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#25D366]" />
-              Official WhatsApp Business API Partner
-            </div>
-
-            <h1 className="text-4xl sm:text-5xl lg:text-[52px] font-extrabold text-gray-900 leading-[1.1] tracking-tight mb-5">
-              Handle every customer<br />
-              message from{' '}
-              <span className="text-[#128C7E]">one inbox.</span>
-            </h1>
-
-            <p className="text-lg text-gray-500 leading-relaxed max-w-md mb-8">
-              VerzChat connects WhatsApp, email, and live chat into a single workspace your whole team can use, with real-time delivery so nothing gets missed.
-            </p>
-
-            <div className="flex flex-wrap items-center gap-3 mb-8">
-              <Link
-                href="/auth/register"
-                className="inline-flex items-center gap-2 px-5 py-3 bg-[#25D366] hover:bg-[#1aad57] text-white font-semibold rounded-xl transition-colors shadow-sm text-sm"
-              >
-                Start free, no card needed <ArrowRight size={15} />
-              </Link>
-              <a
-                href="#features"
-                className="inline-flex items-center gap-2 px-5 py-3 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors text-sm"
-              >
-                See how it works
-              </a>
-            </div>
-
-            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-400">
-              <span>14-day trial</span>
-              <span>·</span>
-              <span>Up and running in 20 min</span>
-              <span>·</span>
-              <span>Cancel anytime</span>
-            </div>
-          </motion.div>
-
-          {/* Right — product preview */}
-          <motion.div
-            initial={{ opacity: 0, y: 32 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-            className="relative"
-          >
-            <InboxPreview />
-
-            {/* Delivery speed badge */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.6, duration: 0.4 }}
-              className="absolute -bottom-4 -left-4 lg:-left-8 bg-white border border-gray-200 rounded-2xl px-4 py-3 shadow-lg flex items-center gap-3"
-            >
-              <div className="w-8 h-8 rounded-full bg-[#f0fdf4] flex items-center justify-center flex-shrink-0">
-                <CheckCheck size={15} className="text-[#25D366]" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-gray-900">Delivered in 0.3s</p>
-                <p className="text-[11px] text-gray-400">Avg across all channels</p>
-              </div>
-            </motion.div>
-
-            {/* Uptime badge */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.75, duration: 0.4 }}
-              className="absolute -top-4 -right-2 lg:-right-6 bg-white border border-gray-200 rounded-2xl px-4 py-3 shadow-lg"
-            >
-              <p className="text-xs font-bold text-gray-900">99.9% uptime</p>
-              <p className="text-[11px] text-gray-400">Last 12 months</p>
-            </motion.div>
-          </motion.div>
         </div>
       </div>
     </section>

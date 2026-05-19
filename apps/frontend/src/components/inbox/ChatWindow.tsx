@@ -21,6 +21,9 @@ import { useAuthStore } from '@/store/auth.store';
 import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatMessageTime, getProxiedMediaUrl } from '@/lib/utils';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { offlineQueue } from '@/lib/offline-queue';
+import { useOfflineStore } from '@/store/offline.store';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const META_VIDEO_LIMIT_MB = 2048;
@@ -174,6 +177,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const { messages, setMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, updateMessage, activityLogs, setActivityLogs } = useInboxStore();
   const { user } = useAuthStore();
   const { setConfirmDial, outboundSession } = useCallsStore();
+  const isOnline = useNetworkStatus();
+  const { setQueuedCounts } = useOfflineStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -604,6 +609,20 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       contactId: conversation.contact?.phone ?? '',
     } as unknown as Message);
 
+    if (!isOnline) {
+      const queueId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await offlineQueue.enqueueMessage({
+        id: queueId,
+        tempId,
+        conversationId: conversation.id,
+        payload: { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) },
+        createdAt: new Date().toISOString(),
+      });
+      const [msgs, drafts] = await Promise.all([offlineQueue.getAllMessages(), offlineQueue.getAllDrafts()]);
+      setQueuedCounts(msgs.length, drafts.length);
+      return;
+    }
+
     setSending(true);
     try {
       const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) });
@@ -625,6 +644,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   const sendFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
+    if (!isOnline) {
+      toast.error('File uploads require an internet connection. Reconnect and try again.');
+      return;
+    }
     setSending(true);
     const total = files.length;
     const toastId = total > 1 ? toast.loading(`Uploading 1 of ${total}…`) : null;
