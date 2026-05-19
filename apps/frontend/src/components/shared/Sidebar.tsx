@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus, Brain,
+  ChevronRight, Check, Plus, Brain, Menu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
@@ -317,7 +317,7 @@ export default function Sidebar() {
 
   return (
     <>
-    <aside className="w-16 bg-white border-r border-gray-100 flex flex-col h-full items-center py-5 flex-shrink-0">
+    <aside className="hidden md:flex w-16 bg-white border-r border-gray-100 flex-col h-full items-center py-5 flex-shrink-0">
       {/* Workspace switcher replaces static logo */}
       <div className="mb-8 flex-shrink-0">
         <WorkspaceSwitcher />
@@ -370,5 +370,37 @@ export default function Sidebar() {
       </div>
     </aside>
     </>
+  );
+}
+
+const mobileNavItems = [
+  { href: '/inbox',     icon: MessageSquare, label: 'Inbox' },
+  { href: '/contacts',  icon: Users,         label: 'Contacts' },
+  { href: '/calls',     icon: Phone,         label: 'Calls' },
+  { href: '/ai',        icon: Brain,         label: 'Verz' },
+  { href: '/settings',  icon: Settings,      label: 'Settings' },
+];
+
+export function MobileBottomNav() {
+  const pathname = usePathname();
+  return (
+    <nav className="flex md:hidden flex-shrink-0 bg-white border-t border-gray-100 h-16 items-center justify-around px-2 z-40">
+      {mobileNavItems.map(({ href, icon: Icon, label }) => {
+        const isActive = pathname.startsWith(href);
+        return (
+          <Link
+            key={href}
+            href={href}
+            className={cn(
+              'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors min-w-0',
+              isActive ? 'text-teal-600' : 'text-gray-400',
+            )}
+          >
+            <Icon size={20} />
+            <span className="text-[10px] font-medium truncate">{label}</span>
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { silentRefresh } from '@/lib/api';
-import Sidebar from '@/components/shared/Sidebar';
+import Sidebar, { MobileBottomNav } from '@/components/shared/Sidebar';
 import { SocketProvider } from '@/components/shared/SocketProvider';
 import NotificationBell from '@/components/shared/NotificationBell';
 import { IncomingCallModal } from '@/components/shared/IncomingCallModal';
@@ -151,16 +151,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
         {impersonation && <ImpersonationBanner state={impersonation} onExit={exitImpersonation} />}
         <OfflineBanner />
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden min-h-0">
           <Sidebar />
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             {/* Top bar with notification bell */}
             <header className="h-12 flex items-center justify-end px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2">
               <NotificationBell />
             </header>
-            <main className="flex-1 overflow-hidden">{children}</main>
+            <main className="flex-1 overflow-hidden min-h-0">{children}</main>
           </div>
         </div>
+        <MobileBottomNav />
       </div>
     </SocketProvider>
   );

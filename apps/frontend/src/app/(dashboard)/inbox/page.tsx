@@ -12,6 +12,7 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Parameters<typeof setConversations>[0]>([]);
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
 
   const loadCounts = useCallback(async () => {
     try {
@@ -64,6 +65,7 @@ export default function InboxPage() {
   const handleSelectConversation = useCallback((id: string) => {
     setActiveConversation(id);
     markConversationRead(id);
+    setMobileView('chat');
     void conversationsApi.markRead(id).catch(() => {});
   }, [setActiveConversation, markConversationRead]);
 
@@ -90,18 +92,20 @@ export default function InboxPage() {
         loading={loading}
         statusCounts={statusCounts}
         onResolvedLoaded={(convs) => setResolvedConversations(convs as Parameters<typeof setConversations>[0])}
+        mobileHidden={mobileView === 'chat'}
       />
       {activeConversation ? (
-        <>
+        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-h-0 overflow-hidden`}>
           <ChatWindow
             conversation={activeConversation}
             showDetails={showDetails}
             onToggleDetails={() => setShowDetails((v) => !v)}
+            onMobileBack={() => setMobileView('list')}
           />
           {showDetails && <ConversationDetails conversation={activeConversation} />}
-        </>
+        </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 items-center justify-center bg-gray-50`}>
           <div className="text-center flex flex-col items-center">
             {/* Envelope empty-state illustration */}
             <svg width="160" height="140" viewBox="0 0 160 140" fill="none" xmlns="http://www.w3.org/2000/svg" className="mb-6">

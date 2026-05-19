@@ -916,11 +916,11 @@ export default function ContactsPage() {
   };
 
   return (
-    <div className="flex h-full bg-gray-50 overflow-hidden" style={activeConversation ? { zoom: 0.8 } : undefined}>
+    <div className="flex h-full bg-gray-50 overflow-hidden">
       {/* ── LEFT: full table area (narrows when chat is open) ── */}
       <div className={cn(
         'flex overflow-hidden transition-all duration-200 flex-shrink-0',
-        activeConversation ? 'w-[660px]' : 'flex-1',
+        activeConversation ? 'hidden md:flex md:w-[560px]' : 'flex-1',
       )}>
         {/* ── Segments Sidebar ── */}
       <aside className="w-52 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-y-auto">
@@ -984,7 +984,7 @@ export default function ContactsPage() {
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input type="text" placeholder="Search by name, phone or email…" value={search} onChange={(e) => setSearch(e.target.value)}
-                className="w-72 pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-gray-50" />
+                className="w-full md:w-72 pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-gray-50" />
             </div>
 
             {/* Filter button */}
@@ -1300,6 +1300,7 @@ export default function ContactsPage() {
             showDetails={showDetails}
             onToggleDetails={() => setShowDetails((v) => !v)}
             onClose={() => setActiveConversation(null)}
+            onMobileBack={() => setActiveConversation(null)}
           />
           {showDetails && <ConversationDetails conversation={activeConversation} />}
         </>

@@ -40,6 +40,7 @@ interface Props {
   loading: boolean;
   statusCounts?: StatusCounts;
   onResolvedLoaded?: (convs: Conversation[]) => void;
+  mobileHidden?: boolean;
 }
 
 const STATUS_FILTERS = [
@@ -305,7 +306,7 @@ const ConvRow = memo(function ConvRow({
   );
 });
 
-export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded }: Props) {
+export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
@@ -444,7 +445,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   });
 
   return (
-    <div className="w-72 border-r border-gray-100 bg-white flex flex-col h-full flex-shrink-0">
+    <div className={cn('w-full md:w-72 border-r border-gray-100 bg-white flex flex-col h-full flex-shrink-0', mobileHidden && 'hidden md:flex')}>
       {/* Header */}
       <div className="px-5 pt-5 pb-3 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">

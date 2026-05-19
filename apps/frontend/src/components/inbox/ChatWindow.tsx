@@ -56,6 +56,7 @@ interface Props {
   showDetails?: boolean;
   onToggleDetails?: () => void;
   onClose?: () => void;
+  onMobileBack?: () => void;
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
@@ -173,7 +174,7 @@ function fmtTimestamp(d: Date | string | null | undefined) {
 
 const ACTIVITY_NOISE = new Set(['MESSAGE_SENT', 'MESSAGE_DELETED', 'MESSAGE_STARRED', 'MESSAGE_RECEIVED']);
 
-export default function ChatWindow({ conversation, showDetails, onToggleDetails, onClose }: Props) {
+export default function ChatWindow({ conversation, showDetails, onToggleDetails, onClose, onMobileBack }: Props) {
   const { messages, setMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, updateMessage, activityLogs, setActivityLogs } = useInboxStore();
   const { user } = useAuthStore();
   const { setConfirmDial, outboundSession } = useCallsStore();
@@ -969,6 +970,15 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       {/* Header */}
       <div className="border-b border-gray-100 flex-shrink-0 bg-white">
         <div className="flex items-center gap-3 px-4 py-3">
+            {/* Mobile back button */}
+            {onMobileBack && (
+              <button
+                onClick={onMobileBack}
+                className="md:hidden w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors flex-shrink-0"
+              >
+                <ChevronLeft size={18} />
+              </button>
+            )}
             {/* Avatar */}
             <div className="relative flex-shrink-0">
               <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold', avatarColor)}>
@@ -1439,8 +1449,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   searchPlaceholder="Search emoji…"
                   skinTonesDisabled
                   previewConfig={{ showPreview: false }}
-                  height={435}
-                  width={352}
+                  height={380}
+                  width={Math.min(352, typeof window !== 'undefined' ? window.innerWidth - 24 : 352)}
                 />
               </div>,
               document.body
@@ -1532,7 +1542,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     ref={emojiBtnRef}
                     onClick={() => {
                       const rect = emojiBtnRef.current?.getBoundingClientRect();
-                      if (rect) setPopupPos({ left: Math.max(0, rect.right - 320), bottom: window.innerHeight - rect.top + 8 });
+                      if (rect) { const pickerW = Math.min(352, window.innerWidth - 24); setPopupPos({ left: Math.max(8, Math.min(rect.right - pickerW, window.innerWidth - pickerW - 8)), bottom: window.innerHeight - rect.top + 8 }); }
                       setShowAttachMenu(false);
                       setShowEmojiPicker((v) => !v);
                     }}
@@ -1552,7 +1562,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     ref={emojiBtnRef}
                     onClick={() => {
                       const rect = emojiBtnRef.current?.getBoundingClientRect();
-                      if (rect) setPopupPos({ left: Math.max(0, rect.right - 320), bottom: window.innerHeight - rect.top + 8 });
+                      if (rect) { const pickerW = Math.min(352, window.innerWidth - 24); setPopupPos({ left: Math.max(8, Math.min(rect.right - pickerW, window.innerWidth - pickerW - 8)), bottom: window.innerHeight - rect.top + 8 }); }
                       setShowAttachMenu(false);
                       setShowEmojiPicker((v) => !v);
                     }}
@@ -1571,7 +1581,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   ref={emojiBtnRef}
                   onClick={() => {
                     const rect = emojiBtnRef.current?.getBoundingClientRect();
-                    if (rect) setPopupPos({ left: Math.max(0, rect.right - 320), bottom: window.innerHeight - rect.top + 8 });
+                    if (rect) { const pickerW = Math.min(352, window.innerWidth - 24); setPopupPos({ left: Math.max(8, Math.min(rect.right - pickerW, window.innerWidth - pickerW - 8)), bottom: window.innerHeight - rect.top + 8 }); }
                     setShowAttachMenu(false);
                     setShowEmojiPicker((v) => !v);
                   }}
