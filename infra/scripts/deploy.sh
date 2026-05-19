@@ -25,23 +25,23 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
   pnpm --filter @whatsapp-platform/backend prisma:generate
   pnpm --filter @whatsapp-platform/backend build
 
-  echo "==> Hot-swapping backend dist..."
-  docker cp apps/backend/dist/. wa_backend:/app/dist/
-  SHARED_TYPES_CONTAINER_PATH=$(docker exec wa_backend node -e "console.log(require.resolve('@whatsapp-platform/shared-types'))" 2>/dev/null | sed 's|/dist/index.js||')
+  # Resolve actual container name (handles hash-prefixed names)
+  BACKEND_CTR=$(docker ps --format '{{.Names}}' | grep 'wa_backend' | head -1)
+  if [[ -z "$BACKEND_CTR" ]]; then echo "ERROR: wa_backend container not running"; exit 1; fi
+  echo "==> Hot-swapping backend dist into $BACKEND_CTR..."
+  docker cp apps/backend/dist/. "${BACKEND_CTR}:/app/dist/"
+  SHARED_TYPES_CONTAINER_PATH=$(docker exec "${BACKEND_CTR}" node -e "console.log(require.resolve('@whatsapp-platform/shared-types'))" 2>/dev/null | sed 's|/dist/index.js||')
   if [[ -n "$SHARED_TYPES_CONTAINER_PATH" ]]; then
-    docker cp packages/shared-types/dist/. "wa_backend:${SHARED_TYPES_CONTAINER_PATH}/dist/"
+    docker cp packages/shared-types/dist/. "${BACKEND_CTR}:${SHARED_TYPES_CONTAINER_PATH}/dist/"
   fi
-  # Sync schema and migrations so container has up-to-date definitions
-  docker cp apps/backend/prisma/schema.prisma wa_backend:/app/prisma/schema.prisma
-  docker cp apps/backend/prisma/migrations/. wa_backend:/app/prisma/migrations/
-  # Regenerate Prisma client inside container so new models/enums are available
-  docker exec wa_backend sh -c "cd /app && prisma generate --schema prisma/schema.prisma" 2>&1 || true
-  # Container CMD runs `prisma migrate deploy` on restart, which applies any new migrations
-  docker restart wa_backend
+  docker cp apps/backend/prisma/schema.prisma "${BACKEND_CTR}:/app/prisma/schema.prisma"
+  docker cp apps/backend/prisma/migrations/. "${BACKEND_CTR}:/app/prisma/migrations/"
+  docker exec "${BACKEND_CTR}" sh -c "cd /app && prisma generate --schema prisma/schema.prisma" 2>&1 || true
+  docker restart "${BACKEND_CTR}"
 
   echo "==> Waiting for backend to be healthy..."
   for i in $(seq 1 20); do
-    STATUS=$(docker inspect --format='{{.State.Health.Status}}' wa_backend 2>/dev/null || echo "none")
+    STATUS=$(docker inspect --format='{{.State.Health.Status}}' "${BACKEND_CTR}" 2>/dev/null || echo "none")
     if [[ "$STATUS" == "healthy" || "$STATUS" == "none" ]]; then
       break
     fi
@@ -55,17 +55,17 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   rm -rf apps/frontend/.next
   pnpm --filter @whatsapp-platform/frontend build
 
-  echo "==> Hot-swapping frontend build..."
-  # Static JS/CSS chunks — served from /app/apps/frontend/.next/static/ in the container
-  docker cp apps/frontend/.next/static/. wa_frontend:/app/apps/frontend/.next/static/
-  # Server-side code and manifests — from standalone output
-  docker cp apps/frontend/.next/standalone/apps/frontend/.next/server/. wa_frontend:/app/apps/frontend/.next/server/
-  docker cp apps/frontend/.next/standalone/apps/frontend/server.js wa_frontend:/app/apps/frontend/server.js
-  # Build manifests at .next/ root
+  # Resolve actual container name (handles hash-prefixed names like abc123_wa_frontend)
+  FRONTEND_CTR=$(docker ps --format '{{.Names}}' | grep 'wa_frontend' | head -1)
+  if [[ -z "$FRONTEND_CTR" ]]; then echo "ERROR: wa_frontend container not running"; exit 1; fi
+  echo "==> Hot-swapping frontend build into $FRONTEND_CTR..."
+  docker cp apps/frontend/.next/static/. "${FRONTEND_CTR}:/app/apps/frontend/.next/static/"
+  docker cp apps/frontend/.next/standalone/apps/frontend/.next/server/. "${FRONTEND_CTR}:/app/apps/frontend/.next/server/"
+  docker cp apps/frontend/.next/standalone/apps/frontend/server.js "${FRONTEND_CTR}:/app/apps/frontend/server.js"
   for f in apps/frontend/.next/standalone/apps/frontend/.next/*.json apps/frontend/.next/standalone/apps/frontend/.next/BUILD_ID; do
-    [[ -f "$f" ]] && docker cp "$f" "wa_frontend:/app/apps/frontend/.next/$(basename "$f")"
+    [[ -f "$f" ]] && docker cp "$f" "${FRONTEND_CTR}:/app/apps/frontend/.next/$(basename "$f")"
   done
-  docker restart wa_frontend
+  docker restart "${FRONTEND_CTR}"
   echo "==> Frontend deployed."
 fi
 
