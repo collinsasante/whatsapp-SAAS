@@ -5,9 +5,45 @@ on:
     branches:
       - main
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
 jobs:
+  # ── 1. Type-check + Lint ────────────────────────────────────────────────────
+  lint:
+    name: Type-check & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: |
+          pnpm --filter @whatsapp-platform/shared-types build
+          pnpm --filter @whatsapp-platform/shared-utils build
+
+      - name: Type-check backend
+        run: pnpm --filter @whatsapp-platform/backend tsc --noEmit
+
+      - name: Type-check frontend
+        run: pnpm --filter @whatsapp-platform/frontend tsc --noEmit
+
+  # ── 2. Deploy ───────────────────────────────────────────────────────────────
   deploy:
     name: Deploy
+    needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -23,10 +59,14 @@ jobs:
             backend:
               - 'apps/backend/**'
               - 'packages/**'
-              - 'prisma/**'
+              - 'apps/worker/**'
+              - 'apps/realtime/**'
             frontend:
               - 'apps/frontend/**'
               - 'packages/**'
+            infra:
+              - 'infra/nginx/**'
+              - 'infra/docker-compose.yml'
 
       - name: Deploy backend
         if: steps.changes.outputs.backend == 'true'
@@ -49,7 +89,7 @@ jobs:
           command_timeout: 15m
 
       - name: Reload nginx (infra-only changes)
-        if: steps.changes.outputs.backend == 'false' && steps.changes.outputs.frontend == 'false'
+        if: steps.changes.outputs.backend == 'false' && steps.changes.outputs.frontend == 'false' && steps.changes.outputs.infra == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -59,3 +99,27 @@ jobs:
             cd /root/whatsapp-platform && git pull origin main
             docker exec wa_nginx nginx -t && docker exec wa_nginx nginx -s reload
           command_timeout: 2m
+
+      - name: Verify production health
+        run: |
+          echo "Waiting 15s for containers to stabilise..."
+          sleep 15
+          STATUS=$(curl -sf --retry 5 --retry-delay 5 --retry-connrefused \
+            https://verzchat.com/api/v1/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))")
+          if [[ "$STATUS" != "ok" ]]; then
+            echo "Health check failed: $STATUS"
+            exit 1
+          fi
+          echo "Production health: $STATUS"
+
+      - name: Notify on failure
+        if: failure()
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            curl -s -X POST https://verzchat.com/api/v1/platform-admin/alerts/deploy-failure \
+              -H "X-Alert-Secret: ${PLATFORM_ADMIN_SETUP_SECRET}" \
+              -d '{"commit":"${{ github.sha }}","actor":"${{ github.actor }}"}' || true

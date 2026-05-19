@@ -34,6 +34,7 @@ import { BillingModule } from './billing/billing.module';
 import { TeamsModule } from './teams/teams.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { FeedbackModule } from './feedback/feedback.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -95,6 +96,7 @@ import appConfig from './config/app.config';
     TeamsModule,
     WorkspaceModule,
     PlatformAdminModule,
+    FeedbackModule,
   ],
 })
 export class AppModule implements NestModule {

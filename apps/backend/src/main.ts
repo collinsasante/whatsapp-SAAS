@@ -1,3 +1,4 @@
+import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -5,6 +6,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -27,6 +29,8 @@ async function bootstrap() {
   });
 
   app.enableVersioning({ type: VersioningType.URI });
+
+  app.useGlobalFilters(new SentryExceptionFilter());
 
   app.useGlobalPipes(
     new ValidationPipe({

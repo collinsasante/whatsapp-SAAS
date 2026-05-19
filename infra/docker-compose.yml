@@ -110,6 +110,7 @@ services:
       THROTTLE_TTL: 60000
       THROTTLE_LIMIT: 100
       PLATFORM_ADMIN_SETUP_SECRET: ${PLATFORM_ADMIN_SETUP_SECRET:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
       - uploads_data:/app/uploads
     depends_on:
@@ -173,6 +174,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
     container_name: wa_frontend
     restart: always
     environment:

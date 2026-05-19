@@ -25,6 +25,8 @@
     "@nestjs/swagger": "^7.3.1",
     "@nestjs/throttler": "^5.1.2",
     "@prisma/client": "^5.14.0",
+    "@sentry/nestjs": "^10.53.1",
+    "@sentry/profiling-node": "^10.53.1",
     "@types/form-data": "^2.5.2",
     "@types/nodemailer": "^8.0.0",
     "@whatsapp-platform/shared-types": "workspace:*",
