@@ -1,6 +1,11 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
-import * as Sentry from '@sentry/nestjs';
 import { Request, Response } from 'express';
+
+let Sentry: { withScope?: (cb: (s: unknown) => void) => void; captureException?: (e: unknown) => void } | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  Sentry = require('@sentry/nestjs');
+} catch { /* package not installed */ }
 
 @Catch()
 export class SentryExceptionFilter implements ExceptionFilter {
@@ -14,13 +19,13 @@ export class SentryExceptionFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    // Only capture 5xx errors — 4xx are user errors, not bugs
-    if (status >= 500) {
-      Sentry.withScope((scope) => {
+    // Only capture 5xx errors
+    if (status >= 500 && Sentry?.withScope) {
+      Sentry.withScope((scope: { setTag: (k: string, v: string) => void; setExtra: (k: string, v: unknown) => void }) => {
         scope.setTag('url', request.url);
         scope.setTag('method', request.method);
         scope.setExtra('tenantId', (request as Request & { tenantId?: string }).tenantId);
-        Sentry.captureException(exception);
+        Sentry?.captureException?.(exception);
       });
     }
 
