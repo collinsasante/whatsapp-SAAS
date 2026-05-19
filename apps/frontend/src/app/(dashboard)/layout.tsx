@@ -10,7 +10,6 @@ import { IncomingCallModal } from '@/components/shared/IncomingCallModal';
 import { OutboundDialModal } from '@/components/shared/OutboundDialModal';
 import { OutboundCallBar } from '@/components/shared/OutboundCallBar';
 import { ConfirmCallModal } from '@/components/shared/ConfirmCallModal';
-import FeedbackWidget from '@/components/FeedbackWidget';
 import OfflineBanner from '@/components/OfflineBanner';
 import { SyncProvider } from '@/components/shared/SyncProvider';
 import { ShieldAlert, LogOut } from 'lucide-react';
@@ -149,7 +148,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <OutboundDialModal />
       <OutboundCallBar />
       <ConfirmCallModal />
-      <FeedbackWidget />
       <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
         {impersonation && <ImpersonationBanner state={impersonation} onExit={exitImpersonation} />}
         <OfflineBanner />
