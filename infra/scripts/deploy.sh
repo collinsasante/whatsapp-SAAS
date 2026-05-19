@@ -69,14 +69,8 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   echo "==> Frontend deployed."
 fi
 
-echo "==> Reloading nginx to re-resolve upstream IPs..."
-# Sync config to the directory the container was started from, then reload
-NGINX_CONF_SRC="$REPO_ROOT/infra/nginx/nginx.conf"
-NGINX_CONF_OPT="/opt/whatsapp-platform/infra/nginx/nginx.conf"
-if [[ -f "$NGINX_CONF_OPT" ]]; then
-  cp "$NGINX_CONF_SRC" "$NGINX_CONF_OPT"
-fi
+echo "==> Reloading nginx..."
 docker exec wa_nginx nginx -s reload
 
 echo "==> Done. Container status:"
-docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "wa_backend|wa_frontend|wa_nginx"
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "wa_backend|wa_frontend|wa_nginx|wa_worker|wa_realtime"
