@@ -51,13 +51,23 @@ function StepWhatsApp({
     setFetching(true);
     setError(null);
     try {
-      const profileRes = await fetch(
-        `https://graph.facebook.com/v18.0/${data.phoneNumberId}/whatsapp_business_profile?fields=about,address,description,email,websites,vertical&access_token=${data.accessToken}`,
-      );
-      const nameRes = await fetch(
-        `https://graph.facebook.com/v18.0/${data.phoneNumberId}?fields=display_phone_number,verified_name&access_token=${data.accessToken}`,
-      );
-      if (!profileRes.ok || !nameRes.ok) throw new Error('Invalid credentials');
+      const [profileRes, nameRes] = await Promise.all([
+        fetch(`https://graph.facebook.com/v21.0/${data.phoneNumberId}/whatsapp_business_profile?fields=about,address,description,email,websites,vertical&access_token=${data.accessToken}`),
+        fetch(`https://graph.facebook.com/v21.0/${data.phoneNumberId}?fields=display_phone_number,verified_name&access_token=${data.accessToken}`),
+      ]);
+
+      if (!profileRes.ok || !nameRes.ok) {
+        const errBody = await (profileRes.ok ? nameRes : profileRes).json() as { error?: { code?: number; message?: string } };
+        const code = errBody?.error?.code;
+        if (code === 190) {
+          throw new Error('Access token is expired or invalid. Generate a new permanent System User token in Meta Business Manager.');
+        } else if (code === 100) {
+          throw new Error('Phone Number ID not found. Make sure you copied the correct ID from WhatsApp Manager.');
+        } else {
+          throw new Error(errBody?.error?.message ?? 'Could not verify credentials. Check your Phone Number ID and Access Token.');
+        }
+      }
+
       const profile = await profileRes.json() as Record<string, unknown>;
       const nameData = await nameRes.json() as Record<string, unknown>;
       onFetched({
@@ -69,8 +79,8 @@ function StepWhatsApp({
         websites: profile.websites as string[] | undefined,
         vertical: profile.vertical as string | undefined,
       });
-    } catch {
-      setError('Could not verify credentials. Please check your Phone Number ID and Access Token.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not verify credentials. Please check your Phone Number ID and Access Token.');
     } finally {
       setFetching(false);
     }
