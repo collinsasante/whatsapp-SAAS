@@ -58,7 +58,7 @@ export default function FeedbackWidget() {
       {/* Trigger button */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 px-3 py-2 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-full shadow-lg transition-colors border border-gray-700"
+        className="fixed bottom-5 left-5 z-40 flex items-center gap-2 px-3 py-2 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-full shadow-lg transition-colors border border-gray-700"
       >
         <MessageCircle size={13} />
         Feedback
