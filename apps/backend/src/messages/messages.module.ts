@@ -7,9 +7,10 @@ import { ContactsModule } from '../contacts/contacts.module';
 import { MediaModule } from '../media/media.module';
 import { ChatbotFlowsModule } from '../chatbot-flows/chatbot-flows.module';
 import { ActivityLogModule } from '../activity-log/activity-log.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule],
+  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule],
   controllers: [MessagesController],
   providers: [MessagesService],
   exports: [MessagesService],

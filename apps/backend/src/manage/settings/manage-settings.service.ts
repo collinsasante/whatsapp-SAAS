@@ -53,4 +53,16 @@ export class ManageSettingsService {
       update: data,
     });
   }
+
+  async updateAi(tenantId: string, data: {
+    aiEnabled?: boolean;
+    aiAlwaysOn?: boolean;
+    aiPersonality?: string;
+  }) {
+    return this.prisma.tenantSettings.upsert({
+      where: { tenantId },
+      create: { tenantId, ...data },
+      update: data,
+    });
+  }
 }

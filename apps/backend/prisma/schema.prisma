@@ -67,6 +67,7 @@ model Tenant {
   teams               Team[]
   conversationEvents  ConversationEvent[]
   workspaceMembers    WorkspaceMember[]   @relation("WorkspaceMembers")
+  knowledgeBase       KnowledgeBaseArticle[]
   workspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitations")
   messageDeletions     MessageDeletion[]
   feedback             Feedback[]
@@ -142,6 +143,9 @@ model TenantSettings {
   optInReply          String?  @map("opt_in_reply")
   widgetEnabled       Boolean  @default(false) @map("widget_enabled")
   widgetConfig        Json     @default("{}") @map("widget_config")
+  aiEnabled           Boolean  @default(false) @map("ai_enabled")
+  aiAlwaysOn          Boolean  @default(false) @map("ai_always_on")
+  aiPersonality       String?  @map("ai_personality")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1483,4 +1487,19 @@ enum FeedbackStatus {
   IN_PROGRESS
   RESOLVED
   DISMISSED
+}
+
+model KnowledgeBaseArticle {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  title     String
+  content   String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("knowledge_base_articles")
 }

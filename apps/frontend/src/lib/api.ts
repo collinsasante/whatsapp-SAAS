@@ -416,4 +416,15 @@ export const manageSettingsApi = {
   updateOffHours: (data: Record<string, unknown>) => api.patch('/manage/settings/off-hours', data),
   updateOptInOut: (data: Record<string, unknown>) => api.patch('/manage/settings/opt-in-out', data),
   updateWidget: (data: Record<string, unknown>) => api.patch('/manage/settings/widget', data),
+  updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string }) =>
+    api.patch('/manage/settings/ai', data),
+};
+
+export const knowledgeBaseApi = {
+  list: () => api.get('/knowledge-base'),
+  create: (data: { title: string; content: string; isActive?: boolean }) =>
+    api.post('/knowledge-base', data),
+  update: (id: string, data: { title?: string; content?: string; isActive?: boolean }) =>
+    api.patch(`/knowledge-base/${id}`, data),
+  delete: (id: string) => api.delete(`/knowledge-base/${id}`),
 };

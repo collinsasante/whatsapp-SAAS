@@ -35,6 +35,7 @@ import { TeamsModule } from './teams/teams.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -97,6 +98,7 @@ import appConfig from './config/app.config';
     WorkspaceModule,
     PlatformAdminModule,
     FeedbackModule,
+    KnowledgeBaseModule,
   ],
 })
 export class AppModule implements NestModule {

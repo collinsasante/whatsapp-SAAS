@@ -8,6 +8,7 @@ import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { StorageService } from '../media/storage.service';
 import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.service';
+import { AiResponderService } from '../ai/ai-responder.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
@@ -24,6 +25,7 @@ export class MessagesService {
     private storageService: StorageService,
     private chatbotFlowsService: ChatbotFlowsService,
     private activityLogService: ActivityLogService,
+    private aiResponderService: AiResponderService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -464,10 +466,37 @@ export class MessagesService {
     }
 
     // Trigger chatbot flow if one matches this message
+    let flowMatched = false;
     if (content) {
       const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content);
       if (flow) {
+        flowMatched = true;
         void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[]);
+      }
+    }
+
+    // AI responder: handle after-hours or always-on mode (only if no chatbot flow matched)
+    if (content && !flowMatched) {
+      const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
+      if (shouldAi) {
+        void (async () => {
+          const reply = await this.aiResponderService.respond(tenantId, content, contact.name ?? undefined);
+          if (!reply) return;
+          await this.whatsappService.sendTextMessage(tenantId, contact.phone, reply).catch(() => null);
+          await this.prisma.message.create({
+            data: {
+              tenantId,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              direction: 'OUTBOUND' as const,
+              type: 'TEXT' as const,
+              status: 'SENT' as const,
+              content: reply,
+              metadata: { aiGenerated: true },
+            },
+          });
+          this.realtimeService.emitNewMessage(tenantId, conversation.id, { aiGenerated: true, content: reply });
+        })();
       }
     }
 

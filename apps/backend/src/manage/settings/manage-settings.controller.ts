@@ -31,4 +31,9 @@ export class ManageSettingsController {
   updateWidget(@CurrentUser() u: JwtPayload, @Body() body: any) {
     return this.service.updateWidget(u.tenantId, body);
   }
+
+  @Patch('ai')
+  updateAi(@CurrentUser() u: JwtPayload, @Body() body: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string }) {
+    return this.service.updateAi(u.tenantId, body);
+  }
 }

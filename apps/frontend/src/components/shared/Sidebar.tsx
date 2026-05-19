@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus,
+  ChevronRight, Check, Plus, Brain,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
@@ -30,6 +30,7 @@ const mainNav: NavItem[] = [
       { href: '/templates',  icon: FileText,  label: 'Templates' },
       { href: '/automation', icon: Zap,       label: 'Automation' },
       { href: '/chatbot',    icon: Bot,       label: 'Chatbot Flows' },
+      { href: '/ai',         icon: Brain,     label: 'AI Assistant' },
     ],
   },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
