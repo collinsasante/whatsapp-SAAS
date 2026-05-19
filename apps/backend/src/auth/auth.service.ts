@@ -106,7 +106,7 @@ export class AuthService {
     await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
 
     const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
-    const safeTenant = { id: tenant.id, name: tenant.name };
+    const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
 
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -174,7 +174,7 @@ export class AuthService {
     await this.updateRefreshToken(user!.id, tokens.refreshToken);
 
     const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: user!.role, tenantId: user!.tenantId };
-    const safeTenant = { id: tenant!.id, name: tenant!.name };
+    const safeTenant = { id: tenant!.id, name: tenant!.name, onboardingCompleted: tenant!.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 

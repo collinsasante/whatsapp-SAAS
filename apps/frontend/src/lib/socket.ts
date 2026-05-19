@@ -34,13 +34,12 @@ function createSocket(token: string | null): Socket {
   s.on('connect', () => console.log('Socket connected'));
   s.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
   s.on('connect_error', (err) => {
-    // Only handle auth errors for the currently-authorized socket instance.
-    // Stale sockets from a previous session must never trigger logout of a new session.
-    if (s !== authorizedSocket) return;
+    const isAuthorized = s === authorizedSocket;
+    console.warn('[socket] connect_error:', err.message, '| authorized:', isAuthorized);
+    if (!isAuthorized) return;
     if (err.message.toLowerCase().includes('authentication') || err.message.toLowerCase().includes('token')) {
+      console.warn('[socket] auth error on connect — will trigger logout');
       onAuthError?.();
-    } else {
-      console.error('Socket error:', err.message);
     }
   });
   return s;

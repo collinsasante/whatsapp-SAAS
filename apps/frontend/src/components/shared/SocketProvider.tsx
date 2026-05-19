@@ -108,6 +108,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setSocketAuthErrorHandler(() => {
+      console.warn('[auth] socket auth error → /login');
       clearAuth();
       router.replace('/login?_r=socket-auth');
     });

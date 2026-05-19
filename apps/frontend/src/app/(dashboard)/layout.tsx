@@ -65,13 +65,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (accessToken) return;
 
     setRestoring(true);
+    console.log('[auth] no access token in memory, attempting silent refresh via cookie');
     try {
-      // Try to get a new access token using the HttpOnly refresh cookie.
-      // The cookie is sent automatically (withCredentials: true on the axios client).
       const newToken = await silentRefresh();
+      console.log('[auth] silent refresh OK');
       setAccessToken(newToken);
-    } catch {
-      // No valid cookie — session is truly expired, redirect to login
+    } catch (err) {
+      console.warn('[auth] silent refresh FAILED — logging out', err);
       clearAuth();
       router.replace('/login?_r=restore-fail');
     } finally {
@@ -82,8 +82,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Run session restoration after Zustand has hydrated from localStorage
   useEffect(() => {
     if (!_hasHydrated) return;
+    console.log('[auth] layout effect:', { isAuthenticated, hasToken: !!accessToken, onboarding: tenant?.onboardingCompleted });
 
     if (!isAuthenticated) {
+      console.warn('[auth] not authenticated → /login');
       router.replace('/login?_r=no-auth');
       return;
     }
@@ -95,6 +97,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     // Gate: new users who haven't completed onboarding
     if (tenant?.onboardingCompleted === false) {
+      console.log('[auth] onboarding incomplete → /onboarding');
       router.replace('/onboarding');
     }
   }, [_hasHydrated, isAuthenticated, accessToken, restoreSession, router, tenant]);
@@ -102,6 +105,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Listen for session expiry events dispatched by the API interceptor
   useEffect(() => {
     const handler = () => {
+      console.warn('[auth] session-expired event fired → /login');
       clearAuth();
       router.replace('/login?_r=session-exp');
     };
