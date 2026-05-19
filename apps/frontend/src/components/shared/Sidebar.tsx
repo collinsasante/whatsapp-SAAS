@@ -32,7 +32,7 @@ const mainNav: NavItem[] = [
       { href: '/chatbot',    icon: Bot,       label: 'Chatbot Flows' },
     ],
   },
-  { type: 'link', href: '/ai',        icon: Brain,     label: 'AI Assistant' },
+  { type: 'link', href: '/ai',        icon: Brain,     label: 'Verz' },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
   { type: 'link', href: '/calls',     icon: Phone,     label: 'Calls' },
 ];

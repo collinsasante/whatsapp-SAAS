@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X, Clock, Zap, BookOpen, AlertCircle, Sparkles } from 'lucide-react';
+import { Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X, Clock, Zap, BookOpen, AlertCircle } from 'lucide-react';
 import { knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -32,6 +32,7 @@ export default function AiPage() {
   const [form, setForm] = useState({ title: '', content: '', isActive: true });
   const [personality, setPersonality] = useState('');
   const [learning, setLearning] = useState(false);
+  const [showLearnModal, setShowLearnModal] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -148,7 +149,7 @@ export default function AiPage() {
         toast.success(`Verz learned! Added ${created} new article${created !== 1 ? 's' : ''} from the last 30 days.`);
         void load();
       } else {
-        toast('No new patterns found in the last 30 days of conversations.', { icon: '🤔' });
+        toast('No new patterns found in the last 30 days of conversations.');
       }
     } catch {
       toast.error('Failed to learn from conversations');
@@ -174,14 +175,14 @@ export default function AiPage() {
             <Brain size={18} className="text-teal-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">AI Assistant</h1>
-            <p className="text-xs text-gray-500">Knowledge base + after-hours AI responder</p>
+            <h1 className="text-lg font-bold text-gray-900">Verz</h1>
+            <p className="text-xs text-gray-500">Knowledge base + after-hours responder</p>
           </div>
         </div>
         {settings.aiEnabled && (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-teal-50 border border-teal-200 rounded-xl">
             <div className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-            <span className="text-xs font-semibold text-teal-700">AI Active</span>
+            <span className="text-xs font-semibold text-teal-700">Verz Active</span>
           </div>
         )}
       </div>
@@ -193,18 +194,24 @@ export default function AiPage() {
           <div className="bg-white border border-gray-200 rounded-2xl p-6">
             <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
               <Zap size={15} className="text-teal-600" />
-              AI Responder Settings
+              Verz Settings
             </h2>
 
             <div className="space-y-4">
               {/* Enable toggle */}
               <div className="flex items-center justify-between py-3 border-b border-gray-100">
                 <div>
-                  <p className="text-sm font-medium text-gray-900">Enable AI Assistant</p>
-                  <p className="text-xs text-gray-500 mt-0.5">AI will automatically reply to customer messages using your knowledge base</p>
+                  <p className="text-sm font-medium text-gray-900">Enable Verz</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Verz will automatically reply to customer messages using your knowledge base</p>
                 </div>
                 <button
-                  onClick={() => void saveSettings({ aiEnabled: !settings.aiEnabled })}
+                  onClick={() => {
+                    if (!settings.aiEnabled) {
+                      setShowLearnModal(true);
+                    } else {
+                      void saveSettings({ aiEnabled: false });
+                    }
+                  }}
                   disabled={savingSettings}
                   className="flex-shrink-0"
                 >
@@ -218,7 +225,7 @@ export default function AiPage() {
                 <>
                   {/* Mode */}
                   <div className="py-3 border-b border-gray-100">
-                    <p className="text-sm font-medium text-gray-900 mb-3">When should AI reply?</p>
+                    <p className="text-sm font-medium text-gray-900 mb-3">When should Verz reply?</p>
                     <div className="grid grid-cols-2 gap-3">
                       <button
                         onClick={() => void saveSettings({ aiAlwaysOn: false })}
@@ -228,7 +235,7 @@ export default function AiPage() {
                           <Clock size={15} className={!settings.aiAlwaysOn ? 'text-teal-600' : 'text-gray-400'} />
                           <span className={`text-sm font-semibold ${!settings.aiAlwaysOn ? 'text-teal-700' : 'text-gray-700'}`}>After Hours Only</span>
                         </div>
-                        <p className="text-xs text-gray-500 leading-relaxed">AI replies only when your team is offline (based on your off-hours schedule in Manage settings)</p>
+                        <p className="text-xs text-gray-500 leading-relaxed">Verz replies only when your team is offline (based on your off-hours schedule in Manage settings)</p>
                         {!settings.offHoursEnabled && !settings.aiAlwaysOn && (
                           <Link href="/manage?tab=offhours" className="mt-2 flex items-center gap-1 text-amber-600 text-xs hover:text-amber-700 hover:underline">
                             <AlertCircle size={11} />
@@ -245,7 +252,7 @@ export default function AiPage() {
                           <Zap size={15} className={settings.aiAlwaysOn ? 'text-teal-600' : 'text-gray-400'} />
                           <span className={`text-sm font-semibold ${settings.aiAlwaysOn ? 'text-teal-700' : 'text-gray-700'}`}>Always On</span>
                         </div>
-                        <p className="text-xs text-gray-500 leading-relaxed">AI replies to every inbound message 24/7 (chatbot flows still take priority)</p>
+                        <p className="text-xs text-gray-500 leading-relaxed">Verz replies to every inbound message 24/7 (chatbot flows still take priority)</p>
                       </button>
                     </div>
                   </div>
@@ -253,7 +260,7 @@ export default function AiPage() {
                   {/* Personality */}
                   <div className="py-3">
                     <p className="text-sm font-medium text-gray-900 mb-1.5">AI Personality</p>
-                    <p className="text-xs text-gray-500 mb-3">Describe how the AI should communicate with customers</p>
+                    <p className="text-xs text-gray-500 mb-3">Describe how Verz should communicate with customers</p>
                     <textarea
                       value={personality}
                       onChange={e => setPersonality(e.target.value)}
@@ -286,26 +293,13 @@ export default function AiPage() {
                 <h2 className="text-sm font-bold text-gray-900">Knowledge Base</h2>
                 <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{articles.length} articles</span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => void learnFromConversations()}
-                  disabled={learning}
-                  title="Analyse the last 30 days of agent conversations and auto-generate knowledge base articles"
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
-                >
-                  {learning
-                    ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Learning…</>
-                    : <><Sparkles size={12} />Learn from chats</>
-                  }
-                </button>
-                <button
-                  onClick={openNew}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors"
-                >
-                  <Plus size={12} />
-                  Add Article
-                </button>
-              </div>
+              <button
+                onClick={openNew}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                <Plus size={12} />
+                Add Article
+              </button>
             </div>
 
             {/* Article editor inline */}
@@ -329,7 +323,7 @@ export default function AiPage() {
                       value={form.content}
                       onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
                       rows={6}
-                      placeholder="Write everything the AI should know about this topic. Be detailed — the AI will use this to answer customer questions."
+                      placeholder="Write everything Verz should know about this topic. Be detailed — Verz will use this to answer customer questions."
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 resize-none bg-white"
                     />
                   </div>
@@ -354,7 +348,7 @@ export default function AiPage() {
                 </div>
                 <p className="text-sm font-medium text-gray-700 mb-1">No articles yet</p>
                 <p className="text-xs text-gray-500 max-w-sm mx-auto">
-                  Add articles about your business — FAQs, policies, hours, pricing. The AI will use these to answer customer questions.
+                  Add articles about your business — FAQs, policies, hours, pricing. Verz will use these to answer customer questions.
                 </p>
               </div>
             ) : (
@@ -404,8 +398,8 @@ export default function AiPage() {
             <div className="grid sm:grid-cols-3 gap-4">
               {[
                 { step: '1', title: 'Customer messages', desc: 'A customer sends a WhatsApp message outside business hours (or any time if Always On)' },
-                { step: '2', title: 'AI searches KB', desc: 'The AI reads your knowledge base articles and crafts a relevant, natural reply' },
-                { step: '3', title: 'Instant reply', desc: 'Customer gets an answer in seconds. If the AI cannot help, it lets them know a team member will follow up' },
+                { step: '2', title: 'Verz searches KB', desc: 'Verz reads your knowledge base articles and crafts a relevant, natural reply' },
+                { step: '3', title: 'Instant reply', desc: 'Customer gets an answer in seconds. If Verz cannot help, it lets them know a team member will follow up' },
               ].map(({ step, title, desc }) => (
                 <div key={step} className="flex gap-3">
                   <div className="w-6 h-6 rounded-full bg-teal-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">{step}</div>
@@ -420,6 +414,58 @@ export default function AiPage() {
 
         </div>
       </div>
+
+      {/* Enable Verz modal — offers to learn from conversations */}
+      {showLearnModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                <Brain size={20} className="text-violet-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Enable Verz?</p>
+                <p className="text-xs text-gray-500 mt-0.5">Your AI agent is ready to go</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 leading-relaxed mb-5">
+              Would you like Verz to analyse the last 30 days of conversations between your agents and customers to build its knowledge base automatically?
+            </p>
+            <div className="space-y-2">
+              <button
+                disabled={learning || savingSettings}
+                onClick={async () => {
+                  setShowLearnModal(false);
+                  await saveSettings({ aiEnabled: true });
+                  void learnFromConversations();
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+              >
+                {(learning || savingSettings)
+                  ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : 'Enable and learn from conversations'
+                }
+              </button>
+              <button
+                disabled={savingSettings}
+                onClick={async () => {
+                  setShowLearnModal(false);
+                  await saveSettings({ aiEnabled: true });
+                }}
+                className="w-full px-4 py-2.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium rounded-xl transition-colors"
+              >
+                Enable without learning
+              </button>
+              <button
+                onClick={() => setShowLearnModal(false)}
+                className="w-full px-4 py-2.5 text-gray-400 hover:text-gray-600 text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
