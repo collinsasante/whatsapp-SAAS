@@ -5,21 +5,20 @@ const col1 = [
   { label: 'Features', href: '#features' },
   { label: 'Channels', href: '#channels' },
   { label: 'Pricing', href: '#pricing' },
-  { label: 'Changelog', href: '#' },
+  { label: 'Changelog', href: '/changelog' },
 ];
 
 const col2 = [
-  { label: 'Dashboard', href: '/dashboard' },
   { label: 'Log in', href: '/auth/login' },
   { label: 'Register', href: '/auth/register' },
-  { label: 'API Docs', href: '#' },
+  { label: 'API Docs', href: '/api-docs' },
+  { label: 'Status', href: '/status' },
 ];
 
 const col3 = [
-  { label: 'Privacy Policy', href: '#' },
-  { label: 'Terms of Service', href: '#' },
-  { label: 'GDPR', href: '#' },
-  { label: 'Status', href: '#' },
+  { label: 'Privacy Policy', href: '/privacy' },
+  { label: 'Terms of Service', href: '/terms' },
+  { label: 'GDPR', href: '/gdpr' },
 ];
 
 export default function Footer() {
@@ -35,10 +34,10 @@ export default function Footer() {
               <span className="font-bold text-white text-[15px]">VerzChat</span>
             </Link>
             <p className="text-sm text-gray-500 leading-relaxed mb-4">
-              The WhatsApp inbox for teams that take customer communication seriously.
+              The WhatsApp inbox built for teams that take customer communication seriously.
             </p>
             <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#25D366]" />
+              <div className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse" />
               <span className="text-xs text-gray-500">All systems operational</span>
             </div>
           </div>
@@ -48,7 +47,7 @@ export default function Footer() {
             <ul className="space-y-2">
               {col1.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="text-sm text-gray-500 hover:text-gray-300 transition-colors">{l.label}</a>
+                  <Link href={l.href} className="text-sm text-gray-500 hover:text-gray-300 transition-colors">{l.label}</Link>
                 </li>
               ))}
             </ul>
@@ -70,7 +69,7 @@ export default function Footer() {
             <ul className="space-y-2">
               {col3.map((l) => (
                 <li key={l.label}>
-                  <a href={l.href} className="text-sm text-gray-500 hover:text-gray-300 transition-colors">{l.label}</a>
+                  <Link href={l.href} className="text-sm text-gray-500 hover:text-gray-300 transition-colors">{l.label}</Link>
                 </li>
               ))}
             </ul>
@@ -80,7 +79,10 @@ export default function Footer() {
         <div className="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-gray-600">© {new Date().getFullYear()} VerzChat. Built for teams that move fast.</p>
           <p className="text-xs text-gray-600">
-            Questions? <a href="mailto:hello@verzchat.com" className="text-gray-400 hover:text-white transition-colors underline underline-offset-2">hello@verzchat.com</a>
+            Questions?{' '}
+            <a href="mailto:notifications@verzchat.com" className="text-gray-400 hover:text-white transition-colors underline underline-offset-2">
+              notifications@verzchat.com
+            </a>
           </p>
         </div>
       </div>

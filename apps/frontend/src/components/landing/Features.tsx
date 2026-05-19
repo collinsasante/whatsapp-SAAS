@@ -5,7 +5,7 @@ const features = [
   {
     number: '01',
     title: 'Stop assigning conversations over Slack.',
-    desc: "When a message comes in, your team sees it — and claims it. Assign to the right agent, add internal notes, and resolve without stepping on each other. No more \"who's handling this?\"",
+    desc: 'When a message comes in, your team sees it and claims it. Assign to the right agent, add private notes, and resolve without stepping on each other. No more "who\'s handling this?"',
     pills: ['Agent assignment', 'Private notes', 'Conversation labels', 'Team visibility'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
@@ -40,7 +40,7 @@ const features = [
   {
     number: '02',
     title: 'Reply to 10,000 customers without typing each one.',
-    desc: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick a template, and send. Track who got it, who read it, and who clicked — in real time.',
+    desc: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick a template, and send. Track who got it, who read it, and who clicked in real time.',
     pills: ['Broadcast campaigns', 'Delivery tracking', 'Read & click rates', 'Contact segments'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
@@ -69,21 +69,20 @@ const features = [
               <div key={i} className="flex-1 bg-[#25D366]/20 rounded-sm" style={{ height: `${h}%` }} />
             ))}
           </div>
-          <p className="text-[8px] text-gray-300 mt-1 text-center">Delivery rate over time</p>
         </div>
       </div>
     ),
   },
   {
     number: '03',
-    title: "Let the bot handle FAQs. You handle the rest.",
-    desc: "Build chatbot flows with drag-and-drop — no code. Set triggers, define responses, and the bot handles common questions 24/7. When it can't help, it hands off to a live agent instantly.",
+    title: 'Let the bot handle FAQs. You handle the rest.',
+    desc: 'Build chatbot flows with drag-and-drop, no code needed. Set triggers, define responses, and the bot handles common questions 24/7. When it gets stuck, it hands off to a live agent instantly.',
     pills: ['No-code flow builder', 'AI-powered replies', 'Live agent handoff', '24/7 automation'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
         <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
           <p className="text-[10px] font-semibold text-gray-500">Chatbot · Order Support</p>
-          <span className="text-[9px] text-[#15803d] font-bold">82% handled by bot</span>
+          <span className="text-[9px] text-[#15803d] font-bold">82% handled automatically</span>
         </div>
         <div className="p-3 space-y-1.5">
           {[
@@ -105,7 +104,7 @@ const features = [
   {
     number: '04',
     title: 'Know exactly where your team stands.',
-    desc: "See how fast your team responds, how many conversations they're closing, and what your customers actually think. Updated live, not every Monday morning.",
+    desc: 'See how fast your team responds, how many conversations they close, and what your customers actually think. Updated live, not every Monday morning.',
     pills: ['Response time tracking', 'CSAT scores', 'Agent performance', 'Live dashboards'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
@@ -114,10 +113,10 @@ const features = [
         </div>
         <div className="px-3 pt-2.5 pb-1 grid grid-cols-2 gap-2">
           {[
-            { label: 'Avg response', value: '1m 24s', trend: '↓ 18%', good: true },
-            { label: 'CSAT', value: '4.8 / 5', trend: '↑ 0.3', good: true },
-            { label: 'Resolved today', value: '142', trend: '↑ 12%', good: true },
-            { label: 'Overdue', value: '3', trend: '↓ from 11', good: true },
+            { label: 'Avg response', value: '1m 24s', trend: '18% faster', good: true },
+            { label: 'CSAT', value: '4.8 / 5', trend: '+0.3 this week', good: true },
+            { label: 'Resolved today', value: '142', trend: '+12% vs yesterday', good: true },
+            { label: 'Overdue', value: '3', trend: 'Down from 11', good: true },
           ].map((kpi) => (
             <div key={kpi.label} className="bg-gray-50 rounded-lg p-2.5">
               <p className="text-[9px] text-gray-400 mb-0.5">{kpi.label}</p>
@@ -171,15 +170,16 @@ export default function Features() {
                 <p className="text-base text-gray-500 leading-relaxed mb-5">{feat.desc}</p>
                 <div className="flex flex-wrap gap-2">
                   {feat.pills.map((pill) => (
-                    <span key={pill} className="text-xs font-semibold text-[#15803d] bg-[#f0fdf4] border border-[#bbf7d0] px-3 py-1 rounded-full">
+                    <motion.span key={pill} whileHover={{ scale: 1.05 }}
+                      className="text-xs font-semibold text-[#15803d] bg-[#f0fdf4] border border-[#bbf7d0] px-3 py-1 rounded-full cursor-default">
                       {pill}
-                    </span>
+                    </motion.span>
                   ))}
                 </div>
               </div>
-              <div className="relative">
+              <motion.div whileHover={{ y: -4, transition: { duration: 0.2 } }} className="relative">
                 {feat.mockup}
-              </div>
+              </motion.div>
             </motion.div>
           ))}
         </div>

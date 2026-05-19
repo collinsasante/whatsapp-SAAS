@@ -10,7 +10,7 @@ import Footer from '@/components/landing/Footer';
 
 export const metadata = {
   title: 'VerzChat — WhatsApp Inbox for Your Team',
-  description: 'Handle every customer message from one fast, reliable workspace. WhatsApp Business API, live chat, email, and calls — all in VerzChat.',
+  description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API partner. Teams live in under 20 minutes.',
 };
 
 export default function LandingPage() {

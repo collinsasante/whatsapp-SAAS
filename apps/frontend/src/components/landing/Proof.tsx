@@ -10,7 +10,7 @@ const testimonials = [
     company: 'GulfMart',
     avatar: 'FA',
     color: 'bg-violet-500',
-    metric: '4h → 8min response time',
+    metric: '4h to 8min response time',
   },
   {
     quote: "The WhatsApp broadcast feature paid for the subscription in the first week. We sent a campaign to 8,000 customers for a flash sale. 71% read rate, orders came in for two days straight. Email never did that for us.",
@@ -22,7 +22,7 @@ const testimonials = [
     metric: '71% read rate on first campaign',
   },
   {
-    quote: "Setup was genuinely 20 minutes. WhatsApp connected, team invited, first message handled. I've tried Chatwoot and Respond.io — the onboarding alone took days. VerzChat just works.",
+    quote: "Setup was genuinely 20 minutes. WhatsApp connected, team invited, first message handled. I've tried Chatwoot and Respond.io, the onboarding alone took days. VerzChat just works.",
     name: 'James Okafor',
     role: 'CEO',
     company: 'SwiftDeliver',
@@ -57,7 +57,8 @@ export default function Proof() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ delay: i * 0.1, duration: 0.5 }}
-              className="flex flex-col bg-gray-50 border border-gray-100 rounded-2xl p-6 hover:border-gray-200 hover:shadow-sm transition-all"
+              whileHover={{ y: -4, transition: { duration: 0.2 } }}
+              className="flex flex-col bg-gray-50 border border-gray-100 rounded-2xl p-6 hover:border-gray-200 hover:shadow-md transition-all cursor-default"
             >
               <div className="flex gap-0.5 mb-3">
                 {[1, 2, 3, 4, 5].map((s) => (
