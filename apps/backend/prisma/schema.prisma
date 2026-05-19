@@ -10,7 +10,6 @@ datasource db {
 model Tenant {
   id                 String          @id @default(uuid())
   name               String
-  slug               String          @unique
   phoneNumberId      String?         @map("phone_number_id")
   wabaId             String?         @map("waba_id")
   accessToken        String?         @map("access_token")

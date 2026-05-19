@@ -118,7 +118,7 @@ export default function WorkspaceDetailPage() {
                 </span>
               )}
             </div>
-            <p className="text-slate-500 text-sm">{ws.slug} · Created {new Date(ws.createdAt).toLocaleDateString()}</p>
+            <p className="text-slate-500 text-sm font-mono">{ws.id.slice(0, 8)} · Created {new Date(ws.createdAt).toLocaleDateString()}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button

@@ -1,7 +1,6 @@
 export interface Tenant {
   id: string;
   name: string;
-  slug: string;
   phoneNumberId: string | null;
   wabaId: string | null;
   accessToken: string | null;

@@ -89,31 +89,31 @@ export class WhatsAppWebhookController {
     @Inject(forwardRef(() => CallsService)) private callsService: CallsService,
   ) {}
 
-  @Get(':tenantSlug')
+  @Get(':tenantId')
   async verify(
-    @Param('tenantSlug') tenantSlug: string,
+    @Param('tenantId') tenantId: string,
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
     @Query('hub.challenge') challenge: string,
     @Res() res: Response,
   ) {
     const tenant = await this.prisma.tenant.findUnique({
-      where: { slug: tenantSlug },
+      where: { id: tenantId },
       select: { webhookVerifyToken: true },
     });
 
     if (mode === 'subscribe' && tenant && token === tenant.webhookVerifyToken) {
-      this.logger.log(`Webhook verified for tenant ${tenantSlug}`);
+      this.logger.log(`Webhook verified for tenant ${tenantId}`);
       return res.status(200).send(challenge);
     }
 
     return res.status(403).send('Forbidden');
   }
 
-  @Post(':tenantSlug')
+  @Post(':tenantId')
   @HttpCode(HttpStatus.OK)
   async receive(
-    @Param('tenantSlug') tenantSlug: string,
+    @Param('tenantId') tenantId: string,
     @Body() body: { object: string; entry: WebhookEntry[] },
     @Headers('x-hub-signature-256') _signature: string,
   ) {
@@ -144,16 +144,16 @@ export class WhatsAppWebhookController {
       );
     }
 
-    // Fallback: if no tenant matched by phoneNumberId (e.g. number not yet saved
-    // in tenant settings), resolve by slug so existing webhooks keep working.
+    // Fallback: if no tenant matched by phoneNumberId (e.g. number not yet saved),
+    // resolve by tenant ID directly.
     if (tenants.length === 0) {
       const fallback = await this.prisma.tenant.findUnique({
-        where: { slug: tenantSlug },
+        where: { id: tenantId, isActive: true },
         select: { id: true },
       });
       if (!fallback) return { status: 'ok' };
       tenants = [fallback];
-      this.logger.debug(`Webhook slug fallback for ${tenantSlug}`);
+      this.logger.debug(`Webhook ID fallback for ${tenantId}`);
     }
 
     // Process the full webhook payload for each matched tenant.

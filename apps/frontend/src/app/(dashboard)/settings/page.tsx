@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 
 interface TenantData {
-  id: string; name: string; slug: string;
+  id: string; name: string;
   phoneNumberId: string | null; wabaId: string | null;
   webhookVerifyToken: string;
   settings: {
@@ -168,7 +168,7 @@ export default function SettingsPage() {
     catch { toast.error('Failed to delete key'); }
   };
 
-  const webhookUrl = `${process.env['NEXT_PUBLIC_API_URL'] ?? 'https://yourdomain.com/api/v1'}/webhook/whatsapp/${tenant?.slug ?? ''}`;
+  const webhookUrl = `${process.env['NEXT_PUBLIC_API_URL'] ?? 'https://yourdomain.com/api/v1'}/webhook/whatsapp/${tenant?.id ?? ''}`;
 
   if (loading) {
     return <div className="flex justify-center pt-16"><div className="animate-spin rounded-full h-7 w-7 border-b-2 border-teal-600" /></div>;
@@ -195,7 +195,6 @@ export default function SettingsPage() {
             <div className="px-3 py-2">
               <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">Workspace</p>
               <p className="text-xs text-gray-600 font-medium">{authTenant?.name}</p>
-              <code className="text-xs text-gray-400">{authTenant?.slug}</code>
             </div>
           </div>
         </div>

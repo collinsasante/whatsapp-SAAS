@@ -75,7 +75,6 @@ export class ImpersonationService {
       workspace: {
         id: workspace.id,
         name: workspace.name,
-        slug: workspace.slug,
         plan: workspace.plan,
       },
       user: {

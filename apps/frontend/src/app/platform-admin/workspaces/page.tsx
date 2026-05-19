@@ -125,7 +125,7 @@ export default function WorkspacesPage() {
                   <td className="px-5 py-4">
                     <div>
                       <p className="text-white font-medium">{ws.name}</p>
-                      <p className="text-slate-500 text-xs mt-0.5">{ws.slug}</p>
+                      <p className="text-slate-500 text-xs mt-0.5 font-mono">{ws.id.slice(0, 8)}</p>
                     </div>
                   </td>
                   <td className="px-5 py-4">

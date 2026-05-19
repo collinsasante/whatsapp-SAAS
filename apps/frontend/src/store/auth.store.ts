@@ -15,7 +15,6 @@ interface AuthUser {
 interface AuthTenant {
   id: string;
   name: string;
-  slug: string;
   onboardingCompleted?: boolean;
   plan?: string;
   logoUrl?: string;
@@ -24,7 +23,6 @@ interface AuthTenant {
 export interface WorkspaceEntry {
   id: string;
   name: string;
-  slug: string;
   role: string;
 }
 

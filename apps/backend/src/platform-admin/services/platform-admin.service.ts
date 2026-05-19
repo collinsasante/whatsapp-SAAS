@@ -87,7 +87,6 @@ export class PlatformAdminService {
     if (query.search) {
       where['OR'] = [
         { name: { contains: query.search, mode: 'insensitive' } },
-        { slug: { contains: query.search, mode: 'insensitive' } },
         { billingEmail: { contains: query.search, mode: 'insensitive' } },
       ];
     }
@@ -102,7 +101,7 @@ export class PlatformAdminService {
         skip,
         take: limit,
         select: {
-          id: true, name: true, slug: true, plan: true, isActive: true,
+          id: true, name: true, plan: true, isActive: true,
           billingEmail: true, country: true, industry: true,
           createdAt: true, updatedAt: true,
           _count: {

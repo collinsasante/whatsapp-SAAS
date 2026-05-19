@@ -12,11 +12,11 @@ export class InvoiceService {
       where: { tenantId, createdAt: { gte: new Date(`${year}-01-01`) } },
     });
     const seq = String(count + 1).padStart(4, '0');
-    const tenantSlug = (await this.prisma.tenant.findUnique({
+    const tenantPrefix = (await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { slug: true },
-    }))?.slug?.toUpperCase().slice(0, 6) ?? 'TEN';
-    return `INV-${tenantSlug}-${year}-${seq}`;
+      select: { name: true },
+    }))?.name?.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 6) ?? tenantId.slice(0, 6).toUpperCase();
+    return `INV-${tenantPrefix}-${year}-${seq}`;
   }
 
   async createInvoice(opts: {

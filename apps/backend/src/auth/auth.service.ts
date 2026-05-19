@@ -15,7 +15,6 @@ import { AuditService } from '../audit/audit.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthTokens, JwtPayload } from '@whatsapp-platform/shared-types';
-import { generateSlug } from '@whatsapp-platform/shared-utils';
 import { workspaceRoleToUserRole } from './strategies/jwt.strategy';
 
 @Injectable()
@@ -32,8 +31,6 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<AuthTokens & { user: object; tenant: object }> {
     // Auto-generate workspace name from user's name
     const workspaceName = `${dto.name.split(' ')[0]}'s Workspace`;
-    const slug = generateSlug(workspaceName);
-    const uniqueSlug = `${slug}-${uuidv4().split('-')[0]}`;
 
     const passwordHash = await bcrypt.hash(dto.password, this.BCRYPT_ROUNDS);
 
@@ -41,7 +38,6 @@ export class AuthService {
       const tenant = await tx.tenant.create({
         data: {
           name: workspaceName,
-          slug: uniqueSlug,
           webhookVerifyToken: uuidv4(),
           settings: {
             create: {
@@ -89,20 +85,12 @@ export class AuthService {
     let user: Awaited<ReturnType<typeof this.prisma.user.findFirst>>;
     let tenant: Awaited<ReturnType<typeof this.prisma.tenant.findUnique>> | null = null;
 
-    if (dto.tenantSlug) {
-      tenant = await this.prisma.tenant.findUnique({ where: { slug: dto.tenantSlug, isActive: true } });
-      if (!tenant) throw new NotFoundException('Workspace not found');
-      user = await this.prisma.user.findUnique({
-        where: { tenantId_email: { tenantId: tenant.id, email: dto.email } },
-      });
-    } else {
-      // Find user by email across all active tenants
-      user = await this.prisma.user.findFirst({
-        where: { email: dto.email, isActive: true },
-      });
-      if (user) {
-        tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
-      }
+    // Find user by email across all active tenants
+    user = await this.prisma.user.findFirst({
+      where: { email: dto.email, isActive: true },
+    });
+    if (user) {
+      tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
     }
 
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
@@ -118,7 +106,7 @@ export class AuthService {
     await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
 
     const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
-    const safeTenant = { id: tenant.id, name: tenant.name, slug: tenant.slug };
+    const safeTenant = { id: tenant.id, name: tenant.name };
 
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -160,13 +148,11 @@ export class AuthService {
     if (!user || !tenant) {
       // Create new workspace + admin user
       const workspaceName = `${googleUser.name.split(' ')[0]}'s Workspace`;
-      const slug = `${generateSlug(workspaceName)}-${uuidv4().split('-')[0]}`;
 
       const result = await this.prisma.$transaction(async (tx) => {
         const newTenant = await tx.tenant.create({
           data: {
             name: workspaceName,
-            slug,
             webhookVerifyToken: uuidv4(),
             settings: { create: { businessName: workspaceName, businessEmail: googleUser.email } },
           },
@@ -188,7 +174,7 @@ export class AuthService {
     await this.updateRefreshToken(user!.id, tokens.refreshToken);
 
     const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: user!.role, tenantId: user!.tenantId };
-    const safeTenant = { id: tenant!.id, name: tenant!.name, slug: tenant!.slug };
+    const safeTenant = { id: tenant!.id, name: tenant!.name };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
@@ -257,7 +243,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('User not found');
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true, onboardingCompleted: true, plan: true, logoUrl: true },
     });
     if (!tenant) throw new UnauthorizedException('Tenant not found');
     return { user, tenant };
@@ -276,7 +262,7 @@ export class AuthService {
     const workspaces = workspaceIds.length
       ? await this.prisma.tenant.findMany({
           where: { id: { in: workspaceIds }, isActive: true },
-          select: { id: true, name: true, slug: true },
+          select: { id: true, name: true },
         })
       : [];
     return workspaces.map((ws) => {
@@ -321,7 +307,7 @@ export class AuthService {
 
     const workspace = await this.prisma.tenant.findUnique({
       where: { id: inv.workspaceId },
-      select: { id: true, name: true, slug: true },
+      select: { id: true, name: true },
     });
     if (!workspace) throw new NotFoundException('Workspace no longer exists');
 
@@ -414,7 +400,7 @@ export class AuthService {
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
-    const safeTenant = { id: workspace.id, name: workspace.name, slug: workspace.slug };
+    const safeTenant = { id: workspace.id, name: workspace.name };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 

@@ -226,7 +226,7 @@ function WorkspaceSwitcher() {
     try {
       const res = await authApi.switchWorkspace(ws.id);
       const { accessToken } = res.data as { accessToken: string };
-      switchTenant({ id: ws.id, name: ws.name, slug: ws.slug }, accessToken);
+      switchTenant({ id: ws.id, name: ws.name }, accessToken);
       setOpen(false);
       // Full page reload so all queries re-fetch with the new tenantId JWT
       window.location.href = '/dashboard';
