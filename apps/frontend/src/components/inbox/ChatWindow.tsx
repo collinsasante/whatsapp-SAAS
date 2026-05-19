@@ -931,7 +931,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   // AGENT/VIEWER can't reply to chats assigned to someone else; admins supervise freely.
   const isAgentLevelRole = user?.role === 'AGENT' || user?.role === 'VIEWER';
   const assigneeId = conversation.assignedTo?.id ?? null;
-  const assignedToOther = isAgentLevelRole && !!assigneeId && assigneeId !== user?.id;
+  const isVerzAssigned = !!(conversation.assignedTo as unknown as { isAiAgent?: boolean } | null)?.isAiAgent;
+  const assignedToOther = (isAgentLevelRole || isVerzAssigned) && !!assigneeId && assigneeId !== user?.id;
   // VIEWERs are read-only — they can observe but never send or note.
   const inputDisabled = isViewer || assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
   const sendDisabled = sending || inputDisabled;
@@ -1289,18 +1290,26 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             {/* Assigned-to-other gate — fully replaces input for active conversations */}
             {assignedToOther && !isResolved && localStatus !== 'ARCHIVED' && (
               <div className="flex items-center gap-3 py-3">
-                <div className="w-9 h-9 rounded-full bg-orange-100 border-2 border-orange-200 flex items-center justify-center text-orange-700 text-sm font-bold flex-shrink-0 select-none">
-                  {(conversation.assignedTo?.name ?? 'A').slice(0, 2).toUpperCase()}
-                </div>
+                {isVerzAssigned
+                  ? (
+                    <div className="w-9 h-9 rounded-full bg-violet-100 border-2 border-violet-200 flex items-center justify-center flex-shrink-0">
+                      <Brain size={16} className="text-violet-600" />
+                    </div>
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-orange-100 border-2 border-orange-200 flex items-center justify-center text-orange-700 text-sm font-bold flex-shrink-0 select-none">
+                      {(conversation.assignedTo?.name ?? 'A').slice(0, 2).toUpperCase()}
+                    </div>
+                  )
+                }
                 <div className="flex-1 min-w-0">
                   <p className="text-gray-900 text-sm font-semibold leading-tight">
-                    {conversation.assignedTo?.name ?? 'Another agent'} is handling this chat
+                    {isVerzAssigned ? 'Verz is handling this chat' : `${conversation.assignedTo?.name ?? 'Another agent'} is handling this chat`}
                   </p>
                   <p className="text-gray-400 text-xs mt-0.5">Take over to reply, add notes, or resolve</p>
                 </div>
                 <button
                   onClick={() => { void handleTakeover(); }}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl transition-colors flex-shrink-0 shadow-sm"
+                  className={`flex items-center gap-1.5 px-4 py-2 text-white text-xs font-bold rounded-xl transition-colors flex-shrink-0 shadow-sm ${isVerzAssigned ? 'bg-violet-600 hover:bg-violet-700' : 'bg-orange-600 hover:bg-orange-700'}`}
                 >
                   <LogIn size={13} />
                   Take Over

@@ -13,7 +13,7 @@ import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, Me
 import { NotificationType, ConversationEventType } from '@prisma/client';
 
 const CHANNEL_SELECT = { select: { id: true, type: true, name: true } } as const;
-const ASSIGNED_SELECT = { select: { id: true, name: true, avatarUrl: true } } as const;
+const ASSIGNED_SELECT = { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } as const;
 const CONV_INCLUDE = {
   contact: true,
   assignedTo: ASSIGNED_SELECT,

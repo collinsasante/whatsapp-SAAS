@@ -476,7 +476,10 @@ export class MessagesService {
     }
 
     // AI responder: handle after-hours or always-on mode (only if no chatbot flow matched)
-    if (content && !flowMatched) {
+    // Skip if a human agent has taken over (assignedTo exists and is not an AI agent)
+    const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
+    const humanOwned = assignedTo && !assignedTo.isAiAgent;
+    if (content && !flowMatched && !humanOwned) {
       const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
       if (shouldAi) {
         void (async () => {
@@ -500,6 +503,17 @@ export class MessagesService {
             },
             include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
           });
+          // Assign conversation to Verz so agents see the "Verz is handling this" banner
+          if (verzAgent && !assignedTo) {
+            await this.prisma.conversation.update({
+              where: { id: conversation.id },
+              data: { assignedToId: verzAgent.id, status: 'OPEN' },
+            });
+            this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+              assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
+              status: 'OPEN',
+            });
+          }
           this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
         })();
       }
