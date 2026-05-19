@@ -132,6 +132,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         void import('@/lib/api').then(({ conversationsApi }) => conversationsApi.markRead(data.conversationId).catch(() => {}));
       }
 
+      // If it's an inbound message for a conversation not yet in the list, fetch it
+      if (data.message.direction === MessageDirection.INBOUND) {
+        const knownConv = conversationsRef.current.find((c) => c.id === data.conversationId);
+        if (!knownConv) {
+          void import('@/lib/api').then(({ conversationsApi }) =>
+            conversationsApi.get(data.conversationId)
+              .then((res) => prependConversation(res.data as Parameters<typeof prependConversation>[0]))
+              .catch(() => {}),
+          );
+        }
+      }
+
       if (
         data.message.direction === MessageDirection.INBOUND &&
         data.conversationId !== activeConversationIdRef.current

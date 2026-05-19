@@ -484,7 +484,7 @@ export class MessagesService {
       if (shouldAi) {
         void (async () => {
           const [reply, verzAgent] = await Promise.all([
-            this.aiResponderService.respond(tenantId, content, contact.name ?? undefined),
+            this.aiResponderService.respond(tenantId, conversation.id, content, contact.name ?? undefined),
             this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
           ]);
           if (!reply) return;

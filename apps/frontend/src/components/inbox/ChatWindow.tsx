@@ -15,6 +15,7 @@ const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi } from '@/lib/api';
 import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
+import { LinkPreview, extractFirstUrl } from './LinkPreview';
 import toast from 'react-hot-toast';
 import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
@@ -266,7 +267,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const attachBtnRef = useRef<HTMLButtonElement>(null);
@@ -276,6 +277,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-grow textarea height to match content (max ~5 lines)
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }, [text]);
 
   const convMessages = messages[conversation.id] ?? [];
   const typing = typingUsers[conversation.id] ?? [];
@@ -1500,9 +1509,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </button>
               )}
 
-              <input
+              <textarea
                 ref={inputRef}
-                type="text"
+                rows={1}
                 value={text}
                 spellCheck={true}
                 onChange={(e) => { void handleTextChange(e.target.value); }}
@@ -1517,10 +1526,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   isResolved ? 'Reopen conversation to send messages' :
                   isRequested ? 'Intervene to start messaging…' :
                   sessionBlocked ? 'Session expired — send a template to re-engage' :
-                  'Send your message...'
+                  'Send your message... (Shift+Enter for new line)'
                 }
                 className={cn(
-                  'flex-1 px-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 transition-colors border',
+                  'flex-1 px-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 transition-colors border resize-none overflow-y-hidden leading-snug',
                   inputMode === 'note'
                     ? 'bg-yellow-50 border-yellow-200 focus:ring-yellow-400 focus:bg-yellow-50'
                     : 'bg-gray-50 border-gray-100 focus:ring-teal-500 focus:bg-white focus:border-teal-300',
@@ -2254,9 +2263,15 @@ const MessageBubble = memo(function MessageBubble({
               )}
 
               {message.content ? (
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {searchQuery ? highlightText(message.content, searchQuery) : message.content}
-                </p>
+                <>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                    {searchQuery ? highlightText(message.content, searchQuery) : message.content}
+                  </p>
+                  {message.type === 'TEXT' && (() => {
+                    const url = extractFirstUrl(message.content);
+                    return url ? <LinkPreview url={url} isOutbound={isOutbound} /> : null;
+                  })()}
+                </>
               ) : message.type === 'TEMPLATE' ? (
                 <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📋 Template message</p>
               ) : null}

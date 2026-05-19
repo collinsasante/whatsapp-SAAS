@@ -58,11 +58,21 @@ export class AiResponderService {
   }
 
   async shouldRespond(tenantId: string): Promise<boolean> {
-    const settings = await this.prisma.tenantSettings.findUnique({
-      where: { tenantId },
-      select: { aiEnabled: true, aiAlwaysOn: true, offHoursEnabled: true, offHoursSchedule: true, timezone: true },
-    });
+    const [settings, tenant] = await Promise.all([
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { aiEnabled: true, aiAlwaysOn: true, offHoursEnabled: true, offHoursSchedule: true, timezone: true },
+      }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { createdAt: true } }),
+    ]);
     if (!settings?.aiEnabled) return false;
+
+    // 30-day learning period: Verz observes but does not reply
+    if (tenant) {
+      const daysSinceCreation = Math.floor((Date.now() - new Date(tenant.createdAt).getTime()) / 86_400_000);
+      if (daysSinceCreation < 30) return false;
+    }
+
     if (settings.aiAlwaysOn) return true;
     if (!settings.offHoursEnabled) return false;
 
@@ -70,16 +80,22 @@ export class AiResponderService {
     return isOffHours(schedule, settings.timezone ?? 'UTC');
   }
 
-  async respond(tenantId: string, customerMessage: string, contactName?: string): Promise<string | null> {
+  async respond(tenantId: string, conversationId: string, customerMessage: string, contactName?: string): Promise<string | null> {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return null;
 
-    const [settings, articles] = await Promise.all([
+    const [settings, articles, history] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId },
         select: { businessName: true, aiPersonality: true },
       }),
       this.knowledgeBaseService.getActive(tenantId),
+      this.prisma.message.findMany({
+        where: { conversationId, type: 'TEXT', content: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 12,
+        select: { direction: true, content: true },
+      }),
     ]);
 
     const businessName = settings?.businessName ?? 'our business';
@@ -103,9 +119,28 @@ export class AiResponderService {
       `- Never claim to be a human if asked directly.` +
       kbContext;
 
+    // Build conversation history for multi-turn context (chronological order)
+    const historyMessages = history.reverse().map((m) => ({
+      role: m.direction === 'INBOUND' ? 'user' : 'assistant',
+      content: m.content!,
+    }));
+
+    // First user message includes the contact name hint; subsequent turns use plain content
     const userContent = contactName
       ? `Customer name: ${contactName}\nMessage: ${customerMessage}`
       : customerMessage;
+
+    // Merge history + current message, dedup the last message if it's already in history
+    const lastHistoryMsg = historyMessages[historyMessages.length - 1];
+    const chatMessages = [
+      { role: 'system', content: systemPrompt },
+      ...historyMessages.slice(0, -1), // history without the last (current) message
+      { role: 'user', content: lastHistoryMsg?.content === customerMessage ? userContent : userContent },
+    ].filter((m, i, arr) => {
+      // Avoid consecutive same-role duplicates from the merge
+      if (i === 0) return true;
+      return !(m.role === arr[i - 1].role && m.content === arr[i - 1].content);
+    });
 
     try {
       const response = await axios.post(
@@ -113,10 +148,7 @@ export class AiResponderService {
         {
           model: 'deepseek-chat',
           max_tokens: 300,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userContent },
-          ],
+          messages: chatMessages,
         },
         {
           headers: {
