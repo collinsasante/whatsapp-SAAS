@@ -8,7 +8,7 @@ import {
   CheckCircle, RefreshCw, Copy, StickyNote, Archive,
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
-  ChevronUp, ChevronDown, ChevronLeft, LogIn,
+  ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -2038,6 +2038,7 @@ const MessageBubble = memo(function MessageBubble({
   isCurrentResult?: boolean;
 }) {
   const isOutbound = message.direction === MessageDirection.OUTBOUND;
+  const isVerzAi = isOutbound && !!(message as unknown as { metadata?: Record<string, unknown> }).metadata?.aiGenerated;
   const avatarColor = getAvatarColor(contactName);
   const { updateMessage, conversations } = useInboxStore();
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -2162,6 +2163,11 @@ const MessageBubble = memo(function MessageBubble({
         {!isOutbound && (
           <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 mb-5', avatarColor)}>
             {getInitials(contactName)}
+          </div>
+        )}
+        {isVerzAi && (
+          <div className="order-last w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center flex-shrink-0 mb-5" title="Verz AI">
+            <Brain size={14} className="text-white" />
           </div>
         )}
 
@@ -2334,6 +2340,14 @@ const MessageBubble = memo(function MessageBubble({
                 </div>
               );
             })()}
+
+            {/* Verz AI sender label */}
+            {isVerzAi && (
+              <div className="flex items-center justify-end gap-1 px-1 -mt-0.5 mb-0.5">
+                <Brain size={10} className="text-violet-500" />
+                <span className="text-[10px] text-violet-500 font-medium">Verz · AI</span>
+              </div>
+            )}
 
             {/* Timestamp + status */}
             <div className={cn('flex items-center gap-1.5 px-1', isOutbound ? 'justify-end' : 'justify-start')}>

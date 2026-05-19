@@ -36,6 +36,27 @@ export class AiResponderService {
     private knowledgeBaseService: KnowledgeBaseService,
   ) {}
 
+  async findOrCreateVerzAgent(tenantId: string): Promise<{ id: string; name: string; avatarUrl: string | null }> {
+    const existing = await this.prisma.user.findFirst({
+      where: { tenantId, isAiAgent: true },
+      select: { id: true, name: true, avatarUrl: true },
+    });
+    if (existing) return existing;
+
+    return this.prisma.user.create({
+      data: {
+        tenantId,
+        name: 'Verz',
+        email: `verz-ai-${tenantId}@ai.system`,
+        passwordHash: '',
+        role: 'AGENT',
+        isAiAgent: true,
+        isActive: false,
+      },
+      select: { id: true, name: true, avatarUrl: true },
+    });
+  }
+
   async shouldRespond(tenantId: string): Promise<boolean> {
     const settings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },

@@ -480,22 +480,27 @@ export class MessagesService {
       const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
       if (shouldAi) {
         void (async () => {
-          const reply = await this.aiResponderService.respond(tenantId, content, contact.name ?? undefined);
+          const [reply, verzAgent] = await Promise.all([
+            this.aiResponderService.respond(tenantId, content, contact.name ?? undefined),
+            this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
+          ]);
           if (!reply) return;
           await this.whatsappService.sendTextMessage(tenantId, contact.phone, reply).catch(() => null);
-          await this.prisma.message.create({
+          const aiMessage = await this.prisma.message.create({
             data: {
               tenantId,
               conversationId: conversation.id,
               contactId: contact.id,
+              senderId: verzAgent?.id ?? null,
               direction: 'OUTBOUND' as const,
               type: 'TEXT' as const,
               status: 'SENT' as const,
               content: reply,
               metadata: { aiGenerated: true },
             },
+            include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
           });
-          this.realtimeService.emitNewMessage(tenantId, conversation.id, { aiGenerated: true, content: reply });
+          this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
         })();
       }
     }

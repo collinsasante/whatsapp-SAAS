@@ -31,6 +31,11 @@ export interface Message {
   deletedForEveryone: boolean;
   deletedAt: Date | null;
   createdAt: Date;
+  sender?: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+  } | null;
   replyTo?: {
     id: string;
     content: string | null;

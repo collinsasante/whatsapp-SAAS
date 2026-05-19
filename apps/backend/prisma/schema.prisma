@@ -163,6 +163,7 @@ model User {
   avatarUrl    String?   @map("avatar_url")
   phone        String?
   isActive     Boolean   @default(true) @map("is_active")
+  isAiAgent    Boolean   @default(false) @map("is_ai_agent")
   lastSeenAt   DateTime? @map("last_seen_at")
   lastLoginAt  DateTime? @map("last_login_at")
   refreshToken String?   @map("refresh_token")
