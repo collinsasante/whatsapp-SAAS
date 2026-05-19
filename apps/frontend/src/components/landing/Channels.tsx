@@ -18,7 +18,7 @@ const channels = [
   },
   {
     name: 'Email',
-    desc: 'SMTP and IMAP. Route incoming emails into the same inbox — same assignment, same notes.',
+    desc: 'SMTP and IMAP. Route incoming emails into the same inbox, same assignment, same notes.',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
         <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/>
@@ -98,7 +98,7 @@ export default function Channels() {
             Your customers message you everywhere.
           </h2>
           <p className="text-lg text-gray-500 max-w-xl">
-            VerzChat connects WhatsApp, email, live chat, Instagram, Messenger, and Telegram — all into one inbox your team actually uses.
+            VerzChat connects WhatsApp, email, live chat, Instagram, Messenger, and Telegram, all into one inbox your team actually uses.
           </p>
         </motion.div>
 

@@ -25,7 +25,7 @@ function InboxPreview() {
         <div className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
         <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
         <div className="w-2.5 h-2.5 rounded-full bg-[#25D366]/70" />
-        <span className="text-[10px] text-slate-500 ml-2 font-medium select-none">VerzChat — Inbox</span>
+        <span className="text-[10px] text-slate-500 ml-2 font-medium select-none">VerzChat Inbox</span>
         <div className="ml-auto flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse" />
           <span className="text-[10px] text-[#25D366] font-semibold">3 agents online</span>
@@ -173,7 +173,7 @@ export default function Hero() {
             </h1>
 
             <p className="text-lg text-gray-500 leading-relaxed max-w-md mb-8">
-              VerzChat connects WhatsApp, email, and live chat into a single workspace your whole team can use — with real-time delivery, so nothing gets missed.
+              VerzChat connects WhatsApp, email, and live chat into a single workspace your whole team can use, with real-time delivery so nothing gets missed.
             </p>
 
             <div className="flex flex-wrap items-center gap-3 mb-8">
@@ -181,7 +181,7 @@ export default function Hero() {
                 href="/auth/register"
                 className="inline-flex items-center gap-2 px-5 py-3 bg-[#25D366] hover:bg-[#1aad57] text-white font-semibold rounded-xl transition-colors shadow-sm text-sm"
               >
-                Start free — no card needed <ArrowRight size={15} />
+                Start free, no card needed <ArrowRight size={15} />
               </Link>
               <a
                 href="#features"

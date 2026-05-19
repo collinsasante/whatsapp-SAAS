@@ -9,8 +9,8 @@ import BottomCTA from '@/components/landing/BottomCTA';
 import Footer from '@/components/landing/Footer';
 
 export const metadata = {
-  title: 'VerzChat — WhatsApp Inbox for Your Team',
-  description: 'Handle every customer message from one fast, reliable workspace. WhatsApp Business API, live chat, email, and calls — all in VerzChat.',
+  title: 'VerzChat: WhatsApp Inbox for Your Team',
+  description: 'Handle every customer message from one fast, reliable workspace. WhatsApp Business API, live chat, email, and calls, all in VerzChat.',
 };
 
 export default function LandingPage() {

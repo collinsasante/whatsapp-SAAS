@@ -5,7 +5,7 @@ const features = [
   {
     number: '01',
     title: 'Stop assigning conversations over Slack.',
-    desc: 'When a message comes in, your team sees it — and claims it. Assign to the right agent, add internal notes, and resolve without stepping on each other. No more "who\'s handling this?"',
+    desc: 'When a message comes in, your team sees it and claims it. Assign to the right agent, add internal notes, and resolve without stepping on each other. No more "who\'s handling this?"',
     pills: ['Agent assignment', 'Private notes', 'Conversation labels', 'Team visibility'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
@@ -40,7 +40,7 @@ const features = [
   {
     number: '02',
     title: 'Reply to 10,000 customers without typing each one.',
-    desc: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick a template, and send. Track who got it, who read it, and who clicked — in real time.',
+    desc: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick a template, and send. Track who got it, who read it, and who clicked, in real time.',
     pills: ['Broadcast campaigns', 'Delivery tracking', 'Read & click rates', 'Contact segments'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
@@ -77,7 +77,7 @@ const features = [
   {
     number: '03',
     title: 'Let the bot handle FAQs. You handle the rest.',
-    desc: 'Build chatbot flows with drag-and-drop — no code. Set triggers, define responses, and the bot handles common questions 24/7. When it can\'t help, it hands off to a live agent instantly.',
+    desc: 'Build chatbot flows with drag-and-drop, no code. Set triggers, define responses, and the bot handles common questions 24/7. When it can\'t help, it hands off to a live agent instantly.',
     pills: ['No-code flow builder', 'AI-powered replies', 'Live agent handoff', '24/7 automation'],
     mockup: (
       <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">

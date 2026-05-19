@@ -167,7 +167,7 @@ export default function Pricing() {
           <span>·</span>
           <span>Cancel anytime, no questions</span>
           <span>·</span>
-          <span>Need more? <a href="mailto:hello@verzchat.com" className="text-gray-600 hover:text-gray-900 underline underline-offset-2">Talk to us</a></span>
+          <span>Need more? <a href="mailto:notifications@verzchat.com" className="text-gray-600 hover:text-gray-900 underline underline-offset-2">Talk to us</a></span>
         </motion.div>
       </div>
     </section>

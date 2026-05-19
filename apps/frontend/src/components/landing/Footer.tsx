@@ -84,7 +84,7 @@ export default function Footer() {
         <div className="border-t border-white/[0.06] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-gray-600">© {new Date().getFullYear()} VerzChat. Built for teams that move fast.</p>
           <p className="text-xs text-gray-600">
-            Questions? <a href="mailto:hello@verzchat.com" className="text-gray-400 hover:text-white transition-colors underline underline-offset-2">hello@verzchat.com</a>
+            Questions? <a href="mailto:notifications@verzchat.com" className="text-gray-400 hover:text-white transition-colors underline underline-offset-2">notifications@verzchat.com</a>
           </p>
         </div>
       </div>

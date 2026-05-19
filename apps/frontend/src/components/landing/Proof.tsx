@@ -22,7 +22,7 @@ const testimonials = [
     metric: '71% read rate on first campaign',
   },
   {
-    quote: "Setup was genuinely 20 minutes. WhatsApp connected, team invited, first message handled. I've tried Chatwoot and Respond.io — the onboarding alone took days. VerzChat just works.",
+    quote: "Setup was genuinely 20 minutes. WhatsApp connected, team invited, first message handled. I've tried Chatwoot and Respond.io and the onboarding alone took days. VerzChat just works.",
     name: 'James Okafor',
     role: 'CEO',
     company: 'SwiftDeliver',

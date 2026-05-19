@@ -22,7 +22,7 @@ export default function BottomCTA() {
             Your customers are messaging you right now.
           </h2>
           <p className="text-gray-400 text-lg mb-8 max-w-xl mx-auto">
-            Give your team the inbox they need to keep up. Start your free trial — no credit card, no calls, no setup fee.
+            Give your team the inbox they need to keep up. Start your free trial, no credit card, no calls, no setup fee.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -33,7 +33,7 @@ export default function BottomCTA() {
               Start free trial <ArrowRight size={15} />
             </Link>
             <a
-              href="mailto:hello@verzchat.com"
+              href="mailto:notifications@verzchat.com"
               className="flex items-center gap-2 px-6 py-3 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 font-semibold rounded-xl transition-colors text-sm w-full sm:w-auto justify-center"
             >
               Email us a question
