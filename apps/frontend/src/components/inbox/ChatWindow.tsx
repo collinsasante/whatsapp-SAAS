@@ -928,11 +928,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   const sessionBlocked = !loading && sessionExpired && !isResolved && !isRequested;
   const isViewer = user?.role === 'VIEWER';
-  // AGENT/VIEWER can't reply to chats assigned to someone else; admins supervise freely.
-  const isAgentLevelRole = user?.role === 'AGENT' || user?.role === 'VIEWER';
   const assigneeId = conversation.assignedTo?.id ?? null;
   const isVerzAssigned = !!(conversation.assignedTo as unknown as { isAiAgent?: boolean } | null)?.isAiAgent;
-  const assignedToOther = (isAgentLevelRole || isVerzAssigned) && !!assigneeId && assigneeId !== user?.id;
+  // Any assigned conversation is locked to its owner — everyone else must take over first.
+  const assignedToOther = !!assigneeId && assigneeId !== user?.id;
   // VIEWERs are read-only — they can observe but never send or note.
   const inputDisabled = isViewer || assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
   const sendDisabled = sending || inputDisabled;
