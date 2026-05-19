@@ -30,9 +30,9 @@ const mainNav: NavItem[] = [
       { href: '/templates',  icon: FileText,  label: 'Templates' },
       { href: '/automation', icon: Zap,       label: 'Automation' },
       { href: '/chatbot',    icon: Bot,       label: 'Chatbot Flows' },
-      { href: '/ai',         icon: Brain,     label: 'AI Assistant' },
     ],
   },
+  { type: 'link', href: '/ai',        icon: Brain,     label: 'AI Assistant' },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
   { type: 'link', href: '/calls',     icon: Phone,     label: 'Calls' },
 ];
