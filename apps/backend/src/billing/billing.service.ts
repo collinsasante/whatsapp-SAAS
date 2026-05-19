@@ -101,11 +101,19 @@ export class BillingService {
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
     const gw = this.getGateway(dto.gateway);
 
+    // Stripe requires USD; convert GHS plan prices to their USD equivalent
+    const chargeAmount = dto.gateway === PaymentGateway.STRIPE && invoice.currency === 'GHS'
+      ? Math.round((invoice.total / 150) * 12 * 100) / 100
+      : invoice.total;
+    const chargeCurrency = dto.gateway === PaymentGateway.STRIPE && invoice.currency === 'GHS'
+      ? 'USD'
+      : invoice.currency;
+
     const session = await gw.createCheckoutSession({
       tenantId,
       planSlug: dto.planSlug,
-      amount: invoice.total,
-      currency: invoice.currency,
+      amount: chargeAmount,
+      currency: chargeCurrency,
       billingEmail,
       billingName: tenant.name,
       invoiceId: invoice.id,
@@ -122,8 +130,8 @@ export class BillingService {
         invoiceId: invoice.id,
         gateway: dto.gateway,
         status: PaymentStatus.PENDING,
-        amount: invoice.total,
-        currency: invoice.currency,
+        amount: chargeAmount,
+        currency: chargeCurrency,
         gatewayReference: session.gatewayReference,
       },
     });

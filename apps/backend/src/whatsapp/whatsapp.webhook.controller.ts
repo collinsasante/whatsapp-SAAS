@@ -13,6 +13,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
@@ -76,6 +77,7 @@ const STATUS_MAP: Record<string, MessageStatus> = {
   failed: MessageStatus.FAILED,
 };
 
+@SkipThrottle()
 @ApiTags('WhatsApp Webhook')
 @Controller('webhook/whatsapp')
 export class WhatsAppWebhookController {

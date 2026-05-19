@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  AlertCircle, ArrowUpRight, BarChart3, Check, CheckCircle2,
+  AlertCircle, BarChart3, Check, CheckCircle2,
   CreditCard, Download, Mail, RefreshCw, Tag, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
@@ -66,13 +66,6 @@ interface PromoPreview {
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const PLAN_STYLE: Record<string, { border: string; bg: string; badge: string; ring: string; btn: string }> = {
-  free:       { border: 'border-gray-200', bg: 'bg-white',      badge: 'bg-gray-100 text-gray-600',   ring: 'ring-gray-300',   btn: 'bg-gray-800 text-white hover:bg-gray-900' },
-  starter:    { border: 'border-blue-200', bg: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700',   ring: 'ring-blue-400',   btn: 'bg-blue-600 text-white hover:bg-blue-700' },
-  growth:     { border: 'border-teal-200', bg: 'bg-teal-50',    badge: 'bg-teal-100 text-teal-700',   ring: 'ring-teal-500',   btn: 'bg-teal-600 text-white hover:bg-teal-700' },
-  enterprise: { border: 'border-purple-200', bg: 'bg-purple-50', badge: 'bg-purple-100 text-purple-700', ring: 'ring-purple-500', btn: 'bg-purple-600 text-white hover:bg-purple-700' },
-};
-
 const STATUS_STYLE: Record<string, string> = {
   ACTIVE:    'bg-teal-100 text-teal-700',
   TRIAL:     'bg-blue-100 text-blue-700',
@@ -83,9 +76,9 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 const GATEWAY_INFO: Record<string, { label: string; color: string }> = {
-  STRIPE:       { label: 'Stripe', color: 'bg-indigo-600' },
-  PAYSTACK:     { label: 'Paystack', color: 'bg-teal-600' },
-  FLUTTERWAVE:  { label: 'Flutterwave', color: 'bg-yellow-500' },
+  STRIPE:       { label: 'Stripe',       color: 'bg-indigo-600' },
+  PAYSTACK:     { label: 'Paystack',     color: 'bg-teal-600' },
+  FLUTTERWAVE:  { label: 'Flutterwave',  color: 'bg-yellow-500' },
 };
 
 // ─── UsageBar ───────────────────────────────────────────────────────────────
@@ -112,74 +105,8 @@ function UsageBar({ label, used, limit, color }: { label: string; used: number; 
       )}
       {warning && (
         <p className="text-xs text-red-500 flex items-center gap-1">
-          <AlertCircle size={10} /> {pct}% used — consider upgrading
+          <AlertCircle size={10} /> {pct}% used
         </p>
-      )}
-    </div>
-  );
-}
-
-// ─── PlanCard ───────────────────────────────────────────────────────────────
-
-function PlanCard({ plan, isCurrent, isUpgrade, onSelect }: {
-  plan: Plan; isCurrent: boolean; isUpgrade: boolean; onSelect: () => void;
-}) {
-  const s = PLAN_STYLE[plan.slug] ?? PLAN_STYLE['free'];
-  const popular = plan.slug === 'growth';
-  const enterprise = plan.slug === 'enterprise';
-
-  return (
-    <div className={cn('relative rounded-2xl border-2 p-5 flex flex-col transition-all h-full', s.border, s.bg,
-      isCurrent && `ring-2 ring-offset-2 ${s.ring}`)}>
-      {popular && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-teal-600 text-white text-[10px] font-bold px-3 py-1 rounded-full whitespace-nowrap uppercase tracking-wide">
-          Most Popular
-        </div>
-      )}
-      <div className="mb-4">
-        <span className={cn('text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider', s.badge)}>
-          {plan.name}
-        </span>
-        <div className="mt-3 mb-1">
-          {plan.monthlyPrice < 0 ? (
-            <p className="text-2xl font-bold text-gray-900">Custom</p>
-          ) : plan.monthlyPrice === 0 ? (
-            <p className="text-2xl font-bold text-gray-900">Free</p>
-          ) : (
-            <p className="text-2xl font-bold text-gray-900">
-              ${plan.monthlyPrice}
-              <span className="text-xs font-normal text-gray-400">/mo</span>
-            </p>
-          )}
-        </div>
-        {plan.description && <p className="text-xs text-gray-500 leading-relaxed">{plan.description}</p>}
-      </div>
-
-      <ul className="space-y-2 flex-1 mb-5">
-        {(plan.features as string[]).map((f) => (
-          <li key={f} className="flex items-start gap-2 text-xs text-gray-600">
-            <CheckCircle2 size={12} className="text-teal-500 flex-shrink-0 mt-0.5" />
-            {f}
-          </li>
-        ))}
-      </ul>
-
-      {isCurrent ? (
-        <div className="py-2.5 text-center text-xs font-semibold text-gray-400 bg-gray-100 rounded-xl">
-          Current Plan
-        </div>
-      ) : enterprise ? (
-        <a
-          href="mailto:sales@packglamour.com?subject=Enterprise%20Plan%20Inquiry"
-          className="py-2.5 text-xs font-semibold text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50 transition-colors flex items-center justify-center gap-1.5">
-          Contact Sales <ArrowUpRight size={12} />
-        </a>
-      ) : (
-        <button onClick={onSelect}
-          className={cn('py-2.5 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5', s.btn)}>
-          {isUpgrade ? `Upgrade to ${plan.name}` : `Switch to ${plan.name}`}
-          {isUpgrade && <ArrowUpRight size={12} />}
-        </button>
       )}
     </div>
   );
@@ -191,7 +118,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
   plan: Plan; onClose: () => void; onSuccess: () => void;
 }) {
   const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const [gateway, setGateway] = useState<'STRIPE' | 'PAYSTACK' | 'FLUTTERWAVE'>('STRIPE');
+  const [gateway, setGateway] = useState<'STRIPE' | 'PAYSTACK' | 'FLUTTERWAVE'>('PAYSTACK');
   const [email, setEmail] = useState('');
   const [promoCode, setPromoCode] = useState('');
   const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
@@ -199,10 +126,21 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // For GHS plan: Stripe charges USD equivalent, local gateways charge GHS
+  const isGhs = plan.currency === 'GHS';
+  const isStripe = gateway === 'STRIPE';
+
+  function getDisplayPrice(baseGhs: number): string {
+    if (isStripe && isGhs) {
+      const usd = Math.round((baseGhs / 150) * 12 * 100) / 100;
+      return `$${usd.toFixed(2)} USD`;
+    }
+    return `GH₵${baseGhs.toFixed(2)}`;
+  }
+
   const basePrice = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
-  const discount = promoPreview ? (cycle === 'YEARLY' ? promoPreview.yearlyDiscount : promoPreview.monthlyDiscount) : 0;
-  const finalPrice = Math.max(0, basePrice - discount);
-  const yearlyMonthlyRate = plan.yearlyPrice > 0 ? (plan.yearlyPrice / 12).toFixed(2) : '0';
+  const ghsDiscount = promoPreview ? (cycle === 'YEARLY' ? promoPreview.yearlyDiscount : promoPreview.monthlyDiscount) : 0;
+  const finalGhs = Math.max(0, basePrice - ghsDiscount);
 
   const handleCheckPromo = async () => {
     if (!promoCode.trim()) return;
@@ -230,7 +168,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
       });
       const data = res.data as { paymentUrl: string | null; free: boolean };
       if (data.free) {
-        toast.success(`Switched to ${plan.name} plan!`);
+        toast.success(`${plan.name} plan activated!`);
         onSuccess();
       } else if (data.paymentUrl) {
         window.location.href = data.paymentUrl;
@@ -245,7 +183,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Upgrade to {plan.name}</h2>
+          <h2 className="font-bold text-gray-900">Subscribe to {plan.name}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
             <X size={16} />
           </button>
@@ -257,7 +195,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
             <div className="grid grid-cols-2 gap-2">
               {(['MONTHLY', 'YEARLY'] as const).map((c) => {
-                const price = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+                const ghsPrice = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
                 return (
                   <button key={c} onClick={() => setCycle(c)}
                     className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
@@ -266,11 +204,11 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
                       {c === 'MONTHLY' ? 'Monthly' : 'Yearly'}
                     </div>
                     <div className="text-xs text-gray-500 mt-0.5">
-                      {c === 'YEARLY' ? `$${yearlyMonthlyRate}/mo · billed yearly` : `$${price}/mo`}
+                      {getDisplayPrice(ghsPrice)}{c === 'MONTHLY' ? '/mo' : '/yr'}
                     </div>
                     {c === 'YEARLY' && plan.monthlyPrice > 0 && (
                       <div className="text-[10px] font-semibold text-teal-600 mt-1">
-                        Save ${((plan.monthlyPrice * 12) - plan.yearlyPrice).toFixed(0)}/yr
+                        Save {isStripe && isGhs ? '$' : 'GH₵'}{((plan.monthlyPrice * 12) - plan.yearlyPrice).toFixed(0)}/yr
                       </div>
                     )}
                   </button>
@@ -283,12 +221,15 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
             <div className="grid grid-cols-3 gap-2">
-              {(['STRIPE', 'PAYSTACK', 'FLUTTERWAVE'] as const).map((gw) => (
+              {(['PAYSTACK', 'FLUTTERWAVE', 'STRIPE'] as const).map((gw) => (
                 <button key={gw} onClick={() => setGateway(gw)}
                   className={cn('p-2.5 rounded-xl border-2 text-center transition-all',
                     gateway === gw ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
                   <div className={cn('w-4 h-4 rounded-full mx-auto mb-1', GATEWAY_INFO[gw].color)} />
                   <div className="text-[10px] font-semibold text-gray-700">{GATEWAY_INFO[gw].label}</div>
+                  {gw === 'STRIPE' && isGhs && (
+                    <div className="text-[9px] text-gray-400 mt-0.5">USD</div>
+                  )}
                 </button>
               ))}
             </div>
@@ -322,7 +263,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
                 <Check size={11} />
                 {promoPreview.discountType === 'PERCENTAGE'
                   ? `${promoPreview.discountValue}% off applied`
-                  : `$${discount.toFixed(2)} off applied`}
+                  : `${getDisplayPrice(ghsDiscount)} off applied`}
               </p>
             )}
             {promoError && <p className="text-xs text-red-500 mt-1.5">{promoError}</p>}
@@ -332,17 +273,17 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
           <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
             <div className="flex justify-between text-gray-600">
               <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
-              <span>${basePrice.toFixed(2)}</span>
+              <span>{getDisplayPrice(basePrice)}</span>
             </div>
-            {discount > 0 && (
+            {ghsDiscount > 0 && (
               <div className="flex justify-between text-teal-600">
                 <span>Promo discount</span>
-                <span>-${discount.toFixed(2)}</span>
+                <span>-{getDisplayPrice(ghsDiscount)}</span>
               </div>
             )}
             <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-200">
               <span>Total</span>
-              <span>${finalPrice.toFixed(2)} {plan.currency}</span>
+              <span>{getDisplayPrice(finalGhs)}</span>
             </div>
           </div>
         </div>
@@ -352,16 +293,72 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
             className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
             {loading ? (
               <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Processing…</>
-            ) : finalPrice === 0 ? (
-              'Activate Free Plan'
             ) : (
-              <>Pay ${finalPrice.toFixed(2)} via {GATEWAY_INFO[gateway].label} <ArrowUpRight size={14} /></>
+              <>Pay {getDisplayPrice(finalGhs)} via {GATEWAY_INFO[gateway].label}</>
             )}
           </button>
           <p className="text-[10px] text-gray-400 text-center mt-2">
-            Your subscription will be activated after payment is verified by our server.
+            Subscription activates after payment is verified by our server.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ProPlanCard ─────────────────────────────────────────────────────────────
+
+function ProPlanCard({ plan, isCurrent, onSelect }: {
+  plan: Plan; isCurrent: boolean; onSelect: () => void;
+}) {
+  return (
+    <div className={cn(
+      'relative rounded-2xl border-2 p-6 flex flex-col md:flex-row gap-6 items-start md:items-center transition-all',
+      isCurrent ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500 ring-offset-2' : 'border-teal-200 bg-white hover:border-teal-300',
+    )}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-teal-100 text-teal-700">
+            {plan.name}
+          </span>
+          {plan.trialDays > 0 && !isCurrent && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+              {plan.trialDays}-day free trial
+            </span>
+          )}
+          {isCurrent && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-600 text-white">
+              Current Plan
+            </span>
+          )}
+        </div>
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-3xl font-bold text-gray-900">GH₵{plan.monthlyPrice}</span>
+          <span className="text-sm text-gray-400">/month</span>
+          <span className="text-sm text-gray-400">·</span>
+          <span className="text-sm text-gray-500">~$12 USD</span>
+        </div>
+        {plan.description && <p className="text-sm text-gray-500 mb-4">{plan.description}</p>}
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+          {(plan.features as string[]).map((f) => (
+            <li key={f} className="flex items-center gap-2 text-xs text-gray-600">
+              <CheckCircle2 size={12} className="text-teal-500 flex-shrink-0" />
+              {f}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="flex-shrink-0 w-full md:w-auto">
+        {isCurrent ? (
+          <div className="py-2.5 px-6 text-center text-sm font-semibold text-teal-700 bg-teal-100 rounded-xl whitespace-nowrap">
+            Active
+          </div>
+        ) : (
+          <button onClick={onSelect}
+            className="w-full md:w-auto py-2.5 px-6 text-sm font-semibold text-white bg-teal-600 rounded-xl hover:bg-teal-700 transition-colors whitespace-nowrap">
+            Upgrade to Pro
+          </button>
+        )}
       </div>
     </div>
   );
@@ -401,7 +398,6 @@ export default function BillingPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Handle success redirect from payment gateway
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -412,7 +408,7 @@ export default function BillingPage() {
       toast.success('Payment received! Your subscription is being activated.');
     } else if (paymentStatus === 'cancelled') {
       window.history.replaceState({}, '', '/billing');
-      toast('Payment cancelled.', { icon: 'ℹ️' });
+      toast('Payment cancelled.');
     }
   }, []);
 
@@ -437,13 +433,19 @@ export default function BillingPage() {
   if (!status || !usageData) return null;
 
   const sub = status.subscription;
-  const plan = sub.plan;
-  const currentSlug = plan.slug;
-  const slugOrder = ['free', 'starter', 'growth', 'enterprise'];
-  const currentIdx = slugOrder.indexOf(currentSlug);
+  const currentPlan = sub.plan;
+  const currentSlug = currentPlan.slug;
   const { usage, limits } = usageData;
 
+  // Show the pro plan (or whichever single public plan exists besides free)
+  const proPlan = plans.find((p) => p.slug === 'pro') ?? plans.find((p) => p.slug !== 'free') ?? null;
   const periodLabel = new Date(usage.periodStart).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  function formatPrice(plan: Plan) {
+    if (plan.monthlyPrice === 0) return 'Free';
+    if (plan.currency === 'GHS') return `GH₵${plan.monthlyPrice}/mo`;
+    return `$${plan.monthlyPrice}/mo`;
+  }
 
   return (
     <>
@@ -470,17 +472,18 @@ export default function BillingPage() {
           </div>
         </div>
 
-        <div className="p-6 space-y-6 max-w-5xl mx-auto w-full">
+        <div className="p-6 space-y-6 max-w-4xl mx-auto w-full">
           {/* Subscription banner */}
-          <div className={cn('rounded-2xl border-2 p-5', PLAN_STYLE[currentSlug]?.border ?? 'border-gray-200', PLAN_STYLE[currentSlug]?.bg ?? 'bg-white')}>
-            <div className="flex items-center justify-between">
+          <div className={cn('rounded-2xl border-2 p-5',
+            currentSlug === 'pro' ? 'border-teal-200 bg-teal-50' : 'border-gray-200 bg-white')}>
+            <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
                   <CreditCard size={22} className="text-teal-600" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h2 className="font-bold text-gray-900 text-lg">{plan.name} Plan</h2>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <h2 className="font-bold text-gray-900 text-lg">{currentPlan.name} Plan</h2>
                     <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full', STATUS_STYLE[sub.status] ?? 'bg-gray-100 text-gray-500')}>
                       {sub.status.replace('_', ' ')}
                     </span>
@@ -489,15 +492,14 @@ export default function BillingPage() {
                     )}
                   </div>
                   <div className="text-sm text-gray-500 space-x-3">
-                    {plan.monthlyPrice === 0 && <span>Free forever</span>}
-                    {plan.monthlyPrice > 0 && sub.cycle === 'MONTHLY' && <span>${plan.monthlyPrice}/month</span>}
-                    {plan.monthlyPrice > 0 && sub.cycle === 'YEARLY' && <span>${plan.yearlyPrice}/year</span>}
+                    {currentPlan.monthlyPrice === 0 && <span>Free forever</span>}
+                    {currentPlan.monthlyPrice > 0 && <span>{formatPrice(currentPlan)}</span>}
                     {sub.status === 'TRIAL' && sub.trialEndsAt && (
                       <span className="text-blue-600 font-medium">
                         Trial ends {new Date(sub.trialEndsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     )}
-                    {sub.status === 'ACTIVE' && plan.monthlyPrice > 0 && (
+                    {sub.status === 'ACTIVE' && currentPlan.monthlyPrice > 0 && (
                       <span>
                         Renews {new Date(sub.currentPeriodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
@@ -505,11 +507,9 @@ export default function BillingPage() {
                   </div>
                 </div>
               </div>
-              {plan.monthlyPrice > 0 && (
+              {currentPlan.monthlyPrice > 0 && (
                 <div className="text-right">
-                  <p className="text-2xl font-bold text-gray-900">
-                    ${sub.cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice}
-                  </p>
+                  <p className="text-2xl font-bold text-gray-900">{formatPrice(currentPlan)}</p>
                   <p className="text-xs text-gray-400">per {sub.cycle === 'YEARLY' ? 'year' : 'month'}</p>
                 </div>
               )}
@@ -518,16 +518,30 @@ export default function BillingPage() {
             {sub.status === 'TRIAL' && (
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 flex items-center gap-2">
                 <AlertCircle size={14} className="flex-shrink-0" />
-                Your trial expires soon. Add a payment method to continue without interruption.
+                Your trial expires soon. Subscribe to continue without interruption.
               </div>
             )}
             {sub.status === 'PAST_DUE' && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
                 <AlertCircle size={14} className="flex-shrink-0" />
-                Payment failed. Please update your payment method to restore full access.
+                Payment failed. Please renew your subscription to restore full access.
               </div>
             )}
           </div>
+
+          {/* Pro plan upgrade card */}
+          {proPlan && (
+            <div>
+              <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Zap size={16} className="text-teal-600" />Your Plan
+              </h2>
+              <ProPlanCard
+                plan={proPlan}
+                isCurrent={currentSlug === proPlan.slug}
+                onSelect={() => setCheckoutPlan(proPlan)}
+              />
+            </div>
+          )}
 
           {/* Usage meters */}
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
@@ -537,7 +551,7 @@ export default function BillingPage() {
               </h2>
               <span className="text-xs text-gray-400">Live counts · resets monthly</span>
             </div>
-            <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
               <UsageBar label="Messages Sent"      used={usage.messagesSent}     limit={limits.messagesPerMonth} color="bg-teal-500" />
               <UsageBar label="Total Contacts"     used={usage.totalContacts}    limit={limits.maxContacts}      color="bg-blue-500" />
               <UsageBar label="Active Agents"      used={usage.activeAgents}     limit={limits.maxAgents}        color="bg-purple-500" />
@@ -547,24 +561,6 @@ export default function BillingPage() {
               {limits.aiCreditsPerMonth !== 0 && (
                 <UsageBar label="AI Credits Used"  used={usage.aiCreditsUsed}    limit={limits.aiCreditsPerMonth} color="bg-pink-500" />
               )}
-            </div>
-          </div>
-
-          {/* Plan cards */}
-          <div>
-            <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Zap size={16} className="text-teal-600" />Available Plans
-            </h2>
-            <div className="grid grid-cols-4 gap-4">
-              {plans.map((p, idx) => (
-                <PlanCard
-                  key={p.id}
-                  plan={p}
-                  isCurrent={p.slug === currentSlug}
-                  isUpgrade={idx > currentIdx}
-                  onSelect={() => setCheckoutPlan(p)}
-                />
-              ))}
             </div>
           </div>
 
@@ -595,7 +591,7 @@ export default function BillingPage() {
               <div className="text-center py-10">
                 <CreditCard size={32} className="mx-auto mb-2 text-gray-200" />
                 <p className="text-sm text-gray-400">No invoices yet</p>
-                <p className="text-xs text-gray-300 mt-1">Invoices appear here when you upgrade to a paid plan</p>
+                <p className="text-xs text-gray-300 mt-1">Invoices appear here after your first payment</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -615,8 +611,8 @@ export default function BillingPage() {
                           {new Date(inv.billingPeriodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                         </td>
                         <td className="px-4 py-3 font-semibold text-gray-900">
-                          ${inv.total.toFixed(2)}
-                          {inv.discount > 0 && <span className="text-xs text-teal-600 ml-1">(-${inv.discount.toFixed(2)})</span>}
+                          {inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.total.toFixed(2)}
+                          {inv.discount > 0 && <span className="text-xs text-teal-600 ml-1">(-{inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.discount.toFixed(2)})</span>}
                           <span className="text-xs font-normal text-gray-400 ml-1">{inv.currency}</span>
                         </td>
                         <td className="px-4 py-3">
@@ -645,14 +641,14 @@ export default function BillingPage() {
             )}
           </div>
 
-          {/* Danger zone */}
+          {/* Cancel */}
           {sub.status === 'ACTIVE' && currentSlug !== 'free' && (
             <div className="bg-white rounded-2xl border border-red-100 p-5">
               <h2 className="font-semibold text-red-700 mb-1 flex items-center gap-2">
                 <Users size={15} />Subscription Management
               </h2>
               <p className="text-xs text-gray-500 mb-4">
-                Cancelling will keep your plan active until the end of the current billing period, then downgrade to Free.
+                Cancelling will keep your plan active until the end of the current billing period, then revert to Free.
               </p>
               <button
                 onClick={async () => {

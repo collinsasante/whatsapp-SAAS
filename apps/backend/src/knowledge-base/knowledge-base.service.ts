@@ -42,7 +42,7 @@ export class KnowledgeBaseService {
   }
 
   async learnFromConversations(tenantId: string): Promise<{ created: number }> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return { created: 0 };
 
     const since = new Date();
@@ -85,27 +85,31 @@ export class KnowledgeBaseService {
 
     try {
       const response = await axios.post(
-        'https://api.anthropic.com/v1/messages',
+        'https://api.deepseek.com/v1/chat/completions',
         {
-          model: 'claude-haiku-4-5-20251001',
+          model: 'deepseek-chat',
           max_tokens: 2000,
-          system:
-            'You are analyzing customer service conversations to build a knowledge base. ' +
-            'From the Q&A pairs provided, identify distinct recurring topics and write clear, reusable knowledge base articles. ' +
-            'Return ONLY a valid JSON array of objects with "title" (short, specific topic title) and "content" (a helpful, complete answer). ' +
-            'Create between 3 and 8 articles. Do not include any text outside the JSON array.',
-          messages: [{ role: 'user', content: `Extract knowledge base articles from these conversations:\n\n${convoText}` }],
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are analyzing customer service conversations to build a knowledge base. ' +
+                'From the Q&A pairs provided, identify distinct recurring topics and write clear, reusable knowledge base articles. ' +
+                'Return ONLY a valid JSON array of objects with "title" (short, specific topic title) and "content" (a helpful, complete answer). ' +
+                'Create between 3 and 8 articles. Do not include any text outside the JSON array.',
+            },
+            { role: 'user', content: `Extract knowledge base articles from these conversations:\n\n${convoText}` },
+          ],
         },
         {
           headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
           },
         },
       );
 
-      const raw = (response.data?.content?.[0]?.text as string ?? '').trim();
+      const raw = (response.data?.choices?.[0]?.message?.content as string ?? '').trim();
       const jsonStart = raw.indexOf('[');
       const jsonEnd = raw.lastIndexOf(']');
       if (jsonStart === -1 || jsonEnd === -1) return { created: 0 };

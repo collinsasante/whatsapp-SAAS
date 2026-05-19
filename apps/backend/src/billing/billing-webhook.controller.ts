@@ -8,6 +8,7 @@ import {
   RawBodyRequest,
   Req,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,6 +20,7 @@ import { BillingCycle, PaymentGateway, PaymentStatus } from '@whatsapp-platform/
 import { InvoiceService } from './invoice.service';
 import { SubscriptionService } from './subscription.service';
 
+@SkipThrottle()
 @ApiExcludeController()
 @Controller('billing/webhooks')
 export class BillingWebhookController {

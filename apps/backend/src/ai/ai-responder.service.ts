@@ -71,7 +71,7 @@ export class AiResponderService {
   }
 
   async respond(tenantId: string, customerMessage: string, contactName?: string): Promise<string | null> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return null;
 
     const [settings, articles] = await Promise.all([
@@ -109,23 +109,24 @@ export class AiResponderService {
 
     try {
       const response = await axios.post(
-        'https://api.anthropic.com/v1/messages',
+        'https://api.deepseek.com/v1/chat/completions',
         {
-          model: 'claude-haiku-4-5-20251001',
+          model: 'deepseek-chat',
           max_tokens: 300,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userContent }],
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userContent },
+          ],
         },
         {
           headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
           },
         },
       );
 
-      const text = response.data?.content?.[0]?.text as string | undefined;
+      const text = response.data?.choices?.[0]?.message?.content as string | undefined;
       return text?.trim() ?? null;
     } catch (err) {
       this.logger.error('AI responder error', err);

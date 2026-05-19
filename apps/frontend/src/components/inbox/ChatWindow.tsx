@@ -1015,9 +1015,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 <button
                   onClick={() => { void handleTakeover(); }}
                   title="Take over from current agent"
-                  className="h-8 px-3 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
+                  className="h-8 px-3 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
                 >
-                  <LogIn size={13} />
+                  <UserPlus size={13} />
                   Take Over
                 </button>
               )}
@@ -1308,9 +1308,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </div>
                 <button
                   onClick={() => { void handleTakeover(); }}
-                  className={`flex items-center gap-1.5 px-4 py-2 text-white text-xs font-bold rounded-xl transition-colors flex-shrink-0 shadow-sm ${isVerzAssigned ? 'bg-violet-600 hover:bg-violet-700' : 'bg-orange-600 hover:bg-orange-700'}`}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors flex-shrink-0 shadow-sm"
                 >
-                  <LogIn size={13} />
+                  <UserPlus size={13} />
                   Take Over
                 </button>
               </div>
