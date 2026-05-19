@@ -1006,7 +1006,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                    localStatus === 'INTERVENED' ? 'Agent intervened' :
                    localStatus}
                 </p>
-                {(isRequested || isIntervened) && (
+                {!isArchived && (
                   <SessionCountdown lastInboundAt={conversation.lastInboundAt} />
                 )}
                 {(conversation.labels ?? []).slice(0, 3).map(l => (

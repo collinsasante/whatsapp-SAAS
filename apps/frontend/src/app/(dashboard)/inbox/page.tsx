@@ -95,7 +95,7 @@ export default function InboxPage() {
         mobileHidden={mobileView === 'chat'}
       />
       {activeConversation ? (
-        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 flex-col min-h-0 overflow-hidden`}>
+        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 min-h-0 overflow-hidden`}>
           <ChatWindow
             conversation={activeConversation}
             showDetails={showDetails}
@@ -105,7 +105,7 @@ export default function InboxPage() {
           {showDetails && <ConversationDetails conversation={activeConversation} />}
         </div>
       ) : (
-        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 items-center justify-center bg-gray-50`}>
+        <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 items-center justify-center bg-gray-50 min-h-0`}>
           <div className="text-center flex flex-col items-center">
             {/* Envelope empty-state illustration */}
             <svg width="160" height="140" viewBox="0 0 160 140" fill="none" xmlns="http://www.w3.org/2000/svg" className="mb-6">

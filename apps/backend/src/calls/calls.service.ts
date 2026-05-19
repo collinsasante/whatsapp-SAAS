@@ -328,7 +328,9 @@ export class CallsService {
 
     const { callId: whatsappCallId } = await this.whatsapp.initiateWhatsAppCall(
       tenantId, phone, dto.type ?? 'audio', dto.sdpOffer,
-    );
+    ).catch((err: Error) => {
+      throw new BadRequestException(err.message ?? 'Could not initiate WhatsApp call');
+    });
 
     const call = await this.prisma.callLog.create({
       data: {
