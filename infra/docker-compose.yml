@@ -111,6 +111,7 @@ services:
       THROTTLE_LIMIT: 100
       PLATFORM_ADMIN_SETUP_SECRET: ${PLATFORM_ADMIN_SETUP_SECRET:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     volumes:
       - uploads_data:/app/uploads
     depends_on:
@@ -159,6 +160,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
