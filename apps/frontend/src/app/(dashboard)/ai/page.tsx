@@ -439,7 +439,7 @@ export default function AiPage() {
                   await saveSettings({ aiEnabled: true });
                   void learnFromConversations();
                 }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
               >
                 {(learning || savingSettings)
                   ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
