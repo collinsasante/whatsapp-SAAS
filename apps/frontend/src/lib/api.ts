@@ -427,4 +427,5 @@ export const knowledgeBaseApi = {
   update: (id: string, data: { title?: string; content?: string; isActive?: boolean }) =>
     api.patch(`/knowledge-base/${id}`, data),
   delete: (id: string) => api.delete(`/knowledge-base/${id}`),
+  learn: () => api.post('/knowledge-base/learn'),
 };

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Tag, Sliders, Webhook, MessageSquare, Clock, PhoneOff, Globe, QrCode,
   Plus, Trash2, Edit2, Check, X, Copy, RefreshCw, ToggleLeft, ToggleRight,
@@ -1340,7 +1341,8 @@ function QrCodeSection() {
 
 // ─────────────────── Main Page ───────────────────
 export default function ManagePage() {
-  const [active, setActive] = useState('members');
+  const searchParams = useSearchParams();
+  const [active, setActive] = useState(() => searchParams.get('tab') ?? 'members');
   const [settings, setSettings] = useState<ManageSettings>({});
 
   const loadSettings = useCallback(() => {

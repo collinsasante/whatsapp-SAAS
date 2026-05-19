@@ -28,4 +28,9 @@ export class KnowledgeBaseController {
   remove(@CurrentUser() u: JwtPayload, @Param('id') id: string) {
     return this.service.remove(u.tenantId, id);
   }
+
+  @Post('learn')
+  learnFromConversations(@CurrentUser() u: JwtPayload) {
+    return this.service.learnFromConversations(u.tenantId);
+  }
 }

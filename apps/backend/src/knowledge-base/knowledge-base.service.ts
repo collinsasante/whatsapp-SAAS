@@ -1,8 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class KnowledgeBaseService {
+  private readonly logger = new Logger(KnowledgeBaseService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async list(tenantId: string) {
@@ -36,5 +39,91 @@ export class KnowledgeBaseService {
       select: { title: true, content: true },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  async learnFromConversations(tenantId: string): Promise<{ created: number }> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return { created: 0 };
+
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+
+    const conversations = await this.prisma.conversation.findMany({
+      where: { tenantId, updatedAt: { gte: since } },
+      include: {
+        messages: {
+          where: { type: 'TEXT', content: { not: null }, deletedForEveryone: false },
+          orderBy: { createdAt: 'asc' },
+          include: { sender: { select: { isAiAgent: true } } },
+        },
+      },
+      take: 60,
+    });
+
+    const pairs: { question: string; answer: string }[] = [];
+    for (const conv of conversations) {
+      const msgs = conv.messages;
+      for (let i = 0; i < msgs.length - 1; i++) {
+        const m = msgs[i];
+        const next = msgs[i + 1];
+        if (
+          m.direction === 'INBOUND' &&
+          next.direction === 'OUTBOUND' &&
+          !(next as typeof next & { sender?: { isAiAgent?: boolean } }).sender?.isAiAgent &&
+          m.content && next.content &&
+          m.content.length > 5 && next.content.length > 10
+        ) {
+          pairs.push({ question: m.content.slice(0, 300), answer: next.content.slice(0, 500) });
+        }
+      }
+    }
+
+    if (pairs.length === 0) return { created: 0 };
+
+    const sample = pairs.slice(0, 40);
+    const convoText = sample.map((p, i) => `Q${i + 1}: ${p.question}\nA${i + 1}: ${p.answer}`).join('\n\n');
+
+    try {
+      const response = await axios.post(
+        'https://api.anthropic.com/v1/messages',
+        {
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 2000,
+          system:
+            'You are analyzing customer service conversations to build a knowledge base. ' +
+            'From the Q&A pairs provided, identify distinct recurring topics and write clear, reusable knowledge base articles. ' +
+            'Return ONLY a valid JSON array of objects with "title" (short, specific topic title) and "content" (a helpful, complete answer). ' +
+            'Create between 3 and 8 articles. Do not include any text outside the JSON array.',
+          messages: [{ role: 'user', content: `Extract knowledge base articles from these conversations:\n\n${convoText}` }],
+        },
+        {
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+          },
+        },
+      );
+
+      const raw = (response.data?.content?.[0]?.text as string ?? '').trim();
+      const jsonStart = raw.indexOf('[');
+      const jsonEnd = raw.lastIndexOf(']');
+      if (jsonStart === -1 || jsonEnd === -1) return { created: 0 };
+
+      const articles = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Array<{ title?: string; content?: string }>;
+      let created = 0;
+      for (const art of articles) {
+        if (art.title && art.content) {
+          await this.prisma.knowledgeBaseArticle.create({
+            data: { tenantId, title: art.title, content: art.content, isActive: true },
+          });
+          created++;
+        }
+      }
+      return { created };
+    } catch (err) {
+      this.logger.error('learnFromConversations error', err);
+      return { created: 0 };
+    }
   }
 }

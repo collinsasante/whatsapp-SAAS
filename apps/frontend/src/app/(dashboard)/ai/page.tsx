@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X, Clock, Zap, BookOpen, AlertCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X, Clock, Zap, BookOpen, AlertCircle, Sparkles } from 'lucide-react';
 import { knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -30,6 +31,7 @@ export default function AiPage() {
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   const [form, setForm] = useState({ title: '', content: '', isActive: true });
   const [personality, setPersonality] = useState('');
+  const [learning, setLearning] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,6 +139,24 @@ export default function AiPage() {
     }
   };
 
+  const learnFromConversations = async () => {
+    setLearning(true);
+    try {
+      const res = await knowledgeBaseApi.learn();
+      const { created } = res.data as { created: number };
+      if (created > 0) {
+        toast.success(`Verz learned! Added ${created} new article${created !== 1 ? 's' : ''} from the last 30 days.`);
+        void load();
+      } else {
+        toast('No new patterns found in the last 30 days of conversations.', { icon: '🤔' });
+      }
+    } catch {
+      toast.error('Failed to learn from conversations');
+    } finally {
+      setLearning(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -210,10 +230,10 @@ export default function AiPage() {
                         </div>
                         <p className="text-xs text-gray-500 leading-relaxed">AI replies only when your team is offline (based on your off-hours schedule in Manage settings)</p>
                         {!settings.offHoursEnabled && !settings.aiAlwaysOn && (
-                          <div className="mt-2 flex items-center gap-1 text-amber-600 text-xs">
+                          <Link href="/manage?tab=offhours" className="mt-2 flex items-center gap-1 text-amber-600 text-xs hover:text-amber-700 hover:underline">
                             <AlertCircle size={11} />
-                            Off-hours schedule not configured
-                          </div>
+                            Off-hours schedule not configured — set it up
+                          </Link>
                         )}
                       </button>
 
@@ -266,13 +286,26 @@ export default function AiPage() {
                 <h2 className="text-sm font-bold text-gray-900">Knowledge Base</h2>
                 <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{articles.length} articles</span>
               </div>
-              <button
-                onClick={openNew}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors"
-              >
-                <Plus size={12} />
-                Add Article
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void learnFromConversations()}
+                  disabled={learning}
+                  title="Analyse the last 30 days of agent conversations and auto-generate knowledge base articles"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  {learning
+                    ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Learning…</>
+                    : <><Sparkles size={12} />Learn from chats</>
+                  }
+                </button>
+                <button
+                  onClick={openNew}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  <Plus size={12} />
+                  Add Article
+                </button>
+              </div>
             </div>
 
             {/* Article editor inline */}
