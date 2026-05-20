@@ -1,3 +1,4 @@
+import AOSInit from '@/components/landing/AOSInit';
 import Navbar from '@/components/landing/Navbar';
 import Hero from '@/components/landing/Hero';
 import TrustBar from '@/components/landing/TrustBar';
@@ -15,7 +16,8 @@ export const metadata = {
 
 export default function LandingPage() {
   return (
-    <div className="bg-white text-gray-900 overflow-x-hidden">
+    <div className="lp">
+      <AOSInit />
       <Navbar />
       <Hero />
       <TrustBar />

@@ -1,89 +1,92 @@
-'use client';
-import { motion } from 'framer-motion';
-import { Star } from 'lucide-react';
-
-const testimonials = [
+const REVIEWS = [
   {
-    quote: "Before VerzChat, our team was replying from three different phones. Customers were getting duplicate messages or no reply at all. Now everyone works from one inbox, and our response time went from 4 hours to under 8 minutes.",
+    name: 'Amara Diallo',
+    biz: 'Kente Couture, Ghana',
+    init: 'A',
+    stars: 5,
+    text: 'Before VerzChat, two of us were sharing one WhatsApp phone. Now our whole team of 6 handles every order and question from one screen. Response time went from hours to under 3 minutes.',
+  },
+  {
+    name: 'Chidi Okonkwo',
+    biz: 'QuickFix Logistics, Nigeria',
+    init: 'C',
+    stars: 5,
+    text: 'The broadcast campaigns alone were worth switching. We sent delivery updates to 8,000 customers last week — all delivered, all tracked. No more copy-pasting into WhatsApp one by one.',
+  },
+  {
     name: 'Fatima Al-Rashid',
-    role: 'Operations Manager',
-    company: 'GulfMart',
-    avatar: 'FA',
-    color: 'bg-violet-500',
-    metric: '4h to 8min response time',
+    biz: 'Blossom Pharmacy, Kenya',
+    init: 'F',
+    stars: 5,
+    text: 'The chatbot handles prescription refill requests automatically. Our pharmacists only step in for the complex cases. It\'s honestly changed how we operate.',
   },
   {
-    quote: "The WhatsApp broadcast feature paid for the subscription in the first week. We sent a campaign to 8,000 customers for a flash sale. 71% read rate, orders came in for two days straight. Email never did that for us.",
-    name: 'Marcus Chen',
-    role: 'Founder',
-    company: 'TechFlow',
-    avatar: 'MC',
-    color: 'bg-blue-500',
-    metric: '71% read rate on first campaign',
-  },
-  {
-    quote: "Setup was genuinely 20 minutes. WhatsApp connected, team invited, first message handled. I've tried Chatwoot and Respond.io, the onboarding alone took days. VerzChat just works.",
-    name: 'James Okafor',
-    role: 'CEO',
-    company: 'SwiftDeliver',
-    avatar: 'JO',
-    color: 'bg-orange-500',
-    metric: 'Live in 20 minutes',
+    name: 'Kwame Asante',
+    biz: 'Urban Eats GH, Accra',
+    init: 'K',
+    stars: 5,
+    text: 'Setup was genuinely under 20 minutes. The whole team was live on the same inbox by lunchtime. The analytics showing our response time and CSAT are something our old setup never had.',
   },
 ];
 
-export default function Proof() {
+function Stars({ n }: { n: number }) {
   return (
-    <section className="py-20 bg-white">
-      <div className="max-w-6xl mx-auto px-5 sm:px-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.55 }}
-          className="mb-12"
-        >
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight mb-3">
-            What teams say after switching.
-          </h2>
-          <p className="text-lg text-gray-500">Not what we say. What they say.</p>
-        </motion.div>
+    <div className="stars">
+      {Array.from({ length: n }).map((_, i) => (
+        <span key={i}>★</span>
+      ))}
+    </div>
+  );
+}
 
-        <div className="grid md:grid-cols-3 gap-5">
-          {testimonials.map((t, i) => (
-            <motion.div
-              key={t.name}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1, duration: 0.5 }}
-              whileHover={{ y: -4, transition: { duration: 0.2 } }}
-              className="flex flex-col bg-gray-50 border border-gray-100 rounded-2xl p-6 hover:border-gray-200 hover:shadow-md transition-all cursor-default"
-            >
-              <div className="flex gap-0.5 mb-3">
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Star key={s} size={13} className="text-amber-400 fill-amber-400" />
-                ))}
-              </div>
+export default function Proof() {
+  const left  = REVIEWS.filter((_, i) => i % 2 === 0);
+  const right = REVIEWS.filter((_, i) => i % 2 !== 0);
 
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[#f0fdf4] border border-[#bbf7d0] rounded-full mb-4 w-fit">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#25D366]" />
-                <span className="text-[11px] font-bold text-[#15803d]">{t.metric}</span>
-              </div>
+  return (
+    <section className="row_am" style={{ background: '#f8fffe' }}>
+      <div className="container">
+        <div className="text-center sec_title" data-aos="fade-up">
+          <span className="sec_badge">Testimonials</span>
+          <h2>Teams That Switched, Never Looked Back</h2>
+          <p>Businesses across Africa use VerzChat to manage every customer conversation on WhatsApp.</p>
+        </div>
 
-              <p className="text-sm text-gray-600 leading-relaxed flex-1 mb-5">&ldquo;{t.quote}&rdquo;</p>
-
-              <div className="flex items-center gap-2.5 pt-4 border-t border-gray-200">
-                <div className={`w-8 h-8 rounded-full ${t.color} flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0`}>
-                  {t.avatar}
+        <div className="row g-4">
+          <div className="col-lg-6">
+            {left.map((r) => (
+              <div key={r.name} className="rev_card" data-aos="fade-right">
+                <div className="rev_top">
+                  <div className="rev_info">
+                    <div className="av">{r.init}</div>
+                    <div>
+                      <p className="rev_name">{r.name}</p>
+                      <p className="rev_biz">{r.biz}</p>
+                    </div>
+                  </div>
+                  <Stars n={r.stars} />
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{t.name}</p>
-                  <p className="text-xs text-gray-400">{t.role}, {t.company}</p>
-                </div>
+                <p className="rev_text">&ldquo;{r.text}&rdquo;</p>
               </div>
-            </motion.div>
-          ))}
+            ))}
+          </div>
+          <div className="col-lg-6">
+            {right.map((r) => (
+              <div key={r.name} className="rev_card" data-aos="fade-left">
+                <div className="rev_top">
+                  <div className="rev_info">
+                    <div className="av" style={{ background: '#104a25' }}>{r.init}</div>
+                    <div>
+                      <p className="rev_name">{r.name}</p>
+                      <p className="rev_biz">{r.biz}</p>
+                    </div>
+                  </div>
+                  <Stars n={r.stars} />
+                </div>
+                <p className="rev_text">&ldquo;{r.text}&rdquo;</p>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>

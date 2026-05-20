@@ -1,72 +1,79 @@
-'use client';
-import { motion } from 'framer-motion';
+import Link from 'next/link';
 
-const features = [
+const SECTIONS = [
   {
-    number: '01',
-    title: 'Stop assigning conversations over Slack.',
-    desc: 'When a message comes in, your team sees it and claims it. Assign to the right agent, add private notes, and resolve without stepping on each other. No more "who\'s handling this?"',
-    pills: ['Agent assignment', 'Private notes', 'Conversation labels', 'Team visibility'],
+    badge: 'Shared Inbox',
+    h2: 'Respond to customers 3× faster than before.',
+    lead: 'When a message arrives, your entire team sees it instantly. One agent claims it, adds context, and resolves it — no duplicated replies, no Slack threads to track who\'s handling what.',
+    bullets: [
+      'Real-time agent assignment & routing',
+      'Private notes only your team can see',
+      'Conversation labels and custom tags',
+      'Full message history with every contact',
+    ],
+    href: '/book-demo',
+    cta: 'See the inbox →',
+    flip: false,
     mockup: (
-      <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
-        <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
-          <div className="text-[10px] font-semibold text-gray-500">Active conversations · 24 open</div>
-          <div className="ml-auto text-[9px] px-2 py-0.5 bg-[#f0fdf4] text-[#15803d] border border-[#bbf7d0] rounded-full font-semibold">All agents</div>
+      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)' }}>
+        <div style={{ background: '#161b22', borderBottom: '1px solid rgba(255,255,255,.07)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(255,77,77,.7)' }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(255,189,68,.7)' }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#25D366', opacity: .8 }} />
+          <span style={{ marginLeft: 6, fontSize: 9, color: 'rgba(255,255,255,.3)', fontWeight: 600 }}>Active Conversations · 24 open</span>
         </div>
         {[
-          { name: 'Sarah K.', agent: 'Alice', status: 'Replied', color: 'bg-violet-500', dot: 'bg-[#25D366]' },
-          { name: 'Tech Corp', agent: 'Unassigned', status: 'Waiting', color: 'bg-blue-500', dot: 'bg-orange-400' },
-          { name: 'Ahmed H.', agent: 'Bob', status: 'Resolved', color: 'bg-emerald-500', dot: 'bg-gray-300' },
-        ].map((row) => (
-          <div key={row.name} className="flex items-center gap-2.5 px-3 py-2 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
-            <div className={`w-6 h-6 rounded-full ${row.color} flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0`}>{row.name[0]}</div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-gray-800">{row.name}</p>
+          { name: 'Sarah K.', agent: 'Alice', status: 'Replied', c: '#8b5cf6', dot: '#25D366' },
+          { name: 'Tech Corp', agent: 'Unassigned', status: 'Waiting', c: '#3b82f6', dot: '#f97316' },
+          { name: 'Ahmed H.', agent: 'Bob', status: 'Resolved', c: '#10b981', dot: '#9ca3af' },
+          { name: 'Kofi A.', agent: 'Alice', status: 'Replied', c: '#ec4899', dot: '#25D366' },
+        ].map((r) => (
+          <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: r.c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{r.name[0]}</div>
+            <div style={{ flex: 1 }}>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#fff' }}>{r.name}</p>
             </div>
-            <div className="flex items-center gap-1.5">
-              <div className={`w-1.5 h-1.5 rounded-full ${row.dot}`} />
-              <span className="text-[9px] text-gray-500">{row.agent}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: r.dot }} />
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,.4)' }}>{r.agent}</span>
             </div>
-            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${
-              row.status === 'Replied' ? 'bg-[#f0fdf4] text-[#15803d]' :
-              row.status === 'Waiting' ? 'bg-orange-50 text-orange-600' :
-              'bg-gray-100 text-gray-500'
-            }`}>{row.status}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: r.status === 'Replied' ? 'rgba(37,211,102,.1)' : r.status === 'Waiting' ? 'rgba(249,115,22,.1)' : 'rgba(156,163,175,.1)', color: r.status === 'Replied' ? '#25D366' : r.status === 'Waiting' ? '#f97316' : '#9ca3af' }}>{r.status}</span>
           </div>
         ))}
       </div>
     ),
   },
   {
-    number: '02',
-    title: 'Reply to 10,000 customers without typing each one.',
-    desc: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick a template, and send. Track who got it, who read it, and who clicked in real time.',
-    pills: ['Broadcast campaigns', 'Delivery tracking', 'Read & click rates', 'Contact segments'],
+    badge: 'Campaigns',
+    h2: 'Reply to 10,000 customers without typing each one.',
+    lead: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick an approved template, and fire. Track who got it, who read it, and who clicked — all in real time.',
+    bullets: [
+      'One-click broadcasts to any contact segment',
+      'Real-time delivery & read receipts',
+      'Click-through tracking per campaign',
+      'Schedule sends for optimal open times',
+    ],
+    href: '/book-demo',
+    cta: 'See campaigns →',
+    flip: true,
     mockup: (
-      <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
-        <div className="px-3 py-2.5 border-b border-gray-100">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold text-gray-800">Summer Sale Campaign</p>
-            <span className="text-[9px] px-1.5 py-0.5 bg-[#f0fdf4] text-[#15803d] border border-[#bbf7d0] rounded-full font-bold">Sent</span>
-          </div>
-          <p className="text-[10px] text-gray-400 mt-0.5">12,450 recipients · WhatsApp</p>
+      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)' }}>
+        <div style={{ background: '#161b22', borderBottom: '1px solid rgba(255,255,255,.07)', padding: '10px 16px' }}>
+          <p style={{ margin: '0 0 2px', fontSize: 11, fontWeight: 800, color: '#fff' }}>Summer Sale Campaign</p>
+          <p style={{ margin: 0, fontSize: 9, color: 'rgba(255,255,255,.35)' }}>12,450 recipients · WhatsApp · Sent</p>
         </div>
-        <div className="px-3 py-2.5 grid grid-cols-3 gap-2">
-          {[
-            { label: 'Delivered', value: '98.2%', color: 'text-[#15803d] bg-[#f0fdf4]' },
-            { label: 'Read', value: '67.4%', color: 'text-blue-700 bg-blue-50' },
-            { label: 'Clicked', value: '12.1%', color: 'text-orange-700 bg-orange-50' },
-          ].map((s) => (
-            <div key={s.label} className={`rounded-lg p-2 text-center ${s.color}`}>
-              <p className="text-base font-extrabold">{s.value}</p>
-              <p className="text-[9px] font-medium opacity-80">{s.label}</p>
+        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          {[{ l: 'Delivered', v: '98.2%', bg: 'rgba(37,211,102,.1)', c: '#25D366' }, { l: 'Read', v: '67.4%', bg: 'rgba(59,130,246,.1)', c: '#3b82f6' }, { l: 'Clicked', v: '12.1%', bg: 'rgba(249,115,22,.1)', c: '#f97316' }].map((s) => (
+            <div key={s.l} style={{ background: s.bg, borderRadius: 10, padding: '12px 8px', textAlign: 'center' }}>
+              <p style={{ margin: '0 0 3px', fontSize: 18, fontWeight: 800, color: s.c }}>{s.v}</p>
+              <p style={{ margin: 0, fontSize: 10, color: 'rgba(255,255,255,.5)' }}>{s.l}</p>
             </div>
           ))}
         </div>
-        <div className="px-3 pb-2.5">
-          <div className="flex items-end gap-0.5 h-8">
+        <div style={{ padding: '0 16px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 50 }}>
             {[55, 70, 65, 82, 78, 91, 88, 98].map((h, i) => (
-              <div key={i} className="flex-1 bg-[#25D366]/20 rounded-sm" style={{ height: `${h}%` }} />
+              <div key={i} style={{ flex: 1, background: i === 7 ? '#25D366' : 'rgba(37,211,102,.2)', borderRadius: 4, height: `${h}%` }} />
             ))}
           </div>
         </div>
@@ -74,64 +81,36 @@ const features = [
     ),
   },
   {
-    number: '03',
-    title: 'Let the bot handle FAQs. You handle the rest.',
-    desc: 'Build chatbot flows with drag-and-drop, no code needed. Set triggers, define responses, and the bot handles common questions 24/7. When it gets stuck, it hands off to a live agent instantly.',
-    pills: ['No-code flow builder', 'AI-powered replies', 'Live agent handoff', '24/7 automation'],
+    badge: 'Automation',
+    h2: 'Let the bot handle FAQs. You handle the rest.',
+    lead: 'Set up keyword-triggered chatbot flows in minutes — no code, no developer. The bot handles routine questions 24/7. When it\'s stuck, it hands off to a live agent instantly with full context.',
+    bullets: [
+      'No-code drag-and-drop flow builder',
+      'AI-powered reply suggestions',
+      'Instant live agent handoff with context',
+      'Works 24/7 even when your team is offline',
+    ],
+    href: '/book-demo',
+    cta: 'See automation →',
+    flip: false,
     mockup: (
-      <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
-        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-          <p className="text-[10px] font-semibold text-gray-500">Chatbot · Order Support</p>
-          <span className="text-[9px] text-[#15803d] font-bold">82% handled automatically</span>
+      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)', padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.5)' }}>Chatbot · Order Support</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: '#25D366' }}>82% auto-handled</span>
         </div>
-        <div className="p-3 space-y-1.5">
-          {[
-            { label: 'Trigger', text: 'New message received', color: 'bg-[#f0fdf4] border-[#bbf7d0] text-[#15803d]' },
-            { label: 'Check', text: 'Contains "order" or "track"', color: 'bg-violet-50 border-violet-200 text-violet-700' },
-            { label: 'Reply', text: 'Send order status template', color: 'bg-blue-50 border-blue-200 text-blue-700' },
-            { label: 'Wait', text: '2 minutes · no response?', color: 'bg-orange-50 border-orange-200 text-orange-700' },
-            { label: 'Assign', text: 'Route to Support team', color: 'bg-gray-50 border-gray-200 text-gray-600' },
-          ].map((node, i) => (
-            <div key={i} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[9px] font-medium ${node.color}`}>
-              <span className="font-bold uppercase text-[8px] opacity-60 w-10 flex-shrink-0">{node.label}</span>
-              <span>{node.text}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    ),
-  },
-  {
-    number: '04',
-    title: 'Know exactly where your team stands.',
-    desc: 'See how fast your team responds, how many conversations they close, and what your customers actually think. Updated live, not every Monday morning.',
-    pills: ['Response time tracking', 'CSAT scores', 'Agent performance', 'Live dashboards'],
-    mockup: (
-      <div className="rounded-xl border border-gray-200 overflow-hidden shadow-sm bg-white">
-        <div className="px-3 py-2.5 border-b border-gray-100">
-          <p className="text-[10px] font-semibold text-gray-500">Team Performance · Today</p>
-        </div>
-        <div className="px-3 pt-2.5 pb-1 grid grid-cols-2 gap-2">
-          {[
-            { label: 'Avg response', value: '1m 24s', trend: '18% faster', good: true },
-            { label: 'CSAT', value: '4.8 / 5', trend: '+0.3 this week', good: true },
-            { label: 'Resolved today', value: '142', trend: '+12% vs yesterday', good: true },
-            { label: 'Overdue', value: '3', trend: 'Down from 11', good: true },
-          ].map((kpi) => (
-            <div key={kpi.label} className="bg-gray-50 rounded-lg p-2.5">
-              <p className="text-[9px] text-gray-400 mb-0.5">{kpi.label}</p>
-              <p className="text-base font-extrabold text-gray-900 leading-none">{kpi.value}</p>
-              <p className={`text-[9px] font-semibold mt-0.5 ${kpi.good ? 'text-[#15803d]' : 'text-red-600'}`}>{kpi.trend}</p>
-            </div>
-          ))}
-        </div>
-        <div className="px-3 pb-2.5">
-          <div className="flex items-end gap-0.5 h-10 mt-1">
-            {[42, 58, 52, 74, 68, 82, 76].map((h, i) => (
-              <div key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, backgroundColor: i === 5 ? '#25D366' : '#e5e7eb' }} />
-            ))}
+        {[
+          { lbl: 'Trigger', txt: 'New message received', c: 'rgba(37,211,102,.1)', tc: '#25D366' },
+          { lbl: 'Check', txt: 'Contains "order" or "track"', c: 'rgba(139,92,246,.1)', tc: '#8b5cf6' },
+          { lbl: 'Reply', txt: 'Send order status template', c: 'rgba(59,130,246,.1)', tc: '#3b82f6' },
+          { lbl: 'Wait', txt: '2 min · no response?', c: 'rgba(249,115,22,.1)', tc: '#f97316' },
+          { lbl: 'Assign', txt: 'Route to Support team', c: 'rgba(156,163,175,.1)', tc: '#9ca3af' },
+        ].map((n, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: n.c, borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
+            <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', color: n.tc, width: 42, flexShrink: 0 }}>{n.lbl}</span>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', fontWeight: 500 }}>{n.txt}</span>
           </div>
-        </div>
+        ))}
       </div>
     ),
   },
@@ -139,51 +118,32 @@ const features = [
 
 export default function Features() {
   return (
-    <section id="features" className="py-20 bg-gray-50/40">
-      <div className="max-w-6xl mx-auto px-5 sm:px-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.55 }}
-          className="mb-14"
-        >
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight mb-3">
-            Everything your team needs to do the job.
-          </h2>
-          <p className="text-lg text-gray-500">No bloat. No onboarding workshop. Just the tools that matter.</p>
-        </motion.div>
-
-        <div className="space-y-16">
-          {features.map((feat, i) => (
-            <motion.div
-              key={feat.number}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.6 }}
-              className={`grid lg:grid-cols-2 gap-10 items-center ${i % 2 === 1 ? 'lg:[&>*:first-child]:order-2' : ''}`}
-            >
-              <div>
-                <span className="text-5xl font-black text-gray-100 leading-none select-none">{feat.number}</span>
-                <h3 className="text-2xl font-bold text-gray-900 mt-1 mb-3 leading-snug">{feat.title}</h3>
-                <p className="text-base text-gray-500 leading-relaxed mb-5">{feat.desc}</p>
-                <div className="flex flex-wrap gap-2">
-                  {feat.pills.map((pill) => (
-                    <motion.span key={pill} whileHover={{ scale: 1.05 }}
-                      className="text-xs font-semibold text-[#15803d] bg-[#f0fdf4] border border-[#bbf7d0] px-3 py-1 rounded-full cursor-default">
-                      {pill}
-                    </motion.span>
-                  ))}
-                </div>
+    <>
+      {SECTIONS.map((sec) => (
+        <section key={sec.badge} className="svc_sec">
+          <div className="container">
+            <div className={`row align-items-center g-5 ${sec.flip ? 'flex-row-reverse' : ''}`}>
+              <div className="col-lg-6" data-aos={sec.flip ? 'fade-left' : 'fade-right'}>
+                <div className="svc_img">{sec.mockup}</div>
               </div>
-              <motion.div whileHover={{ y: -4, transition: { duration: 0.2 } }} className="relative">
-                {feat.mockup}
-              </motion.div>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
+              <div className="col-lg-6" data-aos={sec.flip ? 'fade-right' : 'fade-left'}>
+                <span className="sec_badge">{sec.badge}</span>
+                <h2>{sec.h2}</h2>
+                <p className="svc_lead">{sec.lead}</p>
+                <ul>
+                  {sec.bullets.map((b) => (
+                    <li key={b}>
+                      <span className="li_dot">✓</span>
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+                <Link href={sec.href} className="btn_dark" style={{ fontSize: 14, padding: '10px 28px' }}>{sec.cta}</Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      ))}
+    </>
   );
 }
