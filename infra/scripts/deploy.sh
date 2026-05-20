@@ -9,7 +9,8 @@ REPO_ROOT="/root/whatsapp-platform"
 
 echo "==> Pulling latest code..."
 cd "$REPO_ROOT"
-git pull origin main
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git pull origin "$CURRENT_BRANCH"
 
 # Re-exec the updated script so any changes to deploy.sh itself take effect
 if [[ -z "$_DEPLOY_REEXEC" ]]; then
