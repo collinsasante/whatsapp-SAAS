@@ -17,12 +17,13 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3001);
   const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+  const allowedOrigins = Array.from(new Set([frontendUrl, 'http://localhost:3000', 'http://localhost:3001']));
 
   app.use(helmet());
   app.use(cookieParser());
 
   app.enableCors({
-    origin: [frontendUrl],
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant-ID'],
