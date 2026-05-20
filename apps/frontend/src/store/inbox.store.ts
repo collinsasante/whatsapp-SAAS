@@ -134,8 +134,9 @@ export const useInboxStore = create<InboxState>((set) => ({
 
       const isInbound = message.direction === MessageDirection.INBOUND;
       const inboundUpdate = isInbound ? { lastInboundAt: message.createdAt as unknown as string } : {};
-      // Outbound message means the agent is active — clear any stale unread badge
-      const outboundUpdate = !isInbound ? { unreadCount: 0 } : {};
+      // Zero badge for outbound (agent sent) OR when agent is currently viewing this conversation
+      const isActiveConv = conversationId === state.activeConversationId;
+      const outboundUpdate = (!isInbound || isActiveConv) ? { unreadCount: 0 } : {};
 
       const updatedConv = state.conversations.find((c) => c.id === conversationId);
       const updatedConvData = updatedConv
