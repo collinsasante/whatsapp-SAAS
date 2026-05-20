@@ -31,14 +31,10 @@ function createSocket(token: string | null): Socket {
     reconnectionAttempts: 10,
     reconnectionDelay: 1000,
   });
-  s.on('connect', () => console.log('Socket connected'));
-  s.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
   s.on('connect_error', (err) => {
     const isAuthorized = s === authorizedSocket;
-    console.warn('[socket] connect_error:', err.message, '| authorized:', isAuthorized);
     if (!isAuthorized) return;
     if (err.message.toLowerCase().includes('authentication') || err.message.toLowerCase().includes('token')) {
-      console.warn('[socket] auth error on connect — will trigger logout');
       onAuthError?.();
     }
   });

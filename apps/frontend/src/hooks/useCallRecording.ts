@@ -19,7 +19,6 @@ export async function uploadCallRecording(callLogId: string, blob: Blob): Promis
     const { fileUrl } = res.data as { fileUrl: string };
     await callsApi.update(callLogId, { recordingUrl: fileUrl });
   } catch (err) {
-    console.warn('[CallRecording] upload failed:', err);
   }
 }
 
@@ -50,7 +49,6 @@ export function useCallRecording() {
       recorder.start(1000);
       recorderRef.current = recorder;
     } catch (err) {
-      console.warn('[CallRecording] start failed:', err);
     }
   }, []);
 

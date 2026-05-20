@@ -97,16 +97,13 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
         return obj;
       }).filter(c => (c.phone as string)?.trim());
 
-      console.log('[import] contacts to send:', contacts.length, 'first sample:', contacts[0]);
       const totalChunks = Math.ceil(contacts.length / CHUNK);
       for (let i = 0; i < contacts.length; i += CHUNK) {
         const chunk = contacts.slice(i, i + CHUNK);
         const chunkNum = Math.floor(i / CHUNK) + 1;
         setImportProgress(`Importing batch ${chunkNum} of ${totalChunks}…`);
-        console.log(`[import] sending batch ${chunkNum}/${totalChunks} (${chunk.length} contacts)`);
         const res = await contactsApi.import(chunk);
         const data = res.data as { created: number; skipped: number; errors: string[] };
-        console.log(`[import] batch ${chunkNum} result:`, data);
         totals.created += data.created;
         totals.skipped += data.skipped;
         totals.errors.push(...data.errors);
@@ -116,7 +113,6 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
       setStep('result');
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { message?: string | string[] } } };
-      console.error('[import] error:', axiosErr.response?.status, axiosErr.response?.data ?? err);
       const msg = axiosErr.response?.data?.message;
       const detail = Array.isArray(msg) ? msg[0] : msg;
       toast.error(detail ? `Import failed: ${detail}` : 'Import failed');
@@ -728,7 +724,6 @@ export default function ContactsPage() {
       setContacts(data.data);
       setTotal(data.meta.total);
     } catch (err: unknown) {
-      console.error('[contacts] load error:', (err as { response?: { status?: number } })?.response?.status, err);
     } finally { setLoading(false); }
   }, []);
 

@@ -65,6 +65,7 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   for f in apps/frontend/.next/standalone/apps/frontend/.next/*.json apps/frontend/.next/standalone/apps/frontend/.next/BUILD_ID; do
     [[ -f "$f" ]] && docker cp "$f" "${FRONTEND_CTR}:/app/apps/frontend/.next/$(basename "$f")"
   done
+  docker cp apps/frontend/public/. "${FRONTEND_CTR}:/app/apps/frontend/public/"
   docker restart "${FRONTEND_CTR}"
   echo "==> Frontend deployed."
 fi

@@ -27,7 +27,6 @@ export default function InboxPage() {
         const res = await conversationsApi.list({ limit: 50 });
         setConversations((res.data as { data: unknown[] }).data as Parameters<typeof setConversations>[0]);
       } catch (err) {
-        console.error('Failed to load conversations:', err);
       } finally {
         setLoading(false);
       }

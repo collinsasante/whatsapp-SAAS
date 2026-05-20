@@ -225,7 +225,6 @@ export function IncomingCallModal() {
       recordingCallIdRef.current = incomingCall.callLogId;
       startRecording(streamRef.current, remoteStreamRef.current);
     } catch (err) {
-      console.error('[IncomingCallModal] WebRTC accept failed:', err);
       toast.error('Could not connect call — microphone may be blocked');
       cleanup();
       try { await callsApi.respond(incomingCall.callLogId, 'reject'); } catch { /* ignore */ }
