@@ -31,7 +31,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         {/* Logo */}
         <div className="relative z-10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="VerzChat" className="h-9" style={{ filter: 'brightness(0) invert(1)' }} />
+          <img src="/logo-white.svg" alt="VerzChat" className="h-9" />
         </div>
 
         {/* Main copy */}

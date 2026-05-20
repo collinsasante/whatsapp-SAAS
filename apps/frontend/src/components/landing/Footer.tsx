@@ -28,7 +28,7 @@ export default function Footer() {
           <div className="col-span-2 lg:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo.svg" alt="VerzChat" className="h-7" style={{ filter: 'brightness(0) invert(1)' }} />
+              <img src="/logo-white.svg" alt="VerzChat" className="h-7" />
             </Link>
             <p className="text-sm text-gray-500 leading-relaxed mb-4">
               The WhatsApp inbox built for teams that take customer communication seriously.

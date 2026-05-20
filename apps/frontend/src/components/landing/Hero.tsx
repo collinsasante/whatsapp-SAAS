@@ -206,12 +206,12 @@ export default function Hero() {
 
             <div className="flex flex-wrap items-center gap-3 mb-8">
               <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-                <Link href="/auth/register" className="inline-flex items-center gap-2 px-6 py-3 bg-[#25D366] hover:bg-[#1aad57] text-white font-semibold rounded-xl transition-colors shadow-sm text-sm">
+                <Link href="/book-demo" className="inline-flex items-center gap-2 px-6 py-3 bg-[#25D366] hover:bg-[#1aad57] text-white font-semibold rounded-xl transition-colors shadow-sm text-sm">
                   Book a demo <ArrowRight size={15} />
                 </Link>
               </motion.div>
               <motion.a whileHover={{ scale: 1.03 }} href="#features" className="inline-flex items-center gap-2 px-5 py-3 border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors text-sm">
-                See how it works
+                Watch Demo Video
               </motion.a>
             </div>
 

@@ -100,4 +100,20 @@ export class EmailService {
       this.logger.error(`Failed to send invite email to ${opts.to}: ${String(err)}`);
     }
   }
+
+  async sendRaw(opts: { to: string; from?: string; subject: string; html: string }): Promise<void> {
+    const from = opts.from ?? `VerzChat <${this.fromAddress}>`;
+
+    if (!this.resend) {
+      this.logger.log(`[sendRaw — Resend not configured] To: ${opts.to} | Subject: ${opts.subject}`);
+      return;
+    }
+
+    try {
+      await this.resend.emails.send({ from, to: opts.to, subject: opts.subject, html: opts.html });
+      this.logger.log(`Email sent to ${opts.to}: ${opts.subject}`);
+    } catch (err) {
+      this.logger.error(`Failed to send email to ${opts.to}: ${String(err)}`);
+    }
+  }
 }
