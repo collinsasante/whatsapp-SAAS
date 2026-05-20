@@ -16,10 +16,32 @@ export class TenantService {
   }
 
   async update(tenantId: string, dto: UpdateTenantDto) {
-    return this.prisma.tenant.update({
+    const tenant = await this.prisma.tenant.update({
       where: { id: tenantId },
       data: dto,
     });
+
+    // Sync a Channel record so the Channels page reflects the connected WhatsApp
+    if (dto.phoneNumberId || dto.wabaId || dto.accessToken) {
+      const existing = await this.prisma.channel.findFirst({ where: { tenantId, type: 'WHATSAPP' } });
+      if (existing) {
+        await this.prisma.channel.update({
+          where: { id: existing.id },
+          data: { isActive: true },
+        });
+      } else if (tenant.phoneNumberId && tenant.wabaId && tenant.accessToken) {
+        await this.prisma.channel.create({
+          data: {
+            tenantId,
+            type: 'WHATSAPP',
+            name: 'WhatsApp Business',
+            isActive: true,
+          },
+        }).catch(() => {/* ignore unique constraint on duplicate saves */});
+      }
+    }
+
+    return tenant;
   }
 
   async updateSettings(tenantId: string, dto: UpdateTenantSettingsDto) {

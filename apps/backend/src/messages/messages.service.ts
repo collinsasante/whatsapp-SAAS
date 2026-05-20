@@ -9,6 +9,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { StorageService } from '../media/storage.service';
 import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.service';
 import { AiResponderService } from '../ai/ai-responder.service';
+import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
@@ -26,6 +27,7 @@ export class MessagesService {
     private chatbotFlowsService: ChatbotFlowsService,
     private activityLogService: ActivityLogService,
     private aiResponderService: AiResponderService,
+    private knowledgeBaseService: KnowledgeBaseService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -199,6 +201,11 @@ export class MessagesService {
       });
 
       await this.conversationsService.incrementUnread(conversationId);
+
+      // Trigger real-time AI learning from this agent reply (throttled to once per 30 min per tenant)
+      if (dto.type === MessageType.TEXT || !dto.type) {
+        this.knowledgeBaseService.triggerLearningAsync(tenantId);
+      }
 
       const updatedMessage = await this.prisma.message.findUnique({
         where: { id: message.id },
@@ -416,29 +423,34 @@ export class MessagesService {
       replyToId = contextMsg?.id ?? null;
     }
 
-    const message = await this.prisma.message.create({
-      data: {
-        tenantId,
-        conversationId: conversation.id,
-        contactId: contact.id,
-        whatsappMessageId: waMessage.id,
-        replyToId,
-        direction: MessageDirection.INBOUND,
-        type: msgType,
-        status: MessageStatus.DELIVERED,
-        content,
-        mediaUrl,
-        mediaType,
-        mediaCaption,
-        metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
-        deliveredAt: new Date(),
-      },
-      include: {
-        replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
-      },
-    });
-
-    await this.conversationsService.incrementUnread(conversation.id);
+    // Atomic: create message and increment conversation unread count together
+    const [message] = await this.prisma.$transaction([
+      this.prisma.message.create({
+        data: {
+          tenantId,
+          conversationId: conversation.id,
+          contactId: contact.id,
+          whatsappMessageId: waMessage.id,
+          replyToId,
+          direction: MessageDirection.INBOUND,
+          type: msgType,
+          status: MessageStatus.DELIVERED,
+          content,
+          mediaUrl,
+          mediaType,
+          mediaCaption,
+          metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
+          deliveredAt: new Date(),
+        },
+        include: {
+          replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
+        },
+      }),
+      this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
+      }),
+    ]);
     this.realtimeService.emitNewMessage(tenantId, conversation.id, message);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,

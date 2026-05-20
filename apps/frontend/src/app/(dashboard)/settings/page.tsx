@@ -90,6 +90,9 @@ export default function SettingsPage() {
   const [newKeyName, setNewKeyName] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [showNewKey, setShowNewKey] = useState(false);
+  const [showPhoneId, setShowPhoneId] = useState(false);
+  const [showWebhookUrl, setShowWebhookUrl] = useState(false);
+  const [showVerifyToken, setShowVerifyToken] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -255,7 +258,12 @@ export default function SettingsPage() {
                 <p className="text-sm text-gray-500 mb-5">Connect your WhatsApp Business API via Meta Business Manager.</p>
                 <div className="space-y-4">
                   <Field label="Phone Number ID">
-                    <input type="text" value={waForm.phoneNumberId} placeholder="From Meta Business Manager" onChange={(e) => setWaForm((f) => ({ ...f, phoneNumberId: e.target.value }))} className={INPUT} />
+                    <div className="relative">
+                      <input type={showPhoneId ? 'text' : 'password'} value={waForm.phoneNumberId} placeholder="From Meta Business Manager" onChange={(e) => setWaForm((f) => ({ ...f, phoneNumberId: e.target.value }))} className={cn(INPUT, 'pr-10')} />
+                      <button type="button" onClick={() => setShowPhoneId(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        {showPhoneId ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
                   </Field>
                   <Field label="WABA ID">
                     <input type="text" value={waForm.wabaId} placeholder="WhatsApp Business Account ID" onChange={(e) => setWaForm((f) => ({ ...f, wabaId: e.target.value }))} className={INPUT} />
@@ -263,16 +271,23 @@ export default function SettingsPage() {
                   <Field label="Permanent Access Token">
                     <input type="password" value={waForm.accessToken} placeholder="Leave blank to keep existing" onChange={(e) => setWaForm((f) => ({ ...f, accessToken: e.target.value }))} className={INPUT} />
                   </Field>
-                  <div className="bg-teal-50 border border-teal-200 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-teal-700 mb-2">Webhook URL</p>
+                  <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-teal-700">Webhook URL</p>
                     <div className="flex items-center gap-2">
-                      <code className="text-xs text-teal-800 break-all flex-1">{webhookUrl}</code>
-                      <CopyButton value={webhookUrl} />
+                      <code className="text-xs text-teal-800 break-all flex-1 font-mono">{showWebhookUrl ? webhookUrl : '••••••••••••••••••••••••••••••••'}</code>
+                      <button type="button" onClick={() => setShowWebhookUrl(v => !v)} className="text-teal-500 hover:text-teal-700 flex-shrink-0">
+                        {showWebhookUrl ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                      {showWebhookUrl && <CopyButton value={webhookUrl} />}
                     </div>
-                    <p className="text-xs text-teal-600 mt-2 flex items-center">
-                      Verify token: <code className="bg-teal-100 px-1.5 py-0.5 rounded ml-1">{tenant?.webhookVerifyToken}</code>
-                      <CopyButton value={tenant?.webhookVerifyToken ?? ''} size="xs" />
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-teal-600">Verify token:</span>
+                      <code className="bg-teal-100 px-1.5 py-0.5 rounded text-xs font-mono text-teal-800">{showVerifyToken ? tenant?.webhookVerifyToken : '••••••••'}</code>
+                      <button type="button" onClick={() => setShowVerifyToken(v => !v)} className="text-teal-500 hover:text-teal-700">
+                        {showVerifyToken ? <EyeOff size={12} /> : <Eye size={12} />}
+                      </button>
+                      {showVerifyToken && <CopyButton value={tenant?.webhookVerifyToken ?? ''} size="xs" />}
+                    </div>
                   </div>
                   <button onClick={() => { void saveWaConfig(); }} disabled={saving} className={BTN_PRIMARY}>
                     {saving ? 'Saving…' : 'Save Configuration'}

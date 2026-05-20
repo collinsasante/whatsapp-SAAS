@@ -5,8 +5,18 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class KnowledgeBaseService {
   private readonly logger = new Logger(KnowledgeBaseService.name);
+  private readonly learningThrottle = new Map<string, number>();
 
   constructor(private prisma: PrismaService) {}
+
+  // Fire-and-forget: triggers learnFromConversations at most once per 30 min per tenant
+  triggerLearningAsync(tenantId: string): void {
+    const now = Date.now();
+    const lastRun = this.learningThrottle.get(tenantId) ?? 0;
+    if (now - lastRun < 30 * 60 * 1000) return;
+    this.learningThrottle.set(tenantId, now);
+    void this.learnFromConversations(tenantId).catch((err) => this.logger.error('background learning error', err));
+  }
 
   async list(tenantId: string) {
     return this.prisma.knowledgeBaseArticle.findMany({

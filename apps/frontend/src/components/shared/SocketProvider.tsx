@@ -204,7 +204,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           ...(data.contact != null ? { contact: data.contact as { id: string; name: string | null; phone: string; avatarUrl: string | null } } : {}),
           ...(data.assignedTo !== undefined ? { assignedTo: (data.assignedTo as { id: string; name: string } | null) } : {}),
           ...(data.status != null ? { status: data.status as string } : {}),
-          ...(data.unreadCount != null ? { unreadCount: data.unreadCount as number } : {}),
+          // Skip unread count update if the agent is currently viewing this conversation
+          ...(data.unreadCount != null && id !== activeConversationIdRef.current ? { unreadCount: data.unreadCount as number } : {}),
           ...(data.lastMessageAt != null ? { lastMessageAt: data.lastMessageAt as string } : {}),
           ...(data.lastInboundAt != null ? { lastInboundAt: data.lastInboundAt as string } : {}),
           ...(data.labels != null ? { labels: data.labels as string[] } : {}),
