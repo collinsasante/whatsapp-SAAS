@@ -237,17 +237,16 @@ function WorkspaceSwitcher() {
     }
   };
 
-  const initials = tenant?.name?.slice(0, 2).toUpperCase() ?? '??';
-
   return (
     <>
       <button
         ref={btnRef}
         title={tenant?.name ?? 'Workspace'}
         onClick={() => setOpen((o) => !o)}
-        className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center text-white text-xs font-bold hover:bg-teal-700 transition-colors flex-shrink-0"
+        className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center hover:border-teal-200 transition-colors flex-shrink-0 overflow-hidden"
       >
-        {initials}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.svg" alt="VerzChat" className="w-7 object-contain" />
       </button>
 
       {open && (

@@ -431,20 +431,17 @@ function MemberActionMenu({ member, isMe, onEdit, onSuspend, onReactivate, onFor
 function InviteForm({ onDone }: { onDone: () => void }) {
   const [form, setForm] = useState({ email: '', role: 'AGENT', name: '' });
   const [inviting, setInviting] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
 
   const send = async () => {
     if (!form.email) { toast.error('Email is required'); return; }
     setInviting(true);
     try {
-      const res = await workspaceApi.invite(form.email, form.role, form.name || undefined);
-      const { link: inviteLink } = res.data as { link: string };
-      setLink(inviteLink);
-      void navigator.clipboard.writeText(inviteLink).catch(() => {});
-      toast.success('Invite link created and copied!');
+      await workspaceApi.invite(form.email, form.role, form.name || undefined);
+      toast.success(`Invite sent to ${form.email}`);
+      onDone();
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(msg ?? 'Failed to create invitation');
+      toast.error(msg ?? 'Failed to send invitation');
     } finally { setInviting(false); }
   };
 
@@ -455,18 +452,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
         <button onClick={onDone} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
       </div>
 
-      {link ? (
-        <div className="space-y-3">
-          <p className="text-sm text-gray-600">Share this link — it expires in 72 hours.</p>
-          <div className="flex items-center gap-2 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3">
-            <code className="text-xs text-teal-800 flex-1 break-all">{link}</code>
-            <CopyButton value={link} />
-          </div>
-          <button onClick={() => { setLink(null); setForm({ email: '', role: 'AGENT', name: '' }); onDone(); }}
-            className="text-sm text-teal-600 hover:underline">Done</button>
-        </div>
-      ) : (
-        <>
+      <>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Field label="Email *">
@@ -486,12 +472,11 @@ function InviteForm({ onDone }: { onDone: () => void }) {
           </div>
           <div className="flex gap-3 mt-4">
             <button onClick={() => { void send(); }} disabled={inviting || !form.email} className={BTN_PRIMARY}>
-              {inviting ? 'Generating…' : 'Generate Invite Link'}
+              {inviting ? 'Sending…' : 'Send Invite'}
             </button>
             <button onClick={onDone} className={BTN_GHOST}>Cancel</button>
           </div>
         </>
-      )}
     </div>
   );
 }
