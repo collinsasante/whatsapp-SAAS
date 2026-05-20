@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { MessageSquare } from 'lucide-react';
 
 const col1 = [
   { label: 'Features', href: '#features' },
@@ -28,10 +27,8 @@ export default function Footer() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
           <div className="col-span-2 lg:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg bg-[#25D366] flex items-center justify-center">
-                <MessageSquare size={14} className="text-white" strokeWidth={2.5} />
-              </div>
-              <span className="font-bold text-white text-[15px]">VerzChat</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.svg" alt="VerzChat" className="h-7" style={{ filter: 'brightness(0) invert(1)' }} />
             </Link>
             <p className="text-sm text-gray-500 leading-relaxed mb-4">
               The WhatsApp inbox built for teams that take customer communication seriously.

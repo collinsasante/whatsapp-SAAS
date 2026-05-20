@@ -51,9 +51,15 @@ export default function Navbar() {
             </Link>
             <Link
               href="/auth/register"
-              className="text-sm font-semibold text-white bg-[#25D366] hover:bg-[#1aad57] px-4 py-2 rounded-lg transition-colors shadow-sm"
+              className="text-sm font-medium text-gray-700 border border-gray-200 hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors"
             >
               Get started free
+            </Link>
+            <Link
+              href="/auth/register"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-[#25D366] hover:bg-[#1aad57] text-white font-semibold rounded-xl transition-colors shadow-sm text-sm"
+            >
+              Book a Demo
             </Link>
           </div>
 
