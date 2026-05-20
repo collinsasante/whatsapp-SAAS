@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, MessageSquare } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
 
 const links = [
@@ -28,11 +28,9 @@ export default function Navbar() {
         } border-b border-gray-100`}
       >
         <div className="max-w-6xl mx-auto px-5 sm:px-8 flex items-center justify-between" style={{ height: 60 }}>
-          <Link href="/" className="flex items-center gap-2 group">
-            <div className="w-8 h-8 rounded-lg bg-[#25D366] flex items-center justify-center shadow-sm group-hover:bg-[#1aad57] transition-colors">
-              <MessageSquare size={16} className="text-white" strokeWidth={2.5} />
-            </div>
-            <span className="font-bold text-gray-900 text-[17px] tracking-tight">VerzChat</span>
+          <Link href="/" className="flex items-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="VerzChat" className="h-8" />
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
