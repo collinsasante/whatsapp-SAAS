@@ -19,6 +19,8 @@ if [[ -f "$REPO_ROOT/infra/.env" ]]; then
 fi
 
 if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
+  echo "==> Installing backend dependencies..."
+  pnpm install --frozen-lockfile
   echo "==> Building backend..."
   pnpm --filter @whatsapp-platform/shared-types build
   pnpm --filter @whatsapp-platform/shared-utils build
