@@ -1,24 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter | null = null;
+  private resend: Resend | null = null;
+  private fromAddress: string;
+  private replyToDefault: string;
 
   constructor(private readonly config: ConfigService) {
-    const user = config.get<string>('SMTP_USER');
-    const pass = config.get<string>('SMTP_PASS');
-    if (user && pass) {
-      this.transporter = nodemailer.createTransport({
-        host: config.get<string>('SMTP_HOST', 'smtp.gmail.com'),
-        port: parseInt(config.get<string>('SMTP_PORT', '587'), 10),
-        secure: config.get<string>('SMTP_PORT', '587') === '465',
-        auth: { user, pass },
-      });
+    const apiKey = config.get<string>('RESEND_API_KEY');
+    this.fromAddress = config.get<string>('SMTP_FROM', 'notifications@verzchat.com');
+    this.replyToDefault = config.get<string>('SMTP_REPLY_TO', 'support@verzchat.com');
+
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
     } else {
-      this.logger.warn('SMTP_USER / SMTP_PASS not set — invite emails will be logged only');
+      this.logger.warn('RESEND_API_KEY not set — invite emails will be logged only');
     }
   }
 
@@ -31,14 +30,10 @@ export class EmailService {
     inviteLink: string;
     expiresAt: Date;
   }): Promise<void> {
-    // Outgoing mail always comes from the notifications alias so the main support
-    // inbox stays clean. Replies route to support@verzchat.com (or SMTP_REPLY_TO).
-    const smtpAddress = this.config.get<string>('SMTP_FROM') || this.config.get<string>('SMTP_USER') || 'noreply@example.com';
-    const supportAddress = this.config.get<string>('SMTP_REPLY_TO') || smtpAddress;
-    const from = `"VerzChat (via ${opts.workspaceName})" <${smtpAddress}>`;
+    const from = `VerzChat <${this.fromAddress}>`;
     const replyTo = opts.inviterEmail
-      ? `"${opts.inviterName}" <${opts.inviterEmail}>`
-      : `"VerzChat Support" <${supportAddress}>`;
+      ? `${opts.inviterName} <${opts.inviterEmail}>`
+      : `VerzChat Support <${this.replyToDefault}>`;
     const subject = `${opts.inviterName} invited you to join ${opts.workspaceName}`;
 
     const expiryStr = opts.expiresAt.toLocaleDateString(undefined, {
@@ -53,17 +48,15 @@ export class EmailService {
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px">
     <tr><td align="center">
       <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
-        <!-- Header -->
         <tr><td style="background:linear-gradient(135deg,#0d9488,#0f766e);padding:32px 40px;text-align:center">
           <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.3px">You&rsquo;re invited!</h1>
         </td></tr>
-        <!-- Body -->
         <tr><td style="padding:36px 40px">
           <p style="margin:0 0 12px;color:#374151;font-size:15px">
             Hi${opts.inviteeName ? ' ' + opts.inviteeName : ''},
           </p>
           <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6">
-            <strong>${opts.inviterName}</strong> has invited you to join the <strong>${opts.workspaceName}</strong> workspace.
+            <strong>${opts.inviterName}</strong> has invited you to join the <strong>${opts.workspaceName}</strong> workspace on VerzChat.
             Click the button below to accept and set up your account.
           </p>
           <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px">
@@ -84,7 +77,6 @@ export class EmailService {
             This invitation expires on ${expiryStr}.
           </p>
         </td></tr>
-        <!-- Footer -->
         <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
           <p style="margin:0;color:#d1d5db;font-size:11px">
             If you didn&rsquo;t expect this invitation you can safely ignore this email.
@@ -96,16 +88,15 @@ export class EmailService {
 </body>
 </html>`;
 
-    if (!this.transporter) {
-      this.logger.log(`[Invite email — SMTP not configured] To: ${opts.to} | Link: ${opts.inviteLink}`);
+    if (!this.resend) {
+      this.logger.log(`[Invite email — Resend not configured] To: ${opts.to} | Link: ${opts.inviteLink}`);
       return;
     }
 
     try {
-      await this.transporter.sendMail({ from, to: opts.to, subject, html, ...(replyTo ? { replyTo } : {}) });
+      await this.resend.emails.send({ from, to: opts.to, subject, html, replyTo });
       this.logger.log(`Invite email sent to ${opts.to}`);
     } catch (err) {
-      // Log but don't throw — the invitation token was already created
       this.logger.error(`Failed to send invite email to ${opts.to}: ${String(err)}`);
     }
   }
