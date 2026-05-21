@@ -293,7 +293,7 @@ export default function OnboardingPage() {
       <header className="flex items-center justify-between px-8 py-5 bg-white border-b border-gray-100">
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="VerzChat" className="h-8" />
+          <img src="/logo.png" alt="VerzChat" className="h-8" />
         </div>
         {step < 2 && (
           <button

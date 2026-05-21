@@ -120,7 +120,7 @@ export default function RegisterPage() {
     <div className="w-full max-w-[420px]">
       <div className="lg:hidden flex items-center mb-8 justify-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.svg" alt="VerzChat" className="h-9" />
+        <img src="/logo.png" alt="VerzChat" className="h-9" />
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">

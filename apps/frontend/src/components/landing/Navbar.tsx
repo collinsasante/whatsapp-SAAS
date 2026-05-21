@@ -19,7 +19,7 @@ export default function Navbar() {
         <div className="container">
           <Link href="/" className="navbar-brand me-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="VerzChat" className="brand_logo" />
+            <img src="/logo.png" alt="VerzChat" className="brand_logo" />
           </Link>
 
           <button

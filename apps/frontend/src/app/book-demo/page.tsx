@@ -165,7 +165,7 @@ export default function BookDemoPage() {
           Back
         </Link>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.svg" alt="VerzChat" className="h-8" />
+        <img src="/logo.png" alt="VerzChat" className="h-8" />
         <div className="w-16" />
       </div>
 
