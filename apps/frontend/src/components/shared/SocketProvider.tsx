@@ -116,10 +116,32 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     return () => clearSocketAuth();
   }, [clearAuth, router]);
 
+  const onSocketConnect = useCallback(() => {
+    stopPolling();
+    // On reconnect, recover any ringing call that fired while we were disconnected
+    const { incomingCall, outboundCall } = useCallsStore.getState();
+    if (!incomingCall && !outboundCall) {
+      void callsApi.list({ status: 'RINGING', direction: 'INCOMING', limit: 1 })
+        .then((res) => {
+          const call = res.data?.data?.[0];
+          if (!call) return;
+          const sdpOffer = (call.metadata as Record<string, unknown>)?.sdpOffer as string | null ?? null;
+          setIncomingCall({
+            callLogId: call.id,
+            whatsappCallId: call.whatsappCallId,
+            from: call.phone,
+            contactName: call.contact?.name ?? null,
+            sdpOffer,
+          });
+        })
+        .catch(() => { /* best-effort */ });
+    }
+  }, [stopPolling, setIncomingCall]);
+
   useEffect(() => {
     const socket = getSocket();
 
-    socket.on('connect', stopPolling);
+    socket.on('connect', onSocketConnect);
     socket.on('disconnect', startPolling);
 
     socket.on(SocketEvent.NEW_MESSAGE, (data: { conversationId: string; message: Message }) => {
@@ -434,7 +456,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
 
     return () => {
-      socket.off('connect', stopPolling);
+      socket.off('connect', onSocketConnect);
       socket.off('disconnect', startPolling);
       stopPolling();
       socket.off(SocketEvent.NEW_MESSAGE);
@@ -459,7 +481,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   // NOTE: activeConversationId intentionally excluded — we use activeConversationIdRef instead
   // to avoid tearing down all socket listeners on every conversation switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, addActivityLog, patchActivityLog, clearAuth, router, startPolling, stopPolling, setIncomingCall, clearCallIfMatches]);
+  }, [addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, addActivityLog, patchActivityLog, clearAuth, router, startPolling, stopPolling, onSocketConnect, setIncomingCall, clearCallIfMatches]);
 
   return <>{children}</>;
 }
