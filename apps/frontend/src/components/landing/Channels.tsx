@@ -163,15 +163,14 @@ export default function Channels() {
 
         <Swiper
           modules={[Navigation, Autoplay]}
+          navigation={{ prevEl: prevRef.current, nextEl: nextRef.current }}
           onSwiper={(swiper: SwiperType) => {
-            // attach refs after mount
             setTimeout(() => {
-              if (swiper.params.navigation && typeof swiper.params.navigation !== 'boolean') {
-                (swiper.params.navigation as { prevEl: HTMLElement | null; nextEl: HTMLElement | null }).prevEl = prevRef.current;
-                (swiper.params.navigation as { prevEl: HTMLElement | null; nextEl: HTMLElement | null }).nextEl = nextRef.current;
-              }
-              swiper.navigation.init();
-              swiper.navigation.update();
+              if (!swiper?.params?.navigation || typeof swiper.params.navigation === 'boolean') return;
+              swiper.params.navigation.prevEl = prevRef.current;
+              swiper.params.navigation.nextEl = nextRef.current;
+              swiper.navigation?.init();
+              swiper.navigation?.update();
             });
           }}
           autoplay={{ delay: 3500, disableOnInteraction: false, pauseOnMouseEnter: true }}
