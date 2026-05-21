@@ -440,6 +440,23 @@ export class ConversationsService {
     await this.findOne(tenantId, id);
     const updated = await this.prisma.conversation.update({ where: { id }, data: { unreadCount: 0 } });
     this.realtimeService.emitConversationUpdated(tenantId, id, { id, unreadCount: 0 });
+
+    // Send read receipt to WhatsApp for the most recent inbound message with a valid wamid.
+    // This is the correct point — an agent has just opened the conversation.
+    const lastInbound = await this.prisma.message.findFirst({
+      where: {
+        conversationId: id,
+        tenantId,
+        direction: MessageDirection.INBOUND,
+        whatsappMessageId: { startsWith: 'wamid.' },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { whatsappMessageId: true },
+    });
+    if (lastInbound?.whatsappMessageId) {
+      void this.whatsappService.markMessageRead(tenantId, lastInbound.whatsappMessageId).catch(() => null);
+    }
+
     return updated;
   }
 

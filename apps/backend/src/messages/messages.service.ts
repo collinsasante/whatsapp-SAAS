@@ -310,7 +310,6 @@ export class MessagesService {
               await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for your feedback!').catch(() => null);
             }
           }
-          await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
           return null;
         }
       }
@@ -360,7 +359,6 @@ export class MessagesService {
         });
         this.realtimeService.emitReactionUpdated(tenantId, conversation.id, targetMsg.id, updatedReactions);
       }
-      await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
       return null;
     }
 
@@ -465,8 +463,6 @@ export class MessagesService {
       labels: (conversation as Record<string, unknown>)['labels'] ?? [],
       channel: (conversation as Record<string, unknown>)['channel'] ?? null,
     });
-
-    await this.whatsappService.markMessageRead(tenantId, waMessage.id).catch(() => null);
 
     // Send welcome message on first-ever inbound message from this contact
     const priorMessageCount = await this.prisma.message.count({
