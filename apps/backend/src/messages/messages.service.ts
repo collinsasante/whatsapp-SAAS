@@ -107,7 +107,9 @@ export class MessagesService {
         where: { id: dto.replyToId, conversationId },
         select: { whatsappMessageId: true },
       });
-      replyToWaMessageId = replyToMsg?.whatsappMessageId ?? undefined;
+      const rawId = replyToMsg?.whatsappMessageId;
+      // Only use the wamid if it's a valid WhatsApp message ID (starts with "wamid.")
+      replyToWaMessageId = rawId?.startsWith('wamid.') ? rawId : undefined;
     }
 
     let whatsappMessageId: string | undefined;
