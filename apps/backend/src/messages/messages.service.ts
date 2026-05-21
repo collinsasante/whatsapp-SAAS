@@ -307,7 +307,28 @@ export class MessagesService {
                 contactId: contact.id,
                 metadata: { score },
               });
-              await this.whatsappService.sendTextMessage(tenantId, contact.phone, 'Thank you for your feedback!').catch(() => null);
+              const thankYouText = 'Thank you for your feedback! We really appreciate you taking the time to rate your experience.';
+              const msg = await this.prisma.message.create({
+                data: {
+                  tenantId,
+                  conversationId: resolvedConv.id,
+                  contactId: contact.id,
+                  direction: MessageDirection.OUTBOUND,
+                  type: MessageType.TEXT,
+                  status: MessageStatus.QUEUED,
+                  content: thankYouText,
+                },
+              });
+              const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, thankYouText).catch(() => null);
+              const sentMsg = await this.prisma.message.update({
+                where: { id: msg.id },
+                data: {
+                  whatsappMessageId: waId ?? undefined,
+                  status: waId ? MessageStatus.SENT : MessageStatus.FAILED,
+                  sentAt: waId ? new Date() : undefined,
+                },
+              });
+              this.realtimeService.emitNewMessage(tenantId, resolvedConv.id, sentMsg as unknown as Record<string, unknown>);
             }
           }
           return null;
