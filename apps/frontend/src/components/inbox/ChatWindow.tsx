@@ -365,6 +365,18 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, []);
 
   useEffect(() => {
+    const img = new Image();
+    img.onload = () => console.log('[ChatWindow] chat-bg.jpg loaded OK, size:', img.width, 'x', img.height);
+    img.onerror = () => console.error('[ChatWindow] chat-bg.jpg FAILED to load');
+    img.src = '/chat-bg.jpg';
+    if (scrollContainerRef.current) {
+      const computed = getComputedStyle(scrollContainerRef.current);
+      console.log('[ChatWindow] bg-image:', computed.backgroundImage);
+      console.log('[ChatWindow] bg-color:', computed.backgroundColor);
+    }
+  }, []);
+
+  useEffect(() => {
     const socket = getSocket();
     socket.emit(SocketEvent.JOIN_CONVERSATION, conversation.id);
     return () => { socket.emit(SocketEvent.LEAVE_CONVERSATION, conversation.id); };
