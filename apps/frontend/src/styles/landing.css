@@ -312,9 +312,16 @@
 
 /* ── Feature phone-card slider ───────────────────────────────────────────────── */
 .lp .feat_slider_sec {
-  background: #11131f;
-  padding: 80px 0 80px;
+  background: var(--kp-dark-bg);
+  border-radius: 20px;
+  padding: 70px 50px;
+  position: relative;
+  overflow: hidden;
+  max-width: 1200px;
+  width: calc(100% - 48px);
+  margin: 0 auto 60px;
 }
+@media(max-width:768px){ .lp .feat_slider_sec { padding: 48px 20px; border-radius: 14px; width: calc(100% - 32px); } }
 .lp .feat_slider_sec .sec_title { margin-bottom: 0; }
 .lp .feat_slider_sec .sec_title h2 { color: #fff; }
 .lp .feat_slider_sec .sec_title p  { color: rgba(255,255,255,.55); margin: 0 auto; }
@@ -369,8 +376,10 @@
 .lp .feat_nav.swiper-button-disabled { opacity: .3; cursor: default; }
 
 /* ── Features showcase ───────────────────────────────────────────────────────── */
-.lp .features_showcase { padding: 80px 0; background: #fff; }
-.lp .features_showcase > .container > .sec_title { margin-bottom: 60px; }
+.lp .features_showcase { padding: 80px 24px; background: #fff; }
+.lp .features_showcase .sec_title,
+.lp .features_showcase .fs_row { max-width: 1170px; margin-left: auto; margin-right: auto; }
+.lp .features_showcase .sec_title { margin-bottom: 60px; }
 
 .lp .fs_row {
   display: grid;
@@ -451,13 +460,13 @@
 .lp .pricing_wrap {
   background: var(--kp-dark-bg);
   border-radius: 20px;
-  padding: 70px 50px;
+  padding: 60px 44px;
   position: relative;
   overflow: hidden;
-  max-width: 1300px;
+  max-width: 1080px;
   margin: 0 auto;
 }
-@media(max-width:768px){ .lp .pricing_wrap { padding: 48px 20px; } }
+@media(max-width:768px){ .lp .pricing_wrap { padding: 40px 20px; } }
 
 .lp .pricing_wrap .sec_title h2,
 .lp .pricing_wrap .sec_title .sec_badge { color: #fff; }
@@ -566,6 +575,7 @@
 .lp .step_divider { display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.2); font-size: 24px; }
 
 /* ── FAQ ─────────────────────────────────────────────────────────────────────── */
+.lp .faq_sec .collapse { visibility: visible; }
 .lp .faq_sec { padding: 70px 0; }
 .lp .faq_sec .accordion-item {
   border: 1px solid #e5e7eb;
