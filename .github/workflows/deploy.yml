@@ -35,10 +35,10 @@ jobs:
           pnpm --filter @whatsapp-platform/shared-utils build
 
       - name: Type-check backend
-        run: pnpm --filter @whatsapp-platform/backend tsc --noEmit
+        run: pnpm --filter @whatsapp-platform/backend typecheck
 
       - name: Type-check frontend
-        run: pnpm --filter @whatsapp-platform/frontend tsc --noEmit
+        run: pnpm --filter @whatsapp-platform/frontend typecheck
 
   # ── 2. Deploy ───────────────────────────────────────────────────────────────
   deploy:
