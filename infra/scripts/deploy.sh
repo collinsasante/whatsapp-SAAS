@@ -46,6 +46,8 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
   docker cp apps/backend/prisma/schema.prisma "${BACKEND_CTR}:/app/prisma/schema.prisma"
   docker cp apps/backend/prisma/migrations/. "${BACKEND_CTR}:/app/prisma/migrations/"
   docker exec "${BACKEND_CTR}" sh -c "cd /app && prisma generate --schema prisma/schema.prisma" 2>&1 || true
+  echo "==> Running database migrations..."
+  docker exec "${BACKEND_CTR}" sh -c "cd /app && prisma migrate deploy --schema prisma/schema.prisma"
   docker restart "${BACKEND_CTR}"
 
   echo "==> Waiting for backend to be healthy..."
