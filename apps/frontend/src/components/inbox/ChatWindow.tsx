@@ -364,17 +364,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     });
   }, []);
 
-  useEffect(() => {
-    const img = new Image();
-    img.onload = () => console.log('[ChatWindow] chat-bg.jpg loaded OK, size:', img.width, 'x', img.height);
-    img.onerror = () => console.error('[ChatWindow] chat-bg.jpg FAILED to load');
-    img.src = '/chat-bg.jpg';
-    if (scrollContainerRef.current) {
-      const computed = getComputedStyle(scrollContainerRef.current);
-      console.log('[ChatWindow] bg-image:', computed.backgroundImage);
-      console.log('[ChatWindow] bg-color:', computed.backgroundColor);
-    }
-  }, []);
 
   useEffect(() => {
     const socket = getSocket();
@@ -1245,7 +1234,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.84), rgba(255,255,255,0.84)), url(/chat-bg.jpg)', backgroundRepeat: 'repeat', backgroundColor: '#ece5dd' }}>
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.82), rgba(255,255,255,0.82)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
             ) : timeline.length === 0 ? (
