@@ -1144,7 +1144,8 @@ export default function ContactsPage() {
           ) : (
             <>
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-sm whitespace-nowrap border-collapse">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
@@ -1252,6 +1253,79 @@ export default function ContactsPage() {
                       })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile contact cards */}
+                <div className="md:hidden divide-y divide-gray-100">
+                  {contacts.length === 0 ? (
+                    <p className="text-center py-12 text-gray-400 text-sm">No contacts found</p>
+                  ) : contacts.map((contact) => {
+                    const displayName = contact.name ?? contact.phone;
+                    const color = avatarColor(displayName);
+                    const lc = lifecycleLabel(contact);
+                    const conv = contact.latestConversation;
+                    const isSelected = selectedIds.has(contact.id);
+                    return (
+                      <div
+                        key={contact.id}
+                        onClick={() => { void openConversation(contact); }}
+                        className={cn(
+                          'flex items-center gap-3 px-4 py-3.5 active:bg-gray-50 transition-colors cursor-pointer',
+                          isSelected && 'bg-teal-50/60',
+                          conv?.id === activeConversation?.id && 'bg-teal-50 border-l-2 border-l-teal-500',
+                        )}
+                      >
+                        {/* Checkbox */}
+                        <div onClick={(e) => toggleSelect(contact.id, e)} className="flex-shrink-0">
+                          <input type="checkbox" checked={isSelected} onChange={() => {}}
+                            className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 cursor-pointer" />
+                        </div>
+
+                        {/* Avatar */}
+                        <div className={cn('w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0', color)}>
+                          {initials(displayName)}
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[15px] font-semibold text-gray-900 truncate">
+                              {contact.name ?? <span className="text-gray-400 italic text-sm">No name</span>}
+                            </span>
+                            <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0', lc.cls)}>{lc.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-400">
+                            <span className="font-mono truncate">{contact.phone}</span>
+                            {conv?.status && (
+                              <span className={cn('px-1.5 py-0.5 rounded-full font-medium flex-shrink-0', convStatusBadge(conv.status))}>
+                                {conv.status.charAt(0) + conv.status.slice(1).toLowerCase()}
+                              </span>
+                            )}
+                          </div>
+                          {contact.labels.length > 0 && (
+                            <div className="flex gap-1 mt-1 flex-wrap">
+                              {contact.labels.slice(0, 2).map((label) => (
+                                <span key={label} className="text-[10px] bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded-full">{label}</span>
+                              ))}
+                              {contact.labels.length > 2 && <span className="text-[10px] text-gray-400">+{contact.labels.length - 2}</span>}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => { void openConversation(contact); }} title="Message"
+                            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors active:scale-90">
+                            <MessageSquare size={15} />
+                          </button>
+                          <button onClick={(e) => openEdit(contact, e)} title="Edit"
+                            className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors active:scale-90">
+                            <Edit2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

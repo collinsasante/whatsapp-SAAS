@@ -352,7 +352,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Agent performance table */}
+        {/* Agent performance */}
         {team.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
@@ -360,7 +360,9 @@ export default function AnalyticsPage() {
               <h2 className="font-semibold text-gray-900">Agent Performance</h2>
               <span className="ml-auto text-xs text-gray-400">{team.filter(m => m.isOnline).length} online now</span>
             </div>
-            <div className="overflow-x-auto">
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
@@ -391,35 +393,20 @@ export default function AnalyticsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-center">
-                        <span className={cn(
-                          'inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium',
-                          member.isOnline ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
-                        )}>
+                        <span className={cn('inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium', member.isOnline ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500')}>
                           <span className={cn('w-1.5 h-1.5 rounded-full', member.isOnline ? 'bg-green-500' : 'bg-gray-400')} />
                           {member.isOnline ? 'Online' : 'Offline'}
                         </span>
                       </td>
-                      <td className="px-4 py-3.5 text-right font-medium text-gray-900">
-                        {member.assignedConversations}
+                      <td className="px-4 py-3.5 text-right font-medium text-gray-900">{member.assignedConversations}</td>
+                      <td className="px-4 py-3.5 text-right">
+                        <span className={cn('font-medium', member.activeConversations > 0 ? 'text-teal-600' : 'text-gray-400')}>{member.activeConversations}</span>
                       </td>
                       <td className="px-4 py-3.5 text-right">
-                        <span className={cn('font-medium', member.activeConversations > 0 ? 'text-teal-600' : 'text-gray-400')}>
-                          {member.activeConversations}
-                        </span>
+                        <span className={cn('font-semibold', member.resolvedToday > 0 ? 'text-green-600' : 'text-gray-400')}>{member.resolvedToday}</span>
                       </td>
                       <td className="px-4 py-3.5 text-right">
-                        <span className={cn('font-semibold', member.resolvedToday > 0 ? 'text-green-600' : 'text-gray-400')}>
-                          {member.resolvedToday}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <span className={cn(
-                          'text-sm font-medium',
-                          member.avgResponseMs === null ? 'text-gray-300'
-                            : member.avgResponseMs < 60000 ? 'text-green-600'
-                            : member.avgResponseMs < 300000 ? 'text-yellow-600'
-                            : 'text-red-500'
-                        )}>
+                        <span className={cn('text-sm font-medium', member.avgResponseMs === null ? 'text-gray-300' : member.avgResponseMs < 60000 ? 'text-green-600' : member.avgResponseMs < 300000 ? 'text-yellow-600' : 'text-red-500')}>
                           {fmtMs(member.avgResponseMs)}
                         </span>
                       </td>
@@ -427,6 +414,44 @@ export default function AnalyticsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile agent cards */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {team.map((member) => (
+                <div key={member.id} className="px-4 py-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    {member.avatarUrl ? (
+                      <img src={member.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 text-sm font-bold flex-shrink-0">
+                        {initials(member.name)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-gray-900 truncate">{member.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{member.email}</p>
+                    </div>
+                    <span className={cn('inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium flex-shrink-0', member.isOnline ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500')}>
+                      <span className={cn('w-1.5 h-1.5 rounded-full', member.isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-400')} />
+                      {member.isOnline ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: 'Assigned', value: member.assignedConversations, color: 'text-gray-900' },
+                      { label: 'Active', value: member.activeConversations, color: member.activeConversations > 0 ? 'text-teal-600' : 'text-gray-400' },
+                      { label: 'Resolved', value: member.resolvedToday, color: member.resolvedToday > 0 ? 'text-green-600' : 'text-gray-400' },
+                      { label: 'Avg resp.', value: fmtMs(member.avgResponseMs), color: member.avgResponseMs === null ? 'text-gray-300' : member.avgResponseMs < 60000 ? 'text-green-600' : member.avgResponseMs < 300000 ? 'text-yellow-600' : 'text-red-500' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-xl p-2 text-center">
+                        <p className={cn('text-base font-bold leading-none', color)}>{value}</p>
+                        <p className="text-[10px] text-gray-400 mt-1">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -467,7 +492,9 @@ export default function AnalyticsPage() {
               <h2 className="font-semibold text-gray-900">Campaign Performance</h2>
               <span className="text-xs text-gray-400">Top {topCampaigns.length} by recipients</span>
             </div>
-            <div className="overflow-x-auto">
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
@@ -517,6 +544,59 @@ export default function AnalyticsPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile campaign performance cards */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {topCampaigns.map((c) => {
+                const rRate = c.deliveredCount > 0 ? Math.round((c.readCount / c.deliveredCount) * 100) : 0;
+                const sentPct = c.totalRecipients > 0 ? (c.sentCount / c.totalRecipients) * 100 : 0;
+                const delivPct = c.totalRecipients > 0 ? (c.deliveredCount / c.totalRecipients) * 100 : 0;
+                const readPct = c.totalRecipients > 0 ? (c.readCount / c.totalRecipients) * 100 : 0;
+                const STATUS_CLS: Record<string, string> = {
+                  COMPLETED: 'text-teal-600 bg-teal-50', RUNNING: 'text-yellow-700 bg-yellow-50',
+                  DRAFT: 'text-gray-600 bg-gray-100', FAILED: 'text-red-600 bg-red-50',
+                  PAUSED: 'text-orange-600 bg-orange-50', SCHEDULED: 'text-blue-600 bg-blue-50',
+                };
+                return (
+                  <div key={c.id} className="px-4 py-4">
+                    {/* Name + status */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <p className="font-semibold text-gray-900 text-[15px] leading-snug flex-1 min-w-0 truncate">{c.name}</p>
+                      <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0', STATUS_CLS[c.status] ?? 'text-gray-600 bg-gray-100')}>
+                        {c.status.toLowerCase()}
+                      </span>
+                    </div>
+
+                    {/* Stacked progress bar: sent / delivered / read */}
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex mb-1">
+                      <div className="h-full bg-gray-300 rounded-l-full" style={{ width: `${sentPct}%` }} />
+                      <div className="h-full bg-teal-400" style={{ width: `${delivPct}%` }} />
+                      <div className="h-full bg-purple-500 rounded-r-full" style={{ width: `${readPct}%` }} />
+                    </div>
+                    <div className="flex gap-3 text-[10px] text-gray-400 mb-3">
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300 inline-block" />Sent</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-teal-400 inline-block" />Delivered</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-500 inline-block" />Read</span>
+                    </div>
+
+                    {/* Metric chips */}
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { label: 'Recipients', value: c.totalRecipients.toLocaleString(), color: 'text-gray-900' },
+                        { label: 'Delivered', value: c.deliveredCount.toLocaleString(), color: 'text-teal-600' },
+                        { label: 'Read', value: c.readCount.toLocaleString(), color: 'text-purple-600' },
+                        { label: 'Read Rate', value: `${rRate}%`, color: rRate >= 50 ? 'text-teal-600' : rRate >= 25 ? 'text-yellow-600' : 'text-gray-400' },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} className="bg-gray-50 rounded-xl p-2 text-center">
+                          <p className={cn('text-base font-bold leading-none', color)}>{value}</p>
+                          <p className="text-[10px] text-gray-400 mt-1">{label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

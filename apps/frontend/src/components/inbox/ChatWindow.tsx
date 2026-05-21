@@ -200,6 +200,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [localStatus, setLocalStatus] = useState(conversation.status);
+  const [tookOver, setTookOver] = useState(false);
   const [replyTo, setReplyTo] = useState<{ id: string; content?: string; type: string; direction: string; mediaCaption?: string } | null>(null);
 
   // Transfer
@@ -438,6 +439,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, [conversation.id]);
 
   useEffect(() => { setLocalStatus(conversation.status); }, [conversation.status]);
+  useEffect(() => { setTookOver(false); }, [conversation.id]);
 
   // Auto-focus the message input whenever a new conversation is opened
   useEffect(() => {
@@ -808,6 +810,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       const res = await conversationsApi.takeover(conversation.id);
       const data = res.data as { status: string; assignedTo?: { id: string; name: string }; slaDeadline?: string; intervenedAt?: string };
       setLocalStatus('INTERVENED');
+      setTookOver(true);
       updateConversation(conversation.id, {
         status: 'INTERVENED',
         assignedTo: data.assignedTo ?? (user ? { id: user.id, name: user.name } : null),
@@ -941,7 +944,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const assigneeId = conversation.assignedTo?.id ?? null;
   const isVerzAssigned = !!(conversation.assignedTo as unknown as { isAiAgent?: boolean } | null)?.isAiAgent;
   // Any assigned conversation is locked to its owner — everyone else must take over first.
-  const assignedToOther = !!assigneeId && assigneeId !== user?.id;
+  // tookOver bypasses the gate immediately after a successful takeover API call.
+  const assignedToOther = !tookOver && !!assigneeId && assigneeId !== user?.id;
   // VIEWERs are read-only — they can observe but never send or note.
   const inputDisabled = isViewer || assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
   const sendDisabled = sending || inputDisabled;

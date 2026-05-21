@@ -4,6 +4,7 @@ import {
   Building2, Users, MessageSquare, CheckCircle, RefreshCw,
   Wifi, WifiOff, Shield, TrendingUp, TrendingDown,
   CalendarDays, Plus, ArrowUp, ArrowDown, Clock,
+  Phone, Megaphone, ChevronRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
@@ -289,8 +290,56 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* KPI Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Mobile: KPI horizontal carousel */}
+        <div
+          className="md:hidden -mx-4 overflow-x-auto px-4 pb-1"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          <div className="flex gap-3 w-max snap-x snap-mandatory">
+            {[
+              { label: 'Contacts',  value: contacts?.total ?? 0,                                     icon: Users,         bg: 'bg-teal-50',   iconCls: 'text-teal-600' },
+              { label: 'Open Chats',value: conv?.open ?? 0,                                          icon: MessageSquare, bg: 'bg-blue-50',   iconCls: 'text-blue-600' },
+              { label: 'Resolved',  value: team.reduce((a, m) => a + m.resolvedToday, 0),            icon: CheckCircle,   bg: 'bg-green-50',  iconCls: 'text-green-600' },
+              { label: 'Pending',   value: pendingChats,                                             icon: Clock,         bg: 'bg-orange-50', iconCls: pendingChats > 0 ? 'text-orange-600' : 'text-orange-300' },
+            ].map(({ label, value, icon: Icon, bg, iconCls }) => (
+              <div key={label} className="flex-shrink-0 w-40 bg-white border border-gray-100 rounded-2xl p-4 shadow-sm snap-start">
+                <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center mb-3 flex-shrink-0', bg)}>
+                  <Icon size={16} className={iconCls} />
+                </div>
+                <p className="text-xl font-bold text-gray-900 leading-none">
+                  {typeof value === 'number' ? value.toLocaleString() : value}
+                </p>
+                <p className="text-xs text-gray-400 mt-1.5">{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile: Quick Actions */}
+        <div className="md:hidden">
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: 'Inbox',     icon: MessageSquare, href: '/inbox',     bg: 'bg-teal-50',   iconCls: 'text-teal-600' },
+              { label: 'Campaigns', icon: Megaphone,     href: '/campaigns', bg: 'bg-purple-50', iconCls: 'text-purple-600' },
+              { label: 'Contacts',  icon: Users,         href: '/contacts',  bg: 'bg-blue-50',   iconCls: 'text-blue-600' },
+              { label: 'Calls',     icon: Phone,         href: '/calls',     bg: 'bg-emerald-50',iconCls: 'text-emerald-600' },
+            ].map(({ label, icon: Icon, href, bg, iconCls }) => (
+              <button
+                key={label}
+                onClick={() => router.push(href)}
+                className="flex flex-col items-center gap-2 active:scale-95 transition-transform"
+              >
+                <div className={cn('w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border border-white', bg)}>
+                  <Icon size={22} className={iconCls} />
+                </div>
+                <span className="text-[11px] font-medium text-gray-600">{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Desktop: KPI 4-col grid */}
+        <div className="hidden md:grid grid-cols-4 gap-4">
           <KpiCard label="Total Contacts"     value={contacts?.total ?? 0}    icon={Users}         color="teal"   />
           <KpiCard label="Open Conversations" value={conv?.open ?? 0}         icon={MessageSquare} color="blue"   />
           <KpiCard label="Resolved Today"     value={team.reduce((a, m) => a + m.resolvedToday, 0)} icon={CheckCircle} color="green" />

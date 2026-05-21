@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
 import { authApi, publicApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
+import { useInboxStore } from '@/store/inbox.store';
+import { MobileDrawer } from '@/components/mobile/MobileDrawer';
 
 type SubItem = { href: string; icon: React.ElementType; label: string };
 type NavLink = { type: 'link'; href: string; icon: React.ElementType; label: string };
@@ -379,34 +381,93 @@ export default function Sidebar() {
   );
 }
 
-const mobileNavItems = [
-  { href: '/inbox',     icon: MessageSquare, label: 'Inbox' },
-  { href: '/contacts',  icon: Users,         label: 'Contacts' },
-  { href: '/calls',     icon: Phone,         label: 'Calls' },
-  { href: '/ai',        icon: Brain,         label: 'Verz' },
-  { href: '/settings',  icon: Settings,      label: 'Settings' },
-];
+const PRIMARY_TABS = [
+  { href: '/inbox',    icon: MessageSquare, label: 'Inbox',     badge: true },
+  { href: '/contacts', icon: Users,         label: 'Contacts',  badge: false },
+  { href: '/calls',    icon: Phone,         label: 'Calls',     badge: false },
+  { href: '/analytics',icon: BarChart3,     label: 'Analytics', badge: false },
+] as const;
+
+// Paths covered by the "More" drawer tab (not in primary tabs)
+const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/settings', '/channels', '/library', '/manage', '/billing'];
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const totalUnread = useInboxStore((s) =>
+    s.conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0),
+  );
+
+  const moreIsActive = MORE_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+
   return (
-    <nav className="flex md:hidden flex-shrink-0 bg-white border-t border-gray-100 items-center justify-around px-2 z-40" style={{ minHeight: '4rem', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {mobileNavItems.map(({ href, icon: Icon, label }) => {
-        const isActive = pathname.startsWith(href);
-        return (
-          <Link
-            key={href}
-            href={href}
+    <>
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+
+      <nav
+        className="flex md:hidden flex-shrink-0 bg-white/95 backdrop-blur-md border-t border-gray-100 items-end justify-around px-1 z-40"
+        style={{
+          minHeight: '56px',
+          paddingBottom: 'env(safe-area-inset-bottom, 8px)',
+          boxShadow: '0 -1px 0 rgba(0,0,0,0.05)',
+        }}
+      >
+        {PRIMARY_TABS.map(({ href, icon: Icon, label, badge }) => {
+          const isActive = pathname === href || pathname.startsWith(href + '/');
+          const showBadge = badge && totalUnread > 0;
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                'relative flex flex-col items-center pt-2 pb-1.5 px-3 flex-1 min-w-0 transition-colors',
+                isActive ? 'text-teal-600' : 'text-gray-400',
+              )}
+            >
+              {/* Active pill indicator at top */}
+              <div
+                className={cn(
+                  'absolute top-0 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all duration-200',
+                  isActive ? 'w-6 bg-teal-500' : 'w-0 bg-transparent',
+                )}
+              />
+              {/* Icon with optional badge */}
+              <div className="relative">
+                <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
+                {showBadge && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                    {totalUnread > 99 ? '99+' : totalUnread}
+                  </span>
+                )}
+              </div>
+              <span className={cn('text-[10px] mt-0.5 truncate', isActive ? 'font-semibold' : 'font-medium')}>
+                {label}
+              </span>
+            </Link>
+          );
+        })}
+
+        {/* More tab — opens drawer */}
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className={cn(
+            'relative flex flex-col items-center pt-2 pb-1.5 px-3 flex-1 min-w-0 transition-colors',
+            moreIsActive ? 'text-teal-600' : 'text-gray-400',
+          )}
+        >
+          <div
             className={cn(
-              'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-colors min-w-0',
-              isActive ? 'text-teal-600' : 'text-gray-400',
+              'absolute top-0 left-1/2 -translate-x-1/2 h-0.5 rounded-full transition-all duration-200',
+              moreIsActive ? 'w-6 bg-teal-500' : 'w-0 bg-transparent',
             )}
-          >
-            <Icon size={20} />
-            <span className="text-[10px] font-medium truncate">{label}</span>
-          </Link>
-        );
-      })}
-    </nav>
+          />
+          <Menu size={22} strokeWidth={moreIsActive ? 2.2 : 1.8} />
+          <span className={cn('text-[10px] mt-0.5 truncate', moreIsActive ? 'font-semibold' : 'font-medium')}>
+            More
+          </span>
+        </button>
+      </nav>
+    </>
   );
 }

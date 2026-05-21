@@ -348,89 +348,186 @@ export default function CampaignsPage() {
             <p className="text-sm mt-1">Create your first broadcast campaign</p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm min-w-[700px]">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-48">Recipients</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Delivery</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Created</th>
-                  <th className="px-4 py-3 w-32"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map((campaign) => {
-                  const meta = STATUS_META[campaign.status] ?? STATUS_META['DRAFT'];
-                  return (
-                    <tr key={campaign.id} className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => router.push(`/campaigns/${campaign.id}`)}>
-                      <td className="px-4 py-4">
-                        <p className="font-semibold text-gray-900">{campaign.name}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">{campaign.template.name} · {campaign.template.language}</p>
-                        {campaign.scheduledAt && (
-                          <p className="text-xs text-blue-600 mt-0.5">Scheduled: {new Date(campaign.scheduledAt).toLocaleString()}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-4">
-                        {(() => {
-                          const cat = campaign.template.category?.toUpperCase() ?? 'MARKETING';
-                          const typeMeta = CAMPAIGN_TYPE_META[cat] ?? CAMPAIGN_TYPE_META['MARKETING'];
-                          return (
-                            <span className={cn('inline-flex items-center text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap', typeMeta.cls)}>
-                              {typeMeta.label}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={cn('inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium', meta.cls)}>
-                          <span className={cn('w-1.5 h-1.5 rounded-full', meta.dot, campaign.status === 'RUNNING' && 'animate-pulse')} />
-                          {meta.label}
+          <>
+            {/* ── Desktop table ── */}
+            <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-x-auto">
+              <table className="w-full text-sm min-w-[700px]">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-48">Recipients</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Delivery</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Created</th>
+                    <th className="px-4 py-3 w-32"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filtered.map((campaign) => {
+                    const meta = STATUS_META[campaign.status] ?? STATUS_META['DRAFT'];
+                    return (
+                      <tr key={campaign.id} className="hover:bg-gray-50 transition-colors cursor-pointer"
+                        onClick={() => router.push(`/campaigns/${campaign.id}`)}>
+                        <td className="px-4 py-4">
+                          <p className="font-semibold text-gray-900">{campaign.name}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{campaign.template.name} · {campaign.template.language}</p>
+                          {campaign.scheduledAt && (
+                            <p className="text-xs text-blue-600 mt-0.5">Scheduled: {new Date(campaign.scheduledAt).toLocaleString()}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const cat = campaign.template.category?.toUpperCase() ?? 'MARKETING';
+                            const typeMeta = CAMPAIGN_TYPE_META[cat] ?? CAMPAIGN_TYPE_META['MARKETING'];
+                            return (
+                              <span className={cn('inline-flex items-center text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap', typeMeta.cls)}>
+                                {typeMeta.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className={cn('inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium', meta.cls)}>
+                            <span className={cn('w-1.5 h-1.5 rounded-full', meta.dot, campaign.status === 'RUNNING' && 'animate-pulse')} />
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2">
+                            <Users size={13} className="text-gray-400" />
+                            <span className="font-medium text-gray-900">{campaign.totalRecipients.toLocaleString()}</span>
+                            <span className="text-gray-400 text-xs">contacts</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 min-w-48">
+                          <DeliveryBar campaign={campaign} />
+                        </td>
+                        <td className="px-4 py-4 text-xs text-gray-400">{formatRelativeTime(campaign.createdAt)}</td>
+                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1">
+                            {(campaign.status === 'DRAFT' || campaign.status === 'SCHEDULED') && (
+                              <button onClick={() => { void launch(campaign.id); }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+                                <Play size={11} />Launch
+                              </button>
+                            )}
+                            {campaign.status === 'RUNNING' && (
+                              <button onClick={() => { void pause(campaign.id); }}
+                                disabled={pausingId === campaign.id}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 transition-colors disabled:opacity-50">
+                                <Pause size={11} />{pausingId === campaign.id ? 'Pausing…' : 'Pause'}
+                              </button>
+                            )}
+                            {campaign.status === 'PAUSED' && (
+                              <button onClick={() => { void launch(campaign.id); }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
+                                <Play size={11} />Resume
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── Mobile campaign cards ── */}
+            <div className="md:hidden space-y-3">
+              {filtered.map((campaign) => {
+                const meta = STATUS_META[campaign.status] ?? STATUS_META['DRAFT'];
+                const cat = campaign.template.category?.toUpperCase() ?? 'MARKETING';
+                const typeMeta = CAMPAIGN_TYPE_META[cat] ?? CAMPAIGN_TYPE_META['MARKETING'];
+                const total = campaign.totalRecipients;
+                const readPct = total > 0 ? Math.round((campaign.readCount / total) * 100) : 0;
+                const delivPct = total > 0 ? Math.round((campaign.deliveredCount / total) * 100) : 0;
+                const sentPct = total > 0 ? Math.round((campaign.sentCount / total) * 100) : 0;
+
+                return (
+                  <div
+                    key={campaign.id}
+                    onClick={() => router.push(`/campaigns/${campaign.id}`)}
+                    className="bg-white rounded-2xl border border-gray-200 p-4 active:scale-[0.99] transition-transform cursor-pointer"
+                  >
+                    {/* Row 1: name + status */}
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-gray-900 truncate">{campaign.name}</p>
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">{campaign.template.name} · {campaign.template.language}</p>
+                      </div>
+                      <span className={cn('inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium flex-shrink-0', meta.cls)}>
+                        <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', meta.dot, campaign.status === 'RUNNING' && 'animate-pulse')} />
+                        {meta.label}
+                      </span>
+                    </div>
+
+                    {/* Row 2: type + scheduled */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', typeMeta.cls)}>{typeMeta.label}</span>
+                      {campaign.scheduledAt && (
+                        <span className="text-xs text-blue-600">
+                          📅 {new Date(campaign.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <Users size={13} className="text-gray-400" />
-                          <span className="font-medium text-gray-900">{campaign.totalRecipients.toLocaleString()}</span>
-                          <span className="text-gray-400 text-xs">contacts</span>
+                      )}
+                    </div>
+
+                    {/* Row 3: delivery bar */}
+                    {total > 0 && (
+                      <div className="mb-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-gray-500">Delivery</span>
+                          <span className="text-xs text-gray-400">{total.toLocaleString()} recipients</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-4 min-w-48">
-                        <DeliveryBar campaign={campaign} />
-                      </td>
-                      <td className="px-4 py-4 text-xs text-gray-400">{formatRelativeTime(campaign.createdAt)}</td>
-                      <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
-                          {(campaign.status === 'DRAFT' || campaign.status === 'SCHEDULED') && (
-                            <button onClick={() => { void launch(campaign.id); }}
-                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
-                              <Play size={11} />Launch
-                            </button>
-                          )}
-                          {campaign.status === 'RUNNING' && (
-                            <button onClick={() => { void pause(campaign.id); }}
-                              disabled={pausingId === campaign.id}
-                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 transition-colors disabled:opacity-50">
-                              <Pause size={11} />{pausingId === campaign.id ? 'Pausing…' : 'Pause'}
-                            </button>
-                          )}
-                          {campaign.status === 'PAUSED' && (
-                            <button onClick={() => { void launch(campaign.id); }}
-                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
-                              <Play size={11} />Resume
-                            </button>
-                          )}
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+                          <div className="h-full bg-teal-600 transition-all" style={{ width: `${readPct}%` }} />
+                          <div className="h-full bg-teal-300 transition-all" style={{ width: `${Math.max(0, delivPct - readPct)}%` }} />
+                          <div className="h-full bg-teal-100 transition-all" style={{ width: `${Math.max(0, sentPct - delivPct)}%` }} />
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="text-[11px] text-gray-500"><span className="text-teal-600 font-semibold">{campaign.readCount}</span> read</span>
+                          <span className="text-[11px] text-gray-500"><span className="text-teal-500 font-semibold">{campaign.deliveredCount}</span> delivered</span>
+                          <span className="text-[11px] text-gray-500"><span className="font-semibold text-gray-700">{campaign.sentCount}</span> sent</span>
+                          {campaign.failedCount > 0 && <span className="text-[11px] text-red-500 font-semibold">{campaign.failedCount} failed</span>}
+                        </div>
+                      </div>
+                    )}
+                    {total === 0 && <p className="text-xs text-gray-400 mb-3">No recipients yet</p>}
+
+                    {/* Row 4: time + action */}
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <span className="text-xs text-gray-400">{formatRelativeTime(campaign.createdAt)}</span>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        {(campaign.status === 'DRAFT' || campaign.status === 'SCHEDULED') && (
+                          <button onClick={() => { void launch(campaign.id); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-600 text-white rounded-xl font-semibold hover:bg-teal-700 active:scale-95 transition-all">
+                            <Play size={11} />Launch
+                          </button>
+                        )}
+                        {campaign.status === 'RUNNING' && (
+                          <button onClick={() => { void pause(campaign.id); }}
+                            disabled={pausingId === campaign.id}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-orange-300 text-orange-600 rounded-xl font-semibold hover:bg-orange-50 active:scale-95 transition-all disabled:opacity-50">
+                            <Pause size={11} />{pausingId === campaign.id ? 'Pausing…' : 'Pause'}
+                          </button>
+                        )}
+                        {campaign.status === 'PAUSED' && (
+                          <button onClick={() => { void launch(campaign.id); }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-teal-600 text-white rounded-xl font-semibold hover:bg-teal-700 active:scale-95 transition-all">
+                            <Play size={11} />Resume
+                          </button>
+                        )}
+                        {(campaign.status === 'COMPLETED' || campaign.status === 'FAILED') && (
+                          <ChevronRight size={16} className="text-gray-300" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 
