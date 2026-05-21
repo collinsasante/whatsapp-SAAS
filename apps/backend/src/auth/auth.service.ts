@@ -158,7 +158,7 @@ export class AuthService {
     }
 
     // Skip 2FA in local development
-    if (process.env['NODE_ENV'] === 'development') {
+    if (process.env['SKIP_2FA'] === 'true') {
       await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
       const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
       await this.updateRefreshToken(user.id, tokens.refreshToken);
