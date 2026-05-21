@@ -114,4 +114,85 @@ export const platformAdminApi = {
 
   getAuditLog: (params?: { page?: number; limit?: number }) =>
     adminHttp.get<{ data: AuditEntry[]; total: number }>('/audit', { params }),
+
+  // Feature Flags
+  listFlags: () => adminHttp.get<FeatureFlag[]>('/feature-flags'),
+  createFlag: (data: Partial<FeatureFlag>) => adminHttp.post<FeatureFlag>('/feature-flags', data),
+  updateFlag: (id: string, data: Partial<FeatureFlag>) => adminHttp.patch<FeatureFlag>(`/feature-flags/${id}`, data),
+  deleteFlag: (id: string) => adminHttp.delete(`/feature-flags/${id}`),
+  getFlagRollouts: (id: string) => adminHttp.get<FlagRollout[]>(`/feature-flags/${id}/rollouts`),
+  setFlagRollout: (id: string, tenantId: string, enabled: boolean) =>
+    adminHttp.post(`/feature-flags/${id}/rollouts`, { tenantId, enabled }),
+  removeFlagRollout: (id: string, tenantId: string) =>
+    adminHttp.delete(`/feature-flags/${id}/rollouts/${tenantId}`),
+
+  // Releases
+  listVersions: () => adminHttp.get<AppVersion[]>('/releases/versions'),
+  createVersion: (data: Partial<AppVersion>) => adminHttp.post<AppVersion>('/releases/versions', data),
+  updateVersion: (id: string, data: Partial<AppVersion>) => adminHttp.patch<AppVersion>(`/releases/versions/${id}`, data),
+  listDeployments: (environment?: string) =>
+    adminHttp.get<DeploymentLog[]>('/releases/deployments', { params: environment ? { environment } : {} }),
+  logDeployment: (data: Partial<DeploymentLog>) => adminHttp.post<DeploymentLog>('/releases/deployments', data),
 };
+
+export interface FeatureFlag {
+  id: string;
+  key: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  rolloutType: string;
+  rolloutPct: number;
+  betaTenants: string[];
+  environment: string;
+  killSwitch: boolean;
+  category?: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { rollouts: number };
+}
+
+export interface FlagRollout {
+  id: string;
+  flagId: string;
+  tenantId: string;
+  enabled: boolean;
+  createdAt: string;
+  tenant?: { id: string; name: string; plan: string };
+}
+
+export interface AppVersion {
+  id: string;
+  version: string;
+  major: number;
+  minor: number;
+  patch: number;
+  channel: string;
+  releasedAt: string;
+  description?: string;
+  changelog?: {
+    features?: string[];
+    improvements?: string[];
+    fixes?: string[];
+    breaking?: string[];
+    security?: string[];
+  };
+  isLatest: boolean;
+  _count?: { deployments: number };
+}
+
+export interface DeploymentLog {
+  id: string;
+  version: string;
+  versionId?: string;
+  commitHash?: string;
+  branch?: string;
+  environment: string;
+  deployedBy?: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string;
+  notes?: string;
+  buildDuration?: number;
+  appVersion?: { version: string; channel: string };
+}

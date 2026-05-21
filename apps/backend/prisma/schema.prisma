@@ -70,6 +70,7 @@ model Tenant {
   workspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitations")
   messageDeletions     MessageDeletion[]
   feedback             Feedback[]
+  featureFlagRollouts  FeatureFlagRollout[]
 
   @@map("tenants")
 }
@@ -163,11 +164,16 @@ model User {
   phone        String?
   isActive     Boolean   @default(true) @map("is_active")
   isAiAgent    Boolean   @default(false) @map("is_ai_agent")
-  lastSeenAt   DateTime? @map("last_seen_at")
-  lastLoginAt  DateTime? @map("last_login_at")
-  refreshToken String?   @map("refresh_token")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastSeenAt           DateTime? @map("last_seen_at")
+  lastLoginAt          DateTime? @map("last_login_at")
+  refreshToken         String?   @map("refresh_token")
+  emailVerified        Boolean   @default(false) @map("email_verified")
+  emailVerifyToken     String?   @map("email_verify_token")
+  emailVerifyExpiry    DateTime? @map("email_verify_expiry")
+  twoFactorCode        String?   @map("two_factor_code")
+  twoFactorCodeExpiry  DateTime? @map("two_factor_code_expiry")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignedConversations Conversation[]    @relation("AssignedAgent")
@@ -1494,6 +1500,8 @@ model KnowledgeBaseArticle {
   tenantId  String   @map("tenant_id")
   title     String
   content   String
+  source    String   @default("manual") // manual | learned | upload | url
+  sourceRef String?  @map("source_ref")  // filename or URL
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1502,4 +1510,130 @@ model KnowledgeBaseArticle {
 
   @@index([tenantId])
   @@map("knowledge_base_articles")
+}
+
+model DemoRequest {
+  id              String   @id @default(cuid())
+  fullName        String   @map("full_name")
+  workEmail       String   @map("work_email")
+  phoneNumber     String?  @map("phone_number")
+  businessName    String   @map("business_name")
+  businessType    String   @map("business_type")
+  companySize     String   @map("company_size")
+  currentPlatform String?  @map("current_platform")
+  preferredDate   DateTime @map("preferred_date")
+  preferredTime   String   @map("preferred_time")
+  timezone        String   @default("UTC")
+  goals           String?
+  leadScore       Int      @default(0) @map("lead_score")
+  leadTier        String   @default("standard") @map("lead_tier")
+  priority        Int      @default(1)
+  status          String   @default("new")
+  notes           LeadNote[]
+  statusHistory   LeadStatusHistory[]
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([workEmail])
+  @@index([leadScore])
+  @@map("demo_requests")
+}
+
+model LeadNote {
+  id            String      @id @default(cuid())
+  demoRequestId String      @map("demo_request_id")
+  demoRequest   DemoRequest @relation(fields: [demoRequestId], references: [id], onDelete: Cascade)
+  content       String
+  authorName    String?     @map("author_name")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@index([demoRequestId])
+  @@map("lead_notes")
+}
+
+model LeadStatusHistory {
+  id            String      @id @default(cuid())
+  demoRequestId String      @map("demo_request_id")
+  demoRequest   DemoRequest @relation(fields: [demoRequestId], references: [id], onDelete: Cascade)
+  fromStatus    String?     @map("from_status")
+  toStatus      String      @map("to_status")
+  changedBy     String?     @map("changed_by")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@index([demoRequestId])
+  @@map("lead_status_history")
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  enabled     Boolean  @default(false)
+  rolloutType String   @default("all") // all | percentage | tenants | beta
+  rolloutPct  Int      @default(100) @map("rollout_pct")
+  betaTenants String[] @map("beta_tenants")
+  environment String   @default("all")
+  killSwitch  Boolean  @default(false) @map("kill_switch")
+  category    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  rollouts FeatureFlagRollout[]
+
+  @@map("feature_flags")
+}
+
+model FeatureFlagRollout {
+  id        String   @id @default(cuid())
+  flagId    String   @map("flag_id")
+  tenantId  String   @map("tenant_id")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  flag   FeatureFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  tenant Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([flagId, tenantId])
+  @@index([tenantId])
+  @@map("feature_flag_rollouts")
+}
+
+model AppVersion {
+  id          String    @id @default(cuid())
+  version     String    @unique
+  major       Int
+  minor       Int
+  patch       Int
+  channel     String    @default("stable")
+  releasedAt  DateTime  @default(now()) @map("released_at")
+  description String?
+  changelog   Json?
+  isLatest    Boolean   @default(false) @map("is_latest")
+
+  deployments DeploymentLog[]
+
+  @@map("app_versions")
+}
+
+model DeploymentLog {
+  id            String    @id @default(cuid())
+  versionId     String?   @map("version_id")
+  version       String
+  commitHash    String?   @map("commit_hash")
+  branch        String?
+  environment   String    @default("production")
+  deployedBy    String?   @map("deployed_by")
+  status        String    @default("success")
+  startedAt     DateTime  @default(now()) @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  notes         String?
+  buildDuration Int?      @map("build_duration")
+
+  appVersion AppVersion? @relation(fields: [versionId], references: [id])
+
+  @@index([environment])
+  @@index([startedAt])
+  @@map("deployment_logs")
 }

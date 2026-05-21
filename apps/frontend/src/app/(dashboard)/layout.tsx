@@ -12,6 +12,7 @@ import { OutboundCallBar } from '@/components/shared/OutboundCallBar';
 import { ConfirmCallModal } from '@/components/shared/ConfirmCallModal';
 import OfflineBanner from '@/components/OfflineBanner';
 import { SyncProvider } from '@/components/shared/SyncProvider';
+import { WhatsNewModal } from '@/components/shared/WhatsNewModal';
 import { ShieldAlert, LogOut } from 'lucide-react';
 
 interface ImpersonationState {
@@ -136,6 +137,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <SocketProvider>
       <SyncProvider />
+      <WhatsNewModal />
       <IncomingCallModal />
       <OutboundDialModal />
       <OutboundCallBar />

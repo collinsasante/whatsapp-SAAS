@@ -1229,7 +1229,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'local' }}>
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
             ) : timeline.length === 0 ? (
@@ -2404,7 +2404,14 @@ const MessageBubble = memo(function MessageBubble({
               </button>
             </div>
 
-            {/* Info expanded */}
+            {/* Seen info — always visible when read */}
+            {isOutbound && message.readAt && (
+              <div className="text-xs rounded-xl px-3 py-2 space-y-0.5 mt-0.5 bg-teal-50 text-teal-800">
+                <p>Read: {new Date(message.readAt).toLocaleString()}</p>
+              </div>
+            )}
+
+            {/* Info expanded (full delivery details) */}
             {showInfo && (
               <div className={cn('text-xs rounded-xl px-3 py-2 space-y-0.5 mt-0.5', isOutbound ? 'bg-teal-50 text-teal-800' : 'bg-gray-50 text-gray-600')}>
                 {message.sentAt && <p>Sent: {new Date(message.sentAt).toLocaleString()}</p>}

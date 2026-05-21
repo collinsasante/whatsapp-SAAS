@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
-import { authApi } from '@/lib/api';
+import { authApi, publicApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
 
 type SubItem = { href: string; icon: React.ElementType; label: string };
@@ -237,17 +237,16 @@ function WorkspaceSwitcher() {
     }
   };
 
-  const initials = tenant?.name?.slice(0, 2).toUpperCase() ?? '??';
-
   return (
     <>
       <button
         ref={btnRef}
         title={tenant?.name ?? 'Workspace'}
         onClick={() => setOpen((o) => !o)}
-        className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center text-white text-xs font-bold hover:bg-teal-700 transition-colors flex-shrink-0"
+        className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center hover:border-teal-200 transition-colors flex-shrink-0 overflow-hidden"
       >
-        {initials}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="VerzChat" className="w-7 object-contain" />
       </button>
 
       {open && (
@@ -300,8 +299,15 @@ export default function Sidebar() {
   const router = useRouter();
   const { clearAuth } = useAuthStore();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('2.0');
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const pathname = usePathname();
+
+  useEffect(() => {
+    publicApi.currentVersion()
+      .then(res => { if (res.data?.version) setAppVersion(res.data.version); })
+      .catch(() => null);
+  }, []);
 
   const handleLogout = async () => {
     try { await authApi.logout(); } finally {
@@ -366,7 +372,7 @@ export default function Sidebar() {
         >
           <LogOut size={18} />
         </button>
-        <span className="text-[9px] text-gray-300 select-none">v1.0</span>
+        <span className="text-[9px] text-gray-300 select-none">v{appVersion}</span>
       </div>
     </aside>
     </>
@@ -384,7 +390,7 @@ const mobileNavItems = [
 export function MobileBottomNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex md:hidden flex-shrink-0 bg-white border-t border-gray-100 h-16 items-center justify-around px-2 z-40">
+    <nav className="flex md:hidden flex-shrink-0 bg-white border-t border-gray-100 items-center justify-around px-2 z-40" style={{ minHeight: '4rem', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {mobileNavItems.map(({ href, icon: Icon, label }) => {
         const isActive = pathname.startsWith(href);
         return (

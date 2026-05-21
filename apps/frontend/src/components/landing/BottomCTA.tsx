@@ -1,58 +1,103 @@
 'use client';
-import { motion } from 'framer-motion';
-import { ArrowRight, Calendar } from 'lucide-react';
+import { useState } from 'react';
 import Link from 'next/link';
 
+const STEPS = [
+  { n: '01', title: 'Create your workspace', desc: 'Sign up in 60 seconds. No credit card required. Your workspace is ready instantly.' },
+  { n: '02', title: 'Connect your WhatsApp number', desc: 'Link your existing WhatsApp Business number or get a new one. We handle the Meta API setup.' },
+  { n: '03', title: 'Invite your team and go live', desc: 'Add agents, set roles, and start handling every customer message from one shared inbox.' },
+];
+
+const FAQS = [
+  { q: 'How much does VerzChat cost?', a: 'VerzChat is GHS 150 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' },
+  { q: 'Can I use my existing WhatsApp Business number?', a: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through every step.' },
+  { q: 'Is there a per-message fee?', a: 'No. VerzChat charges a flat monthly fee of GHS 150 — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' },
+  { q: 'How many team members can I add?', a: 'Your GHS 150 plan supports unlimited agents. Invite your entire team — support staff, sales reps, managers — all from the same workspace.' },
+  { q: 'Can I cancel at any time?', a: 'Yes — cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes. Your data is retained for 30 days before deletion.' },
+  { q: 'Do you support multiple WhatsApp channels?', a: 'Yes. You can connect up to 3 WhatsApp Business numbers on the standard plan. Each channel has its own inbox and team assignment. Need more? Contact us.' },
+  { q: 'Is my customer data secure?', a: 'All data is encrypted at rest and in transit using AES-256 and TLS 1.3. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' },
+  { q: 'How quickly can my team get started?', a: 'Most teams are live in under 20 minutes. Connect your WhatsApp number, invite your agents, and you\'re handling conversations. No developer or onboarding call required.' },
+  { q: 'What happens to my data if I cancel?', a: 'Your workspace remains active until the billing period ends. After that, all data is securely retained for 30 days so you can export it before permanent deletion.' },
+  { q: 'Do you offer customer support?', a: 'Yes — all plans include priority email and live chat support. For urgent issues, our team typically responds within a few hours during business hours.' },
+];
+
 export default function BottomCTA() {
+  const [open, setOpen] = useState<number | null>(null);
+
   return (
-    <section className="py-20 bg-gray-900 relative overflow-hidden">
-      <motion.div
-        animate={{ scale: [1, 1.3, 1], opacity: [0.1, 0.2, 0.1] }}
-        transition={{ repeat: Infinity, duration: 8, ease: 'easeInOut' }}
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#25D366]/20 rounded-full blur-3xl pointer-events-none"
-      />
+    <>
+      {/* How it works */}
+      <section className="row_am_lg">
+        <div className="container">
+          <div className="how_wrap">
+            <div className="text-center sec_title" data-aos="fade-up">
+              <span className="sec_badge">Getting Started</span>
+              <h2>Live in Under 20 Minutes</h2>
+              <p>No complex setup. No developer needed. Three steps and your entire team is managing WhatsApp from one inbox.</p>
+            </div>
 
-      <div className="relative max-w-3xl mx-auto px-5 sm:px-8 text-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6 }}
-        >
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#25D366]/10 border border-[#25D366]/20 text-[#4ade80] text-xs font-semibold mb-6">
-            <motion.div animate={{ scale: [1, 1.4, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="w-1.5 h-1.5 rounded-full bg-[#25D366]" />
-            Live in under 20 minutes
+            <div className="row g-4 justify-content-center" data-aos="fade-up" data-aos-delay="100">
+              {STEPS.map((step) => (
+                <div key={step.n} className="col-md-4">
+                  <div className="step_card">
+                    <div className="step_num">{step.n}</div>
+                    <h4>{step.title}</h4>
+                    <p>{step.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
+        </div>
+      </section>
 
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-4 leading-tight">
-            Your customers are messaging you right now.
-          </h2>
-          <p className="text-gray-400 text-lg mb-8 max-w-xl mx-auto">
-            Give your team the inbox they deserve. See VerzChat working on real conversations in a 20-minute demo, no slides, no sales pitch.
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-              <Link
-                href="/auth/register"
-                className="flex items-center gap-2 px-6 py-3 bg-[#25D366] hover:bg-[#1aad57] text-white font-semibold rounded-xl transition-colors shadow-sm text-sm w-full sm:w-auto justify-center"
-              >
-                <Calendar size={15} />
-                Book a demo
-              </Link>
-            </motion.div>
-            <motion.a
-              whileHover={{ scale: 1.04 }}
-              href="mailto:notifications@verzchat.com"
-              className="flex items-center gap-2 px-6 py-3 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 font-semibold rounded-xl transition-colors text-sm w-full sm:w-auto justify-center"
-            >
-              Send us a message <ArrowRight size={14} />
-            </motion.a>
+      {/* FAQ */}
+      <section id="faq" className="faq_sec">
+        <div className="container">
+          <div className="row g-5 align-items-start">
+            <div className="col-lg-4" data-aos="fade-right">
+              <span className="sec_badge">FAQ</span>
+              <h2 style={{ fontSize: 32, fontWeight: 800, marginTop: 10, marginBottom: 14 }}>Frequently Asked Questions</h2>
+              <p style={{ fontSize: 14, color: 'var(--kp-muted)', lineHeight: 1.75 }}>
+                Can&apos;t find what you&apos;re looking for? Reach us at{' '}
+                <a href="mailto:support@verzchat.com" style={{ color: 'var(--kp)', textDecoration: 'underline' }}>support@verzchat.com</a>
+              </p>
+            </div>
+            <div className="col-lg-8" data-aos="fade-left">
+              <div className="accordion" id="faqAccordion">
+                {FAQS.map((faq, i) => (
+                  <div key={i} className="accordion-item">
+                    <button
+                      className={`accordion-button ${open === i ? '' : 'collapsed'}`}
+                      onClick={() => setOpen(open === i ? null : i)}
+                    >
+                      {faq.q}
+                    </button>
+                    <div className={`accordion-collapse collapse ${open === i ? 'show' : ''}`}>
+                      <div className="accordion-body">{faq.a}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
+        </div>
+      </section>
 
-          <p className="text-gray-600 text-xs mt-6">No credit card. No sales call. Just the product.</p>
-        </motion.div>
-      </div>
-    </section>
+      {/* Bottom CTA */}
+      <section id="contact" className="cta_sec">
+        <div className="container">
+          <div data-aos="fade-up">
+            <h2>Ready to Get Started?</h2>
+            <p>Join hundreds of businesses using VerzChat to manage every customer conversation — GHS 150/month, cancel anytime.</p>
+            <div className="d-flex gap-3 justify-content-center flex-wrap">
+              <Link href="/auth/register" className="btn_green">Get Started Free</Link>
+              <Link href="/book-demo" className="btn_outline" style={{ borderColor: 'rgba(255,255,255,.25)', color: 'rgba(255,255,255,.8)' }}>Book a Demo</Link>
+            </div>
+            <p className="mt-4" style={{ fontSize: 13, color: 'rgba(255,255,255,.3)', marginBottom: 0 }}>No credit card required · Cancel anytime · Live in 20 minutes</p>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }

@@ -18,7 +18,9 @@
     "@tanstack/react-virtual": "^3.13.24",
     "@whatsapp-platform/shared-types": "workspace:*",
     "@xyflow/react": "^12.10.2",
+    "aos": "^2.3.4",
     "axios": "^1.7.2",
+    "bootstrap": "^5.3.8",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "emoji-picker-react": "^4.19.1",
@@ -30,10 +32,13 @@
     "react-hot-toast": "^2.4.1",
     "recharts": "^3.8.1",
     "socket.io-client": "^4.7.5",
+    "swiper": "^12.1.4",
     "tailwind-merge": "^2.3.0",
+    "typed.js": "^3.0.0",
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@types/aos": "^3.0.8",
     "@types/node": "^20.13.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

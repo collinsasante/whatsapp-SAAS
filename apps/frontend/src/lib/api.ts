@@ -93,8 +93,14 @@ export { silentRefresh };
 export const authApi = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
+  verify2FA: (tempToken: string, code: string) =>
+    api.post('/auth/verify-2fa', { tempToken, code }),
   register: (name: string, email: string, password: string, phoneNumber?: string) =>
     api.post('/auth/register', { name, email, password, ...(phoneNumber ? { phoneNumber } : {}) }),
+  verifyEmail: (token: string) =>
+    api.post('/auth/verify-email', { token }),
+  resendVerification: (email: string) =>
+    api.post('/auth/resend-verification', { email }),
   logout: () => api.post('/auth/logout'),
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
@@ -420,6 +426,12 @@ export const manageSettingsApi = {
     api.patch('/manage/settings/ai', data),
 };
 
+export const publicApi = {
+  currentVersion: () => api.get<{ version: string; channel: string; changelog?: Record<string, string[]>; releasedAt: string }>('/public/version'),
+  featureFlags: (tenantId?: string) =>
+    tenantId ? api.get<Record<string, boolean>>('/feature-flags/my') : Promise.resolve({ data: {} as Record<string, boolean> }),
+};
+
 export const knowledgeBaseApi = {
   list: () => api.get('/knowledge-base'),
   create: (data: { title: string; content: string; isActive?: boolean }) =>
@@ -428,4 +440,10 @@ export const knowledgeBaseApi = {
     api.patch(`/knowledge-base/${id}`, data),
   delete: (id: string) => api.delete(`/knowledge-base/${id}`),
   learn: () => api.post('/knowledge-base/learn'),
+  upload: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post('/knowledge-base/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  scrape: (url: string) => api.post('/knowledge-base/scrape', { url }),
 };

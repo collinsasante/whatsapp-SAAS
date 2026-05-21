@@ -15,7 +15,7 @@ export const metadata = {
 
 export default function LandingPage() {
   return (
-    <div className="bg-white text-gray-900 overflow-x-hidden">
+    <>
       <Navbar />
       <Hero />
       <TrustBar />
@@ -25,6 +25,6 @@ export default function LandingPage() {
       <Pricing />
       <BottomCTA />
       <Footer />
-    </div>
+    </>
   );
 }

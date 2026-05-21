@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Building2, Users, MessageSquare, CheckCircle, RefreshCw,
   Wifi, WifiOff, Shield, TrendingUp, TrendingDown,
@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { dashboardApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { getSocket, SocketEvent } from '@/lib/socket';
 
 interface Overview {
   contacts: { total: number; open: number; assigned: number; unassigned: number };
@@ -215,6 +216,26 @@ export default function DashboardPage() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadStats(dateFrom, dateTo); }, [loadStats, dateFrom, dateTo]);
+
+  // Real-time KPI updates via socket
+  const refreshOverviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshOverview = useCallback(() => {
+    if (refreshOverviewTimer.current) clearTimeout(refreshOverviewTimer.current);
+    refreshOverviewTimer.current = setTimeout(() => {
+      void dashboardApi.overview().then((res) => setOverview(res.data as Overview)).catch(() => null);
+    }, 500);
+  }, []);
+
+  useEffect(() => {
+    const socket = getSocket();
+    socket.on(SocketEvent.NEW_MESSAGE, refreshOverview);
+    socket.on(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
+    return () => {
+      socket.off(SocketEvent.NEW_MESSAGE, refreshOverview);
+      socket.off(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
+      if (refreshOverviewTimer.current) clearTimeout(refreshOverviewTimer.current);
+    };
+  }, [refreshOverview]);
 
   if (loading) {
     return (

@@ -1,111 +1,198 @@
 'use client';
-import { motion } from 'framer-motion';
+import { useRef } from 'react';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Navigation, Autoplay } from 'swiper/modules';
+import type { Swiper as SwiperType } from 'swiper';
+import 'swiper/css';
 
-const channels = [
+const SLIDES = [
   {
-    name: 'WhatsApp Business',
-    desc: 'Official Meta API. Handle conversations, send template messages, and run broadcast campaigns to your customers where they already are.',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-      </svg>
+    title: 'Shared Team Inbox',
+    desc: 'Every WhatsApp message lands in one shared inbox. Assign to agents, add private notes, and resolve — no "who\'s handling this?"',
+    mockup: (
+      <div style={{ background: '#f8fafc', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <div style={{ background: '#0d1117', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'rgba(255,77,77,.7)' }} />
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'rgba(255,189,68,.7)' }} />
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#25D366', opacity: .8 }} />
+          <span style={{ marginLeft: 6, fontSize: 9, color: 'rgba(255,255,255,.4)', fontWeight: 600 }}>VerzChat · 12 open</span>
+        </div>
+        {[
+          { name: 'Sarah K.', msg: "Order hasn't arrived…", status: 'Waiting', dot: '#f97316', c: '#8b5cf6' },
+          { name: 'Tech Corp', msg: 'Can we schedule a call?', status: 'Replied', dot: '#25D366', c: '#3b82f6' },
+          { name: 'Ahmed H.', msg: 'Thanks, sorted! 👍', status: 'Resolved', dot: '#9ca3af', c: '#10b981' },
+          { name: 'Kofi A.', msg: 'Price for bulk order?', status: 'Waiting', dot: '#f97316', c: '#ec4899' },
+        ].map((r) => (
+          <div key={r.name} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 12px', borderBottom: '1px solid #f1f5f9', background: '#fff' }}>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: r.c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{r.name[0]}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: '0 0 2px', fontSize: 11, fontWeight: 700, color: '#111' }}>{r.name}</p>
+              <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.msg}</p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: r.dot }} />
+              <span style={{ fontSize: 9, color: '#64748b', fontWeight: 600 }}>{r.status}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     ),
-    color: 'text-[#25D366]',
-    bg: 'bg-[#f0fdf4]',
-    border: 'border-[#bbf7d0]',
-    hoverBorder: 'hover:border-[#86efac]',
-    badge: 'Official Meta Partner',
   },
   {
-    name: 'Instagram DM',
-    desc: 'Customer messages from Instagram land straight in your inbox. Your team replies without switching apps or losing context.',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-      </svg>
+    title: 'Broadcast Campaigns',
+    desc: 'Send to thousands at once. Upload your contact list, pick an approved template, and track delivery, reads, and clicks in real time.',
+    mockup: (
+      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <div style={{ background: '#0d1117', padding: '8px 14px' }}>
+          <p style={{ margin: '0 0 1px', fontSize: 11, fontWeight: 800, color: '#fff' }}>Summer Sale Campaign</p>
+          <p style={{ margin: 0, fontSize: 9, color: 'rgba(255,255,255,.4)' }}>12,450 recipients · Sent</p>
+        </div>
+        <div style={{ padding: '14px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          {[{ l: 'Delivered', v: '98.2%', bg: '#f0fdf4', c: '#16a34a' }, { l: 'Read', v: '67.4%', bg: '#eff6ff', c: '#2563eb' }, { l: 'Clicked', v: '12.1%', bg: '#fff7ed', c: '#ea580c' }].map((s) => (
+            <div key={s.l} style={{ background: s.bg, borderRadius: 8, padding: '10px 6px', textAlign: 'center' }}>
+              <p style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: s.c }}>{s.v}</p>
+              <p style={{ margin: 0, fontSize: 9, color: '#64748b' }}>{s.l}</p>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '0 14px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 48 }}>
+            {[55, 70, 65, 82, 78, 91, 88, 98].map((h, i) => (
+              <div key={i} style={{ flex: 1, background: i === 7 ? '#25D366' : '#bbf7d0', borderRadius: 3, height: `${h}%` }} />
+            ))}
+          </div>
+          <p style={{ margin: '6px 0 0', fontSize: 9, color: '#94a3b8' }}>Message opens over time</p>
+        </div>
+      </div>
     ),
-    color: 'text-pink-500',
-    bg: 'bg-pink-50',
-    border: 'border-pink-100',
-    hoverBorder: 'hover:border-pink-200',
-    badge: null,
   },
   {
-    name: 'Facebook Messenger',
-    desc: 'Handle threads from your Facebook page inside VerzChat alongside your WhatsApp conversations. Same team, same inbox.',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-        <path d="M12 0C5.374 0 0 4.975 0 11.111c0 3.497 1.745 6.616 4.472 8.652V24l4.086-2.242c1.09.301 2.246.464 3.442.464 6.626 0 12-4.974 12-11.111C24 4.975 18.626 0 12 0zm1.193 14.963l-3.056-3.259-5.963 3.259L10.733 8.3l3.13 3.259L19.752 8.3l-6.559 6.663z"/>
-      </svg>
+    title: 'Chatbot Automation',
+    desc: 'Build no-code flows in minutes. The bot handles routine questions 24/7 and hands off to a live agent the moment it gets stuck.',
+    mockup: (
+      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0', padding: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Order Support Bot</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', padding: '2px 8px', borderRadius: 20 }}>82% handled</span>
+        </div>
+        {[
+          { lbl: 'Trigger', txt: 'New message received', bg: '#f0fdf4', tc: '#16a34a' },
+          { lbl: 'Check', txt: 'Contains "order" or "track"', bg: '#f5f3ff', tc: '#7c3aed' },
+          { lbl: 'Reply', txt: 'Send order status template', bg: '#eff6ff', tc: '#2563eb' },
+          { lbl: 'Wait', txt: '2 min · no response?', bg: '#fff7ed', tc: '#ea580c' },
+          { lbl: 'Assign', txt: 'Route to Support team', bg: '#f8fafc', tc: '#64748b' },
+        ].map((n) => (
+          <div key={n.lbl} style={{ display: 'flex', alignItems: 'center', gap: 8, background: n.bg, borderRadius: 7, padding: '7px 10px', marginBottom: 5 }}>
+            <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', color: n.tc, width: 40, flexShrink: 0 }}>{n.lbl}</span>
+            <span style={{ fontSize: 10, color: '#374151', fontWeight: 500 }}>{n.txt}</span>
+          </div>
+        ))}
+      </div>
     ),
-    color: 'text-blue-600',
-    bg: 'bg-blue-50',
-    border: 'border-blue-100',
-    hoverBorder: 'hover:border-blue-200',
-    badge: null,
   },
   {
-    name: 'Telegram',
-    desc: 'Connect your Telegram bot. All messages from Telegram handled from the same workspace, by the same agents.',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-      </svg>
+    title: 'Analytics & CSAT',
+    desc: 'Track response times, resolution rates, and customer satisfaction scores — updated live so you always know where your team stands.',
+    mockup: (
+      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0', padding: 14 }}>
+        <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 700, color: '#374151' }}>Team Performance — May 2026</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          {[{ l: 'Avg Response', v: '4m 12s', c: '#2563eb', bg: '#eff6ff' }, { l: 'Resolved Today', v: '142', c: '#16a34a', bg: '#f0fdf4' }, { l: 'CSAT Score', v: '96%', c: '#7c3aed', bg: '#f5f3ff' }, { l: 'Open Now', v: '23', c: '#ea580c', bg: '#fff7ed' }].map((s) => (
+            <div key={s.l} style={{ background: s.bg, borderRadius: 8, padding: '10px' }}>
+              <p style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: s.c }}>{s.v}</p>
+              <p style={{ margin: 0, fontSize: 9, color: '#64748b' }}>{s.l}</p>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 40 }}>
+          {[60, 75, 55, 88, 70, 92, 85].map((h, i) => (
+            <div key={i} style={{ flex: 1, background: i === 5 ? '#25D366' : '#bbf7d0', borderRadius: 3, height: `${h}%` }} />
+          ))}
+        </div>
+      </div>
     ),
-    color: 'text-sky-500',
-    bg: 'bg-sky-50',
-    border: 'border-sky-100',
-    hoverBorder: 'hover:border-sky-200',
-    badge: null,
+  },
+  {
+    title: 'Team Management',
+    desc: 'Invite agents, create teams, and set roles with permissions. See who\'s online and what they\'re handling in real time.',
+    mockup: (
+      <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0', padding: 14 }}>
+        <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 700, color: '#374151' }}>Invite Team Members</p>
+        <div style={{ marginBottom: 10 }}>
+          <p style={{ margin: '0 0 4px', fontSize: 9, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Member Email</p>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 10px', fontSize: 10, color: '#94a3b8' }}>Enter member's email address</div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <p style={{ margin: '0 0 4px', fontSize: 9, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Role</p>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 10px', fontSize: 10, color: '#374151', display: 'flex', justifyContent: 'space-between' }}>Agent <span style={{ color: '#94a3b8' }}>▾</span></div>
+        </div>
+        {[{ name: 'Alice M.', role: 'Admin', online: true }, { name: 'Bob K.', role: 'Agent', online: true }, { name: 'Carol T.', role: 'Agent', online: false }].map((m) => (
+          <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px solid #f1f5f9' }}>
+            <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 800, color: '#2563eb' }}>{m.name[0]}</div>
+            <div style={{ flex: 1 }}>
+              <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: '#111' }}>{m.name}</p>
+            </div>
+            <span style={{ fontSize: 9, color: '#64748b' }}>{m.role}</span>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: m.online ? '#25D366' : '#cbd5e1' }} />
+          </div>
+        ))}
+      </div>
+    ),
   },
 ];
 
 export default function Channels() {
-  return (
-    <section id="channels" className="py-20 bg-white">
-      <div className="max-w-6xl mx-auto px-5 sm:px-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.55 }}
-          className="mb-12"
-        >
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight mb-3">
-            Your customers message you everywhere.
-          </h2>
-          <p className="text-lg text-gray-500 max-w-xl">
-            VerzChat connects WhatsApp, Instagram, Messenger, and Telegram into one inbox your whole team can actually use.
-          </p>
-        </motion.div>
+  const prevRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          {channels.map((ch, i) => (
-            <motion.div
-              key={ch.name}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.08, duration: 0.45 }}
-              whileHover={{ y: -4, transition: { duration: 0.2 } }}
-              className={`relative p-6 rounded-2xl border-2 ${ch.border} ${ch.bg} ${ch.hoverBorder} transition-all cursor-default group`}
-            >
-              {ch.badge && (
-                <span className="absolute top-4 right-4 text-[10px] font-bold text-[#15803d] bg-[#dcfce7] px-2 py-0.5 rounded-full">
-                  {ch.badge}
-                </span>
-              )}
-              <motion.div
-                whileHover={{ rotate: [0, -8, 8, 0], transition: { duration: 0.4 } }}
-                className={`w-10 h-10 rounded-xl bg-white border ${ch.border} flex items-center justify-center mb-4 ${ch.color} shadow-sm`}
-              >
-                {ch.icon}
-              </motion.div>
-              <h3 className="text-sm font-bold text-gray-900 mb-2">{ch.name}</h3>
-              <p className="text-sm text-gray-500 leading-relaxed">{ch.desc}</p>
-            </motion.div>
-          ))}
+  return (
+    <section id="features" className="feat_slider_sec">
+      <div className="container">
+        <div className="text-center sec_title" data-aos="fade-up">
+          <span className="sec_badge">Key Features</span>
+          <h2>Everything Your Team Needs to Do the Job</h2>
+          <p className="text-center" style={{ maxWidth: 560, margin: '0 auto' }}>
+            No bloat. No onboarding workshop. Just the tools that make customer conversations actually work.
+          </p>
         </div>
+      </div>
+
+      <div style={{ position: 'relative', marginTop: 48 }} data-aos="fade-up" data-aos-delay="100">
+        <button ref={prevRef} className="feat_nav feat_nav_prev" aria-label="Previous">‹</button>
+        <button ref={nextRef} className="feat_nav feat_nav_next" aria-label="Next">›</button>
+
+        <Swiper
+          modules={[Navigation, Autoplay]}
+          navigation={{ prevEl: prevRef.current, nextEl: nextRef.current }}
+          onSwiper={(swiper: SwiperType) => {
+            setTimeout(() => {
+              if (!swiper?.params?.navigation || typeof swiper.params.navigation === 'boolean') return;
+              swiper.params.navigation.prevEl = prevRef.current;
+              swiper.params.navigation.nextEl = nextRef.current;
+              swiper.navigation?.init();
+              swiper.navigation?.update();
+            });
+          }}
+          autoplay={{ delay: 3500, disableOnInteraction: false, pauseOnMouseEnter: true }}
+          loop
+          spaceBetween={24}
+          breakpoints={{
+            0:    { slidesPerView: 1 },
+            640:  { slidesPerView: 2 },
+            1024: { slidesPerView: 3 },
+          }}
+          style={{ paddingLeft: '60px', paddingRight: '60px' }}
+        >
+          {SLIDES.map((slide) => (
+            <SwiperSlide key={slide.title}>
+              <div className="feat_phone_card">
+                <h3 className="feat_phone_title">{slide.title}</h3>
+                <p className="feat_phone_desc">{slide.desc}</p>
+                <div className="feat_phone_screen">{slide.mockup}</div>
+              </div>
+            </SwiperSlide>
+          ))}
+        </Swiper>
       </div>
     </section>
   );

@@ -32,31 +32,46 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'strict' : 'lax',
-      path: '/api/v1/auth',
+      path: '/',
       maxAge: COOKIE_MAX_AGE_MS,
     });
   }
 
   private clearRefreshCookie(res: Response) {
-    res.clearCookie(COOKIE_NAME, { path: '/api/v1/auth' });
+    res.clearCookie(COOKIE_NAME, { path: '/' });
   }
 
   @Post('register')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Register a new workspace and admin user' })
-  async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.register(dto);
-    this.setRefreshCookie(res, result.refreshToken);
-    const { refreshToken: _, ...safe } = result;
-    return safe;
+  async register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify email address via token from email link' })
+  verifyEmail(@Body() body: { token: string }) {
+    if (!body?.token) throw new Error('token is required');
+    return this.authService.verifyEmail(body.token);
+  }
+
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Resend email verification link' })
+  resendVerification(@Body() body: { email: string }) {
+    if (!body?.email) throw new Error('email is required');
+    return this.authService.resendVerification(body.email);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiOperation({ summary: 'Login with email and password — returns requires2FA or full tokens' })
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -64,6 +79,27 @@ export class AuthController {
   ) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const result = await this.authService.login(dto, ip);
+
+    if ('requires2FA' in result) return result;
+
+    // Fallback: full tokens (Google OAuth path — should not happen via this route)
+    this.setRefreshCookie(res, (result as { refreshToken: string }).refreshToken);
+    const { refreshToken: _, ...safe } = result as typeof result & { refreshToken: string };
+    return safe;
+  }
+
+  @Post('verify-2fa')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Verify 2FA OTP code and complete sign-in' })
+  async verify2FA(
+    @Body() body: { tempToken: string; code: string },
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    const result = await this.authService.verify2FA(body.tempToken, body.code, ip);
     this.setRefreshCookie(res, result.refreshToken);
     const { refreshToken: _, ...safe } = result;
     return safe;

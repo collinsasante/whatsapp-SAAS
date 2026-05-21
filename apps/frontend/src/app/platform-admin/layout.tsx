@@ -4,7 +4,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
   LayoutDashboard, Building2, Users, BarChart3, FileText,
-  Settings, LogOut, MessageSquare, ChevronRight,
+  Settings, LogOut, MessageSquare, ChevronRight, Calendar,
+  Flag, Rocket,
 } from 'lucide-react';
 import { useAdminStore } from '@/store/admin.store';
 import { platformAdminApi } from '@/lib/platform-admin-api';
@@ -13,9 +14,12 @@ const NAV = [
   { href: '/platform-admin/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/platform-admin/workspaces',  icon: Building2,       label: 'Workspaces' },
   { href: '/platform-admin/users',       icon: Users,           label: 'Users' },
-  { href: '/platform-admin/analytics',   icon: BarChart3,       label: 'Analytics' },
-  { href: '/platform-admin/audit',       icon: FileText,        label: 'Audit Log' },
-  { href: '/platform-admin/settings',    icon: Settings,        label: 'Settings' },
+  { href: '/platform-admin/demos',       icon: Calendar,        label: 'Demo Leads' },
+  { href: '/platform-admin/analytics',      icon: BarChart3,       label: 'Analytics' },
+  { href: '/platform-admin/releases',       icon: Rocket,          label: 'Releases' },
+  { href: '/platform-admin/feature-flags',  icon: Flag,            label: 'Feature Flags' },
+  { href: '/platform-admin/audit',          icon: FileText,        label: 'Audit Log' },
+  { href: '/platform-admin/settings',       icon: Settings,        label: 'Settings' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
