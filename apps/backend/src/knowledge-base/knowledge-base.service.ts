@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import axios from 'axios';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -9,7 +11,6 @@ export class KnowledgeBaseService {
 
   constructor(private prisma: PrismaService) {}
 
-  // Fire-and-forget: triggers learnFromConversations at most once per 30 min per tenant
   triggerLearningAsync(tenantId: string): void {
     const now = Date.now();
     const lastRun = this.learningThrottle.get(tenantId) ?? 0;
@@ -25,9 +26,9 @@ export class KnowledgeBaseService {
     });
   }
 
-  async create(tenantId: string, data: { title: string; content: string; isActive?: boolean }) {
+  async create(tenantId: string, data: { title: string; content: string; isActive?: boolean; source?: string; sourceRef?: string }) {
     return this.prisma.knowledgeBaseArticle.create({
-      data: { tenantId, ...data },
+      data: { tenantId, source: 'manual', ...data },
     });
   }
 
@@ -49,6 +50,125 @@ export class KnowledgeBaseService {
       select: { title: true, content: true },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  async uploadFile(tenantId: string, file: Express.Multer.File): Promise<{ created: number }> {
+    const mimeType = file.mimetype;
+    const filename = file.originalname;
+    let content = '';
+
+    if (mimeType === 'application/pdf' || filename.endsWith('.pdf')) {
+      try {
+        const data = await pdfParse(file.buffer);
+        content = data.text.replace(/\s+/g, ' ').trim();
+      } catch (err) {
+        this.logger.error('PDF parse error', err);
+        throw new BadRequestException('Could not parse PDF file');
+      }
+    } else if (
+      mimeType === 'text/plain' ||
+      mimeType === 'text/csv' ||
+      filename.endsWith('.txt') ||
+      filename.endsWith('.csv') ||
+      filename.endsWith('.md')
+    ) {
+      content = file.buffer.toString('utf-8').replace(/\s+/g, ' ').trim();
+    } else {
+      throw new BadRequestException('Unsupported file type. Upload PDF, TXT, CSV, or MD files.');
+    }
+
+    if (!content || content.length < 20) {
+      throw new BadRequestException('File appears to be empty or could not be read');
+    }
+
+    // Chunk large content into multiple articles (max 3000 chars each)
+    const chunks = this.chunkText(content, 3000);
+    const title = filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkTitle = chunks.length > 1 ? `${title} (Part ${i + 1})` : title;
+      await this.prisma.knowledgeBaseArticle.create({
+        data: {
+          tenantId,
+          title: chunkTitle,
+          content: chunks[i],
+          source: 'upload',
+          sourceRef: filename,
+          isActive: true,
+        },
+      });
+    }
+
+    return { created: chunks.length };
+  }
+
+  async scrapeUrl(tenantId: string, url: string): Promise<{ created: number }> {
+    let htmlContent = '';
+    try {
+      const response = await axios.get(url, {
+        timeout: 10000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VerzChat/1.0; +https://verzchat.com)' },
+        maxContentLength: 500_000,
+      });
+      htmlContent = response.data as string;
+    } catch (err) {
+      this.logger.error('URL scrape error', err);
+      throw new BadRequestException('Could not fetch URL. Make sure it is publicly accessible.');
+    }
+
+    // Strip HTML tags and extract readable text
+    const text = htmlContent
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&#\d+;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!text || text.length < 50) {
+      throw new BadRequestException('Could not extract readable content from this URL');
+    }
+
+    // Extract page title from HTML
+    const titleMatch = htmlContent.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const pageTitle = titleMatch ? titleMatch[1].trim() : new URL(url).hostname;
+
+    const chunks = this.chunkText(text, 3000);
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkTitle = chunks.length > 1 ? `${pageTitle} (Part ${i + 1})` : pageTitle;
+      await this.prisma.knowledgeBaseArticle.create({
+        data: {
+          tenantId,
+          title: chunkTitle,
+          content: chunks[i],
+          source: 'url',
+          sourceRef: url,
+          isActive: true,
+        },
+      });
+    }
+
+    return { created: chunks.length };
+  }
+
+  private chunkText(text: string, maxLen: number): string[] {
+    if (text.length <= maxLen) return [text];
+    const chunks: string[] = [];
+    let start = 0;
+    while (start < text.length) {
+      let end = start + maxLen;
+      if (end < text.length) {
+        const lastSpace = text.lastIndexOf(' ', end);
+        if (lastSpace > start) end = lastSpace;
+      }
+      chunks.push(text.slice(start, end).trim());
+      start = end + 1;
+    }
+    return chunks.filter(Boolean);
   }
 
   async learnFromConversations(tenantId: string): Promise<{ created: number }> {
@@ -111,12 +231,7 @@ export class KnowledgeBaseService {
             { role: 'user', content: `Extract knowledge base articles from these conversations:\n\n${convoText}` },
           ],
         },
-        {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        },
+        { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
       );
 
       const raw = (response.data?.choices?.[0]?.message?.content as string ?? '').trim();
@@ -129,7 +244,7 @@ export class KnowledgeBaseService {
       for (const art of articles) {
         if (art.title && art.content) {
           await this.prisma.knowledgeBaseArticle.create({
-            data: { tenantId, title: art.title, content: art.content, isActive: true },
+            data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
           });
           created++;
         }

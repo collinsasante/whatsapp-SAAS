@@ -281,25 +281,25 @@ export default function CampaignsPage() {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
+      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Campaigns</h1>
-            <p className="text-sm text-gray-500">Broadcast messages to your WhatsApp contacts</p>
+            <p className="text-sm text-gray-500 hidden sm:block">Broadcast messages to your WhatsApp contacts</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => { void load(); }} className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors">
               <RefreshCw size={16} />
             </button>
             <button onClick={() => { setShowCreate(true); resetForm(); }}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors">
-              <Plus size={15} />New Campaign
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors">
+              <Plus size={15} /><span className="hidden sm:inline">New Campaign</span><span className="sm:hidden">New</span>
             </button>
           </div>
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           {[
             { label: 'Total Campaigns', value: total, icon: BarChart3, color: 'text-teal-600 bg-teal-50' },
             { label: 'Messages Sent', value: totalSent, icon: Send, color: 'text-blue-600 bg-blue-50' },
@@ -319,17 +319,17 @@ export default function CampaignsPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1 sm:max-w-xs">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="text" placeholder="Search campaigns…" value={search} onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500" />
           </div>
-          <div className="flex items-center gap-1">
-            <Filter size={13} className="text-gray-400" />
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5">
+            <Filter size={13} className="text-gray-400 flex-shrink-0" />
             {FILTERS.map((f) => (
               <button key={f} onClick={() => setStatusFilter(f)}
-                className={cn('px-3 py-1.5 text-xs rounded-lg transition-colors', statusFilter === f ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-100')}>
+                className={cn('px-3 py-1.5 text-xs rounded-lg transition-colors flex-shrink-0', statusFilter === f ? 'bg-teal-600 text-white' : 'text-gray-500 hover:bg-gray-100')}>
                 {f}
               </button>
             ))}
@@ -338,7 +338,7 @@ export default function CampaignsPage() {
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         {loading ? (
           <div className="flex justify-center pt-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>
         ) : filtered.length === 0 ? (
@@ -348,8 +348,8 @@ export default function CampaignsPage() {
             <p className="text-sm mt-1">Create your first broadcast campaign</p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm min-w-[700px]">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Campaign</th>

@@ -5,6 +5,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -12,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from '../common/email.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthTokens, JwtPayload } from '@whatsapp-platform/shared-types';
@@ -19,20 +21,23 @@ import { workspaceRoleToUserRole } from './strategies/jwt.strategy';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly BCRYPT_ROUNDS = 12;
+  private readonly OTP_ROUNDS = 10;
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
     private auditService: AuditService,
+    private emailService: EmailService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthTokens & { user: object; tenant: object }> {
-    // Auto-generate workspace name from user's name
+  async register(dto: RegisterDto): Promise<{ requiresEmailVerification: true; email: string }> {
     const workspaceName = `${dto.name.split(' ')[0]}'s Workspace`;
-
     const passwordHash = await bcrypt.hash(dto.password, this.BCRYPT_ROUNDS);
+    const verifyToken = uuidv4();
+    const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
@@ -56,11 +61,13 @@ export class AuthService {
           name: dto.name,
           passwordHash,
           role: 'ADMIN',
+          emailVerified: false,
+          emailVerifyToken: verifyToken,
+          emailVerifyExpiry: verifyExpiry,
         },
         select: { id: true, email: true, name: true, role: true, tenantId: true },
       });
 
-      // Register the creator as the workspace OWNER
       await tx.workspaceMember.create({
         data: {
           workspaceId: tenant.id,
@@ -74,24 +81,66 @@ export class AuthService {
       return { tenant, user };
     });
 
-    const tokens = await this.generateTokens(result.user.id, result.user.email, result.tenant.id, result.user.role);
-    await this.updateRefreshToken(result.user.id, tokens.refreshToken);
-    await this.auditService.log({ tenantId: result.tenant.id, userId: result.user.id, action: 'LOGIN', resource: 'auth' });
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const verifyLink = `${frontendUrl}/verify-email?token=${verifyToken}`;
 
-    return { ...tokens, user: result.user, tenant: result.tenant };
+    void this.emailService.sendEmailVerification({
+      to: dto.email,
+      name: dto.name,
+      verifyLink,
+    }).catch((err) => this.logger.error('Failed to send verification email', err));
+
+    return { requiresEmailVerification: true, email: dto.email };
   }
 
-  async login(dto: LoginDto, ipAddress?: string): Promise<AuthTokens & { user: object; tenant: object }> {
-    let user: Awaited<ReturnType<typeof this.prisma.user.findFirst>>;
-    let tenant: Awaited<ReturnType<typeof this.prisma.tenant.findUnique>> | null = null;
+  async verifyEmail(token: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findFirst({
+      where: { emailVerifyToken: token },
+    });
 
-    // Find user by email across all active tenants
-    user = await this.prisma.user.findFirst({
+    if (!user) throw new BadRequestException('Invalid or expired verification link');
+    if (user.emailVerifyExpiry && user.emailVerifyExpiry < new Date()) {
+      throw new BadRequestException('Verification link has expired. Please request a new one.');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true, emailVerifyToken: null, emailVerifyExpiry: null },
+    });
+
+    return { message: 'Email verified successfully. You can now sign in.' };
+  }
+
+  async resendVerification(email: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findFirst({ where: { email, isActive: true } });
+    // Always return success to prevent enumeration
+    if (!user || user.emailVerified) return { message: 'If that email exists and is unverified, a new link has been sent.' };
+
+    const verifyToken = uuidv4();
+    const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerifyToken: verifyToken, emailVerifyExpiry: verifyExpiry },
+    });
+
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const verifyLink = `${frontendUrl}/verify-email?token=${verifyToken}`;
+
+    void this.emailService.sendEmailVerification({ to: user.email, name: user.name, verifyLink })
+      .catch((err) => this.logger.error('Failed to resend verification email', err));
+
+    return { message: 'If that email exists and is unverified, a new link has been sent.' };
+  }
+
+  async login(dto: LoginDto, ipAddress?: string): Promise<
+    | { requires2FA: true; tempToken: string }
+    | (AuthTokens & { user: object; tenant: object })
+  > {
+    const user = await this.prisma.user.findFirst({
       where: { email: dto.email, isActive: true },
     });
-    if (user) {
-      tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
-    }
+    const tenant = user ? await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } }) : null;
 
     if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
     if (!tenant) throw new UnauthorizedException('Workspace not found');
@@ -100,14 +149,73 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
 
+    if (!user.emailVerified) {
+      throw new ForbiddenException({
+        message: 'Please verify your email before signing in.',
+        code: 'email_not_verified',
+        email: user.email,
+      });
+    }
+
+    // Generate 6-digit OTP, store hashed
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeHash = await bcrypt.hash(code, this.OTP_ROUNDS);
+    const codeExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorCode: codeHash, twoFactorCodeExpiry: codeExpiry, lastSeenAt: new Date() },
+    });
+
+    await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
+
+    void this.emailService.sendOtpCode({ to: user.email, name: user.name, code })
+      .catch((err) => this.logger.error('Failed to send OTP email', err));
+
+    // Temp token proves password was verified; expires in 15 min
+    const tempToken = this.jwtService.sign(
+      { sub: user.id, type: '2fa-pending' },
+      { secret: this.configService.get<string>('app.jwtSecret'), expiresIn: '15m' },
+    );
+
+    return { requires2FA: true, tempToken };
+  }
+
+  async verify2FA(tempToken: string, code: string, ipAddress?: string): Promise<AuthTokens & { user: object; tenant: object }> {
+    let payload: { sub: string; type: string };
+    try {
+      payload = this.jwtService.verify(tempToken, { secret: this.configService.get<string>('app.jwtSecret') });
+    } catch {
+      throw new UnauthorizedException('Session expired. Please sign in again.');
+    }
+
+    if (payload.type !== '2fa-pending') throw new UnauthorizedException('Invalid token');
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || !user.twoFactorCode || !user.twoFactorCodeExpiry) {
+      throw new UnauthorizedException('No pending 2FA code. Please sign in again.');
+    }
+    if (user.twoFactorCodeExpiry < new Date()) {
+      throw new UnauthorizedException('Code expired. Please sign in again.');
+    }
+
+    const isValid = await bcrypt.compare(code, user.twoFactorCode);
+    if (!isValid) throw new UnauthorizedException('Incorrect code. Please check your email and try again.');
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
+    if (!tenant) throw new UnauthorizedException('Workspace not found');
+
+    // Clear OTP, issue real tokens
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorCode: null, twoFactorCodeExpiry: null },
+    });
+
     const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
-    await this.prisma.user.update({ where: { id: user.id }, data: { lastSeenAt: new Date() } });
-    await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
 
     const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
     const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
-
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
@@ -118,7 +226,6 @@ export class AuthService {
 
     if (!clientId || !clientSecret) throw new BadRequestException('Google OAuth is not configured');
 
-    // Exchange code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -134,21 +241,17 @@ export class AuthService {
     if (!tokenRes.ok) throw new UnauthorizedException('Google token exchange failed');
     const tokenData = await tokenRes.json() as { access_token: string };
 
-    // Get user info from Google
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     if (!userRes.ok) throw new UnauthorizedException('Failed to get Google user info');
     const googleUser = await userRes.json() as { email: string; name: string; id: string };
 
-    // Find or create user
     let user = await this.prisma.user.findFirst({ where: { email: googleUser.email, isActive: true } });
     let tenant = user ? await this.prisma.tenant.findUnique({ where: { id: user.tenantId } }) : null;
 
     if (!user || !tenant) {
-      // Create new workspace + admin user
       const workspaceName = `${googleUser.name.split(' ')[0]}'s Workspace`;
-
       const result = await this.prisma.$transaction(async (tx) => {
         const newTenant = await tx.tenant.create({
           data: {
@@ -158,7 +261,14 @@ export class AuthService {
           },
         });
         const newUser = await tx.user.create({
-          data: { tenantId: newTenant.id, email: googleUser.email, name: googleUser.name, role: 'ADMIN', passwordHash: '' },
+          data: {
+            tenantId: newTenant.id,
+            email: googleUser.email,
+            name: googleUser.name,
+            role: 'ADMIN',
+            passwordHash: '',
+            emailVerified: true, // Google already verified the email
+          },
           select: { id: true, email: true, name: true, role: true, tenantId: true },
         });
         await tx.workspaceMember.create({
@@ -179,7 +289,6 @@ export class AuthService {
   }
 
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
-    // Decode the refresh token to get userId — does not require valid access token
     let payload: JwtPayload;
     try {
       payload = this.jwtService.verify<JwtPayload>(refreshToken, {
@@ -202,7 +311,6 @@ export class AuthService {
 
   async forgotPassword(email: string): Promise<{ message: string }> {
     const user = await this.prisma.user.findFirst({ where: { email, isActive: true } });
-    // Always return success to prevent email enumeration
     if (!user) return { message: 'If that email exists, a reset link has been sent.' };
 
     const resetToken = this.jwtService.sign(
@@ -213,8 +321,8 @@ export class AuthService {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
     const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
 
-    // TODO: Send email via mail service. For now, log to console.
-    console.log(`[Password Reset] Link for ${email}: ${resetLink}`);
+    void this.emailService.sendPasswordReset({ to: user.email, name: user.name, resetLink })
+      .catch((err) => this.logger.error('Failed to send password reset email', err));
 
     return { message: 'If that email exists, a reset link has been sent.' };
   }
@@ -283,24 +391,17 @@ export class AuthService {
       throw new ForbiddenException('You are not a member of this workspace');
     }
 
-    const workspace = await this.prisma.tenant.findUnique({
-      where: { id: workspaceId, isActive: true },
-    });
+    const workspace = await this.prisma.tenant.findUnique({ where: { id: workspaceId, isActive: true } });
     if (!workspace) throw new NotFoundException('Workspace not found');
 
-    const effectiveRole = membership
-      ? workspaceRoleToUserRole(membership.role)
-      : user.role;
-
+    const effectiveRole = membership ? workspaceRoleToUserRole(membership.role) : user.role;
     const tokens = await this.generateTokens(user.id, user.email, workspaceId, effectiveRole);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
     return tokens;
   }
 
   async verifyInvite(token: string) {
-    const inv = await this.prisma.workspaceInvitation.findUnique({
-      where: { token },
-    });
+    const inv = await this.prisma.workspaceInvitation.findUnique({ where: { token } });
     if (!inv) throw new NotFoundException('Invitation not found or already used');
     if (inv.acceptedAt) throw new BadRequestException('Invitation already accepted');
     if (inv.expiresAt < new Date()) throw new BadRequestException('Invitation has expired');
@@ -338,11 +439,9 @@ export class AuthService {
     const workspace = await this.prisma.tenant.findUnique({ where: { id: inv.workspaceId, isActive: true } });
     if (!workspace) throw new NotFoundException('Workspace not found');
 
-    // Find existing user by email
     let user = await this.prisma.user.findFirst({ where: { email: inv.email } });
 
     if (!user) {
-      // New user — require name + password
       if (!data.name || !data.password) {
         throw new BadRequestException('Name and password are required for new accounts');
       }
@@ -355,6 +454,7 @@ export class AuthService {
             name: data.name!,
             passwordHash,
             role: 'AGENT',
+            emailVerified: true, // invited via email — already verified
           },
         });
         await tx.workspaceMember.create({
@@ -374,7 +474,6 @@ export class AuthService {
         return newUser;
       });
     } else {
-      // Existing user — just add membership
       await this.prisma.$transaction(async (tx) => {
         await tx.workspaceMember.upsert({
           where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId: user!.id } },

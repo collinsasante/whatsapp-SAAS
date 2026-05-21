@@ -12,7 +12,7 @@ const SECTIONS = [
       'Full message history with every contact',
     ],
     href: '/book-demo',
-    cta: 'See the inbox →',
+    cta: 'See the inbox',
     flip: false,
     mockup: (
       <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)' }}>
@@ -54,7 +54,7 @@ const SECTIONS = [
       'Schedule sends for optimal open times',
     ],
     href: '/book-demo',
-    cta: 'See campaigns →',
+    cta: 'See campaigns',
     flip: true,
     mockup: (
       <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)' }}>
@@ -91,7 +91,7 @@ const SECTIONS = [
       'Works 24/7 even when your team is offline',
     ],
     href: '/book-demo',
-    cta: 'See automation →',
+    cta: 'See automation',
     flip: false,
     mockup: (
       <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)', padding: 16 }}>

@@ -6,6 +6,15 @@ const nextConfig = {
   output: 'standalone',
   outputFileTracingRoot: path.join(__dirname, '../../'),
   reactStrictMode: true,
+  async rewrites() {
+    const backendUrl = process.env.BACKEND_URL ?? 'https://verzchat.com';
+    return [
+      {
+        source: '/api/proxy/:path*',
+        destination: `${backendUrl}/api/v1/:path*`,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**' },

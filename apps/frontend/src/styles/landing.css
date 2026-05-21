@@ -113,6 +113,10 @@
 .lp .btn_outline:hover { border-color: var(--kp); color: var(--kp); }
 
 /* ── Navbar ──────────────────────────────────────────────────────────────────── */
+/* Tailwind's `collapse` utility sets visibility:collapse — override it so Bootstrap
+   can control show/hide via display instead */
+.lp .navbar-collapse { visibility: visible; }
+
 .lp .kp_nav {
   position: sticky;
   top: 0;
@@ -305,6 +309,64 @@
 .lp .swiper-pagination-bullet { background: var(--kp); opacity: .35; }
 .lp .swiper-pagination-bullet-active { opacity: 1; }
 .lp .swiper { padding-bottom: 44px !important; }
+
+/* ── Feature phone-card slider ───────────────────────────────────────────────── */
+.lp .feat_slider_sec {
+  background: #11131f;
+  padding: 80px 0 80px;
+}
+.lp .feat_slider_sec .sec_title { margin-bottom: 0; }
+.lp .feat_slider_sec .sec_title h2 { color: #fff; }
+.lp .feat_slider_sec .sec_title p  { color: rgba(255,255,255,.55); margin: 0 auto; }
+.lp .feat_slider_sec .sec_badge { background: rgba(37,211,102,.15); color: #25D366; border: 1px solid rgba(37,211,102,.3); }
+
+.lp .feat_phone_card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 28px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lp .feat_phone_title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #2563eb;
+  margin: 0;
+}
+.lp .feat_phone_desc {
+  font-size: 13.5px;
+  color: #64748b;
+  line-height: 1.65;
+  margin: 0;
+  min-height: 56px;
+}
+.lp .feat_phone_screen {
+  margin-top: 8px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.lp .feat_nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.2);
+  color: #fff;
+  font-size: 24px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background .2s;
+}
+.lp .feat_nav:hover { background: rgba(255,255,255,.2); }
+.lp .feat_nav_prev { left: 8px; }
+.lp .feat_nav_next { right: 8px; }
+.lp .feat_nav.swiper-button-disabled { opacity: .3; cursor: default; }
 
 /* ── Service (why) sections ─────────────────────────────────────────────────── */
 .lp .svc_sec { padding: 60px 0; }

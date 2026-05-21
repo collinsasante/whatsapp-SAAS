@@ -9,15 +9,16 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: 'How does the 7-day free trial work?', a: 'You get full access to all features for 7 days — no credit card required. At the end of the trial you choose a plan or your workspace pauses.' },
-  { q: 'Can I use my existing WhatsApp Business number?', a: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through it step by step.' },
-  { q: 'Is there a per-message fee?', a: 'No. VerzChat charges a flat monthly fee — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage.' },
-  { q: 'How many team members can I add?', a: 'The Starter plan supports up to 3 agents. Growth supports 10. Scale is unlimited. You can upgrade at any time from your billing settings.' },
-  { q: 'Can I upgrade or downgrade at any time?', a: 'Yes — plan changes take effect immediately. If you upgrade mid-cycle you only pay the prorated difference.' },
-  { q: 'Do you support multiple WhatsApp channels?', a: 'Yes. Growth supports 3 channels and Scale is unlimited. Each channel is a separate WhatsApp Business number connected to the same inbox.' },
-  { q: 'Is my customer data secure?', a: 'All data is encrypted at rest and in transit. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' },
-  { q: 'What happens if I cancel?', a: 'You can cancel anytime with no penalties. Your workspace stays active until the end of the billing period, after which your data is retained for 30 days before deletion.' },
-  { q: 'Do you offer customer support?', a: 'Yes — all plans include email and live chat support. Scale plan customers get a dedicated account manager and 24/7 priority support.' },
+  { q: 'How much does VerzChat cost?', a: 'VerzChat is GHS 150 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' },
+  { q: 'Can I use my existing WhatsApp Business number?', a: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through every step.' },
+  { q: 'Is there a per-message fee?', a: 'No. VerzChat charges a flat monthly fee of GHS 150 — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' },
+  { q: 'How many team members can I add?', a: 'Your GHS 150 plan supports unlimited agents. Invite your entire team — support staff, sales reps, managers — all from the same workspace.' },
+  { q: 'Can I cancel at any time?', a: 'Yes — cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes. Your data is retained for 30 days before deletion.' },
+  { q: 'Do you support multiple WhatsApp channels?', a: 'Yes. You can connect up to 3 WhatsApp Business numbers on the standard plan. Each channel has its own inbox and team assignment. Need more? Contact us.' },
+  { q: 'Is my customer data secure?', a: 'All data is encrypted at rest and in transit using AES-256 and TLS 1.3. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' },
+  { q: 'How quickly can my team get started?', a: 'Most teams are live in under 20 minutes. Connect your WhatsApp number, invite your agents, and you\'re handling conversations. No developer or onboarding call required.' },
+  { q: 'What happens to my data if I cancel?', a: 'Your workspace remains active until the billing period ends. After that, all data is securely retained for 30 days so you can export it before permanent deletion.' },
+  { q: 'Do you offer customer support?', a: 'Yes — all plans include priority email and live chat support. For urgent issues, our team typically responds within a few hours during business hours.' },
 ];
 
 export default function BottomCTA() {
@@ -36,16 +37,13 @@ export default function BottomCTA() {
             </div>
 
             <div className="row g-4 justify-content-center" data-aos="fade-up" data-aos-delay="100">
-              {STEPS.map((step, i) => (
+              {STEPS.map((step) => (
                 <div key={step.n} className="col-md-4">
                   <div className="step_card">
                     <div className="step_num">{step.n}</div>
                     <h4>{step.title}</h4>
                     <p>{step.desc}</p>
                   </div>
-                  {i < STEPS.length - 1 && (
-                    <div className="step_divider d-none d-md-flex" style={{ position: 'absolute', top: '30px', right: '-20px' }}>→</div>
-                  )}
                 </div>
               ))}
             </div>
@@ -90,13 +88,13 @@ export default function BottomCTA() {
       <section id="contact" className="cta_sec">
         <div className="container">
           <div data-aos="fade-up">
-            <h2>Start Your Free Trial Today</h2>
-            <p>Join hundreds of businesses using VerzChat to manage every customer conversation. 7 days free, no card required.</p>
+            <h2>Ready to Get Started?</h2>
+            <p>Join hundreds of businesses using VerzChat to manage every customer conversation — GHS 150/month, cancel anytime.</p>
             <div className="d-flex gap-3 justify-content-center flex-wrap">
-              <Link href="/auth/register" className="btn_green">Get started free</Link>
-              <Link href="/book-demo" className="btn_outline" style={{ borderColor: 'rgba(255,255,255,.3)', color: 'rgba(255,255,255,.8)' }}>Book a demo</Link>
+              <Link href="/auth/register" className="btn_green">Get Started</Link>
+              <Link href="/book-demo" className="btn_outline" style={{ borderColor: 'rgba(255,255,255,.3)', color: 'rgba(255,255,255,.8)' }}>Book a Demo</Link>
             </div>
-            <p className="mt-4" style={{ fontSize: 13, color: 'rgba(255,255,255,.35)' }}>No credit card · Cancel anytime · Live in 20 minutes</p>
+            <p className="mt-4" style={{ fontSize: 13, color: 'rgba(255,255,255,.35)' }}>No credit card required · Cancel anytime · Live in 20 minutes</p>
           </div>
         </div>
       </section>

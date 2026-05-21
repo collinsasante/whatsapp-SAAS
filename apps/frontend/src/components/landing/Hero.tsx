@@ -43,11 +43,11 @@ export default function Hero() {
               <Link href="/book-demo" className="btn_dark">Book a Demo</Link>
               <a href="#features" className="btn_outline">
                 <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><polygon points="5,3 19,12 5,21" fill="currentColor" /></svg>
-                Watch Demo Video
+                See Features
               </a>
             </div>
             <div className="hero_meta">
-              <span>7-day free trial</span>
+              <span>No credit card required</span>
               <span>·</span>
               <span>Live in under 20 minutes</span>
               <span>·</span>

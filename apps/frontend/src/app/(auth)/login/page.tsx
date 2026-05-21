@@ -1,9 +1,9 @@
 'use client';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
 import { useAuthStore } from '@/store/auth.store';
@@ -20,26 +20,94 @@ function GoogleIcon() {
   );
 }
 
+type Step = 'credentials' | 'otp' | 'unverified';
+
 function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setAuth } = useAuthStore();
+
+  const [step, setStep] = useState<Step>('credentials');
   const [form, setForm] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // OTP step
+  const [tempToken, setTempToken] = useState('');
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [resending, setResending] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
     const error = searchParams.get('error');
     if (error === 'google_not_configured') toast.error('Google login is not configured on this server.');
     else if (error === 'google_auth_failed') toast.error('Google sign-in failed. Please try again.');
+    const verified = searchParams.get('verified');
+    if (verified === '1') toast.success('Email verified! You can now sign in.');
   }, [searchParams]);
 
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       const res = await authApi.login(form.email, form.password);
+      const data = res.data as
+        | { requires2FA: true; tempToken: string }
+        | { accessToken: string; user: object; tenant: object };
+
+      if ('requires2FA' in data) {
+        setTempToken(data.tempToken);
+        setStep('otp');
+        setOtp(['', '', '', '', '', '']);
+        setTimeout(() => otpRefs.current[0]?.focus(), 100);
+      }
+    } catch (err: unknown) {
+      type ErrBody = { message?: string | { message?: string; code?: string; email?: string }; code?: string; email?: string };
+      const errData = (err as { response?: { data?: ErrBody } })?.response?.data;
+      // ForbiddenException with object payload is nested under errData.message
+      const nested = errData?.message && typeof errData.message === 'object' ? errData.message : null;
+      const code = nested?.code ?? errData?.code;
+      if (code === 'email_not_verified') {
+        setUnverifiedEmail(nested?.email ?? errData?.email ?? form.email);
+        setStep('unverified');
+      } else {
+        const rawMsg = nested?.message ?? (typeof errData?.message === 'string' ? errData.message : undefined);
+        toast.error(rawMsg ?? 'Login failed');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOtpChange = (i: number, val: string) => {
+    const cleaned = val.replace(/\D/g, '').slice(-1);
+    const next = [...otp];
+    next[i] = cleaned;
+    setOtp(next);
+    if (cleaned && i < 5) setTimeout(() => otpRefs.current[i + 1]?.focus(), 0);
+  };
+
+  const handleOtpKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otp[i] && i > 0) {
+      otpRefs.current[i - 1]?.focus();
+    }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (text.length === 6) {
+      setOtp(text.split(''));
+      otpRefs.current[5]?.focus();
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    const code = otp.join('');
+    if (code.length !== 6) { toast.error('Enter all 6 digits'); return; }
+    setLoading(true);
+    try {
+      const res = await authApi.verify2FA(tempToken, code);
       const { accessToken, user, tenant } = res.data as {
         accessToken: string;
         user: { id: string; email: string; name: string; role: UserRole; tenantId: string };
@@ -47,18 +115,154 @@ function LoginPage() {
       };
       setAuth(user, tenant, accessToken);
       disconnectSocket();
-      toast.success(`Welcome back, ${user.name}!`);
+      toast.success(`Welcome back, ${(user as { name: string }).name}!`);
       router.replace('/dashboard');
     } catch (err: unknown) {
-      const message = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Login failed'
-        : 'Login failed';
-      toast.error(typeof message === 'string' ? message : 'Login failed');
-    } finally { setLoading(false); }
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Incorrect code';
+      toast.error(typeof message === 'string' ? message : 'Incorrect code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setResending(true);
+    try {
+      // Re-submit login to trigger a fresh OTP
+      const res = await authApi.login(form.email, form.password);
+      const data = res.data as { requires2FA: true; tempToken: string };
+      if ('requires2FA' in data) {
+        setTempToken(data.tempToken);
+        setOtp(['', '', '', '', '', '']);
+        toast.success('A new code has been sent to your email');
+        setTimeout(() => otpRefs.current[0]?.focus(), 100);
+      }
+    } catch {
+      toast.error('Failed to resend code');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResending(true);
+    try {
+      await authApi.resendVerification(unverifiedEmail);
+      toast.success('Verification email sent — check your inbox');
+    } catch {
+      toast.error('Failed to send verification email');
+    } finally {
+      setResending(false);
+    }
   };
 
   const handleGoogle = () => { window.location.href = authApi.googleUrl(); };
 
+  // ── STEP: UNVERIFIED EMAIL ─────────────────────────────────────────────────
+  if (step === 'unverified') {
+    return (
+      <div className="w-full max-w-[420px]">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Mail className="w-7 h-7 text-amber-500" />
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Verify your email first</h1>
+          <p className="text-sm text-gray-500 mb-1">We sent a verification link to:</p>
+          <p className="text-sm font-semibold text-gray-800 mb-5">{unverifiedEmail}</p>
+          <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+            Click the link in your email to activate your account. Check your spam folder if you don&apos;t see it.
+          </p>
+          <button
+            onClick={() => void handleResendVerification()}
+            disabled={resending}
+            className="w-full flex items-center justify-center gap-2 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors mb-3 disabled:opacity-50"
+          >
+            {resending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Resend verification email
+          </button>
+          <button
+            onClick={() => setStep('credentials')}
+            className="w-full text-sm text-gray-400 hover:text-gray-600 py-2 transition-colors"
+          >
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP: OTP ─────────────────────────────────────────────────────────────
+  if (step === 'otp') {
+    return (
+      <div className="w-full max-w-[420px]">
+        <div className="lg:hidden flex items-center mb-8 justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="VerzChat" className="h-9" />
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          <div className="flex items-center justify-center mb-5">
+            <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center">
+              <ShieldCheck className="w-7 h-7 text-teal-600" />
+            </div>
+          </div>
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-gray-900">Check your email</h1>
+            <p className="text-gray-500 text-sm mt-2">
+              We sent a 6-digit code to <span className="font-semibold text-gray-700">{form.email}</span>
+            </p>
+          </div>
+
+          <div className="flex items-center justify-center gap-2 mb-6" onPaste={handleOtpPaste}>
+            {otp.map((digit, i) => (
+              <input
+                key={i}
+                ref={(el) => { otpRefs.current[i] = el; }}
+                type="text"
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleOtpChange(i, e.target.value)}
+                onKeyDown={(e) => handleOtpKeyDown(i, e)}
+                className="w-11 h-13 text-center text-xl font-bold border-2 rounded-xl focus:outline-none focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white"
+                style={{ height: '52px' }}
+              />
+            ))}
+          </div>
+
+          <button
+            onClick={() => void handleVerifyOtp()}
+            disabled={loading || otp.join('').length < 6}
+            className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors mb-4"
+          >
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><CheckCircle2 className="w-4 h-4" /> Verify & Sign In</>}
+          </button>
+
+          <div className="flex items-center justify-between text-sm">
+            <button
+              onClick={() => void handleResendOtp()}
+              disabled={resending}
+              className="flex items-center gap-1.5 text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50 transition-colors"
+            >
+              {resending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Resend code
+            </button>
+            <button
+              onClick={() => { setStep('credentials'); setOtp(['', '', '', '', '', '']); }}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Change email
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-400 text-center mt-4">
+            Code expires in 10 minutes. Check your spam folder if you don&apos;t see it.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP: CREDENTIALS ─────────────────────────────────────────────────────
   return (
     <div className="w-full max-w-[420px]">
       <div className="lg:hidden flex items-center mb-8 justify-center">
@@ -72,7 +276,6 @@ function LoginPage() {
           <p className="text-gray-500 text-sm mt-1">Welcome back — enter your credentials to continue.</p>
         </div>
 
-        {/* Google */}
         <button
           onClick={handleGoogle}
           type="button"
@@ -88,7 +291,7 @@ function LoginPage() {
           <div className="flex-1 h-px bg-gray-200" />
         </div>
 
-        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
+        <form onSubmit={(e) => { void handleCredentials(e); }} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
             <div className="relative">

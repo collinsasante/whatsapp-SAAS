@@ -39,6 +39,8 @@ import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { DemoModule } from './demo/demo.module';
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { ReleaseModule } from './release/release.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -103,6 +105,8 @@ import appConfig from './config/app.config';
     FeedbackModule,
     KnowledgeBaseModule,
     DemoModule,
+    FeatureFlagsModule,
+    ReleaseModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
