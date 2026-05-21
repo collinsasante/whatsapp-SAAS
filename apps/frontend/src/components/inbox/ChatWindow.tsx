@@ -2404,13 +2404,6 @@ const MessageBubble = memo(function MessageBubble({
               </button>
             </div>
 
-            {/* Seen info — always visible when read */}
-            {isOutbound && message.readAt && (
-              <div className="text-xs rounded-xl px-3 py-2 space-y-0.5 mt-0.5 bg-teal-50 text-teal-800">
-                <p>Read: {new Date(message.readAt).toLocaleString()}</p>
-              </div>
-            )}
-
             {/* Info expanded (full delivery details) */}
             {showInfo && (
               <div className={cn('text-xs rounded-xl px-3 py-2 space-y-0.5 mt-0.5', isOutbound ? 'bg-teal-50 text-teal-800' : 'bg-gray-50 text-gray-600')}>
