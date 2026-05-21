@@ -157,6 +157,16 @@ export class AuthService {
       });
     }
 
+    // Skip 2FA in local development
+    if (process.env['NODE_ENV'] === 'development') {
+      await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
+      const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+      await this.updateRefreshToken(user.id, tokens.refreshToken);
+      const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+      const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
+      return { ...tokens, user: safeUser, tenant: safeTenant };
+    }
+
     // Generate 6-digit OTP, store hashed
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const codeHash = await bcrypt.hash(code, this.OTP_ROUNDS);
