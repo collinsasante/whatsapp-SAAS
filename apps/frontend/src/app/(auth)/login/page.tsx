@@ -61,6 +61,15 @@ function LoginPage() {
         setStep('otp');
         setOtp(['', '', '', '', '', '']);
         setTimeout(() => otpRefs.current[0]?.focus(), 100);
+      } else {
+        const { accessToken, user, tenant } = data as {
+          accessToken: string;
+          user: { id: string; email: string; name: string; role: UserRole; tenantId: string };
+          tenant: { id: string; name: string; onboardingCompleted: boolean };
+        };
+        setAuth(user, tenant, accessToken);
+        disconnectSocket();
+        router.replace('/dashboard');
       }
     } catch (err: unknown) {
       type ErrBody = { message?: string | { message?: string; code?: string; email?: string }; code?: string; email?: string };
