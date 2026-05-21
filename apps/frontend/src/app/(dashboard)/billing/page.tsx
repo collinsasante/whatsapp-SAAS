@@ -594,50 +594,96 @@ export default function BillingPage() {
                 <p className="text-xs text-gray-300 mt-1">Invoices appear here after your first payment</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                      {['Invoice #', 'Period', 'Amount', 'Status', 'Gateway', 'Date'].map((h) => (
-                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+              <>
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        {['Invoice #', 'Period', 'Amount', 'Status', 'Gateway', 'Date'].map((h) => (
+                          <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {invoices.map((inv) => (
+                        <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 font-mono text-xs text-gray-700 font-medium">{inv.invoiceNumber}</td>
+                          <td className="px-4 py-3 text-xs text-gray-500">
+                            {new Date(inv.billingPeriodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-gray-900">
+                            {inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.total.toFixed(2)}
+                            {inv.discount > 0 && <span className="text-xs text-teal-600 ml-1">(-{inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.discount.toFixed(2)})</span>}
+                            <span className="text-xs font-normal text-gray-400 ml-1">{inv.currency}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium',
+                              inv.status === 'PAID'         ? 'bg-teal-100 text-teal-700' :
+                              inv.status === 'OPEN'         ? 'bg-yellow-100 text-yellow-700' :
+                              inv.status === 'VOID'         ? 'bg-gray-100 text-gray-500' :
+                              inv.status === 'UNCOLLECTIBLE' ? 'bg-red-100 text-red-600' :
+                              'bg-blue-100 text-blue-600')}>
+                              {inv.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-400">
+                            {inv.gateway ? GATEWAY_INFO[inv.gateway]?.label ?? inv.gateway : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                            {inv.paidAt
+                              ? new Date(inv.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                              : new Date(inv.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </td>
+                        </tr>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {invoices.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 font-mono text-xs text-gray-700 font-medium">{inv.invoiceNumber}</td>
-                        <td className="px-4 py-3 text-xs text-gray-500">
-                          {new Date(inv.billingPeriodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-gray-900">
-                          {inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.total.toFixed(2)}
-                          {inv.discount > 0 && <span className="text-xs text-teal-600 ml-1">(-{inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.discount.toFixed(2)})</span>}
-                          <span className="text-xs font-normal text-gray-400 ml-1">{inv.currency}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium',
-                            inv.status === 'PAID'         ? 'bg-teal-100 text-teal-700' :
-                            inv.status === 'OPEN'         ? 'bg-yellow-100 text-yellow-700' :
-                            inv.status === 'VOID'         ? 'bg-gray-100 text-gray-500' :
-                            inv.status === 'UNCOLLECTIBLE' ? 'bg-red-100 text-red-600' :
-                            'bg-blue-100 text-blue-600')}>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile invoice cards */}
+                <div className="md:hidden divide-y divide-gray-100">
+                  {invoices.map((inv) => {
+                    const currSym = inv.currency === 'GHS' ? 'GH₵' : '$';
+                    const statusCls =
+                      inv.status === 'PAID'          ? 'bg-teal-100 text-teal-700' :
+                      inv.status === 'OPEN'          ? 'bg-yellow-100 text-yellow-700' :
+                      inv.status === 'VOID'          ? 'bg-gray-100 text-gray-500' :
+                      inv.status === 'UNCOLLECTIBLE' ? 'bg-red-100 text-red-600' :
+                      'bg-blue-100 text-blue-600';
+                    const dateStr = inv.paidAt
+                      ? new Date(inv.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      : new Date(inv.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    return (
+                      <div key={inv.id} className="px-4 py-4">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="min-w-0">
+                            <p className="font-mono text-xs text-gray-500 truncate">{inv.invoiceNumber}</p>
+                            <p className="text-lg font-bold text-gray-900 leading-tight mt-0.5">
+                              {currSym}{inv.total.toFixed(2)}
+                              <span className="text-xs font-normal text-gray-400 ml-1">{inv.currency}</span>
+                            </p>
+                            {inv.discount > 0 && (
+                              <p className="text-xs text-teal-600">Discount: -{currSym}{inv.discount.toFixed(2)}</p>
+                            )}
+                          </div>
+                          <span className={cn('text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0', statusCls)}>
                             {inv.status}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-400">
-                          {inv.gateway ? GATEWAY_INFO[inv.gateway]?.label ?? inv.gateway : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                          {inv.paidAt
-                            ? new Date(inv.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                            : new Date(inv.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-400">
+                          <span>{new Date(inv.billingPeriodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                          <span className="flex items-center gap-1">
+                            {inv.gateway ? GATEWAY_INFO[inv.gateway]?.label ?? inv.gateway : null}
+                            {inv.gateway && <span className="text-gray-300">·</span>}
+                            {dateStr}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
 

@@ -134,6 +134,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  // Workspace name for mobile header
+  const workspaceName = tenant?.name ?? 'VerzChat';
+  const workspaceInitial = workspaceName[0]?.toUpperCase() ?? 'V';
+
   return (
     <SocketProvider>
       <SyncProvider />
@@ -148,8 +152,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex flex-1 overflow-hidden min-h-0">
           <Sidebar />
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            {/* Top bar with notification bell */}
-            <header className="h-12 flex items-center justify-end px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2">
+            {/* Top bar */}
+            <header className="h-12 flex items-center justify-between px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2">
+              {/* Mobile: workspace identity */}
+              <div className="flex items-center gap-2.5 md:hidden">
+                <div className="w-7 h-7 bg-teal-600 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                  {workspaceInitial}
+                </div>
+                <span className="text-sm font-semibold text-gray-900 truncate max-w-[160px]">
+                  {workspaceName}
+                </span>
+              </div>
+              {/* Desktop spacer */}
+              <div className="hidden md:block" />
               <NotificationBell />
             </header>
             <main className="flex-1 overflow-hidden min-h-0">{children}</main>

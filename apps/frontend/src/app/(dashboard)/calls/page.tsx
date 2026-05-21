@@ -18,6 +18,7 @@ import { useInboxStore } from '@/store/inbox.store';
 import { useCallsStore } from '@/store/calls.store';
 import { cn } from '@/lib/utils';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/modern-ui/table';
+import { BottomSheet } from '@/components/mobile';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -536,7 +537,7 @@ function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
   ];
 
   return (
-    <div className="grid grid-cols-5 gap-3 mb-4 px-1">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4 px-1">
       {items.map(item => (
         <div key={item.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3">
           {item.icon}
@@ -708,6 +709,7 @@ export default function CallsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modal, setModal] = useState<'link' | null>(null);
   const [transferTarget, setTransferTarget] = useState<CallLog | null>(null);
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
 
   const limit = 25;
 
@@ -939,29 +941,76 @@ export default function CallsPage() {
               </div>
             ) : (
               <>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-gray-50 cursor-default">
-                      <TableHead>Contact</TableHead>
-                      <TableHead className="hidden md:table-cell">Duration</TableHead>
-                      <TableHead className="hidden lg:table-cell">Status</TableHead>
-                      <TableHead className="hidden xl:table-cell">Agent</TableHead>
-                      <TableHead className="w-28 pl-2">Time</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {calls.map(call => (
-                      <CallRow
-                        key={call.id} call={call} selected={selectedId === call.id} agents={agents}
-                        onClick={() => setSelectedId(selectedId === call.id ? null : call.id)}
-                        onDial={openDial}
-                        onTransfer={setTransferTarget}
-                        onMessage={call => { void handleMessageContact(call); }}
-                        onRefresh={() => void loadCalls(true)}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
+                {/* Desktop table */}
+                <div className="hidden md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-gray-50 cursor-default">
+                        <TableHead>Contact</TableHead>
+                        <TableHead className="hidden md:table-cell">Duration</TableHead>
+                        <TableHead className="hidden lg:table-cell">Status</TableHead>
+                        <TableHead className="hidden xl:table-cell">Agent</TableHead>
+                        <TableHead className="w-28 pl-2">Time</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {calls.map(call => (
+                        <CallRow
+                          key={call.id} call={call} selected={selectedId === call.id} agents={agents}
+                          onClick={() => setSelectedId(selectedId === call.id ? null : call.id)}
+                          onDial={openDial}
+                          onTransfer={setTransferTarget}
+                          onMessage={call => { void handleMessageContact(call); }}
+                          onRefresh={() => void loadCalls(true)}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mobile call cards */}
+                <div className="md:hidden divide-y divide-gray-100">
+                  {calls.map(call => {
+                    const name = call.contact?.name ?? call.phone ?? 'Unknown';
+                    const phone = call.contact?.phone ?? call.phone ?? '—';
+                    const isMissed = MISSED_STATUSES.has(call.status);
+                    const isActive = ACTIVE_STATUSES.has(call.status);
+                    return (
+                      <button
+                        key={call.id}
+                        onClick={() => { setSelectedId(call.id); setMobileSheetOpen(true); }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-gray-50 transition-colors"
+                      >
+                        <Avatar call={call} size="md" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <span className={cn('text-[15px] font-semibold truncate', isMissed ? 'text-red-600' : 'text-gray-900')}>
+                              {name}
+                            </span>
+                            <span className="text-xs text-gray-400 flex-shrink-0">{timeAgo(call.createdAt)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <DirectionIcon direction={call.direction} size={11} />
+                              <span className="text-xs text-gray-400 truncate">{phone}</span>
+                            </div>
+                            {call.duration ? (
+                              <span className="text-xs text-gray-500 font-mono flex-shrink-0">{formatDuration(call.duration)}</span>
+                            ) : null}
+                            {isActive && (
+                              <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />Live
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <StatusBadge status={resolveDisplayStatus(call)} />
+                        <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {total > limit && (
                   <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100 bg-gray-50/50">
                     <span className="text-xs text-gray-500">Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}</span>
@@ -978,18 +1027,38 @@ export default function CallsPage() {
           </div>
         </div>
 
-        {/* Right detail panel */}
+        {/* Right detail panel — desktop only */}
+        {selected && (
+          <div className="hidden md:flex">
+            <CallDetail
+              call={selected} agents={agents}
+              onClose={() => setSelectedId(null)}
+              onRefresh={() => void loadCalls()}
+              onDial={openDial}
+              onTransfer={setTransferTarget}
+              onMessage={call => { void handleMessageContact(call); }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Mobile call detail bottom sheet */}
+      <BottomSheet
+        open={mobileSheetOpen && !!selected}
+        onClose={() => { setMobileSheetOpen(false); setSelectedId(null); }}
+        height="tall"
+      >
         {selected && (
           <CallDetail
             call={selected} agents={agents}
-            onClose={() => setSelectedId(null)}
+            onClose={() => { setMobileSheetOpen(false); setSelectedId(null); }}
             onRefresh={() => void loadCalls()}
             onDial={openDial}
             onTransfer={setTransferTarget}
             onMessage={call => { void handleMessageContact(call); }}
           />
         )}
-      </div>
+      </BottomSheet>
 
       {/* Modals */}
       {modal === 'link' && <CallLinkModal onClose={() => setModal(null)} />}
