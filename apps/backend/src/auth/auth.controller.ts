@@ -16,7 +16,7 @@ import { CurrentUser } from '../common/decorators/user.decorator';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
 
 const COOKIE_NAME = 'refresh_token';
-const COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const COOKIE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
 @ApiTags('Authentication')
 @Controller('auth')
