@@ -1,7 +1,5 @@
 import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import axios from 'axios';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -59,6 +57,8 @@ export class KnowledgeBaseService {
 
     if (mimeType === 'application/pdf' || filename.endsWith('.pdf')) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
         const data = await pdfParse(file.buffer);
         content = data.text.replace(/\s+/g, ' ').trim();
       } catch (err) {
