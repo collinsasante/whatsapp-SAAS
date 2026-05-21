@@ -16,7 +16,7 @@ interface Conversation {
   unreadCount: number;
   lastMessageAt: string | null;
   labels?: string[];
-  messages?: Array<{ content: string | null; type: string }>;
+  messages?: Array<{ content: string | null; type: string; direction?: string }>;
   channel?: { id: string; type: string; name: string };
   slaDeadline?: string;
   requestedAt?: string;
@@ -270,7 +270,7 @@ const ConvRow = memo(function ConvRow({
                 return conv.requestedAt ? 'Conversation opened' : 'New conversation';
               })()}
             </span>
-            {conv.unreadCount > 0 && (
+            {conv.unreadCount > 0 && conv.messages?.[0]?.direction !== 'OUTBOUND' && (
               <motion.span
                 key={conv.unreadCount}
                 initial={{ scale: 0.7 }}
