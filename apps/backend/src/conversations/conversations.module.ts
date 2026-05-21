@@ -6,11 +6,10 @@ import { CsatProcessor } from './csat.processor';
 import { ActivityLogModule } from '../activity-log/activity-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../realtime/realtime.module';
-import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { QueueName } from '@whatsapp-platform/shared-types';
 
 @Module({
-  imports: [ActivityLogModule, NotificationsModule, RealtimeModule, WhatsappModule, BullModule.registerQueue({ name: QueueName.CSAT_SURVEY })],
+  imports: [ActivityLogModule, NotificationsModule, RealtimeModule, BullModule.registerQueue({ name: QueueName.CSAT_SURVEY })],
   controllers: [ConversationsController],
   providers: [ConversationsService, CsatProcessor],
   exports: [ConversationsService],

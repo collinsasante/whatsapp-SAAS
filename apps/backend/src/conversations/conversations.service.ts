@@ -33,7 +33,6 @@ export class ConversationsService {
     private activityLogService: ActivityLogService,
     private notificationsService: NotificationsService,
     private realtimeService: RealtimeService,
-    private whatsappService: WhatsAppService,
     private moduleRef: ModuleRef,
     @InjectQueue(QueueName.CSAT_SURVEY) private csatQueue: Queue<CsatSurveyJob>,
   ) {}
@@ -455,7 +454,8 @@ export class ConversationsService {
       select: { whatsappMessageId: true },
     });
     if (lastInbound?.whatsappMessageId) {
-      void this.whatsappService.markMessageRead(tenantId, lastInbound.whatsappMessageId).catch(() => null);
+      const waSvc = this.moduleRef.get(WhatsAppService, { strict: false });
+      void waSvc.markMessageRead(tenantId, lastInbound.whatsappMessageId).catch(() => null);
     }
 
     return updated;
