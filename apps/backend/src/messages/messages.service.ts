@@ -468,7 +468,7 @@ export class MessagesService {
 
     // Send welcome message on first-ever inbound message from this contact
     const priorMessageCount = await this.prisma.message.count({
-      where: { tenantId, conversation: { contactId: contact.id }, id: { not: message.id } },
+      where: { tenantId, conversation: { contactId: contact.id }, direction: MessageDirection.INBOUND, id: { not: message.id } },
     });
     if (priorMessageCount === 0) {
       const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { welcomeEnabled: true, welcomeMessage: true } });
