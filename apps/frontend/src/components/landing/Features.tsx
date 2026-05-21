@@ -3,7 +3,7 @@ import Link from 'next/link';
 const SECTIONS = [
   {
     badge: 'Shared Inbox',
-    h2: 'Respond to customers 3× faster than before.',
+    h3: 'Respond to customers 3× faster than before.',
     lead: 'When a message arrives, your entire team sees it instantly. One agent claims it, adds context, and resolves it — no duplicated replies, no Slack threads to track who\'s handling what.',
     bullets: [
       'Real-time agent assignment & routing',
@@ -13,9 +13,8 @@ const SECTIONS = [
     ],
     href: '/book-demo',
     cta: 'See the inbox',
-    flip: false,
     mockup: (
-      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)' }}>
+      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ background: '#161b22', borderBottom: '1px solid rgba(255,255,255,.07)', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(255,77,77,.7)' }} />
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(255,189,68,.7)' }} />
@@ -40,12 +39,16 @@ const SECTIONS = [
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: r.status === 'Replied' ? 'rgba(37,211,102,.1)' : r.status === 'Waiting' ? 'rgba(249,115,22,.1)' : 'rgba(156,163,175,.1)', color: r.status === 'Replied' ? '#25D366' : r.status === 'Waiting' ? '#f97316' : '#9ca3af' }}>{r.status}</span>
           </div>
         ))}
+        <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,.04)' }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>Avg. response time</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#25D366' }}>2m 47s</span>
+        </div>
       </div>
     ),
   },
   {
     badge: 'Campaigns',
-    h2: 'Reply to 10,000 customers without typing each one.',
+    h3: 'Reach 10,000 customers without typing each one.',
     lead: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick an approved template, and fire. Track who got it, who read it, and who clicked — all in real time.',
     bullets: [
       'One-click broadcasts to any contact segment',
@@ -55,9 +58,8 @@ const SECTIONS = [
     ],
     href: '/book-demo',
     cta: 'See campaigns',
-    flip: true,
     mockup: (
-      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)' }}>
+      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ background: '#161b22', borderBottom: '1px solid rgba(255,255,255,.07)', padding: '10px 16px' }}>
           <p style={{ margin: '0 0 2px', fontSize: 11, fontWeight: 800, color: '#fff' }}>Summer Sale Campaign</p>
           <p style={{ margin: 0, fontSize: 9, color: 'rgba(255,255,255,.35)' }}>12,450 recipients · WhatsApp · Sent</p>
@@ -76,13 +78,14 @@ const SECTIONS = [
               <div key={i} style={{ flex: 1, background: i === 7 ? '#25D366' : 'rgba(37,211,102,.2)', borderRadius: 4, height: `${h}%` }} />
             ))}
           </div>
+          <p style={{ margin: '8px 0 0', fontSize: 9, color: 'rgba(255,255,255,.3)', textAlign: 'right' }}>Hourly delivery rate</p>
         </div>
       </div>
     ),
   },
   {
     badge: 'Automation',
-    h2: 'Let the bot handle FAQs. You handle the rest.',
+    h3: 'Let the bot handle FAQs. You handle the rest.',
     lead: 'Set up keyword-triggered chatbot flows in minutes — no code, no developer. The bot handles routine questions 24/7. When it\'s stuck, it hands off to a live agent instantly with full context.',
     bullets: [
       'No-code drag-and-drop flow builder',
@@ -92,12 +95,11 @@ const SECTIONS = [
     ],
     href: '/book-demo',
     cta: 'See automation',
-    flip: false,
     mockup: (
-      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,.18)', padding: 16 }}>
+      <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.5)' }}>Chatbot · Order Support</span>
-          <span style={{ fontSize: 9, fontWeight: 700, color: '#25D366' }}>82% auto-handled</span>
+          <span style={{ fontSize: 9, fontWeight: 700, color: '#25D366', background: 'rgba(37,211,102,.1)', padding: '3px 10px', borderRadius: 20 }}>82% auto-handled</span>
         </div>
         {[
           { lbl: 'Trigger', txt: 'New message received', c: 'rgba(37,211,102,.1)', tc: '#25D366' },
@@ -111,6 +113,10 @@ const SECTIONS = [
             <span style={{ fontSize: 11, color: 'rgba(255,255,255,.7)', fontWeight: 500 }}>{n.txt}</span>
           </div>
         ))}
+        <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(37,211,102,.06)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,.4)' }}>Conversations handled today</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: '#25D366' }}>1,247</span>
+        </div>
       </div>
     ),
   },
@@ -118,32 +124,42 @@ const SECTIONS = [
 
 export default function Features() {
   return (
-    <>
-      {SECTIONS.map((sec) => (
-        <section key={sec.badge} className="svc_sec">
-          <div className="container">
-            <div className={`row align-items-center g-5 ${sec.flip ? 'flex-row-reverse' : ''}`}>
-              <div className="col-lg-6" data-aos={sec.flip ? 'fade-left' : 'fade-right'}>
-                <div className="svc_img">{sec.mockup}</div>
-              </div>
-              <div className="col-lg-6" data-aos={sec.flip ? 'fade-right' : 'fade-left'}>
-                <span className="sec_badge">{sec.badge}</span>
-                <h2>{sec.h2}</h2>
-                <p className="svc_lead">{sec.lead}</p>
-                <ul>
-                  {sec.bullets.map((b) => (
-                    <li key={b}>
-                      <span className="li_dot">✓</span>
-                      {b}
-                    </li>
-                  ))}
-                </ul>
-                <Link href={sec.href} className="btn_dark" style={{ fontSize: 14, padding: '10px 28px' }}>{sec.cta}</Link>
-              </div>
+    <section id="features" className="features_showcase">
+      <div className="container">
+        <div className="text-center sec_title" data-aos="fade-up">
+          <span className="sec_badge">Platform</span>
+          <h2>Everything in One Inbox</h2>
+          <p>Three powerful tools, one platform. Handle every customer conversation without switching tabs or losing context.</p>
+        </div>
+
+        {SECTIONS.map((sec, idx) => (
+          <div
+            key={sec.badge}
+            className={`fs_row${idx % 2 === 1 ? ' fs_row_flip' : ''}`}
+            data-aos="fade-up"
+            data-aos-delay="80"
+          >
+            <div className="fs_content">
+              <div className="fs_num">0{idx + 1}</div>
+              <span className="sec_badge">{sec.badge}</span>
+              <h3 className="fs_h3">{sec.h3}</h3>
+              <p className="fs_lead">{sec.lead}</p>
+              <ul className="fs_bullets">
+                {sec.bullets.map((b) => (
+                  <li key={b}>
+                    <span className="fs_check">✓</span>
+                    {b}
+                  </li>
+                ))}
+              </ul>
+              <Link href={sec.href} className="btn_dark" style={{ fontSize: 14, padding: '10px 28px' }}>
+                {sec.cta} →
+              </Link>
             </div>
+            <div className="fs_visual">{sec.mockup}</div>
           </div>
-        </section>
-      ))}
-    </>
+        ))}
+      </div>
+    </section>
   );
 }
