@@ -253,7 +253,7 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="p-6 max-w-6xl mx-auto space-y-5">
+      <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -328,7 +328,7 @@ export default function DashboardPage() {
                 ))}
               </div>
               {/* Custom date range */}
-              <div className="flex items-center gap-1.5">
+              <div className="hidden sm:flex items-center gap-1.5">
                 <CalendarDays size={13} className="text-gray-400" />
                 <input type="date" value={dateFrom} max={dateTo}
                   onChange={e => { setDateFrom(e.target.value); setPreset('custom'); void loadStats(e.target.value, dateTo); }}

@@ -44,7 +44,7 @@ export default function Proof() {
   const right = REVIEWS.filter((_, i) => i % 2 !== 0);
 
   return (
-    <section className="row_am" style={{ background: '#f8fffe' }}>
+    <section className="py-20 bg-gray-50/40" style={{ borderTop: '1px solid #f3f4f6' }}>
       <div className="container">
         <div className="text-center sec_title" data-aos="fade-up">
           <span className="sec_badge">Testimonials</span>
