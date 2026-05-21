@@ -822,7 +822,7 @@ export default function CallsPage() {
     <div className={cn('h-full flex flex-col overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
 
       {/* ── Page header ── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
+      <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Calls</h1>
@@ -832,11 +832,11 @@ export default function CallsPage() {
             <button onClick={() => { setShowAnalytics(p => !p); }}
               className={cn('flex items-center gap-2 px-3.5 py-2 border rounded-xl text-sm font-medium transition-colors',
                 showAnalytics ? 'bg-teal-50 border-teal-200 text-teal-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50')}>
-              <BarChart2 size={14} />Analytics
+              <BarChart2 size={14} /><span className="hidden sm:inline">Analytics</span>
             </button>
             <button onClick={() => setModal('link')}
               className="flex items-center gap-2 px-3.5 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-              <Link2 size={14} />Call Link
+              <Link2 size={14} /><span className="hidden sm:inline">Call Link</span>
             </button>
             <button onClick={() => openDial()}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">
@@ -860,8 +860,8 @@ export default function CallsPage() {
         )}
 
         {/* Tabs + search row */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto">
             {TABS.map(tab => {
               const count = tabCount(tab.id);
               return (
@@ -887,7 +887,7 @@ export default function CallsPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-gray-100 rounded-xl px-3 py-1.5 border-0">
+            <div className="hidden sm:flex items-center gap-1.5 bg-gray-100 rounded-xl px-3 py-1.5 border-0">
               <span className="text-[11px] text-gray-400 font-medium whitespace-nowrap">From</span>
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
                 className="bg-transparent text-xs text-gray-700 focus:outline-none w-28" />
@@ -900,10 +900,10 @@ export default function CallsPage() {
                 </button>
               )}
             </div>
-            <div className="relative">
+            <div className="relative flex-1 sm:flex-none">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or number…"
-                className="bg-gray-100 border-0 rounded-xl pl-8 pr-8 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:bg-white transition-colors w-44" />
+                className="bg-gray-100 border-0 rounded-xl pl-8 pr-8 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:bg-white transition-colors w-full sm:w-44" />
               {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={12} /></button>}
             </div>
             <button onClick={() => void loadCalls(true)} title="Refresh"

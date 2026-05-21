@@ -246,7 +246,7 @@ function WorkspaceSwitcher() {
         className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center hover:border-teal-200 transition-colors flex-shrink-0 overflow-hidden"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="VerzChat" className="w-7 object-contain" />
+        <img src="/icon.png" alt="VerzChat" className="w-7 object-contain" />
       </button>
 
       {open && (

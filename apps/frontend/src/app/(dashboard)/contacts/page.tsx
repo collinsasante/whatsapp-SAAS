@@ -918,7 +918,7 @@ export default function ContactsPage() {
         activeConversation ? 'hidden md:flex md:w-[560px]' : 'flex-1',
       )}>
         {/* ── Segments Sidebar ── */}
-      <aside className="w-52 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-y-auto">
+      <aside className="hidden md:flex w-52 bg-white border-r border-gray-200 flex-col flex-shrink-0 overflow-y-auto">
         <div className="p-3 border-b border-gray-100">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Segments</p>
         </div>
@@ -958,7 +958,7 @@ export default function ContactsPage() {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header */}
-        <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
+        <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-4 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-xl font-bold text-gray-900">{activeSegment ? activeSegment.name : 'All Contacts'}</h1>
@@ -967,11 +967,11 @@ export default function ContactsPage() {
             <div className="flex items-center gap-2">
               <button onClick={() => setShowImport(true)}
                 className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                <Upload size={15} /> Import CSV
+                <Upload size={15} /><span className="hidden sm:inline">Import CSV</span>
               </button>
               <button onClick={() => { setForm(EMPTY_FORM); setShowCreate(true); }}
                 className="flex items-center gap-2 px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors">
-                <Plus size={15} /> New Contact
+                <Plus size={15} /><span className="hidden sm:inline">New Contact</span>
               </button>
             </div>
           </div>
@@ -1138,7 +1138,7 @@ export default function ContactsPage() {
         </div>
 
         {/* Table */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 md:p-6">
           {loading ? (
             <div className="flex justify-center pt-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" /></div>
           ) : (
