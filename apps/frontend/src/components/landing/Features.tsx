@@ -126,39 +126,41 @@ export default function Features() {
   return (
     <section id="features" className="features_showcase">
       <div className="container">
-        <div className="text-center sec_title" data-aos="fade-up">
-          <span className="sec_badge">Platform</span>
-          <h2>Everything in One Inbox</h2>
-          <p>Three powerful tools, one platform. Handle every customer conversation without switching tabs or losing context.</p>
-        </div>
-
-        {SECTIONS.map((sec, idx) => (
-          <div
-            key={sec.badge}
-            className={`fs_row${idx % 2 === 1 ? ' fs_row_flip' : ''}`}
-            data-aos="fade-up"
-            data-aos-delay="80"
-          >
-            <div className="fs_content">
-              <div className="fs_num">0{idx + 1}</div>
-              <span className="sec_badge">{sec.badge}</span>
-              <h3 className="fs_h3">{sec.h3}</h3>
-              <p className="fs_lead">{sec.lead}</p>
-              <ul className="fs_bullets">
-                {sec.bullets.map((b) => (
-                  <li key={b}>
-                    <span className="fs_check">✓</span>
-                    {b}
-                  </li>
-                ))}
-              </ul>
-              <Link href={sec.href} className="btn_dark" style={{ fontSize: 14, padding: '10px 28px' }}>
-                {sec.cta} →
-              </Link>
-            </div>
-            <div className="fs_visual">{sec.mockup}</div>
+        <div className="features_wrap">
+          <div className="text-center sec_title" data-aos="fade-up">
+            <span className="sec_badge">Platform</span>
+            <h2>Everything in One Inbox</h2>
+            <p>Three powerful tools, one platform. Handle every customer conversation without switching tabs or losing context.</p>
           </div>
-        ))}
+
+          {SECTIONS.map((sec, idx) => (
+            <div
+              key={sec.badge}
+              className={`fs_row${idx % 2 === 1 ? ' fs_row_flip' : ''}`}
+              data-aos="fade-up"
+              data-aos-delay="80"
+            >
+              <div className="fs_content">
+                <div className="fs_num">0{idx + 1}</div>
+                <span className="sec_badge">{sec.badge}</span>
+                <h3 className="fs_h3">{sec.h3}</h3>
+                <p className="fs_lead">{sec.lead}</p>
+                <ul className="fs_bullets">
+                  {sec.bullets.map((b) => (
+                    <li key={b}>
+                      <span className="fs_check">✓</span>
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+                <Link href={sec.href} className="btn_green" style={{ fontSize: 14, padding: '10px 28px' }}>
+                  {sec.cta} →
+                </Link>
+              </div>
+              <div className="fs_visual">{sec.mockup}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );

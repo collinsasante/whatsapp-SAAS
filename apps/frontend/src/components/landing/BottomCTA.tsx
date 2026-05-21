@@ -1,3 +1,5 @@
+'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 
 const STEPS = [
@@ -20,6 +22,8 @@ const FAQS = [
 ];
 
 export default function BottomCTA() {
+  const [open, setOpen] = useState<number | null>(null);
+
   return (
     <>
       {/* How it works */}
@@ -50,26 +54,32 @@ export default function BottomCTA() {
       {/* FAQ */}
       <section id="faq" className="faq_sec">
         <div className="container">
-          <div className="text-center sec_title" data-aos="fade-up">
-            <span className="sec_badge">FAQ</span>
-            <h2>Frequently Asked Questions</h2>
-            <p>
-              Can&apos;t find what you&apos;re looking for? Reach us at{' '}
-              <a href="mailto:support@verzchat.com" style={{ color: 'var(--kp)', textDecoration: 'underline' }}>
-                support@verzchat.com
-              </a>
-            </p>
-          </div>
-
-          <div className="row g-4">
-            {FAQS.map((faq, i) => (
-              <div key={i} className="col-md-6" data-aos="fade-up" data-aos-delay={`${(i % 3) * 60}`}>
-                <div className="faq_item">
-                  <h4 className="faq_q">{faq.q}</h4>
-                  <p className="faq_a">{faq.a}</p>
-                </div>
+          <div className="row g-5 align-items-start">
+            <div className="col-lg-4" data-aos="fade-right">
+              <span className="sec_badge">FAQ</span>
+              <h2 style={{ fontSize: 32, fontWeight: 800, marginTop: 10, marginBottom: 14 }}>Frequently Asked Questions</h2>
+              <p style={{ fontSize: 14, color: 'var(--kp-muted)', lineHeight: 1.75 }}>
+                Can&apos;t find what you&apos;re looking for? Reach us at{' '}
+                <a href="mailto:support@verzchat.com" style={{ color: 'var(--kp)', textDecoration: 'underline' }}>support@verzchat.com</a>
+              </p>
+            </div>
+            <div className="col-lg-8" data-aos="fade-left">
+              <div className="accordion" id="faqAccordion">
+                {FAQS.map((faq, i) => (
+                  <div key={i} className="accordion-item">
+                    <button
+                      className={`accordion-button ${open === i ? '' : 'collapsed'}`}
+                      onClick={() => setOpen(open === i ? null : i)}
+                    >
+                      {faq.q}
+                    </button>
+                    <div className={`accordion-collapse collapse ${open === i ? 'show' : ''}`}>
+                      <div className="accordion-body">{faq.a}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       </section>
