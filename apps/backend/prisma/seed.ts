@@ -4,9 +4,9 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  const DEV_EMAIL    = 'dev@verzchat.com';
-  const DEV_PASSWORD = 'dev123456';
-  const DEV_NAME     = 'Dev Admin';
+  const DEV_EMAIL    = 'mr.asantee@gmail.com';
+  const DEV_PASSWORD = 'Collinsasante1$';
+  const DEV_NAME     = 'Collins Asante';
 
   let tenant = await prisma.tenant.findFirst({ where: { name: 'Dev Workspace' } });
   if (!tenant) {
