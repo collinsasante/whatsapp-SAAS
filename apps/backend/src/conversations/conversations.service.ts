@@ -33,6 +33,7 @@ export class ConversationsService {
     private activityLogService: ActivityLogService,
     private notificationsService: NotificationsService,
     private realtimeService: RealtimeService,
+    private whatsappService: WhatsAppService,
     private moduleRef: ModuleRef,
     @InjectQueue(QueueName.CSAT_SURVEY) private csatQueue: Queue<CsatSurveyJob>,
   ) {}
