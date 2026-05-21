@@ -1229,7 +1229,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'url(/chat-bg.png)', backgroundSize: 'auto', backgroundRepeat: 'repeat', backgroundColor: '#f0ebe3' }}>
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'url(/chat-bg.jpg)', backgroundSize: 'auto', backgroundRepeat: 'repeat', backgroundColor: '#f8f5f1', backgroundBlendMode: 'screen' }}>
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
             ) : timeline.length === 0 ? (
