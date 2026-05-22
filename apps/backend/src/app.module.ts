@@ -41,6 +41,7 @@ import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
 import { DemoModule } from './demo/demo.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ReleaseModule } from './release/release.module';
+import { WhatsAppNumbersModule } from './whatsapp-numbers/whatsapp-numbers.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -107,6 +108,7 @@ import appConfig from './config/app.config';
     DemoModule,
     FeatureFlagsModule,
     ReleaseModule,
+    WhatsAppNumbersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -269,7 +269,7 @@ export class MessagesService {
     location?: { latitude: number; longitude: number; name?: string; address?: string };
     contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
     interactive?: { type: 'list_reply' | 'button_reply'; list_reply?: { id: string; title: string }; button_reply?: { id: string; title: string } };
-  }, profileName?: string) {
+  }, profileName?: string, incomingPhoneNumberId?: string) {
     // Handle CSAT survey reply BEFORE findOrCreate — prevents reopening the resolved conversation
     // and ensures the score is written back to the correct (resolved) conversation so resolvedById
     // remains intact and the agent's rating appears in the analytics table.
@@ -338,6 +338,21 @@ export class MessagesService {
 
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id);
+
+    // Tag conversation with which WhatsApp number received this message (first time only)
+    if (incomingPhoneNumberId && !conversation.whatsappNumberId) {
+      const waNum = await this.prisma.whatsAppNumber.findUnique({
+        where: { tenantId_phoneNumberId: { tenantId, phoneNumberId: incomingPhoneNumberId } },
+        select: { id: true },
+      });
+      if (waNum) {
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { whatsappNumberId: waNum.id },
+        });
+        (conversation as { whatsappNumberId?: string }).whatsappNumberId = waNum.id;
+      }
+    }
 
     // Migrate any legacy OPEN conversations to REQUESTING on next inbound message
     if (conversation.status === 'OPEN') {

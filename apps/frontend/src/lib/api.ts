@@ -434,6 +434,16 @@ export const publicApi = {
     tenantId ? api.get<Record<string, boolean>>('/feature-flags/my') : Promise.resolve({ data: {} as Record<string, boolean> }),
 };
 
+export const whatsappNumbersApi = {
+  list: () => api.get('/whatsapp-numbers'),
+  create: (data: { label: string; phoneNumberId: string; wabaId: string; accessToken: string; isDefault?: boolean }) =>
+    api.post('/whatsapp-numbers', data),
+  update: (id: string, data: { label?: string; phoneNumberId?: string; wabaId?: string; accessToken?: string; isActive?: boolean }) =>
+    api.patch(`/whatsapp-numbers/${id}`, data),
+  setDefault: (id: string) => api.patch(`/whatsapp-numbers/${id}/set-default`),
+  delete: (id: string) => api.delete(`/whatsapp-numbers/${id}`),
+};
+
 export const knowledgeBaseApi = {
   list: () => api.get('/knowledge-base'),
   create: (data: { title: string; content: string; isActive?: boolean }) =>
