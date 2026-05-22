@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, HttpCode } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
@@ -73,6 +73,13 @@ export class CampaignsController {
     @Query('search') search?: string,
   ) {
     return this.campaignsService.getRecipients(tenantId, id, +page, +limit, status, search);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Delete a draft or failed campaign' })
+  remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.campaignsService.delete(tenantId, id);
   }
 
   @Post('estimate-recipients')

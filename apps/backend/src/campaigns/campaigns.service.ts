@@ -246,6 +246,16 @@ export class CampaignsService {
     return { count };
   }
 
+  async delete(tenantId: string, campaignId: string) {
+    const campaign = await this.findOne(tenantId, campaignId);
+    if (!([CampaignStatus.DRAFT, CampaignStatus.FAILED] as CampaignStatus[]).includes(campaign.status as CampaignStatus)) {
+      throw new BadRequestException('Only draft or failed campaigns can be deleted');
+    }
+    await this.prisma.campaignRecipient.deleteMany({ where: { campaignId } });
+    await this.prisma.campaign.delete({ where: { id: campaignId } });
+    return { deleted: true };
+  }
+
   async pause(tenantId: string, campaignId: string) {
     const campaign = await this.findOne(tenantId, campaignId);
     if (campaign.status !== CampaignStatus.RUNNING) {

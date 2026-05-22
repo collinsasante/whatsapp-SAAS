@@ -201,6 +201,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [localStatus, setLocalStatus] = useState(conversation.status);
   const [tookOver, setTookOver] = useState(false);
+
+  // Keep localStatus in sync when the conversation status changes via socket
+  useEffect(() => {
+    setLocalStatus(conversation.status);
+  }, [conversation.status]);
   const [replyTo, setReplyTo] = useState<{ id: string; content?: string; type: string; direction: string; mediaCaption?: string } | null>(null);
 
   // Transfer
@@ -835,7 +840,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         intervenedAt: data.intervenedAt,
       });
       toast.success('You are now handling this conversation');
-    } catch { toast.error('Failed to intervene'); }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(typeof msg === 'string' ? msg : 'Failed to intervene — conversation may have been taken by another agent');
+    }
   };
 
   const handleMarkPending = async () => {

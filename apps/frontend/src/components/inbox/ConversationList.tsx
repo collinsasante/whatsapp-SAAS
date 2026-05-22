@@ -425,7 +425,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         }
         const name = c.contact.name ?? c.contact.phone;
         const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
-        const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
+        const matchesStatus = statusFilter === 'All' ? c.status !== 'RESOLVED' : c.status === statusFilter;
         const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
         const matchesMember = memberFilter === 'All'

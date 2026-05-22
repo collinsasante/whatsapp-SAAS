@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Plus, Play, Pause, BarChart3, X, AlertCircle, Search, RefreshCw,
   ChevronRight, Users, Send, CheckCheck, Eye,
-  Filter, Upload, Tag, Layers,
+  Filter, Upload, Tag, Layers, Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { campaignsApi, templatesApi, segmentsApi } from '@/lib/api';
@@ -114,6 +114,7 @@ export default function CampaignsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pausingId, setPausingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [audienceMode, setAudienceMode] = useState<AudienceMode>('all');
   const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
   const [estimating, setEstimating] = useState(false);
@@ -265,6 +266,17 @@ export default function CampaignsPage() {
       else toast.error('Failed to pause');
     }
     finally { setPausingId(null); }
+  };
+
+  const deleteCampaign = async (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    setDeletingId(id);
+    try { await campaignsApi.delete(id); await load(); toast.success('Campaign deleted'); }
+    catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(typeof msg === 'string' ? msg : 'Failed to delete campaign');
+    }
+    finally { setDeletingId(null); }
   };
 
   const filtered = campaigns.filter((c) => {
@@ -426,6 +438,14 @@ export default function CampaignsPage() {
                                 <Play size={11} />Resume
                               </button>
                             )}
+                            {(campaign.status === 'DRAFT' || campaign.status === 'FAILED') && (
+                              <button onClick={() => { void deleteCampaign(campaign.id, campaign.name); }}
+                                disabled={deletingId === campaign.id}
+                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                title="Delete campaign">
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -519,8 +539,16 @@ export default function CampaignsPage() {
                             <Play size={11} />Resume
                           </button>
                         )}
-                        {(campaign.status === 'COMPLETED' || campaign.status === 'FAILED') && (
+                        {campaign.status === 'COMPLETED' && (
                           <ChevronRight size={16} className="text-gray-300" />
+                        )}
+                        {(campaign.status === 'DRAFT' || campaign.status === 'FAILED') && (
+                          <button onClick={() => { void deleteCampaign(campaign.id, campaign.name); }}
+                            disabled={deletingId === campaign.id}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                            title="Delete campaign">
+                            <Trash2 size={14} />
+                          </button>
                         )}
                       </div>
                     </div>

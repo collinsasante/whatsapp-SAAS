@@ -134,18 +134,20 @@ export const useInboxStore = create<InboxState>((set) => ({
 
       const isInbound = message.direction === MessageDirection.INBOUND;
       const inboundUpdate = isInbound ? { lastInboundAt: message.createdAt as unknown as string } : {};
-      // Zero badge for outbound (agent sent) OR when agent is currently viewing this conversation
       const isActiveConv = conversationId === state.activeConversationId;
-      const outboundUpdate = (!isInbound || isActiveConv) ? { unreadCount: 0 } : {};
 
       const updatedConv = state.conversations.find((c) => c.id === conversationId);
+      // Zero badge for outbound or when agent is viewing this conversation; increment for unread inbound
+      const badgeUpdate = (!isInbound || isActiveConv)
+        ? { unreadCount: 0 }
+        : { unreadCount: (updatedConv?.unreadCount ?? 0) + 1 };
       const updatedConvData = updatedConv
         ? {
             ...updatedConv,
             lastMessageAt: message.createdAt as unknown as string,
             messages: [{ id: message.id, content: message.content, type: message.type, direction: message.direction }],
             ...inboundUpdate,
-            ...outboundUpdate,
+            ...badgeUpdate,
           }
         : null;
 

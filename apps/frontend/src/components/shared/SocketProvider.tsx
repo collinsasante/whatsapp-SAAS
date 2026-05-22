@@ -108,8 +108,21 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setSocketAuthErrorHandler(() => {
-      clearAuth();
-      router.replace('/login?_r=socket-auth');
+      // Before giving up, try a silent token refresh — the access token may have
+      // just expired (15 min TTL) while the socket was idle. If refresh works,
+      // getSocket() will detect the new token and reconnect with it automatically.
+      import('@/lib/api').then(({ silentRefresh }) =>
+        silentRefresh()
+          .then(() => {
+            // New token is now in localStorage — force socket recreation
+            const sock = getSocket();
+            if (!sock.connected) sock.connect();
+          })
+          .catch(() => {
+            clearAuth();
+            router.replace('/login?_r=socket-auth');
+          }),
+      );
     });
     // On unmount: clear the handler and deauthorize the socket so stale connect_error
     // events can't fire the handler for a new session that's being set up.

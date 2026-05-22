@@ -205,6 +205,7 @@ export const campaignsApi = {
   create: (data: Record<string, unknown>) => api.post('/campaigns', data),
   launch: (id: string) => api.post(`/campaigns/${id}/launch`),
   pause: (id: string) => api.post(`/campaigns/${id}/pause`),
+  delete: (id: string) => api.delete(`/campaigns/${id}`),
   estimateRecipients: (data: { segmentId?: string; labels?: string[]; phones?: string[] }) =>
     api.post('/campaigns/estimate-recipients', data),
   getRecipients: (id: string, params?: Record<string, unknown>) =>
