@@ -3,7 +3,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2, Building2 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
 import { useAuthStore } from '@/store/auth.store';
@@ -20,7 +20,8 @@ function GoogleIcon() {
   );
 }
 
-type Step = 'credentials' | 'otp' | 'unverified';
+type Step = 'credentials' | 'otp' | 'unverified' | 'workspace-picker';
+type Workspace = { id: string; name: string; logoUrl: string | null };
 
 function LoginPage() {
   const router = useRouter();
@@ -32,8 +33,9 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // OTP step
+  // OTP / workspace-picker step state
   const [tempToken, setTempToken] = useState('');
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [resending, setResending] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
@@ -54,9 +56,14 @@ function LoginPage() {
       const res = await authApi.login(form.email, form.password);
       const data = res.data as
         | { requires2FA: true; tempToken: string }
+        | { requiresWorkspaceSelection: true; workspaces: Workspace[]; tempToken: string }
         | { accessToken: string; user: object; tenant: object };
 
-      if ('requires2FA' in data) {
+      if ('requiresWorkspaceSelection' in data) {
+        setTempToken(data.tempToken);
+        setWorkspaces(data.workspaces);
+        setStep('workspace-picker');
+      } else if ('requires2FA' in data) {
         setTempToken(data.tempToken);
         setStep('otp');
         setOtp(['', '', '', '', '', '']);
@@ -165,7 +172,78 @@ function LoginPage() {
     }
   };
 
+  const handleSelectWorkspace = async (tenantId: string) => {
+    setLoading(true);
+    try {
+      const res = await authApi.selectWorkspace(tempToken, tenantId);
+      const { accessToken, user, tenant } = res.data as {
+        accessToken: string;
+        user: { id: string; email: string; name: string; role: UserRole; tenantId: string };
+        tenant: { id: string; name: string; onboardingCompleted: boolean };
+      };
+      setAuth(user, tenant, accessToken);
+      disconnectSocket();
+      router.replace('/dashboard');
+    } catch {
+      toast.error('Failed to select workspace. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGoogle = () => { window.location.href = authApi.googleUrl(); };
+
+  // ── STEP: WORKSPACE PICKER ────────────────────────────────────────────────
+  if (step === 'workspace-picker') {
+    return (
+      <div className="w-full max-w-[420px]">
+        <div className="lg:hidden flex items-center mb-8 justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="VerzChat" className="h-9" />
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          <div className="flex items-center justify-center mb-5">
+            <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center">
+              <Building2 className="w-7 h-7 text-teal-600" />
+            </div>
+          </div>
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-gray-900">Select a workspace</h1>
+            <p className="text-gray-500 text-sm mt-2">
+              Your email is linked to multiple workspaces. Choose one to continue.
+            </p>
+          </div>
+
+          <div className="space-y-2.5">
+            {workspaces.map((ws) => (
+              <button
+                key={ws.id}
+                onClick={() => void handleSelectWorkspace(ws.id)}
+                disabled={loading}
+                className="w-full flex items-center gap-3.5 px-4 py-3.5 border border-gray-200 rounded-xl hover:border-teal-400 hover:bg-teal-50/40 transition-all text-left disabled:opacity-50 group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center flex-shrink-0 group-hover:bg-teal-200 transition-colors overflow-hidden">
+                  {ws.logoUrl
+                    ? <img src={ws.logoUrl} alt={ws.name} className="w-full h-full object-cover" />
+                    : <span className="text-teal-700 font-bold text-base">{ws.name[0]?.toUpperCase()}</span>
+                  }
+                </div>
+                <span className="flex-1 text-sm font-semibold text-gray-800 group-hover:text-teal-700 transition-colors truncate">{ws.name}</span>
+                {loading ? <Loader2 className="w-4 h-4 animate-spin text-teal-500" /> : <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-teal-500 transition-colors" />}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => { setStep('credentials'); setWorkspaces([]); }}
+            className="w-full text-sm text-gray-400 hover:text-gray-600 py-3 mt-3 transition-colors"
+          >
+            ← Back to sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── STEP: UNVERIFIED EMAIL ─────────────────────────────────────────────────
   if (step === 'unverified') {

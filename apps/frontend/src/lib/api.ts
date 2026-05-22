@@ -95,6 +95,8 @@ export const authApi = {
     api.post('/auth/login', { email, password }),
   verify2FA: (tempToken: string, code: string) =>
     api.post('/auth/verify-2fa', { tempToken, code }),
+  selectWorkspace: (tempToken: string, tenantId: string) =>
+    api.post('/auth/select-workspace', { tempToken, tenantId }),
   register: (name: string, email: string, password: string, phoneNumber?: string) =>
     api.post('/auth/register', { name, email, password, ...(phoneNumber ? { phoneNumber } : {}) }),
   verifyEmail: (token: string) =>
