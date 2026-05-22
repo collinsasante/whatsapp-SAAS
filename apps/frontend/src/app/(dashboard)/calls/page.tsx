@@ -821,7 +821,7 @@ export default function CallsPage() {
   };
 
   return (
-    <div className={cn('flex flex-col md:absolute md:inset-0 md:overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
+    <div className={cn('h-full flex flex-col overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
 
       {/* ── Page header ── */}
       <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
@@ -917,11 +917,11 @@ export default function CallsPage() {
       </div>
 
       {/* ── Content area ── */}
-      <div className="md:flex-1 md:flex md:overflow-hidden">
-        <div className="md:flex-1 md:flex md:flex-col md:overflow-hidden bg-white">
+      <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden bg-white">
 
           {/* Table */}
-          <div className="md:flex-1 md:overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="divide-y divide-gray-100">
                 {Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)}
