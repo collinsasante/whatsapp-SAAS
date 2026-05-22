@@ -61,14 +61,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [clearAuth]);
 
   const restoreSession = useCallback(async () => {
-    // Already have a valid access token in memory — nothing to do
+    // Already have a valid access token in Zustand memory — nothing to do
     if (accessToken) return;
 
+    // Token survives in localStorage across refreshes — restore it into Zustand
+    // without hitting the network. The 401 interceptor will handle expiry lazily.
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    if (stored) {
+      setAccessToken(stored);
+      return;
+    }
+
+    // No token anywhere — try silent refresh via the HttpOnly cookie
     setRestoring(true);
     try {
       const newToken = await silentRefresh();
       setAccessToken(newToken);
-    } catch (err) {
+    } catch {
       clearAuth();
       router.replace('/login?_r=restore-fail');
     } finally {
