@@ -97,7 +97,7 @@ export class CampaignsService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { template: { select: { name: true, language: true } } },
+        include: { template: { select: { name: true, language: true, category: true } } },
       }),
       this.prisma.campaign.count({ where: { tenantId } }),
     ]);

@@ -130,6 +130,7 @@ export default function CampaignsPage() {
 
   const selectedTemplate = templates.find((t) => t.id === form.templateId) ?? null;
   const templateVars = selectedTemplate ? extractVariables(selectedTemplate.components) : [];
+  const isUtility = selectedTemplate?.category?.toUpperCase() === 'UTILITY';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -542,7 +543,7 @@ export default function CampaignsPage() {
                 <button onClick={() => { setShowCreate(false); resetForm(); }}><X size={18} className="text-gray-400" /></button>
               </div>
               <div className="flex items-center gap-2">
-                {['Template', 'Variables', 'Audience & Schedule'].map((label, i) => (
+                {['Template', 'Variables', isUtility ? 'Schedule' : 'Audience & Schedule'].map((label, i) => (
                   <div key={label} className="flex items-center gap-2 flex-1">
                     <div className="flex items-center gap-1.5">
                       <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
@@ -645,119 +646,127 @@ export default function CampaignsPage() {
 
               {step === 3 && (
                 <div className="space-y-5">
+                  {isUtility && (
+                    <div className="flex items-start gap-2 text-xs text-blue-700 bg-blue-50 px-3 py-2.5 rounded-xl border border-blue-200">
+                      <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+                      <span>Utility templates are transactional and will be sent to all opted-in contacts automatically — no audience selection needed.</span>
+                    </div>
+                  )}
                   {/* Audience mode tabs */}
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700 mb-2 block">Select Audience</label>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {([
-                        { mode: 'all' as AudienceMode, icon: Users, label: 'All Contacts' },
-                        { mode: 'segment' as AudienceMode, icon: Layers, label: 'Segment' },
-                        { mode: 'label' as AudienceMode, icon: Tag, label: 'By Label' },
-                        { mode: 'csv' as AudienceMode, icon: Upload, label: 'CSV Upload' },
-                      ]).map(({ mode, icon: Icon, label }) => (
-                        <button key={mode} onClick={() => setAudienceMode(mode)}
-                          className={cn('flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-colors',
-                            audienceMode === mode
-                              ? 'bg-teal-600 text-white border-teal-600'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300 hover:text-teal-600')}>
-                          <Icon size={16} />
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Audience-specific inputs */}
-                  {audienceMode === 'all' && (
-                    <p className="text-sm text-gray-500 bg-gray-50 rounded-xl p-3">
-                      All opted-in, non-blocked contacts in your account will receive this campaign.
-                    </p>
-                  )}
-
-                  {audienceMode === 'segment' && (
+                  {!isUtility && <>
                     <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Choose Segment</label>
-                      {segments.length === 0 ? (
-                        <p className="text-xs text-amber-600 bg-amber-50 rounded-xl p-3">
-                          No segments yet. Create one in the Contacts page first.
-                        </p>
-                      ) : (
-                        <select value={form.segmentId}
-                          onChange={(e) => setForm(f => ({ ...f, segmentId: e.target.value }))}
-                          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                          <option value="">Select a segment…</option>
-                          {segments.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.contactCount.toLocaleString()} contacts)</option>
-                          ))}
-                        </select>
-                      )}
+                      <label className="text-xs font-semibold text-gray-700 mb-2 block">Select Audience</label>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {([
+                          { mode: 'all' as AudienceMode, icon: Users, label: 'All Contacts' },
+                          { mode: 'segment' as AudienceMode, icon: Layers, label: 'Segment' },
+                          { mode: 'label' as AudienceMode, icon: Tag, label: 'By Label' },
+                          { mode: 'csv' as AudienceMode, icon: Upload, label: 'CSV Upload' },
+                        ]).map(({ mode, icon: Icon, label }) => (
+                          <button key={mode} onClick={() => setAudienceMode(mode)}
+                            className={cn('flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-medium transition-colors',
+                              audienceMode === mode
+                                ? 'bg-teal-600 text-white border-teal-600'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300 hover:text-teal-600')}>
+                            <Icon size={16} />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  )}
 
-                  {audienceMode === 'label' && (
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Labels</label>
-                      <input type="text" placeholder="vip, premium, ghana"
-                        value={form.labels} onChange={(e) => setForm(f => ({ ...f, labels: e.target.value }))}
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                      <p className="text-xs text-gray-400 mt-1">Comma-separated. Contacts matching any label are included.</p>
-                    </div>
-                  )}
+                    {/* Audience-specific inputs */}
+                    {audienceMode === 'all' && (
+                      <p className="text-sm text-gray-500 bg-gray-50 rounded-xl p-3">
+                        All opted-in, non-blocked contacts in your account will receive this campaign.
+                      </p>
+                    )}
 
-                  {audienceMode === 'csv' && (
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Upload Phone List</label>
-                      <input ref={csvInputRef} type="file" accept=".csv,.txt" className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const text = ev.target?.result as string;
-                            const phones = text.split(/[\n,;]+/)
-                              .map(p => p.trim().replace(/\s+/g, '').replace(/[^+\d]/g, ''))
-                              .filter(p => p.length >= 7);
-                            setForm(f => ({ ...f, csvPhones: phones, csvFileName: file.name }));
-                          };
-                          reader.readAsText(file);
-                        }} />
-                      {form.csvPhones.length > 0 ? (
-                        <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl p-3">
-                          <div>
-                            <p className="text-sm font-semibold text-teal-800">{form.csvFileName}</p>
-                            <p className="text-xs text-teal-600">{form.csvPhones.length.toLocaleString()} phone numbers found</p>
+                    {audienceMode === 'segment' && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Choose Segment</label>
+                        {segments.length === 0 ? (
+                          <p className="text-xs text-amber-600 bg-amber-50 rounded-xl p-3">
+                            No segments yet. Create one in the Contacts page first.
+                          </p>
+                        ) : (
+                          <select value={form.segmentId}
+                            onChange={(e) => setForm(f => ({ ...f, segmentId: e.target.value }))}
+                            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                            <option value="">Select a segment…</option>
+                            {segments.map(s => (
+                              <option key={s.id} value={s.id}>{s.name} ({s.contactCount.toLocaleString()} contacts)</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    {audienceMode === 'label' && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Labels</label>
+                        <input type="text" placeholder="vip, premium, ghana"
+                          value={form.labels} onChange={(e) => setForm(f => ({ ...f, labels: e.target.value }))}
+                          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                        <p className="text-xs text-gray-400 mt-1">Comma-separated. Contacts matching any label are included.</p>
+                      </div>
+                    )}
+
+                    {audienceMode === 'csv' && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Upload Phone List</label>
+                        <input ref={csvInputRef} type="file" accept=".csv,.txt" className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const text = ev.target?.result as string;
+                              const phones = text.split(/[\n,;]+/)
+                                .map(p => p.trim().replace(/\s+/g, '').replace(/[^+\d]/g, ''))
+                                .filter(p => p.length >= 7);
+                              setForm(f => ({ ...f, csvPhones: phones, csvFileName: file.name }));
+                            };
+                            reader.readAsText(file);
+                          }} />
+                        {form.csvPhones.length > 0 ? (
+                          <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl p-3">
+                            <div>
+                              <p className="text-sm font-semibold text-teal-800">{form.csvFileName}</p>
+                              <p className="text-xs text-teal-600">{form.csvPhones.length.toLocaleString()} phone numbers found</p>
+                            </div>
+                            <button onClick={() => setForm(f => ({ ...f, csvPhones: [], csvFileName: '' }))}
+                              className="text-teal-500 hover:text-teal-700 text-xs underline">Clear</button>
                           </div>
-                          <button onClick={() => setForm(f => ({ ...f, csvPhones: [], csvFileName: '' }))}
-                            className="text-teal-500 hover:text-teal-700 text-xs underline">Clear</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => csvInputRef.current?.click()}
-                          className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-teal-300 hover:text-teal-500 transition-colors flex flex-col items-center gap-2">
-                          <Upload size={20} />
-                          <span>Click to upload CSV or TXT</span>
-                          <span className="text-xs">One phone number per line, or comma-separated</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
+                        ) : (
+                          <button onClick={() => csvInputRef.current?.click()}
+                            className="w-full py-8 border-2 border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-teal-300 hover:text-teal-500 transition-colors flex flex-col items-center gap-2">
+                            <Upload size={20} />
+                            <span>Click to upload CSV or TXT</span>
+                            <span className="text-xs">One phone number per line, or comma-separated</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
 
-                  {/* Live count */}
-                  <div className={cn('flex items-center gap-3 rounded-xl p-3.5 border',
-                    estimatedCount !== null ? 'bg-teal-50 border-teal-100' : 'bg-gray-50 border-gray-200')}>
-                    <Users size={18} className={estimatedCount !== null ? 'text-teal-600' : 'text-gray-400'} />
-                    <div>
-                      {estimating ? (
-                        <p className="text-sm text-gray-500">Estimating…</p>
-                      ) : estimatedCount !== null ? (
-                        <>
-                          <p className="font-semibold text-teal-800 text-sm">{estimatedCount.toLocaleString()} recipients</p>
-                          <p className="text-xs text-teal-600">Opted-in, non-blocked contacts matching this selection</p>
-                        </>
-                      ) : (
-                        <p className="text-sm text-gray-500">Select audience to see recipient count</p>
-                      )}
+                    {/* Live count */}
+                    <div className={cn('flex items-center gap-3 rounded-xl p-3.5 border',
+                      estimatedCount !== null ? 'bg-teal-50 border-teal-100' : 'bg-gray-50 border-gray-200')}>
+                      <Users size={18} className={estimatedCount !== null ? 'text-teal-600' : 'text-gray-400'} />
+                      <div>
+                        {estimating ? (
+                          <p className="text-sm text-gray-500">Estimating…</p>
+                        ) : estimatedCount !== null ? (
+                          <>
+                            <p className="font-semibold text-teal-800 text-sm">{estimatedCount.toLocaleString()} recipients</p>
+                            <p className="text-xs text-teal-600">Opted-in, non-blocked contacts matching this selection</p>
+                          </>
+                        ) : (
+                          <p className="text-sm text-gray-500">Select audience to see recipient count</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  </>}
 
                   {/* Schedule */}
                   <div>
