@@ -61,7 +61,7 @@ export class AuthService {
           name: dto.name,
           passwordHash,
           role: 'ADMIN',
-          emailVerified: false,
+          emailVerified: process.env['SKIP_EMAIL_VERIFICATION'] === 'true',
           emailVerifyToken: verifyToken,
           emailVerifyExpiry: verifyExpiry,
         },
@@ -160,7 +160,7 @@ export class AuthService {
         select: { id: true, name: true, logoUrl: true },
       });
 
-      if (!authenticatedUser.emailVerified) {
+      if (!authenticatedUser.emailVerified && process.env['SKIP_EMAIL_VERIFICATION'] !== 'true') {
         throw new ForbiddenException({
           message: 'Please verify your email before signing in.',
           code: 'email_not_verified',
@@ -183,7 +183,7 @@ export class AuthService {
     if (!tenant) throw new UnauthorizedException('Workspace not found');
     if (!user.passwordHash) throw new UnauthorizedException('Please sign in with Google');
 
-    if (!user.emailVerified) {
+    if (!user.emailVerified && process.env['SKIP_EMAIL_VERIFICATION'] !== 'true') {
       throw new ForbiddenException({
         message: 'Please verify your email before signing in.',
         code: 'email_not_verified',
