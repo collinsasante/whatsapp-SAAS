@@ -64,7 +64,7 @@ export function BottomSheet({
 
       {/* sheet */}
       <div
-        style={{ transform: `translateY(${open ? translateY : '100%'}px)` }}
+        style={{ transform: open ? `translateY(${translateY}px)` : 'translateY(100%)' }}
         className={cn(
           'relative w-full bg-white rounded-t-[22px] shadow-2xl flex flex-col safe-area-bottom',
           !dragging && 'transition-transform duration-300 ease-out',

@@ -88,6 +88,23 @@ export class AuthController {
     return safe;
   }
 
+  @Post('select-workspace')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Complete login by selecting a workspace (multi-workspace accounts)' })
+  async selectWorkspace(
+    @Body() body: { tempToken: string; tenantId: string },
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    const result = await this.authService.selectWorkspace(body.tempToken, body.tenantId, ip);
+    this.setRefreshCookie(res, result.refreshToken);
+    const { refreshToken: _, ...safe } = result;
+    return safe;
+  }
+
   @Post('verify-2fa')
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)

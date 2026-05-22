@@ -1,9 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, Phone, ArrowRight, Loader2, Search, ChevronDown } from 'lucide-react';
 import { authApi } from '@/lib/api';
 
 function PasswordStrength({ password }: { password: string }) {
@@ -96,6 +96,22 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [codeSearch, setCodeSearch] = useState('');
+  const codeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (codeRef.current && !codeRef.current.contains(e.target as Node)) setCodeOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filteredCodes = COUNTRY_CODES.filter((c) =>
+    c.label.toLowerCase().includes(codeSearch.toLowerCase())
+  );
+  const selectedLabel = COUNTRY_CODES.find((c) => c.code === form.countryCode)?.label ?? form.countryCode;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +123,9 @@ export default function RegisterPage() {
       const data = res.data as { requiresEmailVerification: boolean; email: string };
       if (data.requiresEmailVerification) {
         router.push(`/verify-email/pending?email=${encodeURIComponent(data.email)}`);
+      } else {
+        toast.success('Account created! Please sign in.');
+        router.push('/login');
       }
     } catch (err: unknown) {
       const message = err && typeof err === 'object' && 'response' in err
@@ -153,10 +172,39 @@ export default function RegisterPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Phone Number <span className="text-gray-400 font-normal">(optional)</span></label>
             <div className="flex gap-2">
-              <select value={form.countryCode} onChange={(e) => setForm((f) => ({ ...f, countryCode: e.target.value }))}
-                className="w-28 px-2 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white flex-shrink-0">
-                {COUNTRY_CODES.map((c, i) => <option key={`${c.label}-${i}`} value={c.code}>{c.label}</option>)}
-              </select>
+              <div ref={codeRef} className="relative flex-shrink-0">
+                <button type="button" onClick={() => { setCodeOpen((v) => !v); setCodeSearch(''); }}
+                  className="w-28 flex items-center justify-between gap-1 px-2 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 hover:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors">
+                  <span className="truncate">{selectedLabel}</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                </button>
+                {codeOpen && (
+                  <div className="absolute z-50 top-full mt-1 left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                    <div className="p-2 border-b border-gray-100">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                        <input autoFocus type="text" placeholder="Search country…" value={codeSearch}
+                          onChange={(e) => setCodeSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-teal-500" />
+                      </div>
+                    </div>
+                    <ul className="max-h-48 overflow-y-auto">
+                      {filteredCodes.length === 0 && (
+                        <li className="px-3 py-2 text-sm text-gray-400">No results</li>
+                      )}
+                      {filteredCodes.map((c, i) => (
+                        <li key={`${c.label}-${i}`}>
+                          <button type="button"
+                            onClick={() => { setForm((f) => ({ ...f, countryCode: c.code })); setCodeOpen(false); setCodeSearch(''); }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${form.countryCode === c.code ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-700'}`}>
+                            {c.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
               <div className="relative flex-1">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input type="tel" placeholder="234 567 8900" value={form.phoneNumber}

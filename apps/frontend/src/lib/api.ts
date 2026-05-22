@@ -95,6 +95,8 @@ export const authApi = {
     api.post('/auth/login', { email, password }),
   verify2FA: (tempToken: string, code: string) =>
     api.post('/auth/verify-2fa', { tempToken, code }),
+  selectWorkspace: (tempToken: string, tenantId: string) =>
+    api.post('/auth/select-workspace', { tempToken, tenantId }),
   register: (name: string, email: string, password: string, phoneNumber?: string) =>
     api.post('/auth/register', { name, email, password, ...(phoneNumber ? { phoneNumber } : {}) }),
   verifyEmail: (token: string) =>
@@ -430,6 +432,16 @@ export const publicApi = {
   currentVersion: () => api.get<{ version: string; channel: string; changelog?: Record<string, string[]>; releasedAt: string }>('/public/version'),
   featureFlags: (tenantId?: string) =>
     tenantId ? api.get<Record<string, boolean>>('/feature-flags/my') : Promise.resolve({ data: {} as Record<string, boolean> }),
+};
+
+export const whatsappNumbersApi = {
+  list: () => api.get('/whatsapp-numbers'),
+  create: (data: { label: string; phoneNumberId: string; wabaId: string; accessToken: string; isDefault?: boolean }) =>
+    api.post('/whatsapp-numbers', data),
+  update: (id: string, data: { label?: string; phoneNumberId?: string; wabaId?: string; accessToken?: string; isActive?: boolean }) =>
+    api.patch(`/whatsapp-numbers/${id}`, data),
+  setDefault: (id: string) => api.patch(`/whatsapp-numbers/${id}/set-default`),
+  delete: (id: string) => api.delete(`/whatsapp-numbers/${id}`),
 };
 
 export const knowledgeBaseApi = {

@@ -268,8 +268,26 @@ export class MessagesService {
     reaction?: { message_id: string; emoji: string };
     location?: { latitude: number; longitude: number; name?: string; address?: string };
     contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
-    interactive?: { type: 'list_reply' | 'button_reply'; list_reply?: { id: string; title: string }; button_reply?: { id: string; title: string } };
-  }, profileName?: string) {
+    interactive?: {
+      type: 'list_reply' | 'button_reply' | 'call_permission_reply';
+      list_reply?: { id: string; title: string };
+      button_reply?: { id: string; title: string };
+      call_permission_reply?: { response: string };
+    };
+  }, profileName?: string, incomingPhoneNumberId?: string) {
+    // Handle call permission reply — intercept before anything else so it never gets stored
+    // as a regular inbound message or reopens a conversation.
+    if (waMessage.type === 'interactive' && waMessage.interactive?.type === 'call_permission_reply') {
+      const response = waMessage.interactive.call_permission_reply?.response ?? '';
+      console.log(`[call_permission] ${response} from ${waMessage.from}`);
+      this.realtimeService.emitCallEvent(tenantId, 'call_permission_updated', {
+        phone: waMessage.from,
+        response,
+        granted: response === 'ACCEPTED',
+      });
+      return null;
+    }
+
     // Handle CSAT survey reply BEFORE findOrCreate — prevents reopening the resolved conversation
     // and ensures the score is written back to the correct (resolved) conversation so resolvedById
     // remains intact and the agent's rating appears in the analytics table.
@@ -338,6 +356,21 @@ export class MessagesService {
 
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id);
+
+    // Tag conversation with which WhatsApp number received this message (first time only)
+    if (incomingPhoneNumberId && !conversation.whatsappNumberId) {
+      const waNum = await this.prisma.whatsAppNumber.findUnique({
+        where: { tenantId_phoneNumberId: { tenantId, phoneNumberId: incomingPhoneNumberId } },
+        select: { id: true },
+      });
+      if (waNum) {
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { whatsappNumberId: waNum.id },
+        });
+        (conversation as { whatsappNumberId?: string }).whatsappNumberId = waNum.id;
+      }
+    }
 
     // Migrate any legacy OPEN conversations to REQUESTING on next inbound message
     if (conversation.status === 'OPEN') {

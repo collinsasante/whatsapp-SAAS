@@ -184,12 +184,14 @@ export class WhatsAppWebhookController {
         if (change.field !== 'messages') continue;
 
         const value = change.value;
+        // Which phone number received this batch — used to tag conversations
+        const incomingPhoneNumberId = value.metadata?.phone_number_id;
 
         if (value.messages?.length) {
           const profileName = value.contacts?.[0]?.profile?.name;
           for (const message of value.messages) {
             try {
-              await this.messagesService.handleInbound(tenantId, message, profileName);
+              await this.messagesService.handleInbound(tenantId, message, profileName, incomingPhoneNumberId);
             } catch (error) {
               this.logger.error(
                 `[tenant:${tenantId}] Failed to process inbound message ${message.id}: ${error instanceof Error ? error.message : String(error)}`,

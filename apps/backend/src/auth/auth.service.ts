@@ -33,7 +33,7 @@ export class AuthService {
     private emailService: EmailService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<{ requiresEmailVerification: true; email: string }> {
+  async register(dto: RegisterDto): Promise<{ requiresEmailVerification: boolean; email: string }> {
     const workspaceName = `${dto.name.split(' ')[0]}'s Workspace`;
     const passwordHash = await bcrypt.hash(dto.password, this.BCRYPT_ROUNDS);
     const verifyToken = uuidv4();
@@ -61,7 +61,7 @@ export class AuthService {
           name: dto.name,
           passwordHash,
           role: 'ADMIN',
-          emailVerified: false,
+          emailVerified: process.env['SKIP_EMAIL_VERIFICATION'] === 'true',
           emailVerifyToken: verifyToken,
           emailVerifyExpiry: verifyExpiry,
         },
@@ -90,7 +90,10 @@ export class AuthService {
       verifyLink,
     }).catch((err) => this.logger.error('Failed to send verification email', err));
 
-    return { requiresEmailVerification: true, email: dto.email };
+    return {
+      requiresEmailVerification: process.env['SKIP_EMAIL_VERIFICATION'] !== 'true',
+      email: dto.email,
+    };
   }
 
   async verifyEmail(token: string): Promise<{ message: string }> {
@@ -135,21 +138,55 @@ export class AuthService {
 
   async login(dto: LoginDto, ipAddress?: string): Promise<
     | { requires2FA: true; tempToken: string }
+    | { requiresWorkspaceSelection: true; workspaces: { id: string; name: string; logoUrl: string | null }[]; tempToken: string }
     | (AuthTokens & { user: object; tenant: object })
   > {
-    const user = await this.prisma.user.findFirst({
+    // Find ALL active users with this email across all workspaces
+    const allUsers = await this.prisma.user.findMany({
       where: { email: dto.email, isActive: true },
     });
-    const tenant = user ? await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } }) : null;
 
-    if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    if (!allUsers.length) throw new UnauthorizedException('Invalid credentials');
+
+    // Validate password against the first user that has a hash
+    const authenticatedUser = allUsers.find((u) => u.passwordHash);
+    if (!authenticatedUser) throw new UnauthorizedException('Please sign in with Google');
+
+    const isPasswordValid = await bcrypt.compare(dto.password, authenticatedUser.passwordHash);
+    if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
+
+    // If multiple workspaces share this email, let the user pick before issuing a JWT
+    if (allUsers.length > 1) {
+      const workspaceIds = allUsers.map((u) => u.tenantId);
+      const workspaces = await this.prisma.tenant.findMany({
+        where: { id: { in: workspaceIds }, isActive: true },
+        select: { id: true, name: true, logoUrl: true },
+      });
+
+      if (!authenticatedUser.emailVerified && process.env['SKIP_EMAIL_VERIFICATION'] !== 'true') {
+        throw new ForbiddenException({
+          message: 'Please verify your email before signing in.',
+          code: 'email_not_verified',
+          email: authenticatedUser.email,
+        });
+      }
+
+      // Temp token proves password was verified; workspace selection completes the login
+      const tempToken = this.jwtService.sign(
+        { sub: authenticatedUser.id, email: dto.email, type: 'workspace-select' },
+        { secret: this.configService.get<string>('app.jwtSecret'), expiresIn: '15m' },
+      );
+      return { requiresWorkspaceSelection: true, workspaces, tempToken };
+    }
+
+    const user = allUsers[0];
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
+
+    if (!user.isActive) throw new UnauthorizedException('Invalid credentials');
     if (!tenant) throw new UnauthorizedException('Workspace not found');
     if (!user.passwordHash) throw new UnauthorizedException('Please sign in with Google');
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!isPasswordValid) throw new UnauthorizedException('Invalid credentials');
-
-    if (!user.emailVerified) {
+    if (!user.emailVerified && process.env['SKIP_EMAIL_VERIFICATION'] !== 'true') {
       throw new ForbiddenException({
         message: 'Please verify your email before signing in.',
         code: 'email_not_verified',
@@ -189,6 +226,37 @@ export class AuthService {
     );
 
     return { requires2FA: true, tempToken };
+  }
+
+  async selectWorkspace(
+    tempToken: string,
+    tenantId: string,
+    ipAddress?: string,
+  ): Promise<AuthTokens & { user: object; tenant: object }> {
+    let payload: { sub: string; email: string; type: string };
+    try {
+      payload = this.jwtService.verify(tempToken, { secret: this.configService.get<string>('app.jwtSecret') });
+    } catch {
+      throw new UnauthorizedException('Session expired. Please sign in again.');
+    }
+    if (payload.type !== 'workspace-select') throw new UnauthorizedException('Invalid token');
+
+    // Find the user record that belongs to the chosen workspace
+    const user = await this.prisma.user.findFirst({
+      where: { email: payload.email, tenantId, isActive: true },
+    });
+    if (!user) throw new UnauthorizedException('No access to that workspace');
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId, isActive: true } });
+    if (!tenant) throw new UnauthorizedException('Workspace not found');
+
+    await this.auditService.log({ tenantId, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
+    const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
+    return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
   async verify2FA(tempToken: string, code: string, ipAddress?: string): Promise<AuthTokens & { user: object; tenant: object }> {

@@ -98,6 +98,32 @@ export class ChannelsService {
         ...(accessToken   && { accessToken }),
       },
     });
+
+    // Keep whatsapp_numbers table in sync — upsert the entry for this phoneNumberId
+    if (phoneNumberId && wabaId && accessToken) {
+      const existing = await this.prisma.whatsAppNumber.findUnique({
+        where: { tenantId_phoneNumberId: { tenantId, phoneNumberId } },
+      });
+      if (existing) {
+        await this.prisma.whatsAppNumber.update({
+          where: { id: existing.id },
+          data: { wabaId, accessToken },
+        });
+      } else {
+        // First number for this tenant → make it the default
+        const hasDefault = await this.prisma.whatsAppNumber.findFirst({ where: { tenantId, isDefault: true } });
+        await this.prisma.whatsAppNumber.create({
+          data: {
+            tenantId,
+            label: 'Default',
+            phoneNumberId,
+            wabaId,
+            accessToken,
+            isDefault: !hasDefault,
+          },
+        });
+      }
+    }
   }
 
   async toggle(tenantId: string, id: string) {

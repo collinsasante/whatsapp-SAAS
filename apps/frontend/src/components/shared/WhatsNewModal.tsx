@@ -39,6 +39,7 @@ export function WhatsNewModal() {
   const [info, setInfo] = useState<VersionInfo | null>(null);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') return;
     publicApi.currentVersion()
       .then((res) => {
         const v = res.data as VersionInfo;

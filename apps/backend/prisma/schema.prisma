@@ -71,8 +71,29 @@ model Tenant {
   messageDeletions     MessageDeletion[]
   feedback             Feedback[]
   featureFlagRollouts  FeatureFlagRollout[]
+  whatsappNumbers      WhatsAppNumber[]
 
   @@map("tenants")
+}
+
+model WhatsAppNumber {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  label         String
+  phoneNumberId String   @map("phone_number_id")
+  wabaId        String   @map("waba_id")
+  accessToken   String   @map("access_token")
+  isDefault     Boolean  @default(false) @map("is_default")
+  isActive      Boolean  @default(true)  @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt      @map("updated_at")
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([tenantId, phoneNumberId])
+  @@index([tenantId])
+  @@map("whatsapp_numbers")
 }
 
 model Team {
@@ -240,12 +261,13 @@ model Contact {
 }
 
 model Conversation {
-  id             String             @id @default(uuid())
-  tenantId       String             @map("tenant_id")
-  contactId      String             @map("contact_id")
-  assignedToId   String?            @map("assigned_to_id")
-  resolvedById   String?            @map("resolved_by_id")
-  channelId      String?            @map("channel_id")
+  id                String             @id @default(uuid())
+  tenantId          String             @map("tenant_id")
+  contactId         String             @map("contact_id")
+  assignedToId      String?            @map("assigned_to_id")
+  resolvedById      String?            @map("resolved_by_id")
+  channelId         String?            @map("channel_id")
+  whatsappNumberId  String?            @map("whatsapp_number_id")
   status         ConversationStatus @default(OPEN)
   priority       Int                @default(0)
   unreadCount    Int                @default(0) @map("unread_count")
@@ -268,6 +290,7 @@ model Conversation {
   contact           Contact             @relation(fields: [contactId], references: [id])
   assignedTo        User?               @relation("AssignedAgent", fields: [assignedToId], references: [id])
   channel           Channel?            @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  whatsappNumber    WhatsAppNumber?     @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
   messages          Message[]
   notes             ConversationNote[]
   activityLogs      ActivityLog[]

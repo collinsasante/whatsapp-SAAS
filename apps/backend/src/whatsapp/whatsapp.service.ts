@@ -467,9 +467,10 @@ export class WhatsAppService {
   }
 
   async checkCallPermission(tenantId: string, userPhone: string): Promise<{
-    status: 'no_permission' | 'temporary' | 'permanent';
+    status: 'granted' | 'pending' | 'denied' | 'expired' | 'no_permission';
     expirationTime?: number;
     canCall: boolean;
+    canRequest: boolean;
   }> {
     const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
@@ -480,15 +481,18 @@ export class WhatsAppService {
       });
       const data = response.data as {
         permission?: { status: string; expiration_time?: number };
-        actions?: Array<{ action: string; can_perform_action: boolean }>;
+        actions?: Array<{ action_name: string; can_perform_action: boolean }>;
       };
-      const status = (data.permission?.status ?? 'no_permission') as 'no_permission' | 'temporary' | 'permanent';
-      const canCall = data.actions?.find(a => a.action === 'call')?.can_perform_action ?? status !== 'no_permission';
-      return { status, expirationTime: data.permission?.expiration_time, canCall };
+      const permStatus = (data.permission?.status ?? 'no_permission') as
+        'granted' | 'pending' | 'denied' | 'expired' | 'no_permission';
+      const canCall = data.actions?.find(a => a.action_name === 'start_call')?.can_perform_action
+        ?? permStatus === 'granted';
+      const canRequest = data.actions?.find(a => a.action_name === 'send_call_permission_request')?.can_perform_action
+        ?? permStatus !== 'granted';
+      return { status: permStatus, expirationTime: data.permission?.expiration_time, canCall, canRequest };
     } catch (err: any) {
-      // If 404 or error, assume no permission
       this.logger.warn(`Could not check call permission for ${userWaId}: ${metaError(err)}`);
-      return { status: 'no_permission', canCall: false };
+      return { status: 'no_permission', canCall: false, canRequest: true };
     }
   }
 
@@ -550,7 +554,7 @@ export class WhatsAppService {
     language: string;
     category: string;
     components: unknown[];
-  }): Promise<{ id: string; status: string }> {
+  }): Promise<{ id: string; status: string; category?: string }> {
     const tenant = await this.getTenantCredentials(tenantId);
 
     if (!tenant.wabaId) {
@@ -568,7 +572,7 @@ export class WhatsAppService {
 
     const client = this.getClient(tenant.accessToken!);
     try {
-      const response = await client.post<{ id: string; status: string }>(
+      const response = await client.post<{ id: string; status: string; category?: string }>(
         `/${tenant.wabaId}/message_templates`,
         {
           name: templateData.name,
@@ -623,11 +627,11 @@ export class WhatsAppService {
               {
                 title: 'Your rating',
                 rows: [
-                  { id: 'csat_1', title: 'Poor', description: 'I was not satisfied' },
-                  { id: 'csat_2', title: 'Fair', description: 'Could be better' },
-                  { id: 'csat_3', title: 'Good', description: 'Satisfied' },
-                  { id: 'csat_4', title: 'Very Good', description: 'Very satisfied' },
-                  { id: 'csat_5', title: 'Excellent', description: 'Extremely satisfied' },
+                  { id: 'csat_1', title: '★☆☆☆☆  1 / 5' },
+                  { id: 'csat_2', title: '★★☆☆☆  2 / 5' },
+                  { id: 'csat_3', title: '★★★☆☆  3 / 5' },
+                  { id: 'csat_4', title: '★★★★☆  4 / 5' },
+                  { id: 'csat_5', title: '★★★★★  5 / 5' },
                 ],
               },
             ],
