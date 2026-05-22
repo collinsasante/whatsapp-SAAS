@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { conversationsApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import type { StatusCounts } from '@/store/inbox.store';
@@ -8,6 +9,8 @@ import ChatWindow from '@/components/inbox/ChatWindow';
 import ConversationDetails from '@/components/inbox/ConversationDetails';
 
 export default function InboxPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { conversations, activeConversationId, setConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
@@ -66,7 +69,17 @@ export default function InboxPage() {
     markConversationRead(id);
     setMobileView('chat');
     void conversationsApi.markRead(id).catch(() => {});
-  }, [setActiveConversation, markConversationRead]);
+    router.replace(`/inbox?c=${id}`, { scroll: false });
+  }, [setActiveConversation, markConversationRead, router]);
+
+  // On load (or refresh), restore the active conversation from the URL
+  useEffect(() => {
+    if (loading) return;
+    const cId = searchParams.get('c');
+    if (!cId) return;
+    setActiveConversation(cId);
+    setMobileView('chat');
+  }, [loading, searchParams, setActiveConversation]);
 
   // Open conversation from toast notification click
   useEffect(() => {
@@ -99,7 +112,7 @@ export default function InboxPage() {
             conversation={activeConversation}
             showDetails={showDetails}
             onToggleDetails={() => setShowDetails((v) => !v)}
-            onMobileBack={() => setMobileView('list')}
+            onMobileBack={() => { setMobileView('list'); router.replace('/inbox', { scroll: false }); }}
           />
           {showDetails && <ConversationDetails conversation={activeConversation} />}
         </div>
