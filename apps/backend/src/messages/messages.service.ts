@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -39,14 +39,6 @@ export class MessagesService {
       throw new NotFoundException('Cannot send message to this contact');
     }
 
-    // Block AGENTs from messaging conversations assigned to a different user
-    // (covers both initial assignment and post-transfer ownership).
-    // ADMIN / SUPER_ADMIN can supervise and respond on any conversation.
-    const assignedToId = (conversation as unknown as { assignedToId?: string | null }).assignedToId ?? null;
-    const isAgentLevel = !senderRole || senderRole === UserRole.AGENT || senderRole === UserRole.VIEWER;
-    if (isAgentLevel && assignedToId && assignedToId !== senderId) {
-      throw new ForbiddenException('This conversation is assigned to another agent');
-    }
 
     // Auto-reopen resolved conversation when agent sends a message
     if (conversation.status === 'RESOLVED') {
