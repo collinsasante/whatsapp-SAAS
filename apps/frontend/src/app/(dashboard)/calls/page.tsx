@@ -821,7 +821,7 @@ export default function CallsPage() {
   };
 
   return (
-    <div className={cn('md:h-full md:flex md:flex-col md:overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
+    <div className={cn('flex-1 flex flex-col md:overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
 
       {/* ── Page header ── */}
       <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
