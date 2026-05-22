@@ -33,7 +33,7 @@ export class AuthService {
     private emailService: EmailService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<{ requiresEmailVerification: true; email: string }> {
+  async register(dto: RegisterDto): Promise<{ requiresEmailVerification: boolean; email: string }> {
     const workspaceName = `${dto.name.split(' ')[0]}'s Workspace`;
     const passwordHash = await bcrypt.hash(dto.password, this.BCRYPT_ROUNDS);
     const verifyToken = uuidv4();
@@ -90,7 +90,10 @@ export class AuthService {
       verifyLink,
     }).catch((err) => this.logger.error('Failed to send verification email', err));
 
-    return { requiresEmailVerification: true, email: dto.email };
+    return {
+      requiresEmailVerification: process.env['SKIP_EMAIL_VERIFICATION'] !== 'true',
+      email: dto.email,
+    };
   }
 
   async verifyEmail(token: string): Promise<{ message: string }> {

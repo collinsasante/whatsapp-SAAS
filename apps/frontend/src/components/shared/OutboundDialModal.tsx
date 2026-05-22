@@ -4,6 +4,7 @@ import { Phone, X, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
 import { useCallsStore } from '@/store/calls.store';
+import { getSocket } from '@/lib/socket';
 import { cn } from '@/lib/utils';
 
 function detectRemoteAudioActivity(stream: MediaStream, onDetected: () => void) {
@@ -32,7 +33,9 @@ function detectRemoteAudioActivity(stream: MediaStream, onDetected: () => void) 
   } catch { /* AudioContext unavailable */ }
 }
 
-type PermissionStatus = 'unknown' | 'checking' | 'no_permission' | 'temporary' | 'permanent' | 'requesting';
+// Meta Cloud API returns: granted | pending | denied | expired
+// no_permission = no record exists at all; requesting = request in-flight
+type PermissionStatus = 'unknown' | 'checking' | 'no_permission' | 'granted' | 'pending' | 'denied' | 'expired' | 'requesting';
 
 export function OutboundDialModal() {
   const { pendingDial, setPendingDial, setOutboundSession, setOutboundCall } = useCallsStore();
@@ -40,6 +43,8 @@ export function OutboundDialModal() {
   const [calling, setCalling] = useState(false);
   const [permission, setPermission] = useState<PermissionStatus>('unknown');
   const permCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const numberRef = useRef(number);
+  numberRef.current = number;
 
   useEffect(() => {
     if (pendingDial !== null) setNumber(pendingDial);
@@ -59,6 +64,21 @@ export function OutboundDialModal() {
     }, 600);
     return () => { if (permCheckRef.current) clearTimeout(permCheckRef.current); };
   }, [number]);
+
+  // Real-time: when the contact accepts/rejects on their phone, update the badge instantly
+  useEffect(() => {
+    const socket = getSocket();
+    const handler = (data: { call: { phone: string; granted: boolean; response: string } }) => {
+      const dialPhone = numberRef.current.trim().replace(/^\+/, '');
+      const eventPhone = (data?.call?.phone ?? '').replace(/^\+/, '');
+      if (eventPhone && dialPhone && eventPhone.endsWith(dialPhone.slice(-9))) {
+        setPermission(data.call.granted ? 'granted' : 'denied');
+        toast.success(data.call.granted ? 'Call permission granted!' : 'Call permission denied');
+      }
+    };
+    socket.on('call_permission_updated', handler);
+    return () => { socket.off('call_permission_updated', handler); };
+  }, []);
 
   const handleClose = () => { setPendingDial(null); setNumber(''); setPermission('unknown'); };
 
@@ -145,9 +165,12 @@ export function OutboundDialModal() {
 
   const permBadge = () => {
     if (permission === 'checking') return <span className="text-[10px] text-gray-400 flex items-center gap-1"><span className="w-2 h-2 border border-gray-300 border-t-gray-500 rounded-full animate-spin inline-block" />Checking…</span>;
-    if (permission === 'permanent') return <span className="text-[10px] text-emerald-600 font-bold">✓ Call permission granted</span>;
-    if (permission === 'temporary') return <span className="text-[10px] text-teal-600 font-bold">✓ Temporary permission granted</span>;
+    if (permission === 'granted')  return <span className="text-[10px] text-emerald-600 font-bold">✓ Call permission granted</span>;
+    if (permission === 'pending')  return <span className="text-[10px] text-blue-600 font-bold">⏳ Permission request pending</span>;
+    if (permission === 'denied')   return <span className="text-[10px] text-red-600 font-bold">✗ Permission denied</span>;
+    if (permission === 'expired')  return <span className="text-[10px] text-amber-600 font-bold">⚠ Permission expired — request again</span>;
     if (permission === 'no_permission') return <span className="text-[10px] text-amber-600 font-bold">⚠ No call permission</span>;
+    if (permission === 'requesting') return <span className="text-[10px] text-gray-500 flex items-center gap-1"><span className="w-2 h-2 border border-gray-300 border-t-teal-500 rounded-full animate-spin inline-block" />Sending request…</span>;
     return null;
   };
 
@@ -175,7 +198,7 @@ export function OutboundDialModal() {
             {number.trim().length >= 7 && (
               <div className="mt-1.5 px-1 flex items-center justify-between">
                 {permBadge()}
-                {permission === 'no_permission' && (
+                {(['no_permission', 'denied', 'expired'] as PermissionStatus[]).includes(permission) && (
                   <button onClick={() => { void handleRequestPermission(); }}
                     className="text-[10px] font-bold text-teal-600 hover:text-teal-800 underline">
                     Send permission request
@@ -190,10 +213,17 @@ export function OutboundDialModal() {
                 className="h-12 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-900 font-semibold text-lg transition-colors border border-gray-100 active:scale-95">{d}</button>
             ))}
           </div>
-          {permission === 'no_permission' && (
+          {(['no_permission', 'denied', 'expired'] as PermissionStatus[]).includes(permission) && (
             <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200">
               <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-              <span>This number hasn&apos;t granted call permission. You can still try calling, or send a permission request first.</span>
+              <span>
+                {permission === 'denied'
+                  ? "This number denied the call permission request."
+                  : permission === 'expired'
+                  ? "This number's call permission has expired."
+                  : "This number hasn't granted call permission."}
+                {' '}Send a permission request via WhatsApp first.
+              </span>
             </div>
           )}
           <div className="flex gap-2">

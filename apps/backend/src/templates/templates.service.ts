@@ -68,6 +68,8 @@ export class TemplatesService {
       data: {
         status: (result.status ?? 'PENDING') as never,
         waTemplateId: result.id,
+        // Persist the category Meta actually assigned — may differ from what was submitted
+        ...(result.category ? { category: result.category as never } : {}),
       },
     });
   }

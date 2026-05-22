@@ -2269,7 +2269,7 @@ const MessageBubble = memo(function MessageBubble({
 
               {message.content ? (
                 <>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
                     {searchQuery ? highlightText(message.content, searchQuery) : message.content}
                   </p>
                   {message.type === 'TEXT' && (() => {

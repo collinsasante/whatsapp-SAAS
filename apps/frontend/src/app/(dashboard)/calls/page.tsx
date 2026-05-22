@@ -917,17 +917,14 @@ export default function CallsPage() {
       </div>
 
       {/* ── Content area ── */}
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 flex flex-col overflow-hidden bg-white">
-
-          {/* Table */}
-          <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        <div className="flex-1 overflow-y-auto bg-white min-h-0">
             {loading ? (
               <div className="divide-y divide-gray-100">
                 {Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} />)}
               </div>
             ) : calls.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full py-20 text-center">
+              <div className="flex flex-col items-center justify-center text-center py-24 min-h-[320px]">
                 <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
                   <PhoneOff size={28} className="text-gray-400" />
                 </div>
@@ -1024,7 +1021,6 @@ export default function CallsPage() {
                 )}
               </>
             )}
-          </div>
         </div>
 
         {/* Right detail panel — desktop only */}

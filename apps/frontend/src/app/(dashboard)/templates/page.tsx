@@ -144,7 +144,7 @@ function PhonePreview({ b, examples }: { b: BuilderState; examples: Record<strin
                 {/* Body */}
                 {b.body && (
                   <div className="px-3 py-2">
-                    <p className="text-[11px] text-gray-800 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-[11px] text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
                       {highlightVars(bodyWithExamples)}
                     </p>
                   </div>
@@ -371,6 +371,14 @@ function TemplateBuilder({ initial, onSave, onBack }: {
                 {b.category === 'UTILITY' && 'Transactional messages like order updates, receipts, alerts.'}
                 {b.category === 'AUTHENTICATION' && 'OTP and verification codes only.'}
               </p>
+              {b.category === 'UTILITY' && (
+                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <p className="text-[10px] text-amber-700 font-medium mb-0.5">⚠️ Meta auto-reclassification</p>
+                  <p className="text-[10px] text-amber-600 leading-relaxed">
+                    Meta reviews all templates and may change your category to MARKETING if the content contains promotional language (e.g. &quot;offer&quot;, &quot;discount&quot;, &quot;exclusive&quot;). To keep Utility status: reference a specific order/account, be factual, and avoid any upsell or engagement cues.
+                  </p>
+                </div>
+              )}
             </div>
           </section>
 
