@@ -250,6 +250,9 @@ function TemplateBuilder({ initial, onSave, onBack }: {
     if (!/^[a-z0-9_]+$/.test(b.name)) return 'Name must be lowercase letters, numbers, underscores only';
     if (!b.body.trim()) return 'Body text is required';
     if (bodyVarCount > 0 && b.bodyExamples.some(e => !e?.trim())) return 'Fill in sample values for all variables';
+    // Meta rule: variables cannot be at the start or end of the body
+    if (/^\s*\{\{/.test(b.body)) return 'Body text cannot start with a variable like {{1}}. Add some text before it, e.g. "Hello {{1}}"';
+    if (/\}\}\s*$/.test(b.body)) return 'Body text cannot end with a variable like {{1}}. Add some text after it, e.g. "{{1}} has been confirmed."';
     const phoneBtn = b.buttons.find(btn => btn.type === 'PHONE_NUMBER');
     if (phoneBtn && !/^\+\d{7,15}$/.test(phoneBtn.phone_number ?? '')) return 'Phone number must be in E.164 format, e.g. +966534342217';
     return null;
