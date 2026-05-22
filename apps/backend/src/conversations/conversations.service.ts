@@ -167,7 +167,7 @@ export class ConversationsService {
       where: { tenantId },
       _count: { id: true },
     });
-    const result: Record<string, number> = { ACTIVE: 0, REQUESTED: 0, INTERVENED: 0, RESOLVED: 0 };
+    const result: Record<string, number> = { OPEN: 0, REQUESTED: 0, INTERVENED: 0, RESOLVED: 0 };
     for (const row of counts) {
       result[row.status] = row._count.id;
     }
