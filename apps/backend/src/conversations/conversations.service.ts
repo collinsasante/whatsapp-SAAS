@@ -1,7 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -9,7 +7,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
-import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, CsatSurveyJob } from '@whatsapp-platform/shared-types';
+import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType } from '@whatsapp-platform/shared-types';
 import { NotificationType, ConversationEventType } from '@prisma/client';
 
 const CHANNEL_SELECT = { select: { id: true, type: true, name: true } } as const;
@@ -34,7 +32,6 @@ export class ConversationsService {
     private notificationsService: NotificationsService,
     private realtimeService: RealtimeService,
     private moduleRef: ModuleRef,
-    @InjectQueue(QueueName.CSAT_SURVEY) private csatQueue: Queue<CsatSurveyJob>,
   ) {}
 
   // ─── Finders ─────────────────────────────────────────────────────────────
@@ -276,16 +273,6 @@ export class ConversationsService {
     await this.recordEvent(tenantId, id, ConversationEventType.RESOLVED, userId);
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_RESOLVED, conversationId: id, contactId: existing.contactId, userId });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result);
-
-    // Schedule CSAT survey to send 23 hours after resolve
-    const contact = (result as unknown as { contact?: { phone?: string } }).contact;
-    if (contact?.phone) {
-      void this.csatQueue.add(
-        'send-survey',
-        { tenantId, conversationId: id, contactPhone: contact.phone },
-        { delay: 23 * 60 * 60 * 1000, attempts: 2, backoff: { type: 'fixed', delay: 60_000 } },
-      ).catch(() => { /* non-fatal */ });
-    }
 
     return result;
   }

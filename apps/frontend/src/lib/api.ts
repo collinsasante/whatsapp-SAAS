@@ -228,6 +228,7 @@ export const mediaApi = {
   },
   list: (params?: Record<string, unknown>) => api.get('/media', { params }),
   library: (params?: Record<string, unknown>) => api.get('/media/library', { params }),
+  assets: (params?: Record<string, unknown>) => api.get('/media', { params }),
   deleteAsset: (id: string) => api.delete(`/media/${id}`),
 };
 

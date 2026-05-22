@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Search, X, Send, Download, Play, FileText, Music,
-  ChevronLeft, ChevronRight, ZoomIn, Images, Trash2, Upload,
+  ChevronLeft, ChevronRight, ZoomIn, Images, Trash2, Upload, User, Users,
 } from 'lucide-react';
 import { mediaApi, conversationsApi, messagesApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
@@ -23,6 +23,17 @@ interface MediaItem {
   contact: { id: string; name: string | null; phone: string };
   conversation: { id: string };
   isAsset?: boolean;
+}
+
+interface AgentAsset {
+  id: string;
+  type: MediaItem['type'];
+  fileUrl: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  originalName: string;
+  createdAt: string;
+  uploadedBy?: { name: string | null } | null;
 }
 
 interface ConvOption {
@@ -71,10 +82,16 @@ export default function LibraryPage() {
   const router = useRouter();
   const { setActiveConversation, prependConversation } = useInboxStore();
 
+  // Customer files — media from conversations
   const [items, setItems] = useState<MediaItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+
+  // Agent library — files uploaded by agents
+  const [agentAssets, setAgentAssets] = useState<AgentAsset[]>([]);
+  const [agentLoading, setAgentLoading] = useState(true);
+
   const [uploading, setUploading] = useState(false);
   const [tab, setTab] = useState<Tab>('ALL');
   const [search, setSearch] = useState('');
@@ -83,6 +100,14 @@ export default function LibraryPage() {
   const [sendTarget, setSendTarget] = useState<MediaItem | null>(null);
 
   const uploadRef = useRef<HTMLInputElement>(null);
+
+  const loadAgentAssets = useCallback(async () => {
+    setAgentLoading(true);
+    try {
+      const res = await mediaApi.assets({ limit: 200 });
+      setAgentAssets((res.data as { data: AgentAsset[] }).data ?? []);
+    } finally { setAgentLoading(false); }
+  }, []);
 
   const load = useCallback(async (pg: number, t: Tab, q: string) => {
     setLoading(true);
@@ -98,6 +123,10 @@ export default function LibraryPage() {
   }, []);
 
   useEffect(() => {
+    void loadAgentAssets();
+  }, [loadAgentAssets]);
+
+  useEffect(() => {
     const t = setTimeout(() => { setPage(1); void load(1, tab, search); }, 300);
     return () => clearTimeout(t);
   }, [search, tab, load]);
@@ -111,24 +140,9 @@ export default function LibraryPage() {
     setUploading(true);
     try {
       const res = await mediaApi.upload(file);
-      const asset = res.data as { id: string; fileUrl: string; mimeType: string; fileSize: number; originalName: string; createdAt: string };
-      const mediaType: MediaItem['type'] = MIME_TO_TYPE[asset.mimeType] ?? 'DOCUMENT';
-      const synthetic: MediaItem = {
-        id: asset.id,
-        type: mediaType,
-        mediaUrl: asset.fileUrl,
-        mediaType: asset.mimeType,
-        mediaCaption: asset.originalName,
-        mediaSize: asset.fileSize,
-        createdAt: asset.createdAt,
-        direction: 'OUTBOUND',
-        contact: { id: '', name: 'Library Upload', phone: '' },
-        conversation: { id: '' },
-        isAsset: true,
-      };
-      setItems((prev) => [synthetic, ...prev]);
-      setTotal((t) => t + 1);
-      toast.success('File uploaded to library');
+      const asset = res.data as AgentAsset & { fileUrl: string };
+      setAgentAssets((prev) => [asset, ...prev]);
+      toast.success('File uploaded to Agent Library');
     } catch { toast.error('Upload failed'); }
     finally {
       setUploading(false);
@@ -136,16 +150,39 @@ export default function LibraryPage() {
     }
   };
 
-  const handleDelete = async (item: MediaItem) => {
-    if (!item.isAsset) { toast.error('Only library assets can be deleted'); return; }
+  const handleDelete = async (asset: AgentAsset) => {
     if (!window.confirm('Remove this file from the library?')) return;
     try {
-      await mediaApi.deleteAsset(item.id);
-      setItems((prev) => prev.filter((i) => i.id !== item.id));
-      setTotal((t) => Math.max(0, t - 1));
+      await mediaApi.deleteAsset(asset.id);
+      setAgentAssets((prev) => prev.filter((a) => a.id !== asset.id));
       toast.success('File removed');
     } catch { toast.error('Failed to delete'); }
   };
+
+  const handleDeleteAssetById = (item: MediaItem) => {
+    const asset = agentAssets.find(a => a.id === item.id);
+    if (asset) void handleDelete(asset);
+  };
+
+  const assetToMediaItem = (a: AgentAsset): MediaItem => ({
+    id: a.id,
+    type: a.type,
+    mediaUrl: a.fileUrl,
+    mediaType: a.mimeType,
+    mediaCaption: a.originalName,
+    mediaSize: a.fileSize,
+    createdAt: a.createdAt,
+    direction: 'OUTBOUND',
+    contact: { id: '', name: a.uploadedBy?.name ?? 'Agent', phone: '' },
+    conversation: { id: '' },
+    isAsset: true,
+  });
+
+  const filteredAgentAssets = agentAssets.filter(a =>
+    (tab === 'ALL' || a.type === tab) &&
+    (!search || a.originalName.toLowerCase().includes(search.toLowerCase())),
+  );
+  const filteredItems = items.filter(i => tab === 'ALL' || i.type === tab);
 
   const handleSend = async (item: MediaItem, conversationId: string) => {
     try {
@@ -186,7 +223,7 @@ export default function LibraryPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">File Library</h1>
-              <p className="text-sm text-gray-500 mt-0.5">{total.toLocaleString()} media files</p>
+              <p className="text-sm text-gray-500 mt-0.5">{(agentAssets.length + total).toLocaleString()} media files</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -231,89 +268,144 @@ export default function LibraryPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        {loading ? (
-          <div className="flex justify-center pt-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
-          </div>
-        ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center pt-24 text-center">
-            <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
-              <Images size={28} className="text-gray-400" />
+
+        {/* Agent Library */}
+        <div className="mb-10">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 bg-teal-50 rounded-lg flex items-center justify-center">
+              <User size={13} className="text-teal-600" />
             </div>
-            <p className="text-gray-500 font-medium">No media files yet</p>
-            <p className="text-sm text-gray-400 mt-1">Upload files or send media in conversations to build your library</p>
-            <button
-              onClick={() => uploadRef.current?.click()}
-              className="mt-4 flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 transition-colors"
-            >
-              <Upload size={15} /> Upload first file
-            </button>
+            <h2 className="text-sm font-semibold text-gray-700">Agent Library</h2>
+            <span className="text-xs text-gray-400">· Files uploaded by agents</span>
           </div>
-        ) : (
-          <>
-            {(tab === 'ALL' || tab === 'IMAGE' || tab === 'VIDEO') && (
-              <MediaGrid
-                items={items.filter(i => i.type === 'IMAGE' || i.type === 'VIDEO')}
-                onPreview={setLightbox}
-                onSend={setSendTarget}
-                onDelete={handleDelete}
-                showSection={tab === 'ALL'}
-              />
-            )}
+          {agentLoading ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
+            </div>
+          ) : filteredAgentAssets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 bg-white rounded-xl border border-dashed border-gray-200">
+              <User size={24} className="text-gray-300 mb-2" />
+              <p className="text-sm text-gray-400">No agent files{search ? ' matching your search' : ' yet'}</p>
+              {!search && (
+                <button
+                  onClick={() => uploadRef.current?.click()}
+                  className="mt-3 text-sm text-teal-600 hover:text-teal-700 font-medium"
+                >
+                  Upload a file
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {(tab === 'ALL' || tab === 'IMAGE' || tab === 'VIDEO') && (
+                <MediaGrid
+                  items={filteredAgentAssets.map(assetToMediaItem).filter(i => i.type === 'IMAGE' || i.type === 'VIDEO')}
+                  onPreview={setLightbox}
+                  onSend={setSendTarget}
+                  onDelete={handleDeleteAssetById}
+                  showSection={tab === 'ALL'}
+                />
+              )}
+              {(tab === 'ALL' || tab === 'AUDIO') && (
+                <MediaList
+                  items={filteredAgentAssets.map(assetToMediaItem).filter(i => i.type === 'AUDIO')}
+                  onSend={setSendTarget}
+                  onDelete={handleDeleteAssetById}
+                  title={tab === 'ALL' ? 'Audio' : undefined}
+                />
+              )}
+              {(tab === 'ALL' || tab === 'DOCUMENT') && (
+                <MediaList
+                  items={filteredAgentAssets.map(assetToMediaItem).filter(i => i.type === 'DOCUMENT')}
+                  onSend={setSendTarget}
+                  onDelete={handleDeleteAssetById}
+                  title={tab === 'ALL' ? 'Documents' : undefined}
+                />
+              )}
+            </>
+          )}
+        </div>
 
-            {(tab === 'ALL' || tab === 'AUDIO') && (
-              <MediaList
-                items={items.filter(i => i.type === 'AUDIO')}
-                onSend={setSendTarget}
-                onDelete={handleDelete}
-                title={tab === 'ALL' ? 'Audio' : undefined}
-              />
-            )}
-
-            {(tab === 'ALL' || tab === 'DOCUMENT') && (
-              <MediaList
-                items={items.filter(i => i.type === 'DOCUMENT')}
-                onSend={setSendTarget}
-                onDelete={handleDelete}
-                title={tab === 'ALL' ? 'Documents' : undefined}
-              />
-            )}
-
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-6 px-1">
-                <p className="text-sm text-gray-500">
-                  Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
-                </p>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => goPage(Math.max(1, page - 1))} disabled={page === 1}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
-                    <ChevronLeft size={14} />
-                  </button>
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const p = page <= 3 ? i + 1 : page + i - 2;
-                    if (p < 1 || p > totalPages) return null;
-                    return (
-                      <button key={p} onClick={() => goPage(p)}
-                        className={cn('w-8 h-8 flex items-center justify-center rounded-lg text-sm', p === page ? 'bg-teal-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50')}>
-                        {p}
-                      </button>
-                    );
-                  })}
-                  <button onClick={() => goPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
-                    <ChevronRight size={14} />
-                  </button>
+        {/* Customer Files */}
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-6 h-6 bg-blue-50 rounded-lg flex items-center justify-center">
+              <Users size={13} className="text-blue-600" />
+            </div>
+            <h2 className="text-sm font-semibold text-gray-700">Customer Files</h2>
+            <span className="text-xs text-gray-400">· Media shared in conversations</span>
+          </div>
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 bg-white rounded-xl border border-dashed border-gray-200">
+              <Users size={24} className="text-gray-300 mb-2" />
+              <p className="text-sm text-gray-400">No customer files{search ? ' matching your search' : ' yet'}</p>
+              {!search && <p className="text-xs text-gray-300 mt-1">Media shared in conversations will appear here</p>}
+            </div>
+          ) : (
+            <>
+              {(tab === 'ALL' || tab === 'IMAGE' || tab === 'VIDEO') && (
+                <MediaGrid
+                  items={filteredItems.filter(i => i.type === 'IMAGE' || i.type === 'VIDEO')}
+                  onPreview={setLightbox}
+                  onSend={setSendTarget}
+                  showSection={tab === 'ALL'}
+                />
+              )}
+              {(tab === 'ALL' || tab === 'AUDIO') && (
+                <MediaList
+                  items={filteredItems.filter(i => i.type === 'AUDIO')}
+                  onSend={setSendTarget}
+                  title={tab === 'ALL' ? 'Audio' : undefined}
+                />
+              )}
+              {(tab === 'ALL' || tab === 'DOCUMENT') && (
+                <MediaList
+                  items={filteredItems.filter(i => i.type === 'DOCUMENT')}
+                  onSend={setSendTarget}
+                  title={tab === 'ALL' ? 'Documents' : undefined}
+                />
+              )}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 px-1">
+                  <p className="text-sm text-gray-500">
+                    Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => goPage(Math.max(1, page - 1))} disabled={page === 1}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                      <ChevronLeft size={14} />
+                    </button>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const p = page <= 3 ? i + 1 : page + i - 2;
+                      if (p < 1 || p > totalPages) return null;
+                      return (
+                        <button key={p} onClick={() => goPage(p)}
+                          className={cn('w-8 h-8 flex items-center justify-center rounded-lg text-sm', p === page ? 'bg-teal-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50')}>
+                          {p}
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => goPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
+        </div>
+
       </div>
 
       {lightbox && (
         <Lightbox
           item={lightbox}
-          items={items.filter(i => i.type === 'IMAGE' || i.type === 'VIDEO')}
+          items={[...agentAssets.map(assetToMediaItem), ...items].filter(i => i.type === 'IMAGE' || i.type === 'VIDEO')}
           onClose={() => setLightbox(null)}
           onSend={() => { setSendTarget(lightbox); setLightbox(null); }}
           onNavigate={setLightbox}
@@ -338,7 +430,7 @@ function MediaGrid({
   items: MediaItem[];
   onPreview: (item: MediaItem) => void;
   onSend: (item: MediaItem) => void;
-  onDelete: (item: MediaItem) => void;
+  onDelete?: (item: MediaItem) => void;
   showSection: boolean;
 }) {
   if (items.length === 0) return null;
@@ -354,7 +446,7 @@ function MediaGrid({
   );
 }
 
-function MediaTile({ item, onPreview, onSend, onDelete }: { item: MediaItem; onPreview: (i: MediaItem) => void; onSend: (i: MediaItem) => void; onDelete: (i: MediaItem) => void }) {
+function MediaTile({ item, onPreview, onSend, onDelete }: { item: MediaItem; onPreview: (i: MediaItem) => void; onSend: (i: MediaItem) => void; onDelete?: (i: MediaItem) => void }) {
   const [imgErr, setImgErr] = useState(false);
   const name = item.contact.name ?? item.contact.phone;
 
@@ -373,13 +465,15 @@ function MediaTile({ item, onPreview, onSend, onDelete }: { item: MediaItem; onP
       {/* Hover overlay */}
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex flex-col justify-between p-2 opacity-0 group-hover:opacity-100">
         <div className="flex justify-between">
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(item); }}
-            className="w-7 h-7 bg-red-500 rounded-lg flex items-center justify-center text-white hover:bg-red-600 transition-colors"
-            title="Delete"
-          >
-            <Trash2 size={11} />
-          </button>
+          {onDelete ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(item); }}
+              className="w-7 h-7 bg-red-500 rounded-lg flex items-center justify-center text-white hover:bg-red-600 transition-colors"
+              title="Delete"
+            >
+              <Trash2 size={11} />
+            </button>
+          ) : <span />}
           <button
             onClick={(e) => { e.stopPropagation(); onSend(item); }}
             className="w-7 h-7 bg-teal-600 rounded-lg flex items-center justify-center text-white hover:bg-teal-700 transition-colors"
@@ -410,7 +504,7 @@ function MediaTile({ item, onPreview, onSend, onDelete }: { item: MediaItem; onP
 }
 
 // ─── Media List ─────────────────────────────────────────────────────────────
-function MediaList({ items, onSend, onDelete, title }: { items: MediaItem[]; onSend: (i: MediaItem) => void; onDelete: (i: MediaItem) => void; title?: string }) {
+function MediaList({ items, onSend, onDelete, title }: { items: MediaItem[]; onSend: (i: MediaItem) => void; onDelete?: (i: MediaItem) => void; title?: string }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-8">
@@ -458,13 +552,15 @@ function MediaList({ items, onSend, onDelete, title }: { items: MediaItem[]; onS
                 >
                   <Send size={14} />
                 </button>
-                <button
-                  onClick={() => onDelete(item)}
-                  className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                  title="Delete"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {onDelete && (
+                  <button
+                    onClick={() => onDelete(item)}
+                    className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
           );

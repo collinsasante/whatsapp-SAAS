@@ -72,14 +72,31 @@ export default function InboxPage() {
     router.replace(`/inbox?c=${id}`, { scroll: false });
   }, [setActiveConversation, markConversationRead, router]);
 
-  // On load (or refresh), restore the active conversation from the URL
+  // On load (or refresh), restore the active conversation from the URL.
+  // If it's not in the active list (e.g. RESOLVED/REQUESTED), fetch it individually.
   useEffect(() => {
     if (loading) return;
     const cId = searchParams.get('c');
     if (!cId) return;
-    setActiveConversation(cId);
-    setMobileView('chat');
-  }, [loading, searchParams, setActiveConversation]);
+    const inStore = conversations.find((c) => c.id === cId);
+    if (inStore) {
+      setActiveConversation(cId);
+      setMobileView('chat');
+      return;
+    }
+    conversationsApi.get(cId)
+      .then((res) => {
+        const conv = res.data as Parameters<typeof setConversations>[0][number];
+        setResolvedConversations((prev) => {
+          if (prev.find((c) => c.id === cId)) return prev;
+          return [conv, ...prev];
+        });
+        setActiveConversation(cId);
+        setMobileView('chat');
+      })
+      .catch(() => { /* conversation not found or no access — ignore */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   // Open conversation from toast notification click
   useEffect(() => {

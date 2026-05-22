@@ -591,7 +591,7 @@ export class AuthService {
       }),
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('app.jwtRefreshSecret'),
-        expiresIn: this.configService.get<string>('app.jwtRefreshExpiresIn', '7d'),
+        expiresIn: this.configService.get<string>('app.jwtRefreshExpiresIn', '90d'),
       }),
     ]);
 

@@ -374,7 +374,7 @@ export default function Sidebar() {
         >
           <LogOut size={18} />
         </button>
-        <span className="text-[9px] text-gray-300 select-none">v{appVersion}</span>
+        <span className="text-[11px] text-gray-500 font-medium select-none">v{appVersion}</span>
       </div>
     </aside>
     </>
