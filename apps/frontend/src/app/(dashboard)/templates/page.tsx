@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   RefreshCw, Plus, Search, X, Eye, Trash2, Send, FileText, ChevronDown,
   Type, Image, Video, FileIcon, Phone, Link2, MessageSquare, AlignLeft,
-  Check, ArrowLeft, Loader2, Copy, MoreVertical,
+  Check, ArrowLeft, Loader2, Copy, MoreVertical, ExternalLink,
 } from 'lucide-react';
 import { templatesApi } from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -165,11 +165,9 @@ function PhonePreview({ b, examples }: { b: BuilderState; examples: Record<strin
                 {b.buttons.length > 0 && (
                   <div className="border-t border-gray-100">
                     {b.buttons.map((btn, i) => (
-                      <div key={i} className={`flex items-center justify-center py-2 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                        <span className="text-[11px] text-teal-600 font-medium">
-                          {btn.type === 'URL' ? '🔗 ' : btn.type === 'PHONE_NUMBER' ? '📞 ' : '↩ '}
-                          {btn.text || 'Button'}
-                        </span>
+                      <div key={i} className={`flex items-center justify-center gap-1 px-3 py-2 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                        {btn.type === 'URL' ? <ExternalLink className="w-3 h-3 text-teal-600 flex-shrink-0" /> : btn.type === 'PHONE_NUMBER' ? <Phone className="w-3 h-3 text-teal-600 flex-shrink-0" /> : <span className="text-teal-600 flex-shrink-0 text-[11px]">↩</span>}
+                        <span className="text-[11px] text-teal-600 font-medium truncate">{btn.text || 'Button'}</span>
                       </div>
                     ))}
                   </div>
@@ -497,8 +495,9 @@ function TemplateBuilder({ initial, onSave, onBack }: {
             {b.buttons.map((btn, i) => (
               <div key={i} className="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${btn.type === 'QUICK_REPLY' ? 'bg-blue-100 text-blue-700' : btn.type === 'URL' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
-                    {btn.type === 'QUICK_REPLY' ? '↩ Quick Reply' : btn.type === 'URL' ? '🔗 Visit Website' : '📞 Call Phone'}
+                  <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${btn.type === 'QUICK_REPLY' ? 'bg-blue-100 text-blue-700' : btn.type === 'URL' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                    {btn.type === 'URL' ? <ExternalLink className="w-3 h-3" /> : btn.type === 'PHONE_NUMBER' ? '📞' : '↩'}
+                    {btn.type === 'QUICK_REPLY' ? 'Quick Reply' : btn.type === 'URL' ? 'Visit Website' : 'Call Phone'}
                   </span>
                   <button onClick={() => removeButton(i)} className="text-gray-400 hover:text-red-500">
                     <X className="w-3.5 h-3.5" />
