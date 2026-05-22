@@ -167,7 +167,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="hidden md:block" />
               <NotificationBell />
             </header>
-            <main className="flex-1 overflow-y-auto md:overflow-hidden md:flex md:flex-col min-h-0">{children}</main>
+            <main className="flex-1 overflow-y-auto md:overflow-hidden md:relative min-h-0">{children}</main>
           </div>
         </div>
         <MobileBottomNav />
