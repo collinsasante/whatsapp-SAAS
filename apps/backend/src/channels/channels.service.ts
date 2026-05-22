@@ -25,26 +25,77 @@ export class ChannelsService {
   }
 
   async create(tenantId: string, dto: CreateChannelDto) {
-    return this.prisma.channel.create({
+    // Merge top-level WhatsApp fields into credentials for storage
+    const mergedCredentials: Record<string, unknown> = { ...(dto.credentials ?? {}) };
+    if (dto.phoneNumberId) mergedCredentials.phoneNumberId = dto.phoneNumberId;
+    if (dto.wabaId)        mergedCredentials.wabaId        = dto.wabaId;
+    if (dto.accessToken)   mergedCredentials.accessToken   = dto.accessToken;
+
+    const channel = await this.prisma.channel.create({
       data: {
         tenantId,
         type: dto.type as ChannelType,
         name: dto.name,
-        credentials: (dto.credentials ?? {}) as Prisma.InputJsonValue,
+        credentials: mergedCredentials as Prisma.InputJsonValue,
         metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
+
+    // Keep tenant WhatsApp fields in sync so all features (templates, messaging) use the same creds
+    if (dto.type === ChannelType.WHATSAPP) {
+      await this.syncWhatsAppToTenant(tenantId, dto.phoneNumberId, dto.wabaId, dto.accessToken);
+    }
+
+    return channel;
   }
 
   async update(tenantId: string, id: string, dto: UpdateChannelDto) {
-    await this.findOne(tenantId, id);
-    return this.prisma.channel.update({
+    const existing = await this.findOne(tenantId, id);
+
+    // Merge top-level WhatsApp fields into credentials
+    let credentialsUpdate: Prisma.InputJsonValue | undefined;
+    if (dto.credentials || dto.phoneNumberId || dto.wabaId || dto.accessToken) {
+      const base = (existing.credentials as Record<string, unknown>) ?? {};
+      credentialsUpdate = {
+        ...base,
+        ...(dto.credentials ?? {}),
+        ...(dto.phoneNumberId && { phoneNumberId: dto.phoneNumberId }),
+        ...(dto.wabaId        && { wabaId:        dto.wabaId }),
+        ...(dto.accessToken   && { accessToken:   dto.accessToken }),
+      } as Prisma.InputJsonValue;
+    }
+
+    const channel = await this.prisma.channel.update({
       where: { id },
       data: {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-        ...(dto.credentials && { credentials: dto.credentials as Prisma.InputJsonValue }),
-        ...(dto.metadata && { metadata: dto.metadata as Prisma.InputJsonValue }),
+        ...(dto.name       !== undefined && { name:      dto.name }),
+        ...(dto.isActive   !== undefined && { isActive:  dto.isActive }),
+        ...(credentialsUpdate            && { credentials: credentialsUpdate }),
+        ...(dto.metadata                 && { metadata:  dto.metadata as Prisma.InputJsonValue }),
+      },
+    });
+
+    // Sync WhatsApp fields to tenant whenever they're provided
+    if (existing.type === ChannelType.WHATSAPP) {
+      await this.syncWhatsAppToTenant(tenantId, dto.phoneNumberId, dto.wabaId, dto.accessToken);
+    }
+
+    return channel;
+  }
+
+  private async syncWhatsAppToTenant(
+    tenantId: string,
+    phoneNumberId?: string,
+    wabaId?: string,
+    accessToken?: string,
+  ) {
+    if (!phoneNumberId && !wabaId && !accessToken) return;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(phoneNumberId && { phoneNumberId }),
+        ...(wabaId        && { wabaId }),
+        ...(accessToken   && { accessToken }),
       },
     });
   }

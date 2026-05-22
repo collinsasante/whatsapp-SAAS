@@ -9,6 +9,18 @@ export class CreateChannelDto {
   name: string;
 
   @IsOptional()
+  @IsString()
+  phoneNumberId?: string;
+
+  @IsOptional()
+  @IsString()
+  wabaId?: string;
+
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
+
+  @IsOptional()
   @IsObject()
   credentials?: Record<string, unknown>;
 
@@ -25,6 +37,18 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  phoneNumberId?: string;
+
+  @IsOptional()
+  @IsString()
+  wabaId?: string;
+
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
 
   @IsOptional()
   @IsObject()
