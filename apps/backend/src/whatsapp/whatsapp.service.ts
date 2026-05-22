@@ -552,6 +552,20 @@ export class WhatsAppService {
     components: unknown[];
   }): Promise<{ id: string; status: string }> {
     const tenant = await this.getTenantCredentials(tenantId);
+
+    if (!tenant.wabaId) {
+      throw new BadRequestException(
+        'Template submission failed: No WABA ID configured. Go to Settings → Channels and enter your WhatsApp Business Account ID.',
+      );
+    }
+
+    const tokenPreview = tenant.accessToken
+      ? `${tenant.accessToken.slice(0, 8)}...${tenant.accessToken.slice(-4)}`
+      : 'MISSING';
+    this.logger.log(
+      `Submitting template "${templateData.name}" to WABA ${tenant.wabaId} (token: ${tokenPreview})`,
+    );
+
     const client = this.getClient(tenant.accessToken!);
     try {
       const response = await client.post<{ id: string; status: string }>(
@@ -566,8 +580,12 @@ export class WhatsAppService {
       return response.data;
     } catch (error: unknown) {
       const msg = metaError(error);
-      this.logger.error(`Failed to submit template: ${msg}`);
-      throw new BadRequestException(`Template submission failed: ${msg}`);
+      this.logger.error(
+        `Template submission failed — wabaId=${tenant.wabaId} token=${tokenPreview} error="${msg}"`,
+      );
+      throw new BadRequestException(
+        `Template submission failed: ${msg}\n\nDebug info: wabaId=${tenant.wabaId} | token=${tokenPreview}\n\nFix: verify your WABA ID and access token in Settings → Channels.`,
+      );
     }
   }
 
