@@ -15,7 +15,8 @@ CREATE TYPE "CallDirection" AS ENUM ('INCOMING', 'OUTGOING');
 ALTER TABLE "call_logs" ALTER COLUMN "direction" TYPE "CallDirection"
   USING direction::"CallDirection";
 
--- 3. Migrate any INCOMING status rows to RINGING (direction=INCOMING covers inbound context)
+-- 3. Drop default before changing status type, migrate INCOMING → RINGING
+ALTER TABLE "call_logs" ALTER COLUMN "status" DROP DEFAULT;
 ALTER TABLE "call_logs" ALTER COLUMN "status" TYPE text;
 UPDATE "call_logs" SET status = 'RINGING' WHERE status = 'INCOMING';
 
@@ -29,3 +30,4 @@ CREATE TYPE "CallStatus" AS ENUM (
 );
 ALTER TABLE "call_logs" ALTER COLUMN "status" TYPE "CallStatus"
   USING status::"CallStatus";
+ALTER TABLE "call_logs" ALTER COLUMN "status" SET DEFAULT 'INITIATED'::"CallStatus";
