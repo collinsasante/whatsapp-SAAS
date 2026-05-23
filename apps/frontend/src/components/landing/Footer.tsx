@@ -61,7 +61,7 @@ export default function Footer() {
           </div>
 
           <div className="col-lg-3 col-md-6 col-6">
-            <h6>Product</h6>
+            <h3 className="ft_col_heading">Product</h3>
             <ul>
               {PRODUCT.map((l) => (
                 <li key={l.label}><Link href={l.href}>{l.label}</Link></li>
@@ -70,7 +70,7 @@ export default function Footer() {
           </div>
 
           <div className="col-lg-3 col-md-6 col-6">
-            <h6>Company</h6>
+            <h3 className="ft_col_heading">Company</h3>
             <ul>
               {COMPANY.map((l) => (
                 <li key={l.label}><Link href={l.href}>{l.label}</Link></li>
@@ -79,7 +79,7 @@ export default function Footer() {
           </div>
 
           <div className="col-lg-3 col-md-6 col-6">
-            <h6>Resources</h6>
+            <h3 className="ft_col_heading">Resources</h3>
             <ul>
               {RESOURCES.map((l) => (
                 <li key={l.label}><Link href={l.href}>{l.label}</Link></li>

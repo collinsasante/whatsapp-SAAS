@@ -9,7 +9,6 @@ export const metadata: Metadata = {
     'Schedule a personalized walkthrough of VerzChat. See how teams use one shared WhatsApp inbox to handle customer conversations at scale.',
   openGraph: {
     url: 'https://verzchat.com/book-demo',
-    images: [{ url: '/og-image.png', width: 1200, height: 630 }],
   },
   alternates: {
     canonical: '/book-demo',
