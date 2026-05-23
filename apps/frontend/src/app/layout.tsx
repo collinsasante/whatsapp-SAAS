@@ -7,11 +7,28 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'VerzChat',
-  description: 'VerzChat — Multi-channel Business Messaging Platform',
+  metadataBase: new URL('https://verzchat.com'),
+  title: {
+    default: 'VerzChat — WhatsApp Business Inbox for Teams',
+    template: '%s | VerzChat',
+  },
+  description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API. Teams live in under 20 minutes.',
   icons: {
     icon: [{ url: '/icon.png' }],
     apple: [{ url: '/icon.png' }],
+  },
+  openGraph: {
+    type: 'website',
+    siteName: 'VerzChat',
+    description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API. Teams live in under 20 minutes.',
+    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'VerzChat' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    site: '@verzchat',
+  },
+  alternates: {
+    canonical: '/',
   },
 };
 

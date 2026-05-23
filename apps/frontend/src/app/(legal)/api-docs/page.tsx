@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'API Docs — VerzChat',
+  description: 'VerzChat API documentation — webhooks, REST endpoints, and integration guides for developers.',
+  alternates: { canonical: '/api-docs' },
 };
 
 function CodeBlock({ code, lang = 'bash' }: { code: string; lang?: string }) {

@@ -57,6 +57,13 @@ interface WebhookEntry {
         reaction?: { message_id: string; emoji: string };
         location?: { latitude: number; longitude: number; name?: string; address?: string };
         contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
+        referral?: {
+          source_url?: string;
+          source_type?: string;  // 'ad' | 'post'
+          source_id?: string;
+          headline?: string;
+          body?: string;
+        };
       }>;
       statuses?: Array<{
         id: string;
@@ -191,7 +198,7 @@ export class WhatsAppWebhookController {
           const profileName = value.contacts?.[0]?.profile?.name;
           for (const message of value.messages) {
             try {
-              await this.messagesService.handleInbound(tenantId, message, profileName, incomingPhoneNumberId);
+              await this.messagesService.handleInbound(tenantId, message, profileName, incomingPhoneNumberId, message.referral);
             } catch (error) {
               this.logger.error(
                 `[tenant:${tenantId}] Failed to process inbound message ${message.id}: ${error instanceof Error ? error.message : String(error)}`,

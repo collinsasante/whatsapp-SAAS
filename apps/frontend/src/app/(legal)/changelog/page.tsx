@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Changelog — VerzChat',
+  description: 'VerzChat product changelog — see what\'s new, improved, and fixed in each release.',
+  alternates: { canonical: '/changelog' },
 };
 
 const entries = [

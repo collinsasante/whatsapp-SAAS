@@ -274,7 +274,9 @@ export class MessagesService {
       button_reply?: { id: string; title: string };
       call_permission_reply?: { response: string };
     };
-  }, profileName?: string, incomingPhoneNumberId?: string) {
+  }, profileName?: string, incomingPhoneNumberId?: string, referral?: {
+    source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
+  }) {
     // Handle call permission reply — intercept before anything else so it never gets stored
     // as a regular inbound message or reopens a conversation.
     if (waMessage.type === 'interactive' && waMessage.interactive?.type === 'call_permission_reply') {
@@ -355,7 +357,10 @@ export class MessagesService {
     if (alreadyProcessed) return alreadyProcessed;
 
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
-    const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id);
+    const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, referral
+      ? { contactSource: referral.source_type ?? 'ad', adSourceId: referral.source_id, adHeadline: referral.headline }
+      : undefined,
+    );
 
     // Tag conversation with which WhatsApp number received this message (first time only)
     if (incomingPhoneNumberId && !conversation.whatsappNumberId) {
