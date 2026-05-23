@@ -17,6 +17,7 @@ import { EmailService } from '../common/email.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthTokens, JwtPayload } from '@whatsapp-platform/shared-types';
+import { UpdateProfileDto, ChangePasswordDto } from './dto/update-profile.dto';
 import { workspaceRoleToUserRole } from './strategies/jwt.strategy';
 
 @Injectable()
@@ -433,6 +434,27 @@ export class AuthService {
     });
     if (!tenant) throw new UnauthorizedException('Tenant not found');
     return { user, tenant };
+  }
+
+  async updateMe(userId: string, dto: UpdateProfileDto) {
+    const data: Record<string, unknown> = {};
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.avatarUrl !== undefined) data.avatarUrl = dto.avatarUrl;
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, name: true, role: true, tenantId: true, avatarUrl: true },
+    });
+    return user;
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+    if (!user?.passwordHash) throw new BadRequestException('Password not set for this account');
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+    const hashed = await bcrypt.hash(dto.newPassword, this.BCRYPT_ROUNDS);
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hashed } });
   }
 
   async logout(userId: string) {

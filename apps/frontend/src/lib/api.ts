@@ -112,6 +112,10 @@ export const authApi = {
   verifyInvite: (token: string) => api.get(`/auth/invite/verify/${token}`),
   acceptInvite: (token: string, name?: string, password?: string) =>
     api.post('/auth/invite/accept', { token, name, password }),
+  getMe: () => api.get('/auth/me'),
+  updateMe: (data: { name?: string; avatarUrl?: string }) => api.patch('/auth/me', data),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.patch('/auth/me/password', { currentPassword, newPassword }),
 };
 
 export const workspaceApi = {
