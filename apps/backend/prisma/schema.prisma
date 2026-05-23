@@ -283,6 +283,9 @@ model Conversation {
   csatComment    String?            @map("csat_comment")
   csatSubmittedAt DateTime?         @map("csat_submitted_at")
   labels         String[]           @default([])
+  contactSource  String             @default("organic") @map("contact_source")
+  adSourceId     String?            @map("ad_source_id")
+  adHeadline     String?            @map("ad_headline")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 

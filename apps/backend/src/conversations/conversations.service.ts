@@ -36,7 +36,11 @@ export class ConversationsService {
 
   // ─── Finders ─────────────────────────────────────────────────────────────
 
-  async findOrCreate(tenantId: string, contactId: string) {
+  async findOrCreate(
+    tenantId: string,
+    contactId: string,
+    source?: { contactSource?: string; adSourceId?: string; adHeadline?: string },
+  ) {
     // Prefer active (non-resolved) conversation
     const existing = await this.prisma.conversation.findFirst({
       where: { tenantId, contactId, status: { not: 'RESOLVED' } },
@@ -75,7 +79,12 @@ export class ConversationsService {
     // Create fresh conversation
     const slaDeadline = new Date(Date.now() + SLA_MINUTES.REQUESTED * 60_000);
     const newConv = await this.prisma.conversation.create({
-      data: { tenantId, contactId, status: ConversationStatus.REQUESTED, requestedAt: new Date(), slaDeadline },
+      data: {
+        tenantId, contactId, status: ConversationStatus.REQUESTED, requestedAt: new Date(), slaDeadline,
+        ...(source?.contactSource && { contactSource: source.contactSource }),
+        ...(source?.adSourceId && { adSourceId: source.adSourceId }),
+        ...(source?.adHeadline && { adHeadline: source.adHeadline }),
+      },
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });
     await this.recordEvent(tenantId, newConv.id, ConversationEventType.REQUESTED);

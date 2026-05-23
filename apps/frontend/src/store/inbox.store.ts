@@ -27,6 +27,9 @@ export interface Conversation {
   slaDeadline?: string;
   priority?: number;
   reopenedCount?: number;
+  contactSource?: string;
+  adSourceId?: string | null;
+  adHeadline?: string | null;
 }
 
 export interface StatusCounts {

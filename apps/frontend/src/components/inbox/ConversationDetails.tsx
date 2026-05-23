@@ -44,6 +44,9 @@ interface Conversation {
   labels: string[];
   lastMessageAt: string | null;
   createdAt?: string | null;
+  contactSource?: string;
+  adSourceId?: string | null;
+  adHeadline?: string | null;
 }
 
 interface Props {
@@ -166,7 +169,7 @@ export default function ConversationDetails({ conversation }: Props) {
               { label: 'Template Messages', value: String(templateMessages.length) },
               { label: 'Session Messages', value: String(sessionMessages.length) },
               { label: 'Unresolved Queries', value: '0' },
-              { label: 'Source', value: 'ORGANIC' },
+              { label: 'Source', value: conversation.contactSource === 'ad' ? `Ad${conversation.adHeadline ? ` — ${conversation.adHeadline}` : ''}` : conversation.contactSource === 'post' ? 'Social Post' : 'Organic' },
               { label: 'First Message', value: firstMessage ? new Date(firstMessage.createdAt as unknown as string).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—' },
               { label: 'WA Conversation', value: waConvActive ? 'Active' : 'Inactive', color: waConvActive ? 'text-green-600' : 'text-gray-500' },
               { label: 'MAU Status', value: mauActive ? 'Active' : 'Inactive', color: mauActive ? 'text-green-600' : 'text-gray-500' },
