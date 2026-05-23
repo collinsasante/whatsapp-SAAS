@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsArray, IsDateString, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsArray, IsDateString, IsInt, Min, Max, ValidateIf } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { ConversationStatus } from '@whatsapp-platform/shared-types';
 
@@ -30,10 +30,11 @@ export class UpdateConversationDto {
   @IsString({ each: true })
   labels?: string[];
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ required: false, nullable: true })
   @IsOptional()
+  @ValidateIf((o: UpdateConversationDto) => o.snoozedUntil !== null)
   @IsDateString()
-  snoozedUntil?: string;
+  snoozedUntil?: string | null;
 
   @ApiProperty({ required: false })
   @IsOptional()

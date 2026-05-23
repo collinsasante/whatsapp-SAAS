@@ -8,7 +8,7 @@ import {
   CheckCircle, RefreshCw, Copy, StickyNote, Archive,
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
-  ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain,
+  ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain, BellOff,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -230,6 +230,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [labelInput, setLabelInput] = useState('');
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
+
+  // Snooze
+  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+  const [customSnoozeVal, setCustomSnoozeVal] = useState('');
+  const snoozeMenuRef = useRef<HTMLDivElement>(null);
 
   // @mention
   const [mentionSearch, setMentionSearch] = useState('');
@@ -459,6 +464,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     if (showHeaderMenu) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showHeaderMenu]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (snoozeMenuRef.current && !snoozeMenuRef.current.contains(e.target as Node)) setShowSnoozeMenu(false);
+    };
+    if (showSnoozeMenu) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSnoozeMenu]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -865,6 +878,36 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     } catch { toast.error('Failed to archive'); }
   };
 
+  const handleSnooze = async (until: Date) => {
+    setShowSnoozeMenu(false);
+    try {
+      await conversationsApi.update(conversation.id, { snoozedUntil: until.toISOString() });
+      removeConversation(conversation.id);
+      if (onClose) onClose();
+      const timeLabel = until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const dateLabel = until.toDateString() === new Date().toDateString()
+        ? `today at ${timeLabel}`
+        : `${until.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${timeLabel}`;
+      toast.success(`Snoozed until ${dateLabel}`);
+    } catch { toast.error('Failed to snooze'); }
+  };
+
+  const snoozeOptions: { label: string; until: () => Date }[] = [
+    { label: '30 minutes', until: () => new Date(Date.now() + 30 * 60_000) },
+    { label: '1 hour',     until: () => new Date(Date.now() + 60 * 60_000) },
+    { label: '2 hours',    until: () => new Date(Date.now() + 2 * 60 * 60_000) },
+    { label: '4 hours',    until: () => new Date(Date.now() + 4 * 60 * 60_000) },
+    {
+      label: 'Tomorrow 9am',
+      until: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(9, 0, 0, 0);
+        return d;
+      },
+    },
+  ];
+
   const handleAddLabel = async (label: string) => {
     const trimmed = label.trim();
     if (!trimmed) return;
@@ -1074,6 +1117,52 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   Reopen
                 </button>
               ) : null}
+
+              {/* Snooze */}
+              {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
+                <div className="relative" ref={snoozeMenuRef}>
+                  <button
+                    onClick={() => setShowSnoozeMenu((v) => !v)}
+                    title="Snooze conversation"
+                    className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', showSnoozeMenu ? 'bg-amber-50 text-amber-600' : 'text-gray-400 hover:text-amber-500 hover:bg-amber-50')}
+                  >
+                    <BellOff size={15} />
+                  </button>
+                  {showSnoozeMenu && (
+                    <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-52 py-1.5">
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold px-3 pt-1 pb-1.5">Snooze until</p>
+                      {snoozeOptions.map((opt) => (
+                        <button
+                          key={opt.label}
+                          onClick={() => { void handleSnooze(opt.until()); }}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                      <div className="border-t border-gray-100 mt-1 pt-1 px-3 pb-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">Custom</p>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="datetime-local"
+                            value={customSnoozeVal}
+                            onChange={(e) => setCustomSnoozeVal(e.target.value)}
+                            min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          <button
+                            onClick={() => { if (customSnoozeVal) void handleSnooze(new Date(customSnoozeVal)); }}
+                            disabled={!customSnoozeVal}
+                            className="text-xs px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-40 transition-colors font-semibold"
+                          >
+                            Set
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Transfer */}
               <button

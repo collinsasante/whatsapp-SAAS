@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -7,7 +9,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
-import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType } from '@whatsapp-platform/shared-types';
+import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, SnoozeWakeJob } from '@whatsapp-platform/shared-types';
 import { NotificationType, ConversationEventType } from '@prisma/client';
 
 const CHANNEL_SELECT = { select: { id: true, type: true, name: true } } as const;
@@ -32,6 +34,7 @@ export class ConversationsService {
     private notificationsService: NotificationsService,
     private realtimeService: RealtimeService,
     private moduleRef: ModuleRef,
+    @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
   ) {}
 
   // ─── Finders ─────────────────────────────────────────────────────────────
@@ -121,13 +124,21 @@ export class ConversationsService {
       where['status'] = { notIn: ['RESOLVED'] };
     }
     if (assignedToId) where['assignedToId'] = assignedToId;
+
+    const andClauses: unknown[] = [
+      // Exclude snoozed conversations (hide until snooze expires)
+      { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: new Date() } }] },
+    ];
     if (search) {
-      where['OR'] = [
-        { contact: { name: { contains: search, mode: 'insensitive' } } },
-        { contact: { phone: { contains: search } } },
-        { messages: { some: { content: { contains: search, mode: 'insensitive' }, deletedForEveryone: false } } },
-      ];
+      andClauses.push({
+        OR: [
+          { contact: { name: { contains: search, mode: 'insensitive' } } },
+          { contact: { phone: { contains: search } } },
+          { messages: { some: { content: { contains: search, mode: 'insensitive' }, deletedForEveryone: false } } },
+        ],
+      });
     }
+    where['AND'] = andClauses;
 
     const [data, total] = await Promise.all([
       this.prisma.conversation.findMany({
@@ -352,14 +363,42 @@ export class ConversationsService {
 
   async update(tenantId: string, id: string, dto: UpdateConversationDto, userId?: string) {
     const existing = await this.findOne(tenantId, id);
+
+    // Resolve snoozedUntil: explicit null clears, string sets, undefined leaves unchanged
+    const snoozedUntilValue = 'snoozedUntil' in dto
+      ? (dto.snoozedUntil ? new Date(dto.snoozedUntil) : null)
+      : undefined;
+
     const result = await this.prisma.conversation.update({
       where: { id },
       data: {
         ...dto,
-        snoozedUntil: dto.snoozedUntil ? new Date(dto.snoozedUntil) : undefined,
+        snoozedUntil: snoozedUntilValue,
       },
       include: CONV_INCLUDE,
     });
+
+    // Manage snooze queue job
+    if ('snoozedUntil' in dto) {
+      // Always remove any existing job first
+      try {
+        const pendingJob = await this.snoozeQueue.getJob(`snooze-${id}`);
+        if (pendingJob) await pendingJob.remove();
+      } catch { /* ignore */ }
+
+      if (dto.snoozedUntil) {
+        const delay = new Date(dto.snoozedUntil).getTime() - Date.now();
+        if (delay > 0) {
+          await this.snoozeQueue.add(
+            'wake',
+            { conversationId: id, tenantId } satisfies SnoozeWakeJob,
+            { jobId: `snooze-${id}`, delay, removeOnComplete: true, removeOnFail: true },
+          );
+        }
+        // Emit removal event so frontend hides this conversation immediately
+        this.realtimeService.emitConversationSnoozed(tenantId, id);
+      }
+    }
 
     if (dto.status && (dto.status as string) !== (existing.status as string)) {
       const action = (dto.status as string) === 'RESOLVED' ? ActivityAction.CONVERSATION_RESOLVED
