@@ -5,8 +5,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus, Brain, Menu,
+  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun,
 } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
 import { authApi, publicApi } from '@/lib/api';
@@ -302,6 +303,9 @@ export default function Sidebar() {
   const { clearAuth } = useAuthStore();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>('2.0');
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const pathname = usePathname();
 
@@ -366,6 +370,17 @@ export default function Sidebar() {
           onClose={() => setOpenGroup(null)}
         />
 
+        {/* Theme toggle */}
+        {mounted && (
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+        )}
+
         {/* Logout */}
         <button
           onClick={() => { void handleLogout(); }}
@@ -406,7 +421,7 @@ export function MobileBottomNav() {
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
       <nav
-        className="flex md:hidden flex-shrink-0 bg-white/95 backdrop-blur-md border-t border-gray-100 items-end justify-around px-1 z-40"
+        className="flex md:hidden flex-shrink-0 bg-white border-t border-gray-100 items-end justify-around px-1 z-40"
         style={{
           minHeight: '56px',
           paddingBottom: 'env(safe-area-inset-bottom, 8px)',

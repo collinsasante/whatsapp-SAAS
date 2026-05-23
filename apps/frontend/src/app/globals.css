@@ -57,3 +57,71 @@ body::-webkit-scrollbar-thumb:hover {
   background: rgba(16, 185, 129, 0.5);
 }
 
+/* ─── Dark mode global overrides ─────────────────────────────────────────────
+   .dark .{class} has two-class specificity, beating Tailwind's single-class
+   utilities — no !important needed, no per-component changes required.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Base */
+.dark { color-scheme: dark; }
+
+/* Backgrounds */
+.dark .bg-white      { background-color: #161c28; }
+.dark .bg-gray-50    { background-color: #0d1117; }
+.dark .bg-gray-100   { background-color: #1e2636; }
+.dark .bg-gray-200   { background-color: #2d3748; }
+
+/* Hover backgrounds */
+.dark .hover\:bg-white:hover    { background-color: #1e2636; }
+.dark .hover\:bg-gray-50:hover  { background-color: #161c28; }
+.dark .hover\:bg-gray-100:hover { background-color: #2d3748; }
+.dark .hover\:bg-gray-200:hover { background-color: #374151; }
+
+/* Teal soft backgrounds */
+.dark .bg-teal-50                { background-color: rgba(20,184,166,0.12); }
+.dark .hover\:bg-teal-50:hover   { background-color: rgba(20,184,166,0.18); }
+.dark .text-teal-700             { color: #2dd4bf; }
+
+/* Soft accent backgrounds */
+.dark .bg-red-50    { background-color: rgba(239, 68, 68, 0.12); }
+.dark .bg-orange-50 { background-color: rgba(249,115, 22, 0.12); }
+.dark .bg-orange-100{ background-color: rgba(249,115, 22, 0.18); }
+.dark .bg-blue-50   { background-color: rgba( 59,130,246, 0.12); }
+.dark .bg-purple-50 { background-color: rgba(168, 85,247, 0.12); }
+.dark .bg-purple-100{ background-color: rgba(168, 85,247, 0.18); }
+.dark .bg-yellow-50 { background-color: rgba(234,179,  8, 0.12); }
+.dark .bg-green-50  { background-color: rgba( 34,197, 94, 0.12); }
+.dark .bg-amber-50  { background-color: rgba(245,158, 11, 0.12); }
+
+/* Text */
+.dark .text-gray-900 { color: #f9fafb; }
+.dark .text-gray-800 { color: #f3f4f6; }
+.dark .text-gray-700 { color: #e5e7eb; }
+.dark .text-gray-600 { color: #d1d5db; }
+.dark .text-gray-500 { color: #9ca3af; }
+
+/* Borders */
+.dark .border-gray-200 { border-color: #2d3748; }
+.dark .border-gray-100 { border-color: #1e2636; }
+.dark .border-b-gray-100 { border-bottom-color: #1e2636; }
+.dark .border-t-gray-100 { border-top-color:    #1e2636; }
+.dark .border-b-gray-200 { border-bottom-color: #2d3748; }
+.dark .border-t-gray-200 { border-top-color:    #2d3748; }
+.dark .border-r-gray-100 { border-right-color:  #1e2636; }
+.dark .border-l-gray-100 { border-left-color:   #1e2636; }
+
+/* Dividers */
+.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1e2636; }
+.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #2d3748; }
+
+/* Shadows (darken on dark backgrounds) */
+.dark .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.dark .shadow    { box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+.dark .shadow-lg { box-shadow: 0 10px 15px rgba(0,0,0,0.5); }
+.dark .shadow-xl { box-shadow: 0 20px 25px rgba(0,0,0,0.55); }
+.dark .shadow-2xl{ box-shadow: 0 25px 50px rgba(0,0,0,0.65); }
+
+/* Placeholder text */
+.dark input::placeholder,
+.dark textarea::placeholder { color: #4b5563; }
+
