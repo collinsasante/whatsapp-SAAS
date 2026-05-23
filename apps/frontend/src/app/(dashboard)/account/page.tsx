@@ -1,8 +1,8 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { User, Mail, Lock, Shield, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { User, Mail, Lock, Shield, CheckCircle, AlertCircle, Eye, EyeOff, Camera } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
-import { authApi } from '@/lib/api';
+import { authApi, mediaApi } from '@/lib/api';
 import { UserRole } from '@whatsapp-platform/shared-types';
 
 const ROLE_LABELS: Record<UserRole, { label: string; color: string }> = {
@@ -34,6 +34,8 @@ export default function AccountPage() {
   const [name, setName] = useState(user?.name ?? '');
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileAlert, setProfileAlert] = useState<AlertState>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Password form
   const [currentPassword, setCurrentPassword] = useState('');
@@ -70,6 +72,29 @@ export default function AccountPage() {
       setProfileAlert({ type: 'error', message: msg ?? 'Failed to update profile.' });
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setProfileAlert({ type: 'error', message: 'Please select an image file.' });
+      return;
+    }
+    setAvatarUploading(true);
+    setProfileAlert(null);
+    try {
+      const uploadRes = await mediaApi.upload(file);
+      const { url } = uploadRes.data as { url: string };
+      await authApi.updateMe({ avatarUrl: url });
+      updateUser({ avatarUrl: url });
+      setProfileAlert({ type: 'success', message: 'Profile photo updated.' });
+    } catch {
+      setProfileAlert({ type: 'error', message: 'Failed to upload photo.' });
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
     }
   };
 
@@ -114,7 +139,14 @@ export default function AccountPage() {
           <div className="px-6 py-6 space-y-6">
             {/* Avatar + role */}
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full flex-shrink-0">
+              {/* Clickable avatar with camera overlay */}
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                className="relative w-16 h-16 rounded-full flex-shrink-0 group"
+                title="Change photo"
+              >
                 {user?.avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={user.avatarUrl} alt={user.name} className="w-full h-full rounded-full object-cover" />
@@ -123,7 +155,21 @@ export default function AccountPage() {
                     {userInitials}
                   </div>
                 )}
-              </div>
+                {/* Overlay */}
+                <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  {avatarUploading
+                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <Camera size={16} className="text-white" />
+                  }
+                </div>
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
               <div>
                 <p className="font-semibold text-gray-900">{user?.name}</p>
                 <p className="text-sm text-gray-500">{user?.email}</p>
