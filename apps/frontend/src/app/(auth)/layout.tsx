@@ -20,7 +20,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     }
   }, [_hasHydrated, isAuthenticated, router]);
   return (
-    <div className="min-h-screen flex bg-white">
+    <div className="force-light min-h-screen flex bg-white">
       {/* Left branding panel */}
       <div className="hidden lg:flex w-[52%] bg-gradient-to-br from-teal-600 via-teal-700 to-emerald-800 relative overflow-hidden flex-col justify-between p-14">
         {/* Decorative circles */}

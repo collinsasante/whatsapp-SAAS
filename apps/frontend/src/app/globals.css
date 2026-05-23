@@ -125,3 +125,45 @@ body::-webkit-scrollbar-thumb:hover {
 .dark input::placeholder,
 .dark textarea::placeholder { color: #4b5563; }
 
+/* ─── Force light mode for specific sections (auth pages, etc.) ───────────────
+   .dark .force-light .{class} has 3-class specificity, beating the 2-class
+   dark overrides above. Resets all dark overrides back to their light values.
+   ─────────────────────────────────────────────────────────────────────────── */
+.dark .force-light,
+.dark .force-light * { color-scheme: light; }
+
+.dark .force-light .bg-white    { background-color: #ffffff; }
+.dark .force-light .bg-gray-50  { background-color: #f9fafb; }
+.dark .force-light .bg-gray-100 { background-color: #f3f4f6; }
+.dark .force-light .bg-gray-200 { background-color: #e5e7eb; }
+
+.dark .force-light .hover\:bg-white:hover    { background-color: #ffffff; }
+.dark .force-light .hover\:bg-gray-50:hover  { background-color: #f9fafb; }
+.dark .force-light .hover\:bg-gray-100:hover { background-color: #f3f4f6; }
+
+.dark .force-light .bg-teal-50              { background-color: #f0fdfa; }
+.dark .force-light .bg-red-50               { background-color: #fef2f2; }
+.dark .force-light .bg-orange-50            { background-color: #fff7ed; }
+.dark .force-light .bg-blue-50              { background-color: #eff6ff; }
+.dark .force-light .bg-purple-50            { background-color: #faf5ff; }
+.dark .force-light .bg-green-50             { background-color: #f0fdf4; }
+
+.dark .force-light .text-gray-900 { color: #111827; }
+.dark .force-light .text-gray-800 { color: #1f2937; }
+.dark .force-light .text-gray-700 { color: #374151; }
+.dark .force-light .text-gray-600 { color: #4b5563; }
+.dark .force-light .text-gray-500 { color: #6b7280; }
+.dark .force-light .text-teal-700 { color: #0f766e; }
+
+.dark .force-light .border-gray-200 { border-color: #e5e7eb; }
+.dark .force-light .border-gray-100 { border-color: #f3f4f6; }
+
+.dark .force-light .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.dark .force-light .shadow    { box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.dark .force-light .shadow-lg { box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+.dark .force-light .shadow-xl { box-shadow: 0 20px 25px rgba(0,0,0,0.1); }
+.dark .force-light .shadow-2xl{ box-shadow: 0 25px 50px rgba(0,0,0,0.25); }
+
+.dark .force-light input::placeholder,
+.dark .force-light textarea::placeholder { color: #9ca3af; }
+
