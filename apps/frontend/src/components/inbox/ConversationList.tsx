@@ -592,7 +592,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             {STATUS_FILTERS.map((f) => {
               const count = f.key === 'All'
                 ? conversations.filter(c => c.status !== 'RESOLVED').length
-                : (statusCounts?.[f.key as keyof StatusCounts] ?? 0);
+                : f.key === 'RESOLVED'
+                  ? (statusCounts?.RESOLVED ?? 0)
+                  : conversations.filter(c => c.status === f.key).length;
               const isActive = statusFilter === f.key;
               const isUrgent = (f.key === 'REQUESTED' || f.key === 'INTERVENED') && (count ?? 0) > 0;
               return (
