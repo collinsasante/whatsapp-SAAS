@@ -1,7 +1,8 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
+import { canAccess } from '@/lib/permissions';
 import { silentRefresh } from '@/lib/api';
 import Sidebar, { MobileBottomNav } from '@/components/shared/Sidebar';
 import { SocketProvider } from '@/components/shared/SocketProvider';
@@ -41,6 +42,7 @@ function ImpersonationBanner({ state, onExit }: { state: ImpersonationState; onE
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { isAuthenticated, _hasHydrated, accessToken, setAccessToken, clearAuth, user, tenant, setAuth } = useAuthStore();
   const [restoring, setRestoring] = useState(false);
   const [impersonation, setImpersonation] = useState<ImpersonationState | null>(null);
@@ -101,8 +103,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Gate: new users who haven't completed onboarding
     if (tenant?.onboardingCompleted === false) {
       router.replace('/onboarding');
+      return;
     }
-  }, [_hasHydrated, isAuthenticated, accessToken, restoreSession, router, tenant]);
+
+    // Gate: role-based access — redirect to inbox if the user can't access this route
+    if (user?.role && !canAccess(user.role, pathname)) {
+      router.replace('/inbox');
+    }
+  }, [_hasHydrated, isAuthenticated, accessToken, restoreSession, router, tenant, user, pathname]);
 
   // Listen for session expiry events dispatched by the API interceptor
   useEffect(() => {

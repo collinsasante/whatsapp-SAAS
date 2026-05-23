@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
+import { getPermissions } from '@/lib/permissions';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
 import { authApi, publicApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
@@ -300,7 +301,7 @@ function WorkspaceSwitcher() {
 
 export default function Sidebar() {
   const router = useRouter();
-  const { clearAuth } = useAuthStore();
+  const { clearAuth, user } = useAuthStore();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>('2.0');
   const { theme, setTheme } = useTheme();
@@ -308,6 +309,25 @@ export default function Sidebar() {
   useEffect(() => setMounted(true), []);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
   const pathname = usePathname();
+
+  const perms = getPermissions(user?.role);
+
+  const visibleMainNav = mainNav.filter((item) => {
+    if (item.label === 'Dashboard') return perms.showDashboard;
+    if (item.label === 'Broadcasts') return perms.showCampaigns;
+    if (item.label === 'Verz') return perms.showAI;
+    if (item.label === 'Analytics') return perms.showAnalytics;
+    return true;
+  });
+
+  const visibleSettingsChildren = settingsGroup.children.filter((child) => {
+    if (child.href === '/settings') return perms.showSettings;
+    if (child.href === '/channels') return perms.showChannels;
+    if (child.href === '/manage') return perms.showManage;
+    if (child.href === '/billing') return perms.showBilling;
+    return true; // library always visible
+  });
+  const visibleSettingsGroup: NavGroup = { ...settingsGroup, children: visibleSettingsChildren };
 
   useEffect(() => {
     publicApi.currentVersion()
@@ -323,8 +343,11 @@ export default function Sidebar() {
     }
   };
 
+  const userInitials = user?.name
+    ? user.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+    : '?';
 
-  const settingsActive = settingsGroup.children.some((c) => pathname.startsWith(c.href));
+  const settingsActive = visibleSettingsGroup.children.some((c) => pathname.startsWith(c.href));
   const settingsOpen = openGroup === settingsGroup.label;
 
   return (
@@ -337,7 +360,7 @@ export default function Sidebar() {
 
       {/* Main nav */}
       <nav className="flex-1 flex flex-col items-center gap-1.5">
-        {mainNav.map((item) => (
+        {visibleMainNav.map((item) => (
           <NavItemButton
             key={item.label}
             item={item}
@@ -349,26 +372,30 @@ export default function Sidebar() {
 
       {/* Settings group + logout */}
       <div className="flex flex-col items-center gap-1.5">
-        {/* Settings group */}
-        <button
-          ref={settingsBtnRef}
-          title="Settings"
-          onClick={() => setOpenGroup(settingsOpen ? null : settingsGroup.label)}
-          className={cn(
-            'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
-            settingsActive || settingsOpen
-              ? 'bg-teal-600 text-white shadow-sm'
-              : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50',
-          )}
-        >
-          <Settings size={18} />
-        </button>
-        <GroupFlyout
-          group={settingsGroup}
-          open={settingsOpen}
-          buttonRef={settingsBtnRef}
-          onClose={() => setOpenGroup(null)}
-        />
+        {/* Settings group — only render when there are visible children */}
+        {visibleSettingsChildren.length > 0 && (
+          <>
+            <button
+              ref={settingsBtnRef}
+              title="Settings"
+              onClick={() => setOpenGroup(settingsOpen ? null : settingsGroup.label)}
+              className={cn(
+                'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+                settingsActive || settingsOpen
+                  ? 'bg-teal-600 text-white shadow-sm'
+                  : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50',
+              )}
+            >
+              <Settings size={18} />
+            </button>
+            <GroupFlyout
+              group={visibleSettingsGroup}
+              open={settingsOpen}
+              buttonRef={settingsBtnRef}
+              onClose={() => setOpenGroup(null)}
+            />
+          </>
+        )}
 
         {/* Theme toggle */}
         {mounted && (
@@ -389,6 +416,28 @@ export default function Sidebar() {
         >
           <LogOut size={18} />
         </button>
+
+        {/* User avatar → account page */}
+        <Link
+          href="/account"
+          title={user?.name ?? 'My Account'}
+          className={cn(
+            'w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all ring-2 flex-shrink-0',
+            pathname.startsWith('/account')
+              ? 'ring-teal-500 ring-offset-1'
+              : 'ring-gray-200 hover:ring-teal-400',
+          )}
+        >
+          {user?.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.avatarUrl} alt={user.name} className="w-full h-full rounded-full object-cover" />
+          ) : (
+            <span className="w-full h-full rounded-full bg-teal-600 text-white flex items-center justify-center text-[11px] font-bold">
+              {userInitials}
+            </span>
+          )}
+        </Link>
+
         <span className="text-[11px] text-gray-500 font-medium select-none">v{appVersion}</span>
       </div>
     </aside>

@@ -40,6 +40,7 @@ interface AuthState {
   setAccessToken: (token: string) => void;
   setWorkspaces: (workspaces: WorkspaceEntry[]) => void;
   switchTenant: (tenant: AuthTenant, accessToken: string) => void;
+  updateUser: (patch: Partial<AuthUser>) => void;
   clearAuth: () => void;
   setHasHydrated: (v: boolean) => void;
 }
@@ -76,6 +77,10 @@ export const useAuthStore = create<AuthState>()(
         }
         set({ tenant, accessToken });
       },
+
+      updateUser: (patch) => set((state) => ({
+        user: state.user ? { ...state.user, ...patch } : state.user,
+      })),
 
       clearAuth: () => {
         if (typeof window !== 'undefined') {
