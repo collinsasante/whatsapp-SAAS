@@ -21,7 +21,6 @@ export const metadata: Metadata = {
     type: 'website',
     siteName: 'VerzChat',
     description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API. Teams live in under 20 minutes.',
-    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'VerzChat' }],
   },
   twitter: {
     card: 'summary_large_image',

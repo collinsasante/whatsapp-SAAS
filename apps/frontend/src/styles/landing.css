@@ -660,7 +660,7 @@
 }
 .lp .kp_footer .ft_logo { height: 30px; margin-bottom: 14px; }
 .lp .kp_footer .ft_tagline { font-size: 13.5px; color: rgba(255,255,255,.4); line-height: 1.65; max-width: 210px; margin-bottom: 20px; }
-.lp .kp_footer h6 { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(255,255,255,.35); margin-bottom: 16px; }
+.lp .kp_footer h6, .lp .kp_footer .ft_col_heading { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(255,255,255,.35); margin-bottom: 16px; }
 .lp .kp_footer ul { list-style: none; padding: 0; }
 .lp .kp_footer ul li { margin-bottom: 9px; }
 .lp .kp_footer ul li a { font-size: 13.5px; color: rgba(255,255,255,.5); transition: color .2s; }
