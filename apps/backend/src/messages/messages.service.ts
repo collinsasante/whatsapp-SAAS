@@ -549,6 +549,11 @@ export class MessagesService {
             this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
           ]);
           if (!reply) return;
+          // Deduct 1 AI credit from tenant wallet
+          await this.prisma.tenant.updateMany({
+            where: { id: tenantId, aiCredits: { gt: 0 } },
+            data: { aiCredits: { decrement: 1 } },
+          });
           await this.whatsappService.sendTextMessage(tenantId, contact.phone, reply).catch(() => null);
           const aiMessage = await this.prisma.message.create({
             data: {

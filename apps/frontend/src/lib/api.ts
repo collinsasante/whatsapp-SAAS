@@ -402,6 +402,11 @@ export const billingApi = {
   startTrial: (planSlug: string) => api.post(`/billing/trial/${planSlug}`),
   cancelSubscription: (immediately?: boolean) => api.delete('/billing/cancel', { data: { immediately } }),
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
+  getCreditPacks: () => api.get('/billing/credits/packs'),
+  getAiCredits: () => api.get('/billing/credits/balance'),
+  initializeCreditPurchase: (packSlug: string, billingEmail?: string) =>
+    api.post('/billing/credits/initialize', { packSlug, billingEmail }),
+  verifyCreditPurchase: (reference: string) => api.post('/billing/credits/verify', { reference }),
 };
 
 export const teamsApi = {
@@ -432,6 +437,7 @@ export const manageSettingsApi = {
   updateWidget: (data: Record<string, unknown>) => api.patch('/manage/settings/widget', data),
   updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string }) =>
     api.patch('/manage/settings/ai', data),
+  approveAi: () => api.post('/manage/settings/ai/approve', {}),
 };
 
 export const publicApi = {

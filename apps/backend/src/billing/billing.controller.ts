@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -90,5 +90,37 @@ export class BillingController {
   @ApiOperation({ summary: 'Update billing email' })
   updateBillingEmail(@CurrentTenant() tenantId: string, @Body() dto: UpdateBillingEmailDto) {
     return this.billingService.updateBillingEmail(tenantId, dto.billingEmail);
+  }
+
+  @Get('credits/packs')
+  @ApiOperation({ summary: 'Get available AI credit packs' })
+  getCreditPacks() {
+    return this.billingService.getCreditPacks();
+  }
+
+  @Get('credits/balance')
+  @ApiOperation({ summary: 'Get current AI credit balance' })
+  getAiCredits(@CurrentTenant() tenantId: string) {
+    return this.billingService.getAiCredits(tenantId);
+  }
+
+  @Post('credits/initialize')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Initialize a Paystack transaction to buy AI credits' })
+  initiateCreditPurchase(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { packSlug: string; billingEmail?: string },
+  ) {
+    return this.billingService.initiateCreditPurchase(tenantId, body.packSlug, body.billingEmail ?? '');
+  }
+
+  @Post('credits/verify')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Verify credit purchase and credit AI wallet' })
+  verifyCreditPurchase(
+    @CurrentTenant() tenantId: string,
+    @Body() body: { reference: string },
+  ) {
+    return this.billingService.verifyCreditPurchase(tenantId, body.reference);
   }
 }

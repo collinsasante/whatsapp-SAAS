@@ -5,9 +5,9 @@ import Link from 'next/link';
 import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
-  Globe, Sparkles, RefreshCw,
+  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck,
 } from 'lucide-react';
-import { knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
+import { billingApi, knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 interface Article {
@@ -25,6 +25,8 @@ interface AiSettings {
   aiAlwaysOn: boolean;
   aiPersonality: string;
   offHoursEnabled: boolean;
+  aiTrialStartedAt?: string | null;
+  aiTrialApprovedAt?: string | null;
 }
 
 const DEFAULT_PERSONALITY = 'You are helpful, friendly, and professional. Keep replies concise and conversational — this is WhatsApp, not email.';
@@ -41,6 +43,8 @@ type KbTab = 'kb' | 'learned';
 export default function AiPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [settings, setSettings] = useState<AiSettings>({ aiEnabled: false, aiAlwaysOn: false, aiPersonality: '', offHoursEnabled: false });
+  const [aiCredits, setAiCredits] = useState(0);
+  const [approvingAi, setApprovingAi] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
@@ -58,19 +62,23 @@ export default function AiPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [kbRes, settingsRes] = await Promise.all([
+      const [kbRes, settingsRes, creditsRes] = await Promise.all([
         knowledgeBaseApi.list(),
         manageSettingsApi.get(),
+        billingApi.getAiCredits(),
       ]);
       setArticles(kbRes.data);
-      const s = settingsRes.data;
+      const s = settingsRes.data as AiSettings & { offHoursEnabled?: boolean };
       setSettings({
         aiEnabled: s.aiEnabled ?? false,
         aiAlwaysOn: s.aiAlwaysOn ?? false,
         aiPersonality: s.aiPersonality ?? '',
         offHoursEnabled: s.offHoursEnabled ?? false,
+        aiTrialStartedAt: s.aiTrialStartedAt ?? null,
+        aiTrialApprovedAt: s.aiTrialApprovedAt ?? null,
       });
       setPersonality(s.aiPersonality ?? '');
+      setAiCredits((creditsRes.data as { credits: number }).credits ?? 0);
     } catch {
       toast.error('Failed to load AI settings');
     } finally {
@@ -108,6 +116,21 @@ export default function AiPage() {
       toast.error('Failed to save');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleApproveAi = async () => {
+    setApprovingAi(true);
+    try {
+      await manageSettingsApi.approveAi();
+      toast.success('VerzAI activated! It will now start replying to messages.');
+      void load();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? 'Failed to approve AI';
+      toast.error(msg);
+    } finally {
+      setApprovingAi(false);
     }
   };
 
@@ -252,6 +275,82 @@ export default function AiPage() {
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="max-w-4xl mx-auto space-y-5">
+
+          {/* Trial / Approval Banner */}
+          {(() => {
+            const trialStarted = settings.aiTrialStartedAt;
+            const approved = settings.aiTrialApprovedAt;
+
+            if (!trialStarted) return null;
+
+            const trialStart = new Date(trialStarted);
+            const trialEnd = new Date(trialStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+            const now = new Date();
+            const daysLeft = Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / 86_400_000));
+            const trialComplete = now >= trialEnd;
+
+            if (approved) {
+              return (
+                <div className="p-4 bg-teal-50 border border-teal-200 rounded-2xl flex items-start gap-3">
+                  <CheckCircle2 size={16} className="text-teal-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-teal-900">VerzAI is active</p>
+                    <p className="text-xs text-teal-700 mt-0.5">
+                      AI replies consume 1 credit each. Balance: <strong>{aiCredits.toLocaleString()} credits</strong>.
+                      {aiCredits <= 20 && aiCredits > 0 && ' — top up soon!'}
+                    </p>
+                    {aiCredits === 0 && (
+                      <Link href="/billing" className="text-xs text-red-600 font-semibold hover:underline mt-1 inline-block">
+                        No credits remaining — buy credits to resume →
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            if (trialComplete) {
+              return (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <div className="flex items-start gap-3 mb-3">
+                    <ShieldCheck size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">VerzAI learning period complete — approval required</p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        Verz has been observing your conversations for 30 days and is ready to start replying.
+                        To activate it, you need an active paid plan and AI credits.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => { void handleApproveAi(); }}
+                      disabled={approvingAi}
+                      className="px-4 py-2 text-sm font-semibold bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-60 transition-colors flex items-center gap-2">
+                      {approvingAi
+                        ? <><span className="animate-spin h-3 w-3 border-2 border-white/30 border-t-white rounded-full" />Activating…</>
+                        : <><ShieldCheck size={13} />Approve &amp; Activate VerzAI</>}
+                    </button>
+                    <Link href="/billing" className="px-4 py-2 text-sm font-medium text-amber-700 border border-amber-300 rounded-xl hover:bg-amber-100 transition-colors">
+                      Buy AI Credits
+                    </Link>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-start gap-3">
+                <Clock size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-blue-900">VerzAI learning period — {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining</p>
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    Verz is observing your conversations and building knowledge. After 30 days, you&rsquo;ll be asked to approve it to start replying.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* AI Settings Card */}
           <div className="bg-white border border-gray-200 rounded-2xl p-5">

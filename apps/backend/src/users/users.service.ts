@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
@@ -20,6 +20,15 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async create(tenantId: string, dto: CreateUserDto) {
+    // Enforce plan limit: agents
+    const [sub, agentCount] = await Promise.all([
+      this.prisma.subscription.findUnique({ where: { tenantId }, include: { plan: true } }),
+      this.prisma.user.count({ where: { tenantId, isActive: true, isAiAgent: false } }),
+    ]);
+    if (sub && sub.plan.limMaxAgents > 0 && agentCount >= sub.plan.limMaxAgents) {
+      throw new ForbiddenException(`Agent limit reached (${sub.plan.limMaxAgents} on your plan). Upgrade to add more agents.`);
+    }
+
     const existing = await this.prisma.user.findUnique({
       where: { tenantId_email: { tenantId, email: dto.email } },
     });

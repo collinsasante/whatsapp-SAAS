@@ -1,12 +1,26 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertCircle, BarChart3, Check, CheckCircle2,
-  CreditCard, Download, Mail, RefreshCw, Tag, Users, X, Zap,
+  AlertCircle, BarChart3, Bot, Check, CheckCircle2,
+  CreditCard, Download, Mail, RefreshCw, Sparkles, Tag, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
+
+// Paystack Inline type shim
+declare global {
+  interface Window {
+    PaystackPop?: {
+      setup: (opts: {
+        key: string; email: string; amount: number; currency: string;
+        ref: string; metadata?: Record<string, unknown>;
+        callback: (response: { reference: string }) => void;
+        onClose: () => void;
+      }) => { openIframe: () => void };
+    };
+  }
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -114,33 +128,25 @@ function UsageBar({ label, used, limit, color }: { label: string; used: number; 
 
 // ─── CheckoutModal ──────────────────────────────────────────────────────────
 
-function CheckoutModal({ plan, onClose, onSuccess }: {
-  plan: Plan; onClose: () => void; onSuccess: () => void;
+function CheckoutModal({ plan, initialEmail, onClose, onSuccess }: {
+  plan: Plan; initialEmail?: string; onClose: () => void; onSuccess: () => void;
 }) {
   const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const [gateway, setGateway] = useState<'STRIPE' | 'PAYSTACK' | 'FLUTTERWAVE'>('PAYSTACK');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail ?? '');
   const [promoCode, setPromoCode] = useState('');
   const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
   const [promoError, setPromoError] = useState('');
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // For GHS plan: Stripe charges USD equivalent, local gateways charge GHS
-  const isGhs = plan.currency === 'GHS';
-  const isStripe = gateway === 'STRIPE';
+  const isUsd = plan.currency === 'USD' || !plan.currency;
+  const currencySymbol = isUsd ? '$' : 'GH₵';
 
-  function getDisplayPrice(baseGhs: number): string {
-    if (isStripe && isGhs) {
-      const usd = Math.round((baseGhs / 150) * 12 * 100) / 100;
-      return `$${usd.toFixed(2)} USD`;
-    }
-    return `GH₵${baseGhs.toFixed(2)}`;
-  }
+  function fmtPrice(p: number) { return `${currencySymbol}${p.toFixed(2)}`; }
 
   const basePrice = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
-  const ghsDiscount = promoPreview ? (cycle === 'YEARLY' ? promoPreview.yearlyDiscount : promoPreview.monthlyDiscount) : 0;
-  const finalGhs = Math.max(0, basePrice - ghsDiscount);
+  const discount = promoPreview ? (cycle === 'YEARLY' ? promoPreview.yearlyDiscount : promoPreview.monthlyDiscount) : 0;
+  const finalPrice = Math.max(0, basePrice - discount);
 
   const handleCheckPromo = async () => {
     if (!promoCode.trim()) return;
@@ -162,21 +168,48 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
       const res = await billingApi.initiateCheckout({
         planSlug: plan.slug,
         cycle,
-        gateway,
+        gateway: 'PAYSTACK',
         billingEmail: email.trim(),
         promoCode: promoPreview?.code,
       });
-      const data = res.data as { paymentUrl: string | null; free: boolean };
+      const data = res.data as { paymentUrl: string | null; reference?: string; free: boolean };
+
       if (data.free) {
         toast.success(`${plan.name} plan activated!`);
         onSuccess();
+        return;
+      }
+
+      const paystackKey = process.env['NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY'] ?? '';
+
+      // Use Paystack Inline popup — stays on our page
+      if (data.reference && paystackKey && window.PaystackPop) {
+        window.PaystackPop.setup({
+          key: paystackKey,
+          email: email.trim(),
+          amount: Math.round(finalPrice * 100),
+          currency: isUsd ? 'USD' : 'GHS',
+          ref: data.reference,
+          callback: async (response) => {
+            try {
+              await billingApi.verifyPayment({ gateway: 'PAYSTACK', reference: response.reference });
+              toast.success(`${plan.name} plan activated!`);
+              onSuccess();
+            } catch {
+              toast.error('Could not verify payment — contact support if charged');
+            } finally { setLoading(false); }
+          },
+          onClose: () => { setLoading(false); },
+        }).openIframe();
       } else if (data.paymentUrl) {
+        // Fallback: redirect if Paystack Inline not available
         window.location.href = data.paymentUrl;
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Checkout failed';
       toast.error(msg);
-    } finally { setLoading(false); }
+      setLoading(false);
+    }
   };
 
   return (
@@ -195,20 +228,16 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
             <div className="grid grid-cols-2 gap-2">
               {(['MONTHLY', 'YEARLY'] as const).map((c) => {
-                const ghsPrice = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+                const price = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
                 return (
                   <button key={c} onClick={() => setCycle(c)}
                     className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
                       cycle === c ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="font-semibold text-gray-900">
-                      {c === 'MONTHLY' ? 'Monthly' : 'Yearly'}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {getDisplayPrice(ghsPrice)}{c === 'MONTHLY' ? '/mo' : '/yr'}
-                    </div>
+                    <div className="font-semibold text-gray-900">{c === 'MONTHLY' ? 'Monthly' : 'Yearly'}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{fmtPrice(price)}{c === 'MONTHLY' ? '/mo' : '/yr'}</div>
                     {c === 'YEARLY' && plan.monthlyPrice > 0 && (
                       <div className="text-[10px] font-semibold text-teal-600 mt-1">
-                        Save {isStripe && isGhs ? '$' : 'GH₵'}{((plan.monthlyPrice * 12) - plan.yearlyPrice).toFixed(0)}/yr
+                        Save {fmtPrice((plan.monthlyPrice * 12) - plan.yearlyPrice)}/yr
                       </div>
                     )}
                   </button>
@@ -217,21 +246,14 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
             </div>
           </div>
 
-          {/* Payment gateway */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
-            <div className="grid grid-cols-3 gap-2">
-              {(['PAYSTACK', 'FLUTTERWAVE', 'STRIPE'] as const).map((gw) => (
-                <button key={gw} onClick={() => setGateway(gw)}
-                  className={cn('p-2.5 rounded-xl border-2 text-center transition-all',
-                    gateway === gw ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                  <div className={cn('w-4 h-4 rounded-full mx-auto mb-1', GATEWAY_INFO[gw].color)} />
-                  <div className="text-[10px] font-semibold text-gray-700">{GATEWAY_INFO[gw].label}</div>
-                  {gw === 'STRIPE' && isGhs && (
-                    <div className="text-[9px] text-gray-400 mt-0.5">USD</div>
-                  )}
-                </button>
-              ))}
+          {/* Payment method — Paystack (card + MoMo) */}
+          <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center flex-shrink-0">
+              <CreditCard size={14} className="text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-teal-900">Paystack — Cards &amp; Mobile Money</p>
+              <p className="text-xs text-teal-700">Visa, Mastercard, MTN MoMo, Vodafone Cash &amp; more</p>
             </div>
           </div>
 
@@ -245,7 +267,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
 
           {/* Promo code */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Promo Code</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Promo Code <span className="text-gray-400 font-normal">(optional)</span></p>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -261,9 +283,7 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
             {promoPreview && (
               <p className="text-xs text-teal-600 flex items-center gap-1 mt-1.5">
                 <Check size={11} />
-                {promoPreview.discountType === 'PERCENTAGE'
-                  ? `${promoPreview.discountValue}% off applied`
-                  : `${getDisplayPrice(ghsDiscount)} off applied`}
+                {promoPreview.discountType === 'PERCENTAGE' ? `${promoPreview.discountValue}% off` : `${fmtPrice(discount)} off`} applied
               </p>
             )}
             {promoError && <p className="text-xs text-red-500 mt-1.5">{promoError}</p>}
@@ -273,17 +293,17 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
           <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
             <div className="flex justify-between text-gray-600">
               <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
-              <span>{getDisplayPrice(basePrice)}</span>
+              <span>{fmtPrice(basePrice)}</span>
             </div>
-            {ghsDiscount > 0 && (
+            {discount > 0 && (
               <div className="flex justify-between text-teal-600">
                 <span>Promo discount</span>
-                <span>-{getDisplayPrice(ghsDiscount)}</span>
+                <span>-{fmtPrice(discount)}</span>
               </div>
             )}
             <div className="flex justify-between font-bold text-gray-900 pt-2 border-t border-gray-200">
               <span>Total</span>
-              <span>{getDisplayPrice(finalGhs)}</span>
+              <span>{fmtPrice(finalPrice)}</span>
             </div>
           </div>
         </div>
@@ -294,14 +314,159 @@ function CheckoutModal({ plan, onClose, onSuccess }: {
             {loading ? (
               <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Processing…</>
             ) : (
-              <>Pay {getDisplayPrice(finalGhs)} via {GATEWAY_INFO[gateway].label}</>
+              <>Pay {fmtPrice(finalPrice)} securely</>
             )}
           </button>
           <p className="text-[10px] text-gray-400 text-center mt-2">
-            Subscription activates after payment is verified by our server.
+            Secured by Paystack · Cards &amp; Mobile Money accepted
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── CreditPacks ─────────────────────────────────────────────────────────────
+
+interface CreditPack {
+  slug: string; credits: number; amount: number;
+  label: string; description: string;
+}
+
+function CreditPacksSection({ billingEmail, onPurchased }: {
+  billingEmail: string;
+  onPurchased: (newBalance: number) => void;
+}) {
+  const [packs, setPacks] = useState<CreditPack[]>([]);
+  const [balance, setBalance] = useState<number>(0);
+  const [buying, setBuying] = useState<string | null>(null);
+  const paystackScriptRef = useRef(false);
+
+  useEffect(() => {
+    void Promise.all([
+      billingApi.getCreditPacks().then((r) => setPacks((r.data as CreditPack[]) ?? [])),
+      billingApi.getAiCredits().then((r) => setBalance((r.data as { credits: number }).credits ?? 0)),
+    ]);
+
+    // Load Paystack Inline JS once
+    if (!paystackScriptRef.current && typeof window !== 'undefined') {
+      paystackScriptRef.current = true;
+      if (!document.getElementById('paystack-inline')) {
+        const s = document.createElement('script');
+        s.id = 'paystack-inline';
+        s.src = 'https://js.paystack.co/v1/inline.js';
+        s.async = true;
+        document.head.appendChild(s);
+      }
+    }
+  }, []);
+
+  const handleBuy = async (pack: CreditPack) => {
+    if (!billingEmail) { toast.error('Set a billing email first'); return; }
+    setBuying(pack.slug);
+    try {
+      const res = await billingApi.initializeCreditPurchase(pack.slug, billingEmail);
+      const { reference, accessCode } = res.data as { reference: string; accessCode: string };
+
+      const paystackKey = process.env['NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY'] ?? '';
+      if (!paystackKey || !window.PaystackPop) {
+        toast.error('Payment system unavailable');
+        setBuying(null);
+        return;
+      }
+
+      window.PaystackPop.setup({
+        key: paystackKey,
+        email: billingEmail,
+        amount: Math.round(pack.amount * 100),
+        currency: 'USD',
+        ref: reference,
+        metadata: { custom_fields: [{ display_name: 'Pack', variable_name: 'pack', value: pack.label }] },
+        callback: async (response) => {
+          try {
+            const verify = await billingApi.verifyCreditPurchase(response.reference);
+            const result = verify.data as { success: boolean; credits: number; newBalance: number };
+            if (result.success) {
+              setBalance(result.newBalance);
+              onPurchased(result.newBalance);
+              toast.success(`${pack.label} added! New balance: ${result.newBalance} credits`);
+            }
+          } catch {
+            toast.error('Could not verify payment — contact support');
+          } finally { setBuying(null); }
+        },
+        onClose: () => { setBuying(null); },
+      }).openIframe();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to initialize payment';
+      toast.error(msg);
+      setBuying(null);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+          <Bot size={16} className="text-teal-600" />AI Credits
+        </h2>
+        <div className="flex items-center gap-2">
+          <Sparkles size={14} className="text-amber-500" />
+          <span className="text-sm font-bold text-gray-900">{balance.toLocaleString()}</span>
+          <span className="text-xs text-gray-400">credits remaining</span>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mb-4">Each VerzAI reply costs 1 credit. Credits never expire.</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {packs.map((pack) => (
+          <div key={pack.slug}
+            className={cn('relative border-2 rounded-xl p-4 flex flex-col gap-2 transition-all',
+              pack.slug === 'growth-600'
+                ? 'border-teal-500 bg-teal-50'
+                : 'border-gray-200 hover:border-teal-300')}>
+            {pack.slug === 'growth-600' && (
+              <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold px-2 py-0.5 bg-teal-600 text-white rounded-full whitespace-nowrap">
+                Most Popular
+              </span>
+            )}
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-bold text-gray-900">${pack.amount}</span>
+              <span className="text-xs text-gray-400">USD</span>
+            </div>
+            <p className="text-sm font-semibold text-gray-900">{pack.label}</p>
+            <p className="text-xs text-gray-500 leading-relaxed">{pack.description}</p>
+            <button
+              onClick={() => { void handleBuy(pack); }}
+              disabled={buying === pack.slug}
+              className={cn(
+                'mt-auto py-2 px-4 rounded-lg text-sm font-semibold transition-colors',
+                pack.slug === 'growth-600'
+                  ? 'bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60'
+                  : 'bg-gray-100 text-gray-800 hover:bg-teal-600 hover:text-white disabled:opacity-60',
+              )}>
+              {buying === pack.slug ? (
+                <span className="flex items-center justify-center gap-1.5">
+                  <span className="animate-spin h-3 w-3 border-2 border-current/30 border-t-current rounded-full" />
+                  Processing…
+                </span>
+              ) : 'Buy Now'}
+            </button>
+          </div>
+        ))}
+      </div>
+      {balance <= 20 && balance > 0 && (
+        <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700 flex items-center gap-2">
+          <AlertCircle size={14} className="flex-shrink-0" />
+          Only {balance} credits left. Top up to keep VerzAI running.
+        </div>
+      )}
+      {balance === 0 && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle size={14} className="flex-shrink-0" />
+          No credits — VerzAI is paused. Purchase credits to resume auto-replies.
+        </div>
+      )}
     </div>
   );
 }
@@ -375,6 +540,7 @@ export default function BillingPage() {
   const [billingEmail, setBillingEmail] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
+  const [aiCredits, setAiCredits] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -400,10 +566,26 @@ export default function BillingPage() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    // Load Paystack Inline script
+    if (!document.getElementById('paystack-inline')) {
+      const s = document.createElement('script');
+      s.id = 'paystack-inline';
+      s.src = 'https://js.paystack.co/v1/inline.js';
+      s.async = true;
+      document.head.appendChild(s);
+    }
+
     const params = new URLSearchParams(window.location.search);
     const paymentStatus = params.get('payment');
     const invoiceId = params.get('invoice');
-    if (paymentStatus === 'success' && invoiceId) {
+    const creditsStatus = params.get('credits');
+    const packSlug = params.get('pack');
+
+    if (creditsStatus === 'success' && packSlug) {
+      window.history.replaceState({}, '', '/billing');
+      toast.success('Credits purchased! Balance updated.');
+    } else if (paymentStatus === 'success' && invoiceId) {
       window.history.replaceState({}, '', '/billing');
       toast.success('Payment received! Your subscription is being activated.');
     } else if (paymentStatus === 'cancelled') {
@@ -452,6 +634,7 @@ export default function BillingPage() {
       {checkoutPlan && (
         <CheckoutModal
           plan={checkoutPlan}
+          initialEmail={billingEmail}
           onClose={() => setCheckoutPlan(null)}
           onSuccess={() => { setCheckoutPlan(null); void load(); }}
         />
@@ -563,6 +746,12 @@ export default function BillingPage() {
               )}
             </div>
           </div>
+
+          {/* AI Credits */}
+          <CreditPacksSection
+            billingEmail={billingEmail}
+            onPurchased={(newBalance) => setAiCredits(newBalance)}
+          />
 
           {/* Billing email */}
           <div className="bg-white rounded-2xl border border-gray-200 p-5">

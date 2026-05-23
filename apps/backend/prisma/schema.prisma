@@ -18,6 +18,7 @@ model Tenant {
   planStartedAt           DateTime? @map("plan_started_at")
   planExpiresAt           DateTime? @map("plan_expires_at")
   billingEmail            String?  @map("billing_email")
+  aiCredits               Int      @default(0) @map("ai_credits")
   isActive                Boolean  @default(true)        @map("is_active")
   onboardingCompleted     Boolean  @default(false)       @map("onboarding_completed")
   onboardingStep          Int      @default(0)           @map("onboarding_step")
@@ -72,6 +73,7 @@ model Tenant {
   feedback             Feedback[]
   featureFlagRollouts  FeatureFlagRollout[]
   whatsappNumbers      WhatsAppNumber[]
+  creditPurchases     CreditPurchase[]
 
   @@map("tenants")
 }
@@ -167,6 +169,8 @@ model TenantSettings {
   aiEnabled           Boolean  @default(false) @map("ai_enabled")
   aiAlwaysOn          Boolean  @default(false) @map("ai_always_on")
   aiPersonality       String?  @map("ai_personality")
+  aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
+  aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1479,6 +1483,24 @@ model PromoCodeUsage {
   @@unique([promoCodeId, tenantId])
   @@index([tenantId])
   @@map("promo_code_usages")
+}
+
+model CreditPurchase {
+  id          String        @id @default(uuid())
+  tenantId    String        @map("tenant_id")
+  credits     Int
+  packSlug    String        @map("pack_slug")
+  amount      Float
+  currency    String        @default("USD")
+  paystackRef String?       @unique @map("paystack_ref")
+  status      PaymentStatus @default(PENDING)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("credit_purchases")
 }
 
 // ── Feedback ─────────────────────────────────────────────────────────────────
