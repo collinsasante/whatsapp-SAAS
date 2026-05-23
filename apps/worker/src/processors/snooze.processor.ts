@@ -57,7 +57,7 @@ export class SnoozeWorker {
       `${REALTIME_URL}/internal/emit`,
       {
         event: 'conversation_unsnooze',
-        payload: { tenantId, conversationId, ...updated },
+        payload: { conversationId, ...updated, tenantId },
       },
       { timeout: 5000 },
     ).catch((err) => {
