@@ -92,7 +92,7 @@ export class BillingService {
       planName: plan.name,
       planSlug: dto.planSlug,
       amount: baseAmount,
-      currency: plan.currency ?? 'GHS',
+      currency: plan.currency ?? 'USD',
       billingEmail: dto.billingEmail ?? tenant.billingEmail ?? '',
       billingName: tenant.name,
       periodStart: now,
@@ -111,7 +111,7 @@ export class BillingService {
     const apiUrl = this.config.get<string>('API_URL', 'https://verzchat.com/api/v1');
     const activateUrl = `${apiUrl}/billing/admin/activate?ref=${reference}&secret=${encodeURIComponent(adminSecret)}`;
 
-    const currencySymbol = plan.currency === 'GHS' ? 'GH₵' : '$';
+    const currencySymbol = '$';
 
     await this.emailService.sendRaw({
       to: 'support@verzchat.com',
@@ -121,7 +121,7 @@ export class BillingService {
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
           <tr><td style="padding:6px 0;color:#666">Plan</td><td style="font-weight:600">${plan.name} (${dto.cycle})</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">${currencySymbol}${baseAmount} ${plan.currency ?? 'GHS'}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">$${baseAmount} USD</td></tr>
           <tr><td style="padding:6px 0;color:#666">Reference</td><td style="font-weight:600;font-family:monospace">${reference}</td></tr>
           <tr><td style="padding:6px 0;color:#666">Invoice</td><td>${invoice.invoiceNumber}</td></tr>
           <tr><td style="padding:6px 0;color:#666">Billing Email</td><td>${dto.billingEmail ?? tenant.billingEmail ?? '—'}</td></tr>
@@ -137,7 +137,7 @@ export class BillingService {
       this.logger.error('Failed to send payment notification email', (err as Error).message);
     });
 
-    return { free: false, reference, paymentDetails: PAYMENT_DETAILS, amount: baseAmount, currency: plan.currency ?? 'GHS', plan };
+    return { free: false, reference, paymentDetails: PAYMENT_DETAILS, amount: baseAmount, currency: 'USD', plan };
   }
 
   async adminActivateSubscription(secret: string, reference: string) {
@@ -219,10 +219,10 @@ export class BillingService {
   }
 
   static readonly CREDIT_PACKS = [
-    { slug: 'starter-200',  credits: 200,   amount: 30,  label: '200 Credits',   description: 'Great for small teams getting started', currency: 'GHS' },
-    { slug: 'growth-600',   credits: 600,   amount: 80,  label: '600 Credits',   description: 'Most popular — 3× more value', currency: 'GHS' },
-    { slug: 'pro-1500',     credits: 1500,  amount: 180, label: '1,500 Credits', description: 'Best value for active workspaces', currency: 'GHS' },
-    { slug: 'scale-4000',   credits: 4000,  amount: 450, label: '4,000 Credits', description: 'High-volume teams', currency: 'GHS' },
+    { slug: 'starter-200',  credits: 200,   amount: 5,   label: '200 Credits',   description: 'Great for small teams getting started', currency: 'USD' },
+    { slug: 'growth-600',   credits: 600,   amount: 12,  label: '600 Credits',   description: 'Most popular — 3× more value', currency: 'USD' },
+    { slug: 'pro-1500',     credits: 1500,  amount: 25,  label: '1,500 Credits', description: 'Best value for active workspaces', currency: 'USD' },
+    { slug: 'scale-4000',   credits: 4000,  amount: 55,  label: '4,000 Credits', description: 'High-volume teams', currency: 'USD' },
   ] as const;
 
   getCreditPacks() {
@@ -255,7 +255,7 @@ export class BillingService {
         credits: pack.credits,
         packSlug,
         amount: pack.amount,
-        currency: 'GHS',
+        currency: 'USD',
         paystackRef: reference,
         status: 'PENDING',
       },
@@ -267,13 +267,13 @@ export class BillingService {
 
     await this.emailService.sendRaw({
       to: 'support@verzchat.com',
-      subject: `[credits] ${tenant.name} — ${pack.label} — GH₵${pack.amount}`,
+      subject: `[credits] ${tenant.name} — ${pack.label} — $${pack.amount} USD`,
       html: `
         <h2 style="margin:0 0 16px">New AI Credits Payment Pending</h2>
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
           <tr><td style="padding:6px 0;color:#666">Pack</td><td style="font-weight:600">${pack.label}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">GH₵${pack.amount}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">$${pack.amount} USD</td></tr>
           <tr><td style="padding:6px 0;color:#666">Reference</td><td style="font-weight:600;font-family:monospace">${reference}</td></tr>
         </table>
         <hr style="margin:20px 0;border:none;border-top:1px solid #e5e7eb" />

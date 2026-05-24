@@ -9,10 +9,10 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: 'How much does VerzChat cost?', a: 'VerzChat is GHS 150 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' },
+  { q: 'How much does VerzChat cost?', a: 'VerzChat is $25 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' },
   { q: 'Can I use my existing WhatsApp Business number?', a: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through every step.' },
-  { q: 'Is there a per-message fee?', a: 'No. VerzChat charges a flat monthly fee of GHS 150 — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' },
-  { q: 'How many team members can I add?', a: 'Your GHS 150 plan supports unlimited agents. Invite your entire team — support staff, sales reps, managers — all from the same workspace.' },
+  { q: 'Is there a per-message fee?', a: 'No. VerzChat charges a flat monthly fee of $25 — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' },
+  { q: 'How many team members can I add?', a: 'Your $25 plan supports unlimited agents. Invite your entire team — support staff, sales reps, managers — all from the same workspace.' },
   { q: 'Can I cancel at any time?', a: 'Yes — cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes. Your data is retained for 30 days before deletion.' },
   { q: 'Do you support multiple WhatsApp channels?', a: 'Yes. You can connect up to 3 WhatsApp Business numbers on the standard plan. Each channel has its own inbox and team assignment. Need more? Contact us.' },
   { q: 'Is my customer data secure?', a: 'All data is encrypted at rest and in transit using AES-256 and TLS 1.3. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' },
@@ -89,7 +89,7 @@ export default function BottomCTA() {
         <div className="container">
           <div data-aos="fade-up">
             <h2>Ready to Get Started?</h2>
-            <p>Join hundreds of businesses using VerzChat to manage every customer conversation — GHS 150/month, cancel anytime.</p>
+            <p>Join hundreds of businesses using VerzChat to manage every customer conversation — $25/month, cancel anytime.</p>
             <div className="d-flex gap-3 justify-content-center flex-wrap">
               <Link href="/auth/register" className="btn_green">Get Started Free</Link>
               <Link href="/book-demo" className="btn_outline" style={{ borderColor: 'rgba(255,255,255,.25)', color: 'rgba(255,255,255,.8)' }}>Book a Demo</Link>

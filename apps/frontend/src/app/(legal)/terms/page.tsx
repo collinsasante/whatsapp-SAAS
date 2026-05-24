@@ -30,7 +30,7 @@ export default function TermsPage() {
         </Section>
 
         <Section title="Billing">
-          <p>The Pro plan is GH₵150/month (approx. $12 USD). Annual billing is GH₵1,500/year. Prices are in GHS for local payments (Paystack, Flutterwave) and USD for international (Stripe).</p>
+          <p>The Pro plan is $25/month. Annual billing is $250/year.</p>
           <p>Your subscription renews automatically at the start of each billing period. You can cancel anytime from your billing settings and you&apos;ll keep access until the end of the period you paid for. We don&apos;t offer refunds for partial months, but if something went wrong on our end we&apos;ll make it right.</p>
           <p>If a payment fails, we&apos;ll email you and give you 7 days to sort it out before suspending the account.</p>
         </Section>

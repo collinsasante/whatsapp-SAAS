@@ -15,7 +15,7 @@ const entries = [
     items: [
       { type: 'new', text: 'Verz AI assistant — AI-powered reply suggestions trained on your knowledge base. Enable it per workspace in Settings > AI.' },
       { type: 'new', text: 'Universal takeover system — any agent can take over a conversation assigned to another agent or Verz, with a clear handover state so nothing gets confused.' },
-      { type: 'new', text: 'Single Pro plan at GH₵150/month (approx. $12 USD). Simplified billing, one flat price for your whole team.' },
+      { type: 'new', text: 'Single Pro plan at $25/month. Simplified billing, one flat price for your whole team.' },
       { type: 'new', text: 'Automated Postgres backups running daily on the server with 7-day retention.' },
       { type: 'improved', text: 'Onboarding reduced from 5 steps to 2. Connect your WhatsApp number, get your profile auto-fetched from Meta, done.' },
       { type: 'improved', text: 'AI assistant now uses DeepSeek instead of Claude Haiku. Faster, cheaper, and the replies feel more natural.' },

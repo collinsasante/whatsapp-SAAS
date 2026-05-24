@@ -29,7 +29,7 @@ export default function Pricing() {
               <div className="price_card popular" style={{ textAlign: 'center' }}>
                 <span className="pop_badge">Everything Included</span>
                 <p className="plan_lbl">VerzChat</p>
-                <div className="price_val">GHS 150</div>
+                <div className="price_val">$25</div>
                 <p className="price_sub">/month · Cancel anytime</p>
                 <hr />
                 <ul className="pf_list" style={{ textAlign: 'left' }}>
