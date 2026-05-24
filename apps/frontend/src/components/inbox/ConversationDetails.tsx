@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route } from 'lucide-react';
+import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { useInboxStore } from '@/store/inbox.store';
@@ -117,6 +117,17 @@ export default function ConversationDetails({ conversation }: Props) {
     }).catch(() => {});
   }, [conversation.id, conversation.contact?.id]);
 
+  const handleToggleBlock = async () => {
+    const contactId = conversation.contact?.id;
+    if (!contactId) return;
+    try {
+      const res = await contactsApi.block(contactId);
+      const { isBlocked } = res.data as { isBlocked: boolean };
+      setContactDetail((prev) => prev ? { ...prev, isBlocked } : { optedOut: false, isBlocked });
+      toast.success(isBlocked ? 'Contact blocked' : 'Contact unblocked');
+    } catch { toast.error('Failed to update block status'); }
+  };
+
   const removeLabel = async (label: string) => {
     try {
       const updated = conversation.labels.filter((l) => l !== label);
@@ -152,6 +163,20 @@ export default function ConversationDetails({ conversation }: Props) {
         {conversation.contact?.email && <p className="text-xs text-gray-400 mt-0.5">{conversation.contact.email}</p>}
         {conversation.lastMessageAt && (
           <p className="text-xs text-gray-400 mt-2">Last seen {formatRelativeTime(conversation.lastMessageAt)}</p>
+        )}
+        {contactDetail !== null && (
+          <button
+            onClick={() => { void handleToggleBlock(); }}
+            className={cn(
+              'mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              contactDetail.isBlocked
+                ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                : 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500',
+            )}
+          >
+            {contactDetail.isBlocked ? <ShieldOff size={12} /> : <Shield size={12} />}
+            {contactDetail.isBlocked ? 'Unblock Contact' : 'Block Contact'}
+          </button>
         )}
       </div>
 
