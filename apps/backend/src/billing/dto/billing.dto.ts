@@ -1,5 +1,5 @@
-import { IsEmail, IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
-import { BillingCycle, PaymentGateway } from '@whatsapp-platform/shared-types';
+import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
+import { BillingCycle } from '@whatsapp-platform/shared-types';
 
 export class InitiateCheckoutDto {
   @IsString()
@@ -7,9 +7,6 @@ export class InitiateCheckoutDto {
 
   @IsEnum(BillingCycle)
   cycle: BillingCycle;
-
-  @IsEnum(PaymentGateway)
-  gateway: PaymentGateway;
 
   @IsEmail()
   @IsOptional()
@@ -36,16 +33,4 @@ export class ApplyPromoCodeDto {
 
   @IsString()
   planSlug: string;
-}
-
-export class VerifyPaymentDto {
-  @IsEnum(PaymentGateway)
-  gateway: PaymentGateway;
-
-  @IsString()
-  reference: string;
-
-  @IsUUID()
-  @IsOptional()
-  invoiceId?: string;
 }
