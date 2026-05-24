@@ -1,15 +1,29 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { BillingCycle, PaymentGateway, PaymentStatus } from '@whatsapp-platform/shared-types';
+import { BillingCycle, PaymentGateway } from '@whatsapp-platform/shared-types';
 import { SubscriptionService } from './subscription.service';
 import { InvoiceService } from './invoice.service';
 import { UsageService } from './usage.service';
-import { StripeGateway } from './gateways/stripe.gateway';
-import { PaystackGateway } from './gateways/paystack.gateway';
-import { FlutterwaveGateway } from './gateways/flutterwave.gateway';
-import { IBillingGateway } from './gateways/gateway.interface';
+import { EmailService } from '../common/email.service';
 import { InitiateCheckoutDto } from './dto/billing.dto';
+import crypto from 'crypto';
+
+function genRef(prefix: string) {
+  return `${prefix}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+export const PAYMENT_DETAILS = {
+  mobileMoney: [
+    { network: 'MTN Mobile Money', number: '055 000 0000', name: 'VerzChat Ltd' },
+  ],
+  bank: {
+    bankName: 'GCB Bank Ghana',
+    accountNumber: '1234567890',
+    accountName: 'VerzChat Ltd',
+    branch: 'Accra Central',
+  },
+};
 
 @Injectable()
 export class BillingService {
@@ -21,19 +35,8 @@ export class BillingService {
     private readonly subscriptionService: SubscriptionService,
     private readonly invoiceService: InvoiceService,
     private readonly usageService: UsageService,
-    private readonly stripeGateway: StripeGateway,
-    private readonly paystackGateway: PaystackGateway,
-    private readonly flutterwaveGateway: FlutterwaveGateway,
+    private readonly emailService: EmailService,
   ) {}
-
-  private getGateway(gateway: PaymentGateway): IBillingGateway {
-    switch (gateway) {
-      case PaymentGateway.STRIPE:      return this.stripeGateway;
-      case PaymentGateway.PAYSTACK:    return this.paystackGateway;
-      case PaymentGateway.FLUTTERWAVE: return this.flutterwaveGateway;
-      default: throw new BadRequestException(`Unsupported gateway: ${gateway}`);
-    }
-  }
 
   async getStatus(tenantId: string) {
     const [tenant, sub] = await Promise.all([
@@ -44,24 +47,18 @@ export class BillingService {
       this.subscriptionService.getOrCreateFreeTrial(tenantId),
     ]);
     if (!tenant) throw new NotFoundException('Tenant not found');
-
-    return {
-      subscription: sub,
-      plan: sub.plan,
-      billingEmail: tenant.billingEmail,
-      workspaceName: tenant.name,
-    };
+    return { subscription: sub, plan: sub.plan, billingEmail: tenant.billingEmail, workspaceName: tenant.name };
   }
 
-  async getUsage(tenantId: string) {
+  getUsage(tenantId: string) {
     return this.usageService.getUsageWithLimits(tenantId);
   }
 
-  async getInvoices(tenantId: string) {
+  getInvoices(tenantId: string) {
     return this.invoiceService.getInvoices(tenantId);
   }
 
-  async getPlans() {
+  getPlans() {
     return this.subscriptionService.getPlans();
   }
 
@@ -72,147 +69,110 @@ export class BillingService {
     });
     if (!tenant) throw new NotFoundException('Tenant not found');
 
-    const billingEmail = dto.billingEmail ?? tenant.billingEmail ?? '';
-    if (!billingEmail) throw new BadRequestException('Billing email is required');
+    const plan = await this.prisma.plan.findUnique({ where: { slug: dto.planSlug } });
+    if (!plan) throw new NotFoundException(`Plan not found: ${dto.planSlug}`);
 
-    const { invoice, plan } = await this.subscriptionService.createCheckoutInvoice({
-      tenantId,
-      planSlug: dto.planSlug,
-      cycle: dto.cycle,
-      gateway: dto.gateway,
-      billingEmail,
-      billingName: tenant.name,
-      promoCode: dto.promoCode,
-    });
-
-    if (invoice.total === 0) {
-      // Free plan or fully discounted — activate immediately
-      await this.invoiceService.markPaid(invoice.id);
-      await this.subscriptionService.activateFromPayment({
-        tenantId,
-        invoiceId: invoice.id,
-        planId: plan.id,
-        cycle: dto.cycle,
-        gateway: dto.gateway,
-      });
-      return { invoice, paymentUrl: null, free: true };
+    if (plan.monthlyPrice === 0) {
+      // Free plan — activate immediately
+      const sub = await this.subscriptionService.getOrCreateFreeTrial(tenantId);
+      return { free: true, subscription: sub, paymentDetails: null, reference: null };
     }
 
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
-    const gw = this.getGateway(dto.gateway);
+    const baseAmount = dto.cycle === BillingCycle.YEARLY ? plan.yearlyPrice : plan.monthlyPrice;
 
-    // Stripe requires USD; convert GHS plan prices to their USD equivalent
-    const chargeAmount = dto.gateway === PaymentGateway.STRIPE && invoice.currency === 'GHS'
-      ? Math.round((invoice.total / 150) * 12 * 100) / 100
-      : invoice.total;
-    const chargeCurrency = dto.gateway === PaymentGateway.STRIPE && invoice.currency === 'GHS'
-      ? 'USD'
-      : invoice.currency;
+    const now = new Date();
+    const periodEnd = dto.cycle === BillingCycle.YEARLY
+      ? new Date(now.getFullYear() + 1, now.getMonth(), now.getDate())
+      : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
-    const session = await gw.createCheckoutSession({
+    const reference = genRef('VRZ');
+
+    const invoice = await this.invoiceService.createInvoice({
       tenantId,
+      planName: plan.name,
       planSlug: dto.planSlug,
-      amount: chargeAmount,
-      currency: chargeCurrency,
-      billingEmail,
+      amount: baseAmount,
+      currency: plan.currency ?? 'GHS',
+      billingEmail: dto.billingEmail ?? tenant.billingEmail ?? '',
       billingName: tenant.name,
-      invoiceId: invoice.id,
-      successUrl: `${frontendUrl}/billing?payment=success&invoice=${invoice.id}`,
-      cancelUrl: `${frontendUrl}/billing?payment=cancelled`,
-      metadata: { planId: plan.id, cycle: dto.cycle },
+      periodStart: now,
+      periodEnd,
     });
 
-    await this.invoiceService.setGatewayPaymentUrl(invoice.id, session.paymentUrl, session.gatewayReference);
-
-    await this.prisma.payment.create({
+    await this.prisma.invoice.update({
+      where: { id: invoice.id },
       data: {
-        tenantId,
-        invoiceId: invoice.id,
-        gateway: dto.gateway,
-        status: PaymentStatus.PENDING,
-        amount: chargeAmount,
-        currency: chargeCurrency,
-        gatewayReference: session.gatewayReference,
+        gatewayInvoiceId: reference,
+        metadata: { planSlug: dto.planSlug, planId: plan.id, cycle: dto.cycle },
       },
     });
 
-    return { invoice, paymentUrl: session.paymentUrl, reference: session.gatewayReference, free: false };
+    const adminSecret = this.config.get<string>('PLATFORM_ADMIN_SETUP_SECRET', '');
+    const apiUrl = this.config.get<string>('API_URL', 'https://verzchat.com/api/v1');
+    const activateUrl = `${apiUrl}/billing/admin/activate?ref=${reference}&secret=${encodeURIComponent(adminSecret)}`;
+
+    const currencySymbol = plan.currency === 'GHS' ? 'GH₵' : '$';
+
+    await this.emailService.sendRaw({
+      to: 'support@verzchat.com',
+      subject: `[payment] ${tenant.name} — ${plan.name} Plan (${dto.cycle}) — ${currencySymbol}${baseAmount}`,
+      html: `
+        <h2 style="margin:0 0 16px">New Plan Payment Pending</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Plan</td><td style="font-weight:600">${plan.name} (${dto.cycle})</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">${currencySymbol}${baseAmount} ${plan.currency ?? 'GHS'}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Reference</td><td style="font-weight:600;font-family:monospace">${reference}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Invoice</td><td>${invoice.invoiceNumber}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Billing Email</td><td>${dto.billingEmail ?? tenant.billingEmail ?? '—'}</td></tr>
+        </table>
+        <hr style="margin:20px 0;border:none;border-top:1px solid #e5e7eb" />
+        <p style="font-size:13px;color:#374151">Once you have verified the payment, click the button below to activate their subscription:</p>
+        <a href="${activateUrl}" style="display:inline-block;margin-top:8px;padding:12px 24px;background:#0d9488;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">
+          Activate Subscription
+        </a>
+        <p style="font-size:11px;color:#9ca3af;margin-top:12px">Or copy this link: ${activateUrl}</p>
+      `,
+    }).catch((err: unknown) => {
+      this.logger.error('Failed to send payment notification email', (err as Error).message);
+    });
+
+    return { free: false, reference, paymentDetails: PAYMENT_DETAILS, amount: baseAmount, currency: plan.currency ?? 'GHS', plan };
   }
 
-  async verifyAndActivate(opts: {
-    tenantId: string;
-    gateway: PaymentGateway;
-    reference: string;
-    invoiceId?: string;
-  }) {
-    const gw = this.getGateway(opts.gateway);
-    const verified = await gw.verifyPayment(opts.reference);
+  async adminActivateSubscription(secret: string, reference: string) {
+    const adminSecret = this.config.get<string>('PLATFORM_ADMIN_SETUP_SECRET', '');
+    if (!adminSecret || secret !== adminSecret) throw new UnauthorizedException('Invalid admin secret');
 
-    if (verified.status !== 'success') {
-      throw new BadRequestException(`Payment not successful: ${verified.status}`);
-    }
-
-    // Find invoice from metadata or provided id
-    const invoice = opts.invoiceId
-      ? await this.prisma.invoice.findUnique({ where: { id: opts.invoiceId } })
-      : await this.prisma.invoice.findFirst({
-          where: { tenantId: opts.tenantId, gatewayInvoiceId: opts.reference },
-        });
-
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.tenantId !== opts.tenantId) throw new BadRequestException('Invoice does not belong to this tenant');
-
-    // Idempotent: if already paid, return current subscription
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { gatewayInvoiceId: reference },
+    });
+    if (!invoice) throw new NotFoundException(`Invoice not found for reference ${reference}`);
     if (invoice.status === 'PAID') {
-      return this.subscriptionService.getSubscription(opts.tenantId);
+      return { alreadyActivated: true, message: 'Subscription already activated' };
     }
 
     await this.invoiceService.markPaid(invoice.id, new Date());
 
-    await this.prisma.payment.upsert({
-      where: { gatewayPaymentId: verified.gatewayPaymentId },
-      update: {
-        status: PaymentStatus.SUCCEEDED,
-        verifiedAt: new Date(),
-        gatewayWebhookData: verified.metadata as object,
-      },
-      create: {
-        tenantId: opts.tenantId,
-        invoiceId: invoice.id,
-        gateway: opts.gateway,
-        status: PaymentStatus.SUCCEEDED,
-        amount: verified.amount,
-        currency: verified.currency,
-        gatewayPaymentId: verified.gatewayPaymentId,
-        gatewayReference: verified.gatewayReference,
-        verifiedAt: new Date(),
-        gatewayWebhookData: verified.metadata as object,
-      },
-    });
+    const meta = invoice.metadata as { planId?: string; planSlug?: string; cycle?: BillingCycle } | null;
+    const plan = meta?.planId
+      ? await this.prisma.plan.findUnique({ where: { id: meta.planId } })
+      : meta?.planSlug
+        ? await this.prisma.plan.findUnique({ where: { slug: meta.planSlug } })
+        : null;
 
-    // Determine plan and cycle from invoice items description
-    const planSlug = invoice.metadata
-      ? (invoice.metadata as { planSlug?: string })?.planSlug
-      : null;
+    if (!plan) throw new NotFoundException('Could not resolve plan from invoice');
 
-    const plan = planSlug
-      ? await this.prisma.plan.findUnique({ where: { slug: planSlug } })
-      : null;
-
-    // Fallback: look up by invoice gateway reference metadata
-    const resolvedPlan = plan ?? await this.prisma.plan.findUnique({ where: { slug: 'starter' } });
-    if (!resolvedPlan) throw new Error('Could not resolve plan for activation');
-
-    const cycle = (invoice.metadata as { cycle?: BillingCycle })?.cycle ?? BillingCycle.MONTHLY;
-
-    return this.subscriptionService.activateFromPayment({
-      tenantId: opts.tenantId,
+    const sub = await this.subscriptionService.activateFromPayment({
+      tenantId: invoice.tenantId,
       invoiceId: invoice.id,
-      planId: resolvedPlan.id,
-      cycle,
-      gateway: opts.gateway,
-      gatewayCustomerId: verified.gatewayCustomerId,
+      planId: plan.id,
+      cycle: meta?.cycle ?? BillingCycle.MONTHLY,
+      gateway: PaymentGateway.PAYSTACK,
     });
+
+    this.logger.log(`Admin activated subscription for tenant ${invoice.tenantId} via reference ${reference}`);
+    return { activated: true, subscription: sub };
   }
 
   async cancelSubscription(tenantId: string, immediately = false) {
@@ -248,9 +208,7 @@ export class BillingService {
       : promo.discountValue;
 
     return {
-      code: promo.code,
-      discountType: promo.discountType,
-      discountValue: promo.discountValue,
+      code: promo.code, discountType: promo.discountType, discountValue: promo.discountValue,
       monthlyDiscount: Math.min(monthlyDiscount, plan.monthlyPrice),
       yearlyDiscount: Math.min(yearlyDiscount, plan.yearlyPrice),
     };
@@ -260,12 +218,11 @@ export class BillingService {
     return this.usageService.getHistoricalUsage(tenantId);
   }
 
-  // Credit pack definitions (USD pricing)
   static readonly CREDIT_PACKS = [
-    { slug: 'starter-200',  credits: 200,  amount: 5,   label: '200 Credits',  description: 'Great for small teams getting started' },
-    { slug: 'growth-600',   credits: 600,  amount: 12,  label: '600 Credits',  description: 'Most popular — 3× more value' },
-    { slug: 'pro-1500',     credits: 1500, amount: 25,  label: '1,500 Credits', description: 'Best value for active workspaces' },
-    { slug: 'scale-4000',   credits: 4000, amount: 55,  label: '4,000 Credits', description: 'High-volume teams' },
+    { slug: 'starter-200',  credits: 200,   amount: 30,  label: '200 Credits',   description: 'Great for small teams getting started', currency: 'GHS' },
+    { slug: 'growth-600',   credits: 600,   amount: 80,  label: '600 Credits',   description: 'Most popular — 3× more value', currency: 'GHS' },
+    { slug: 'pro-1500',     credits: 1500,  amount: 180, label: '1,500 Credits', description: 'Best value for active workspaces', currency: 'GHS' },
+    { slug: 'scale-4000',   credits: 4000,  amount: 450, label: '4,000 Credits', description: 'High-volume teams', currency: 'GHS' },
   ] as const;
 
   getCreditPacks() {
@@ -280,7 +237,7 @@ export class BillingService {
     return { credits: tenant?.aiCredits ?? 0 };
   }
 
-  async initiateCreditPurchase(tenantId: string, packSlug: string, billingEmail: string) {
+  async initiateCreditPurchase(tenantId: string, packSlug: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { name: true, billingEmail: true },
@@ -290,81 +247,68 @@ export class BillingService {
     const pack = BillingService.CREDIT_PACKS.find((p) => p.slug === packSlug);
     if (!pack) throw new BadRequestException('Invalid credit pack');
 
-    const email = billingEmail || tenant.billingEmail || '';
-    if (!email) throw new BadRequestException('Billing email is required');
+    const reference = genRef('VRZ-C');
 
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
-
-    // Initialize Paystack transaction
-    const res = await (await import('axios')).default.post(
-      'https://api.paystack.co/transaction/initialize',
-      {
-        email,
-        amount: Math.round(pack.amount * 100),
-        currency: 'USD',
-        callback_url: `${frontendUrl}/billing?credits=success&pack=${packSlug}`,
-        metadata: { tenantId, packSlug, credits: pack.credits, type: 'credit_purchase' },
-      },
-      { headers: { Authorization: `Bearer ${this.config.get<string>('PAYSTACK_SECRET_KEY', '')}` } },
-    ).catch((err) => {
-      throw new BadRequestException(`Paystack error: ${String(err?.response?.data?.message ?? err.message)}`);
-    });
-
-    const { reference, access_code } = res.data.data as { reference: string; access_code: string };
-
-    // Create pending credit purchase record
     await this.prisma.creditPurchase.create({
       data: {
         tenantId,
         credits: pack.credits,
         packSlug,
         amount: pack.amount,
-        currency: 'USD',
+        currency: 'GHS',
         paystackRef: reference,
         status: 'PENDING',
       },
     });
 
-    return { reference, accessCode: access_code, amount: pack.amount, credits: pack.credits, pack };
+    const adminSecret = this.config.get<string>('PLATFORM_ADMIN_SETUP_SECRET', '');
+    const apiUrl = this.config.get<string>('API_URL', 'https://verzchat.com/api/v1');
+    const activateUrl = `${apiUrl}/billing/admin/activate-credits?ref=${reference}&secret=${encodeURIComponent(adminSecret)}`;
+
+    await this.emailService.sendRaw({
+      to: 'support@verzchat.com',
+      subject: `[credits] ${tenant.name} — ${pack.label} — GH₵${pack.amount}`,
+      html: `
+        <h2 style="margin:0 0 16px">New AI Credits Payment Pending</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Pack</td><td style="font-weight:600">${pack.label}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">GH₵${pack.amount}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Reference</td><td style="font-weight:600;font-family:monospace">${reference}</td></tr>
+        </table>
+        <hr style="margin:20px 0;border:none;border-top:1px solid #e5e7eb" />
+        <p style="font-size:13px;color:#374151">Once you have verified the payment, click the button below to add the credits:</p>
+        <a href="${activateUrl}" style="display:inline-block;margin-top:8px;padding:12px 24px;background:#0d9488;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px">
+          Add Credits
+        </a>
+        <p style="font-size:11px;color:#9ca3af;margin-top:12px">Or copy this link: ${activateUrl}</p>
+      `,
+    }).catch((err: unknown) => {
+      this.logger.error('Failed to send credits notification email', (err as Error).message);
+    });
+
+    return { reference, amount: pack.amount, credits: pack.credits, pack, paymentDetails: PAYMENT_DETAILS };
   }
 
-  async verifyCreditPurchase(tenantId: string, reference: string) {
-    const purchase = await this.prisma.creditPurchase.findUnique({
-      where: { paystackRef: reference },
-    });
-    if (!purchase) throw new NotFoundException('Credit purchase not found');
-    if (purchase.tenantId !== tenantId) throw new BadRequestException('Purchase does not belong to this tenant');
+  async adminActivateCredits(secret: string, reference: string) {
+    const adminSecret = this.config.get<string>('PLATFORM_ADMIN_SETUP_SECRET', '');
+    if (!adminSecret || secret !== adminSecret) throw new UnauthorizedException('Invalid admin secret');
+
+    const purchase = await this.prisma.creditPurchase.findUnique({ where: { paystackRef: reference } });
+    if (!purchase) throw new NotFoundException(`Credit purchase not found for reference ${reference}`);
+
     if (purchase.status === 'SUCCEEDED') {
-      return { success: true, credits: purchase.credits, alreadyProcessed: true };
+      return { alreadyActivated: true, message: 'Credits already added' };
     }
 
-    // Verify with Paystack
-    const verified = await this.paystackGateway.verifyPayment(reference);
-    if (verified.status !== 'success') {
-      await this.prisma.creditPurchase.update({
-        where: { id: purchase.id },
-        data: { status: 'FAILED' },
-      });
-      throw new BadRequestException('Payment not successful');
-    }
-
-    // Mark success and add credits atomically
     await Promise.all([
-      this.prisma.creditPurchase.update({
-        where: { id: purchase.id },
-        data: { status: 'SUCCEEDED' },
-      }),
-      this.prisma.tenant.update({
-        where: { id: tenantId },
-        data: { aiCredits: { increment: purchase.credits } },
-      }),
+      this.prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: 'SUCCEEDED' } }),
+      this.prisma.tenant.update({ where: { id: purchase.tenantId }, data: { aiCredits: { increment: purchase.credits } } }),
     ]);
 
-    const updated = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { aiCredits: true },
-    });
+    const updated = await this.prisma.tenant.findUnique({ where: { id: purchase.tenantId }, select: { aiCredits: true } });
+    this.logger.log(`Admin added ${purchase.credits} credits to tenant ${purchase.tenantId} via reference ${reference}`);
 
-    return { success: true, credits: purchase.credits, newBalance: updated?.aiCredits ?? 0 };
+    return { activated: true, creditsAdded: purchase.credits, newBalance: updated?.aiCredits ?? 0 };
   }
 }

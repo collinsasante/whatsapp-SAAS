@@ -6,7 +6,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { UserRole } from '@whatsapp-platform/shared-types';
-import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, UpdateBillingEmailDto, VerifyPaymentDto } from './dto/billing.dto';
+import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, UpdateBillingEmailDto } from './dto/billing.dto';
 
 @ApiTags('Billing')
 @ApiBearerAuth()
@@ -34,7 +34,7 @@ export class BillingController {
   }
 
   @Get('usage/history')
-  @ApiOperation({ summary: 'Get historical usage snapshots (last 6 months)' })
+  @ApiOperation({ summary: 'Get historical usage snapshots' })
   getUsageHistory(@CurrentTenant() tenantId: string) {
     return this.billingService.getUsageHistory(tenantId);
   }
@@ -47,21 +47,9 @@ export class BillingController {
 
   @Post('checkout')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Initiate a checkout session for plan upgrade/purchase' })
+  @ApiOperation({ summary: 'Initiate an offline payment request — returns reference and payment details' })
   initiateCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto) {
     return this.billingService.initiateCheckout(tenantId, dto);
-  }
-
-  @Post('verify')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Verify a payment by reference (frontend callback fallback — primary activation via webhook)' })
-  verifyPayment(@CurrentTenant() tenantId: string, @Body() dto: VerifyPaymentDto) {
-    return this.billingService.verifyAndActivate({
-      tenantId,
-      gateway: dto.gateway,
-      reference: dto.reference,
-      invoiceId: dto.invoiceId,
-    });
   }
 
   @Post('promo')
@@ -80,7 +68,7 @@ export class BillingController {
 
   @Delete('cancel')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Cancel subscription at period end (or immediately)' })
+  @ApiOperation({ summary: 'Cancel subscription at period end' })
   cancelSubscription(@CurrentTenant() tenantId: string, @Body() dto: CancelSubscriptionDto) {
     return this.billingService.cancelSubscription(tenantId, dto.immediately);
   }
@@ -106,21 +94,28 @@ export class BillingController {
 
   @Post('credits/initialize')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Initialize a Paystack transaction to buy AI credits' })
+  @ApiOperation({ summary: 'Request AI credits — returns reference and payment details' })
   initiateCreditPurchase(
     @CurrentTenant() tenantId: string,
-    @Body() body: { packSlug: string; billingEmail?: string },
+    @Body() body: { packSlug: string },
   ) {
-    return this.billingService.initiateCreditPurchase(tenantId, body.packSlug, body.billingEmail ?? '');
+    return this.billingService.initiateCreditPurchase(tenantId, body.packSlug);
   }
 
-  @Post('credits/verify')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Verify credit purchase and credit AI wallet' })
-  verifyCreditPurchase(
-    @CurrentTenant() tenantId: string,
-    @Body() body: { reference: string },
+  // Admin-only activation endpoints — called via link in notification email
+  @Get('admin/activate')
+  adminActivateSubscription(
+    @Query('ref') ref: string,
+    @Query('secret') secret: string,
   ) {
-    return this.billingService.verifyCreditPurchase(tenantId, body.reference);
+    return this.billingService.adminActivateSubscription(secret, ref);
+  }
+
+  @Get('admin/activate-credits')
+  adminActivateCredits(
+    @Query('ref') ref: string,
+    @Query('secret') secret: string,
+  ) {
+    return this.billingService.adminActivateCredits(secret, ref);
   }
 }
