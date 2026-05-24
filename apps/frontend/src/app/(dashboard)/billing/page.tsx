@@ -181,7 +181,7 @@ function PaymentModal({ title, amount, currency, reference, paymentDetails, onCl
   paymentDetails: PaymentDetails;
   onClose: () => void;
 }) {
-  const currSym = currency === 'GHS' ? 'GH₵' : '$';
+  const currSym = '$';
   const copy = (text: string) => {
     void navigator.clipboard.writeText(text);
     toast.success('Copied');
@@ -255,7 +255,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
   const [email, setEmail] = useState(initialEmail ?? '');
   const [loading, setLoading] = useState(false);
 
-  const currSym = plan.currency === 'GHS' ? 'GH₵' : '$';
+  const currSym = '$';
   const amount = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
 
   const handleGenerate = async () => {
@@ -269,7 +269,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
         return;
       }
       if (data.reference && data.paymentDetails) {
-        onGenerated(data.reference, data.amount ?? amount, data.currency ?? plan.currency ?? 'GHS', data.paymentDetails);
+        onGenerated(data.reference, data.amount ?? amount, data.currency ?? 'USD', data.paymentDetails);
       }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to generate reference';
@@ -367,7 +367,7 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
     try {
       const res = await billingApi.initializeCreditPurchase(pack.slug);
       const data = res.data as { reference: string; amount: number; currency: string; paymentDetails: PaymentDetails };
-      setPaymentModal({ reference: data.reference, amount: data.amount, currency: data.currency ?? 'GHS', details: data.paymentDetails });
+      setPaymentModal({ reference: data.reference, amount: data.amount, currency: data.currency ?? 'USD', details: data.paymentDetails });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to initialize payment';
       toast.error(msg);
@@ -413,7 +413,7 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
                 </span>
               )}
               <div className="flex items-baseline gap-1">
-                <span className="text-xl font-bold text-gray-900">GH₵{pack.amount}</span>
+                <span className="text-xl font-bold text-gray-900">${pack.amount}</span>
               </div>
               <p className="text-sm font-semibold text-gray-900">{pack.label}</p>
               <p className="text-xs text-gray-500 leading-relaxed">{pack.description}</p>
@@ -459,7 +459,7 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
 function ProPlanCard({ plan, isCurrent, onSelect }: {
   plan: Plan; isCurrent: boolean; onSelect: () => void;
 }) {
-  const currSym = plan.currency === 'GHS' ? 'GH₵' : '$';
+  const currSym = '$';
   return (
     <div className={cn(
       'relative rounded-2xl border-2 p-6 flex flex-col md:flex-row gap-6 items-start md:items-center transition-all',
@@ -578,7 +578,7 @@ export default function BillingPage() {
 
   function formatPrice(plan: Plan) {
     if (plan.monthlyPrice === 0) return 'Free';
-    const sym = plan.currency === 'GHS' ? 'GH₵' : '$';
+    const sym = '$';
     return `${sym}${plan.monthlyPrice}/mo`;
   }
 
@@ -761,7 +761,7 @@ export default function BillingPage() {
                           {new Date(inv.billingPeriodStart).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                         </td>
                         <td className="px-4 py-3 font-semibold text-gray-900">
-                          {inv.currency === 'GHS' ? 'GH₵' : '$'}{inv.total.toFixed(2)}
+                          {'$'}{inv.total.toFixed(2)}
                         </td>
                         <td className="px-4 py-3">
                           <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium',
