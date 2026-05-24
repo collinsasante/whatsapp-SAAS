@@ -112,6 +112,9 @@ services:
       PLATFORM_ADMIN_SETUP_SECRET: ${PLATFORM_ADMIN_SETUP_SECRET:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SUPPORT_FORWARD_EMAIL: ${SUPPORT_FORWARD_EMAIL:-support@verzchat.com}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
+      SUPPORT_TENANT_ID: ${SUPPORT_TENANT_ID:-}
     volumes:
       - uploads_data:/app/uploads
     depends_on:
