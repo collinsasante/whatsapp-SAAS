@@ -25,7 +25,7 @@ export class InboundService {
     const senderEmail = (match?.[2] ?? match?.[3] ?? raw).trim().toLowerCase();
     const senderName = match?.[1]?.trim() || senderEmail;
 
-    const forwardTo = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'dev.keepupstore@gmail.com');
+    const forwardTo = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'mr.asantee@gmail.com');
     const bodyHtml = html || `<pre>${text}</pre>`;
 
     // 1 — Forward to Gmail
