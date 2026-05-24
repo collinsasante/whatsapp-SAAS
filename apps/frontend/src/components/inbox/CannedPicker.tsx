@@ -230,12 +230,12 @@ export default function CannedPicker({
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
         <div className="w-32 border-r border-gray-100 bg-gray-50/60 flex-shrink-0 overflow-y-auto py-1">
-          <SidebarItem label="All" icon="📋" count={items.length} active={section === 'all'} onClick={() => setSection('all')} />
+          <SidebarItem label="All" count={items.length} active={section === 'all'} onClick={() => setSection('all')} />
           {favorites.length > 0 && (
-            <SidebarItem label="Favorites" icon="⭐" count={favorites.length} active={section === 'favorites'} onClick={() => setSection('favorites')} />
+            <SidebarItem label="Favorites" count={favorites.length} active={section === 'favorites'} onClick={() => setSection('favorites')} />
           )}
           {recent.length > 0 && (
-            <SidebarItem label="Recent" icon="🕐" count={recent.length} active={section === 'recent'} onClick={() => setSection('recent')} />
+            <SidebarItem label="Recent" count={recent.length} active={section === 'recent'} onClick={() => setSection('recent')} />
           )}
           {categories.length > 0 && <div className="mx-2.5 my-1 border-t border-gray-200" />}
           {categories.map((cat) => (
@@ -258,7 +258,6 @@ export default function CannedPicker({
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-24 text-gray-400 gap-1">
-              <span className="text-xl">🔍</span>
               <span className="text-xs">{query ? `No results for "/${query}"` : 'No responses here'}</span>
             </div>
           ) : (

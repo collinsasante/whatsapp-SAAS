@@ -591,7 +591,14 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
             {STATUS_FILTERS.map((f) => {
               const count = f.key === 'All'
-                ? conversations.filter(c => c.status !== 'RESOLVED').length
+                ? conversations.filter(c => {
+                    if (c.status === 'RESOLVED') return false;
+                    if (c.lastInboundAt) {
+                      const elapsed = Date.now() - new Date(c.lastInboundAt).getTime();
+                      if (elapsed > TWENTY_FOUR_HOURS) return false;
+                    }
+                    return true;
+                  }).length
                 : f.key === 'RESOLVED'
                   ? (statusCounts?.RESOLVED ?? 0)
                   : conversations.filter(c => c.status === f.key).length;
