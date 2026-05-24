@@ -70,6 +70,9 @@ fi
 if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   echo "==> Building frontend..."
   rm -rf apps/frontend/.next
+  # Always bake production URLs into the bundle regardless of what infra/.env has
+  NEXT_PUBLIC_API_URL="https://verzchat.com/api/v1" \
+  NEXT_PUBLIC_SOCKET_URL="https://verzchat.com" \
   pnpm --filter @whatsapp-platform/frontend build
 
   # Resolve actual container name (handles hash-prefixed names like abc123_wa_frontend)
