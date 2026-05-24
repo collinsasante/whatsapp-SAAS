@@ -423,6 +423,11 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           const elapsed = now - new Date(c.lastInboundAt).getTime();
           if (elapsed > TWENTY_FOUR_HOURS) return false;
         }
+        // Resolved tab: only show conversations resolved within the past 24 hours
+        if (c.status === 'RESOLVED' && statusFilter === 'RESOLVED') {
+          const resolvedTime = c.resolvedAt ? new Date(c.resolvedAt).getTime() : (c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0);
+          if (now - resolvedTime > TWENTY_FOUR_HOURS) return false;
+        }
         const name = c.contact.name ?? c.contact.phone;
         const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
         const matchesStatus = statusFilter === 'All' ? c.status !== 'RESOLVED' : c.status === statusFilter;

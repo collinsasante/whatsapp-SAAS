@@ -164,6 +164,27 @@ export class ConversationsController {
     return this.conversationsService.addNote(tenantId, id, user.sub, dto);
   }
 
+  @Patch(':id/notes/:noteId')
+  editNote(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: CreateNoteDto,
+  ) {
+    return this.conversationsService.editNote(tenantId, id, noteId, user.sub, dto);
+  }
+
+  @Delete(':id/notes/:noteId')
+  deleteNote(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.conversationsService.deleteNote(tenantId, id, noteId, user.sub);
+  }
+
   @Get(':id/events')
   @ApiOperation({ summary: 'Get conversation lifecycle events (timeline)' })
   getEvents(@CurrentTenant() tenantId: string, @Param('id') id: string) {

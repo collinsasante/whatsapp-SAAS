@@ -552,6 +552,21 @@ export class ConversationsService {
     });
   }
 
+  async editNote(tenantId: string, conversationId: string, noteId: string, authorId: string, dto: CreateNoteDto) {
+    await this.findOne(tenantId, conversationId);
+    return this.prisma.conversationNote.update({
+      where: { id: noteId, conversationId, authorId },
+      data: { content: dto.content },
+      include: { author: { select: { id: true, name: true } } },
+    });
+  }
+
+  async deleteNote(tenantId: string, conversationId: string, noteId: string, authorId: string) {
+    await this.findOne(tenantId, conversationId);
+    await this.prisma.conversationNote.delete({ where: { id: noteId, conversationId, authorId } });
+    return { success: true };
+  }
+
   async getEvents(tenantId: string, conversationId: string) {
     await this.findOne(tenantId, conversationId);
     return this.prisma.conversationEvent.findMany({

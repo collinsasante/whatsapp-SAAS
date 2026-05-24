@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,6 +17,8 @@ import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@wh
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
+
   constructor(
     private prisma: PrismaService,
     private whatsappService: WhatsAppService,
@@ -522,7 +524,11 @@ export class MessagesService {
     if (priorMessageCount === 0) {
       const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { welcomeEnabled: true, welcomeMessage: true } });
       if (tenantSettings?.welcomeEnabled && tenantSettings.welcomeMessage) {
-        void this.whatsappService.sendTextMessage(tenantId, contact.phone, tenantSettings.welcomeMessage).catch(() => null);
+        void this.whatsappService.sendTextMessage(tenantId, contact.phone, tenantSettings.welcomeMessage)
+          .then(() => this.logger.log(`Welcome message sent to ${contact.phone}`))
+          .catch((err: unknown) => this.logger.error(`Welcome message failed for ${contact.phone}: ${(err as Error).message}`));
+      } else {
+        this.logger.debug(`Welcome skipped: enabled=${tenantSettings?.welcomeEnabled} hasMsg=${!!tenantSettings?.welcomeMessage}`);
       }
     }
 

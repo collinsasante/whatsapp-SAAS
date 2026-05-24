@@ -161,6 +161,8 @@ export const conversationsApi = {
   takeover: (id: string) => api.post(`/conversations/${id}/takeover`),
   addNote: (id: string, content: string) => api.post(`/conversations/${id}/notes`, { content }),
   getNotes: (id: string) => api.get(`/conversations/${id}/notes`),
+  editNote: (id: string, noteId: string, content: string) => api.patch(`/conversations/${id}/notes/${noteId}`, { content }),
+  deleteNote: (id: string, noteId: string) => api.delete(`/conversations/${id}/notes/${noteId}`),
   // State machine transitions
   request: (id: string, reason?: string) => api.post(`/conversations/${id}/request`, { reason }),
   intervene: (id: string) => api.post(`/conversations/${id}/intervene`),
@@ -198,6 +200,7 @@ export const contactsApi = {
   update: (id: string, data: Record<string, unknown>) => api.patch(`/contacts/${id}`, data),
   delete: (id: string) => api.delete(`/contacts/${id}`),
   import: (contacts: unknown[]) => api.post('/contacts/import', { contacts }),
+  block: (id: string) => api.patch(`/contacts/${id}/block`),
 };
 
 export const templatesApi = {
