@@ -15,10 +15,12 @@ export class InboundService {
   ) {}
 
   async handleInboundEmail(payload: Record<string, unknown>) {
-    const raw = (payload['from'] as string) ?? '';
-    const subject = (payload['subject'] as string) ?? '(no subject)';
-    const text = (payload['text'] as string) ?? '';
-    const html = (payload['html'] as string) ?? '';
+    // Resend wraps email fields inside payload.data
+    const data = (payload['data'] as Record<string, unknown> | undefined) ?? payload;
+    const raw = (data['from'] as string) ?? '';
+    const subject = (data['subject'] as string) ?? '(no subject)';
+    const text = (data['text'] as string) ?? '';
+    const html = (data['html'] as string) ?? '';
 
     // Parse "Name <email>" or plain email
     const match = /^(?:(.*?)\s*<([^>]+)>|(.+))$/.exec(raw.trim());
