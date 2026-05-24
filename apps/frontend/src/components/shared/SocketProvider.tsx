@@ -76,7 +76,7 @@ function playRequestSound() {
 }
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, markConversationRead, activeConversationId, addActivityLog, patchActivityLog, conversations } = useInboxStore();
+  const { addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, markConversationRead, activeConversationId, addActivityLog, patchActivityLog, conversations, removeConversation } = useInboxStore();
   const { clearAuth } = useAuthStore();
   const { setIncomingCall, clearCallIfMatches, outboundSession, setOutboundSession } = useCallsStore();
   const router = useRouter();
@@ -436,6 +436,55 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       invalidateCannedCache();
     });
 
+    // Conversation snoozed — remove from inbox immediately
+    socket.on('conversation_snoozed', (data: { conversationId: string }) => {
+      if (data.conversationId) removeConversation(data.conversationId);
+    });
+
+    // Conversation unsnooze — wake timer fired; prepend to inbox top and notify
+    socket.on('conversation_unsnooze', (data: Record<string, unknown>) => {
+      const id = (data.conversationId ?? data.id) as string;
+      if (!id) return;
+
+      prependConversation({
+        id,
+        ...(data.status != null ? { status: data.status as string } : {}),
+        ...(data.contact ? { contact: data.contact as { id: string; name: string | null; phone: string; avatarUrl: string | null } } : {}),
+        assignedTo: (data.assignedTo as { id: string; name: string } | null) ?? null,
+        lastMessageAt: (data.lastMessageAt as string) ?? null,
+        labels: (data.labels as string[]) ?? [],
+        channel: data.channel as { id: string; type: string; name: string } | undefined,
+        snoozedUntil: null,
+      });
+
+      const contactName = (data.contact as { name?: string | null; phone?: string })?.name
+        ?? (data.contact as { phone?: string })?.phone
+        ?? 'A conversation';
+
+      toast.custom(
+        (t) => (
+          <div
+            className={`flex items-center gap-3 bg-white rounded-2xl shadow-xl border border-amber-100 px-4 py-3 max-w-xs cursor-pointer transition-all ${t.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
+            style={{ minWidth: 280 }}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('inbox:open-conversation', { detail: { conversationId: id } }));
+              toast.dismiss(t.id);
+            }}
+          >
+            <div className="w-9 h-9 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center flex-shrink-0 text-lg">
+              🔔
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-gray-900 truncate">Snooze ended</p>
+              <p className="text-xs text-gray-500 truncate">{contactName} is back in your inbox</p>
+            </div>
+            <span className="text-[10px] text-gray-300 flex-shrink-0">now</span>
+          </div>
+        ),
+        { duration: 6000, id: `unsnooze-${id}` },
+      );
+    });
+
     // Inbound WhatsApp call arriving — skip if this agent is already on a call
     const onIncomingCall = (data: { tenantId: string; call: { callLogId: string; whatsappCallId: string; from: string; contactName: string | null; sdpOffer: string | null } }) => {
       const { outboundCall, incomingCall } = useCallsStore.getState();
@@ -490,11 +539,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off('notification:new', notificationHandler);
       socket.off('incoming_call', onIncomingCall);
       socket.off('call_updated', onCallUpdated);
+      socket.off('conversation_snoozed');
+      socket.off('conversation_unsnooze');
     };
   // NOTE: activeConversationId intentionally excluded — we use activeConversationIdRef instead
   // to avoid tearing down all socket listeners on every conversation switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, addActivityLog, patchActivityLog, clearAuth, router, startPolling, stopPolling, onSocketConnect, setIncomingCall, clearCallIfMatches]);
+  }, [addMessage, updateMessage, updateMessageStatus, setTyping, prependConversation, updateConversation, addActivityLog, patchActivityLog, clearAuth, router, startPolling, stopPolling, onSocketConnect, setIncomingCall, clearCallIfMatches, removeConversation]);
 
   return <>{children}</>;
 }

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route } from 'lucide-react';
+import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { useInboxStore } from '@/store/inbox.store';
@@ -80,6 +80,7 @@ export default function ConversationDetails({ conversation }: Props) {
   const { updateConversation, messages } = useInboxStore();
   const [noteText, setNoteText] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [notes, setNotes] = useState<{ id: string; content: string; author: { id: string; name: string }; createdAt: string }[]>([]);
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [mediaExpanded, setMediaExpanded] = useState(false);
   const [voiceNotesExpanded, setVoiceNotesExpanded] = useState(false);
@@ -111,7 +112,21 @@ export default function ConversationDetails({ conversation }: Props) {
         setContactDetail({ optedOut: c.optedOut, isBlocked: c.isBlocked });
       }).catch(() => {});
     }
+    void conversationsApi.getNotes(conversation.id).then((res) => {
+      setNotes((res.data as typeof notes) ?? []);
+    }).catch(() => {});
   }, [conversation.id, conversation.contact?.id]);
+
+  const handleToggleBlock = async () => {
+    const contactId = conversation.contact?.id;
+    if (!contactId) return;
+    try {
+      const res = await contactsApi.block(contactId);
+      const { isBlocked } = res.data as { isBlocked: boolean };
+      setContactDetail((prev) => prev ? { ...prev, isBlocked } : { optedOut: false, isBlocked });
+      toast.success(isBlocked ? 'Contact blocked' : 'Contact unblocked');
+    } catch { toast.error('Failed to update block status'); }
+  };
 
   const removeLabel = async (label: string) => {
     try {
@@ -125,7 +140,8 @@ export default function ConversationDetails({ conversation }: Props) {
     if (!noteText.trim()) return;
     setAddingNote(true);
     try {
-      await conversationsApi.addNote(conversation.id, noteText);
+      const res = await conversationsApi.addNote(conversation.id, noteText);
+      setNotes((prev) => [...prev, res.data as typeof notes[0]]);
       setNoteText('');
       toast.success('Note added');
     } catch { toast.error('Failed to add note'); }
@@ -147,6 +163,20 @@ export default function ConversationDetails({ conversation }: Props) {
         {conversation.contact?.email && <p className="text-xs text-gray-400 mt-0.5">{conversation.contact.email}</p>}
         {conversation.lastMessageAt && (
           <p className="text-xs text-gray-400 mt-2">Last seen {formatRelativeTime(conversation.lastMessageAt)}</p>
+        )}
+        {contactDetail !== null && (
+          <button
+            onClick={() => { void handleToggleBlock(); }}
+            className={cn(
+              'mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              contactDetail.isBlocked
+                ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                : 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500',
+            )}
+          >
+            {contactDetail.isBlocked ? <ShieldOff size={12} /> : <Shield size={12} />}
+            {contactDetail.isBlocked ? 'Unblock Contact' : 'Block Contact'}
+          </button>
         )}
       </div>
 
@@ -361,6 +391,20 @@ export default function ConversationDetails({ conversation }: Props) {
           <StickyNote size={12} />
           Internal Note
         </h4>
+        {notes.length > 0 && (
+          <div className="mb-3 space-y-2 max-h-48 overflow-y-auto">
+            {notes.map((note) => (
+              <div key={note.id} className="bg-amber-50 border border-amber-100 rounded-xl p-2.5">
+                <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{note.content}</p>
+                <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-gray-400">
+                  <span className="font-medium text-gray-500">{note.author.name}</span>
+                  <span>·</span>
+                  <span>{formatRelativeTime(note.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}

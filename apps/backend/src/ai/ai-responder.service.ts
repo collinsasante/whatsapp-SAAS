@@ -61,17 +61,18 @@ export class AiResponderService {
     const [settings, tenant] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId },
-        select: { aiEnabled: true, aiAlwaysOn: true, offHoursEnabled: true, offHoursSchedule: true, timezone: true },
+        select: { aiEnabled: true, aiAlwaysOn: true, offHoursEnabled: true, offHoursSchedule: true, timezone: true, aiTrialApprovedAt: true },
       }),
-      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { createdAt: true } }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { aiCredits: true } }),
     ]);
+
     if (!settings?.aiEnabled) return false;
 
-    // 30-day learning period: Verz observes but does not reply
-    if (tenant) {
-      const daysSinceCreation = Math.floor((Date.now() - new Date(tenant.createdAt).getTime()) / 86_400_000);
-      if (daysSinceCreation < 30) return false;
-    }
+    // Require explicit admin approval after 30-day learning trial
+    if (!settings.aiTrialApprovedAt) return false;
+
+    // Require AI credits in the wallet
+    if (!tenant || tenant.aiCredits <= 0) return false;
 
     if (settings.aiAlwaysOn) return true;
     if (!settings.offHoursEnabled) return false;

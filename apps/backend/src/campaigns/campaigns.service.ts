@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,6 +19,15 @@ export class CampaignsService {
   ) {}
 
   async create(tenantId: string, createdById: string, dto: CreateCampaignDto) {
+    // Enforce plan limit: campaigns
+    const sub = await this.prisma.subscription.findUnique({
+      where: { tenantId },
+      include: { plan: true },
+    });
+    if (sub?.plan.limMaxCampaigns === 0) {
+      throw new ForbiddenException('Your current plan does not include campaigns. Upgrade to create campaigns.');
+    }
+
     const template = await this.prisma.template.findFirst({
       where: { id: dto.templateId, tenantId, status: 'APPROVED' },
     });

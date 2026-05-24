@@ -30,6 +30,15 @@ export interface CsatSurveyJob {
   contactPhone: string;
 }
 
+export interface SnoozeWakeJob {
+  conversationId: string;
+  tenantId: string;
+}
+
+export interface AiTrialExpireJob {
+  tenantId: string;
+}
+
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
   MESSAGE_RETRY = 'message-retry',
@@ -37,4 +46,6 @@ export enum QueueName {
   SCHEDULED_CAMPAIGN = 'scheduled-campaign',
   WEBHOOK_PROCESS = 'webhook-process',
   CSAT_SURVEY = 'csat-survey',
+  SNOOZE = 'snooze',
+  AI_TRIAL = 'ai-trial',
 }

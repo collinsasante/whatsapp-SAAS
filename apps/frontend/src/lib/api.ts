@@ -28,7 +28,12 @@ async function silentRefresh(): Promise<string> {
       return token;
     })
     .catch((err) => {
-      sessionDead = true;
+      // Only treat session as permanently dead when the refresh endpoint explicitly
+      // rejects the token (401). Network errors and 5xx are transient — don't log
+      // the user out for a momentary backend hiccup or container restart.
+      if (err?.response?.status === 401) {
+        sessionDead = true;
+      }
       throw err;
     })
     .finally(() => {
@@ -72,11 +77,14 @@ function createApiClient(): AxiosInstance {
           }
           return client(originalRequest);
         } catch {
-          localStorage.removeItem('access_token');
-          // Only dispatch once — sessionDead flag prevents further refresh attempts
-          // so this event fires exactly once per expired session
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('auth:session-expired'));
+          // Only log the user out if the refresh token itself was rejected (401).
+          // Transient errors (network, 5xx) leave sessionDead=false so the next
+          // 401 will attempt refresh again rather than forcing a logout.
+          if (sessionDead) {
+            localStorage.removeItem('access_token');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('auth:session-expired'));
+            }
           }
         }
       }
@@ -153,6 +161,8 @@ export const conversationsApi = {
   takeover: (id: string) => api.post(`/conversations/${id}/takeover`),
   addNote: (id: string, content: string) => api.post(`/conversations/${id}/notes`, { content }),
   getNotes: (id: string) => api.get(`/conversations/${id}/notes`),
+  editNote: (id: string, noteId: string, content: string) => api.patch(`/conversations/${id}/notes/${noteId}`, { content }),
+  deleteNote: (id: string, noteId: string) => api.delete(`/conversations/${id}/notes/${noteId}`),
   // State machine transitions
   request: (id: string, reason?: string) => api.post(`/conversations/${id}/request`, { reason }),
   intervene: (id: string) => api.post(`/conversations/${id}/intervene`),
@@ -190,6 +200,7 @@ export const contactsApi = {
   update: (id: string, data: Record<string, unknown>) => api.patch(`/contacts/${id}`, data),
   delete: (id: string) => api.delete(`/contacts/${id}`),
   import: (contacts: unknown[]) => api.post('/contacts/import', { contacts }),
+  block: (id: string) => api.patch(`/contacts/${id}/block`),
 };
 
 export const templatesApi = {
@@ -402,6 +413,11 @@ export const billingApi = {
   startTrial: (planSlug: string) => api.post(`/billing/trial/${planSlug}`),
   cancelSubscription: (immediately?: boolean) => api.delete('/billing/cancel', { data: { immediately } }),
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
+  getCreditPacks: () => api.get('/billing/credits/packs'),
+  getAiCredits: () => api.get('/billing/credits/balance'),
+  initializeCreditPurchase: (packSlug: string, billingEmail?: string) =>
+    api.post('/billing/credits/initialize', { packSlug, billingEmail }),
+  verifyCreditPurchase: (reference: string) => api.post('/billing/credits/verify', { reference }),
 };
 
 export const teamsApi = {
@@ -432,6 +448,7 @@ export const manageSettingsApi = {
   updateWidget: (data: Record<string, unknown>) => api.patch('/manage/settings/widget', data),
   updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string }) =>
     api.patch('/manage/settings/ai', data),
+  approveAi: () => api.post('/manage/settings/ai/approve', {}),
 };
 
 export const publicApi = {

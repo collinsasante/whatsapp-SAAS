@@ -76,4 +76,10 @@ export class ContactsController {
   bulkImport(@CurrentTenant() tenantId: string, @Body() dto: ImportContactsDto) {
     return this.contactsService.bulkImport(tenantId, dto);
   }
+
+  @Patch(':id/block')
+  @ApiOperation({ summary: 'Toggle block status for a contact' })
+  toggleBlock(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.contactsService.toggleBlock(tenantId, id);
+  }
 }

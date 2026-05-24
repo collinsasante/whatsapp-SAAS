@@ -82,4 +82,12 @@ export class RealtimeService {
   emitCannedUpdated(tenantId: string) {
     void this.emit('canned_responses_updated', { tenantId });
   }
+
+  emitConversationSnoozed(tenantId: string, conversationId: string) {
+    void this.emit('conversation_snoozed', { tenantId, conversationId });
+  }
+
+  emitConversationUnsnooze(tenantId: string, conversationId: string, data: Record<string, unknown>) {
+    void this.emit('conversation_unsnooze', { tenantId, conversationId, ...data });
+  }
 }

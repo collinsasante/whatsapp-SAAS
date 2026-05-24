@@ -8,7 +8,7 @@ import {
   CheckCircle, RefreshCw, Copy, StickyNote, Archive,
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
-  ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain,
+  ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain, BellOff, ShieldOff, Shield, Pencil, Trash2,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -201,6 +201,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [localStatus, setLocalStatus] = useState(conversation.status);
   const [tookOver, setTookOver] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const isAtBottomRef = useRef(true);
+  const [newMsgCount, setNewMsgCount] = useState(0);
+  const prevMsgLengthRef = useRef(0);
 
   // Keep localStatus in sync when the conversation status changes via socket
   useEffect(() => {
@@ -230,6 +234,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [labelInput, setLabelInput] = useState('');
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
+
+  // Snooze
+  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+  const [customSnoozeVal, setCustomSnoozeVal] = useState('');
+  const snoozeMenuRef = useRef<HTMLDivElement>(null);
 
   // @mention
   const [mentionSearch, setMentionSearch] = useState('');
@@ -433,7 +442,39 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [searchCurrentIdx, searchResultIds, flatItems, virtualizer]);
 
-  useEffect(() => { scrollToBottom(); }, [convMessages.length, scrollToBottom]);
+  // Reset scroll tracking on conversation change
+  useEffect(() => {
+    isAtBottomRef.current = true;
+    setNewMsgCount(0);
+    prevMsgLengthRef.current = 0;
+  }, [conversation.id]);
+
+  // Track scroll position to gate auto-scroll
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const atBottom = scrollHeight - scrollTop - clientHeight < 100;
+      isAtBottomRef.current = atBottom;
+      if (atBottom) setNewMsgCount(0);
+    };
+    container.addEventListener('scroll', onScroll, { passive: true });
+    return () => container.removeEventListener('scroll', onScroll);
+  }, [conversation.id]);
+
+  // Auto-scroll when new messages arrive (only if already at bottom)
+  useEffect(() => {
+    const len = convMessages.length;
+    if (len === 0) { prevMsgLengthRef.current = 0; return; }
+    if (isAtBottomRef.current) {
+      scrollToBottom();
+      setNewMsgCount(0);
+    } else if (len > prevMsgLengthRef.current && prevMsgLengthRef.current > 0) {
+      setNewMsgCount((c) => c + (len - prevMsgLengthRef.current));
+    }
+    prevMsgLengthRef.current = len;
+  }, [convMessages.length, scrollToBottom]);
 
   useEffect(() => {
     return () => {
@@ -459,6 +500,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     if (showHeaderMenu) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showHeaderMenu]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (snoozeMenuRef.current && !snoozeMenuRef.current.contains(e.target as Node)) setShowSnoozeMenu(false);
+    };
+    if (showSnoozeMenu) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showSnoozeMenu]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -865,6 +914,63 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     } catch { toast.error('Failed to archive'); }
   };
 
+  const handleToggleBlock = async () => {
+    const contactId = conversation.contact?.id;
+    if (!contactId) return;
+    try {
+      const res = await contactsApi.block(contactId);
+      const { isBlocked: blocked } = res.data as { isBlocked: boolean };
+      setIsBlocked(blocked);
+      toast.success(blocked ? 'Contact blocked' : 'Contact unblocked');
+    } catch { toast.error('Failed to update block status'); }
+  };
+
+  const handleDeleteNote = useCallback(async (noteId: string) => {
+    try {
+      await conversationsApi.deleteNote(conversation.id, noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      toast.success('Note deleted');
+    } catch { toast.error('Failed to delete note'); }
+  }, [conversation.id]);
+
+  const handleEditNote = useCallback(async (noteId: string, content: string) => {
+    try {
+      const res = await conversationsApi.editNote(conversation.id, noteId, content);
+      const updated = res.data as { id: string; content: string; createdAt: string; author: { id: string; name: string } };
+      setNotes((prev) => prev.map((n) => n.id === noteId ? updated : n));
+    } catch { toast.error('Failed to update note'); }
+  }, [conversation.id]);
+
+  const handleSnooze = async (until: Date) => {
+    setShowSnoozeMenu(false);
+    try {
+      await conversationsApi.update(conversation.id, { snoozedUntil: until.toISOString() });
+      removeConversation(conversation.id);
+      if (onClose) onClose();
+      const timeLabel = until.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const dateLabel = until.toDateString() === new Date().toDateString()
+        ? `today at ${timeLabel}`
+        : `${until.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${timeLabel}`;
+      toast.success(`Snoozed until ${dateLabel}`);
+    } catch { toast.error('Failed to snooze'); }
+  };
+
+  const snoozeOptions: { label: string; until: () => Date }[] = [
+    { label: '30 minutes', until: () => new Date(Date.now() + 30 * 60_000) },
+    { label: '1 hour',     until: () => new Date(Date.now() + 60 * 60_000) },
+    { label: '2 hours',    until: () => new Date(Date.now() + 2 * 60 * 60_000) },
+    { label: '4 hours',    until: () => new Date(Date.now() + 4 * 60 * 60_000) },
+    {
+      label: 'Tomorrow 9am',
+      until: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(9, 0, 0, 0);
+        return d;
+      },
+    },
+  ];
+
   const handleAddLabel = async (label: string) => {
     const trimmed = label.trim();
     if (!trimmed) return;
@@ -1075,6 +1181,52 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </button>
               ) : null}
 
+              {/* Snooze */}
+              {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
+                <div className="relative" ref={snoozeMenuRef}>
+                  <button
+                    onClick={() => setShowSnoozeMenu((v) => !v)}
+                    title="Snooze conversation"
+                    className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', showSnoozeMenu ? 'bg-amber-50 text-amber-600' : 'text-gray-400 hover:text-amber-500 hover:bg-amber-50')}
+                  >
+                    <BellOff size={15} />
+                  </button>
+                  {showSnoozeMenu && (
+                    <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-52 py-1.5">
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold px-3 pt-1 pb-1.5">Snooze until</p>
+                      {snoozeOptions.map((opt) => (
+                        <button
+                          key={opt.label}
+                          onClick={() => { void handleSnooze(opt.until()); }}
+                          className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                      <div className="border-t border-gray-100 mt-1 pt-1 px-3 pb-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">Custom</p>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="datetime-local"
+                            value={customSnoozeVal}
+                            onChange={(e) => setCustomSnoozeVal(e.target.value)}
+                            min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          />
+                          <button
+                            onClick={() => { if (customSnoozeVal) void handleSnooze(new Date(customSnoozeVal)); }}
+                            disabled={!customSnoozeVal}
+                            className="text-xs px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg disabled:opacity-40 transition-colors font-semibold"
+                          >
+                            Set
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Transfer */}
               <button
                 onClick={openTransfer}
@@ -1176,6 +1328,15 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 <Phone size={15} />
               </button>
 
+              {/* Block contact */}
+              <button
+                onClick={() => { void handleToggleBlock(); }}
+                title={isBlocked ? 'Unblock contact' : 'Block contact'}
+                className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', isBlocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-red-500 hover:bg-red-50')}
+              >
+                {isBlocked ? <ShieldOff size={15} /> : <Shield size={15} />}
+              </button>
+
               {/* Download chat */}
               <button
                 onClick={handleDownloadChat}
@@ -1241,7 +1402,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 relative">
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
@@ -1267,7 +1428,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                           <span className="text-xs text-gray-500 bg-white/80 px-3 py-1 rounded-full shadow-sm">{entry.label}</span>
                         </div>
                       ) : entry.kind === 'note' ? (
-                        <NoteBubble note={entry.item} />
+                        <NoteBubble note={entry.item} currentUserId={user?.id} onDelete={handleDeleteNote} onEdit={handleEditNote} />
                       ) : entry.kind === 'activity' ? (
                         <ActivityBubble entry={entry.item} />
                       ) : (
@@ -1298,6 +1459,18 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {newMsgCount > 0 && (
+            <div className="absolute bottom-4 left-0 right-0 flex justify-center z-10 pointer-events-none">
+              <button
+                onClick={() => { scrollToBottom(); setNewMsgCount(0); }}
+                className="pointer-events-auto flex items-center gap-1.5 px-4 py-1.5 bg-teal-600 text-white rounded-full shadow-lg text-xs font-semibold hover:bg-teal-700 transition-colors"
+              >
+                <ChevronDown size={13} />
+                {newMsgCount} new message{newMsgCount > 1 ? 's' : ''}
+              </button>
+            </div>
+          )}
 
           {/* Input area */}
           <div className="border-t border-gray-100 px-4 pt-2 pb-3 flex-shrink-0 bg-white relative">
@@ -1785,9 +1958,56 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   );
 }
 
+// ─── Link renderer ────────────────────────────────────────────────────────────
+
+const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+
+function renderWithLinks(text: string, isOutbound: boolean): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  URL_REGEX.lastIndex = 0;
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    const url = match[0];
+    parts.push(
+      <a key={match.index} href={url} target="_blank" rel="noopener noreferrer"
+        className={cn('underline break-all', isOutbound ? 'text-teal-100 hover:text-white' : 'text-teal-600 hover:text-teal-700')}
+        onClick={(e) => e.stopPropagation()}
+      >{url}</a>,
+    );
+    lastIndex = match.index + url.length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts.length > 1 ? <>{parts}</> : text;
+}
+
 // ─── Note Bubble ──────────────────────────────────────────────────────────────
 
-const NoteBubble = memo(function NoteBubble({ note }: { note: { id: string; content: string; createdAt: string; author: { id: string; name: string } } }) {
+const NoteBubble = memo(function NoteBubble({
+  note,
+  currentUserId,
+  onDelete,
+  onEdit,
+}: {
+  note: { id: string; content: string; createdAt: string; author: { id: string; name: string } };
+  currentUserId?: string;
+  onDelete?: (noteId: string) => void;
+  onEdit?: (noteId: string, content: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(note.content);
+  const [saving, setSaving] = useState(false);
+  const isOwn = currentUserId === note.author.id;
+
+  const handleSave = async () => {
+    if (!editContent.trim() || !onEdit) return;
+    setSaving(true);
+    await onEdit(note.id, editContent.trim());
+    setSaving(false);
+    setEditing(false);
+  };
+
   return (
     <div className="flex justify-center px-1 py-1">
       <div className="max-w-xs lg:max-w-md w-full bg-amber-50 border border-amber-200 rounded-2xl px-4 py-2.5 shadow-sm">
@@ -1795,8 +2015,37 @@ const NoteBubble = memo(function NoteBubble({ note }: { note: { id: string; cont
           <StickyNote size={11} className="text-amber-500" />
           <span className="text-xs font-semibold text-amber-700">Internal Note</span>
           <span className="text-xs text-amber-500 ml-1">· {note.author.name}</span>
+          {isOwn && !editing && (
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={() => { setEditing(true); setEditContent(note.content); }} className="text-amber-400 hover:text-amber-600 p-0.5 rounded transition-colors" title="Edit note">
+                <Pencil size={10} />
+              </button>
+              <button onClick={() => onDelete?.(note.id)} className="text-amber-400 hover:text-red-500 p-0.5 rounded transition-colors" title="Delete note">
+                <Trash2 size={10} />
+              </button>
+            </div>
+          )}
         </div>
-        <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">{note.content}</p>
+        {editing ? (
+          <div>
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="w-full text-sm text-gray-800 bg-white border border-amber-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex justify-end gap-1.5 mt-1.5">
+              <button onClick={() => setEditing(false)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded transition-colors">Cancel</button>
+              <button onClick={() => { void handleSave(); }} disabled={saving || !editContent.trim()}
+                className="text-xs bg-amber-500 text-white px-2.5 py-1 rounded-lg hover:bg-amber-600 disabled:opacity-50 font-medium transition-colors">
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-800 whitespace-pre-wrap break-words">{note.content}</p>
+        )}
         <p className="text-xs text-amber-400 mt-1 text-right">
           {new Date(note.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
         </p>
@@ -2125,8 +2374,10 @@ const MessageBubble = memo(function MessageBubble({
   };
 
   const handleCopy = () => {
-    if (message.content) {
-      void navigator.clipboard.writeText(message.content).then(() => toast.success('Copied'));
+    const selected = window.getSelection()?.toString().trim();
+    const textToCopy = selected || message.content || '';
+    if (textToCopy) {
+      void navigator.clipboard.writeText(textToCopy).then(() => toast.success('Copied'));
     }
     setContextMenu(null);
   };
@@ -2278,7 +2529,7 @@ const MessageBubble = memo(function MessageBubble({
               {message.content ? (
                 <>
                   <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {searchQuery ? highlightText(message.content, searchQuery) : message.content}
+                    {searchQuery ? highlightText(message.content, searchQuery) : renderWithLinks(message.content, isOutbound)}
                   </p>
                   {message.type === 'TEXT' && (() => {
                     const url = extractFirstUrl(message.content);

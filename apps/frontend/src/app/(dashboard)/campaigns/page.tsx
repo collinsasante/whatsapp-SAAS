@@ -6,7 +6,7 @@ import {
   Filter, Upload, Tag, Layers, Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { campaignsApi, templatesApi, segmentsApi } from '@/lib/api';
+import { campaignsApi, templatesApi, segmentsApi, apiKeysApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -111,7 +111,10 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [showTypeSelect, setShowTypeSelect] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showApiCreate, setShowApiCreate] = useState(false);
+  const [showMetaAdsCreate, setShowMetaAdsCreate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pausingId, setPausingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -128,6 +131,17 @@ export default function CampaignsPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [step, setStep] = useState(1);
+
+  // API Campaign wizard state
+  const [apiStep, setApiStep] = useState(1);
+  const [apiForm, setApiForm] = useState({ name: '', templateId: '', variableDescriptions: {} as Record<string, string> });
+  const [apiKeys, setApiKeys] = useState<{ id: string; name: string; keyPrefix: string; lastUsedAt: string | null }[]>([]);
+  const [newApiKey, setNewApiKey] = useState<{ id: string; name: string; key: string } | null>(null);
+  const [creatingApiKey, setCreatingApiKey] = useState(false);
+
+  // Meta Ads wizard state
+  const [metaStep, setMetaStep] = useState(1);
+  const [metaForm, setMetaForm] = useState({ name: '', phoneNumber: '', welcomeText: '' });
 
   const selectedTemplate = templates.find((t) => t.id === form.templateId) ?? null;
   const templateVars = selectedTemplate ? extractVariables(selectedTemplate.components) : [];
@@ -304,7 +318,7 @@ export default function CampaignsPage() {
             <button onClick={() => { void load(); }} className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors">
               <RefreshCw size={16} />
             </button>
-            <button onClick={() => { setShowCreate(true); resetForm(); }}
+            <button onClick={() => setShowTypeSelect(true)}
               className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 transition-colors">
               <Plus size={15} /><span className="hidden sm:inline">New Campaign</span><span className="sm:hidden">New</span>
             </button>
@@ -559,6 +573,92 @@ export default function CampaignsPage() {
           </>
         )}
       </div>
+
+      {/* Campaign type selection modal */}
+      {showTypeSelect && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowTypeSelect(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">New Campaign</h2>
+                <p className="text-sm text-gray-500 mt-0.5">Choose a campaign type to get started</p>
+              </div>
+              <button onClick={() => setShowTypeSelect(false)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+            </div>
+            <div className="p-6 grid grid-cols-2 gap-3">
+              {/* Broadcast Campaign */}
+              <button
+                onClick={() => { setShowTypeSelect(false); resetForm(); setShowCreate(true); }}
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-teal-200 rounded-2xl hover:border-teal-500 hover:bg-teal-50/50 transition-all text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+                  <Send size={18} />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">Broadcast Campaign</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Send a WhatsApp template message to contacts, a segment, or by label.</p>
+                </div>
+                <span className="text-xs font-semibold text-teal-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
+              </button>
+
+              {/* CSV Broadcast */}
+              <button
+                onClick={() => { setShowTypeSelect(false); resetForm(); setAudienceMode('csv'); setShowCreate(true); }}
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-emerald-200 rounded-2xl hover:border-emerald-500 hover:bg-emerald-50/50 transition-all text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <Upload size={18} />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">CSV Broadcast</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Upload a CSV or TXT file with phone numbers and send to that exact list.</p>
+                </div>
+                <span className="text-xs font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
+              </button>
+
+              {/* API Campaign */}
+              <button
+                onClick={async () => {
+                  setShowTypeSelect(false);
+                  setApiStep(1);
+                  setApiForm({ name: '', templateId: '', variableDescriptions: {} });
+                  setNewApiKey(null);
+                  try {
+                    const res = await apiKeysApi.list();
+                    setApiKeys((res.data as typeof apiKeys) ?? []);
+                  } catch { setApiKeys([]); }
+                  setShowApiCreate(true);
+                }}
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-indigo-200 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50/50 transition-all text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <Layers size={18} />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">API Campaign</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Send personalized template messages programmatically from your own systems via REST API.</p>
+                </div>
+                <span className="text-xs font-semibold text-indigo-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
+              </button>
+
+              {/* Meta Ads */}
+              <button
+                onClick={() => { setShowTypeSelect(false); setMetaStep(1); setMetaForm({ name: '', phoneNumber: '', welcomeText: '' }); setShowMetaAdsCreate(true); }}
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-blue-200 rounded-2xl hover:border-blue-500 hover:bg-blue-50/50 transition-all text-left"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <BarChart3 size={18} />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">Meta Ads</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Generate a click-to-WhatsApp link for Facebook or Instagram ads that opens a pre-filled conversation.</p>
+                </div>
+                <span className="text-xs font-semibold text-blue-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Campaign wizard modal */}
       {showCreate && (
@@ -828,6 +928,342 @@ export default function CampaignsPage() {
           </div>
         </div>
       )}
+
+      {/* API Campaign wizard modal */}
+      {showApiCreate && (() => {
+        const apiSelectedTemplate = templates.find((t) => t.id === apiForm.templateId) ?? null;
+        const apiTemplateVars = apiSelectedTemplate ? extractVariables(apiSelectedTemplate.components) : [];
+        const apiBaseUrl = typeof window !== 'undefined'
+          ? `${window.location.protocol}//${window.location.host}`
+          : 'https://api.verzchat.com';
+        const sampleVarsJson = apiTemplateVars.length
+          ? `"variables": ${JSON.stringify(Object.fromEntries(apiTemplateVars.map(v => [v, apiForm.variableDescriptions[v] ? `<${apiForm.variableDescriptions[v]}>` : `value_${v}`])), null, 4)}`
+          : '';
+        const exampleCurl = apiKeys[0]
+          ? `curl -X POST "${apiBaseUrl}/api/v1/send" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Api-Key: ${apiKeys[0].keyPrefix}..." \\\n  -d '{\n    "to": "+233241234567",\n    "templateName": "${apiSelectedTemplate?.name ?? 'your_template'}",\n    "language": "${apiSelectedTemplate?.language ?? 'en_US'}"${sampleVarsJson ? `,\n    ${sampleVarsJson}` : ''}\n  }'`
+          : '';
+
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowApiCreate(false)}>
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 py-5 border-b border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">API Campaign</h2>
+                  <button onClick={() => setShowApiCreate(false)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+                </div>
+                <div className="flex items-center gap-2">
+                  {['Template', 'Variable Schema', 'Integration'].map((label, i) => (
+                    <div key={label} className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold', apiStep > i + 1 ? 'bg-indigo-600 text-white' : apiStep === i + 1 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500')}>
+                          {apiStep > i + 1 ? '✓' : i + 1}
+                        </div>
+                        <span className={cn('text-xs font-medium', apiStep === i + 1 ? 'text-indigo-700' : 'text-gray-400')}>{label}</span>
+                      </div>
+                      {i < 2 && <div className={cn('flex-1 h-0.5 mx-1', apiStep > i + 1 ? 'bg-indigo-500' : 'bg-gray-200')} />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+                {apiStep === 1 && (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Campaign Name *</label>
+                      <input type="text" placeholder="e.g. Order Confirmation API"
+                        value={apiForm.name}
+                        onChange={(e) => setApiForm(f => ({ ...f, name: e.target.value }))}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">WhatsApp Template *</label>
+                      <select value={apiForm.templateId}
+                        onChange={(e) => setApiForm(f => ({ ...f, templateId: e.target.value, variableDescriptions: {} }))}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                        <option value="">Choose an approved template…</option>
+                        {templates.map((t) => <option key={t.id} value={t.id}>{t.name} — {t.language}</option>)}
+                      </select>
+                    </div>
+                    {apiSelectedTemplate && (
+                      <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                        <p className="text-xs font-semibold text-gray-700">Template Preview</p>
+                        {apiSelectedTemplate.components.filter(c => c.type === 'BODY').map((c, i) => (
+                          <p key={i} className="text-xs text-gray-600">{c.text}</p>
+                        ))}
+                        {apiTemplateVars.length > 0 && (
+                          <p className="text-xs text-indigo-600 font-medium mt-1">{apiTemplateVars.length} variable{apiTemplateVars.length > 1 ? 's' : ''} detected: {apiTemplateVars.map(v => `{{${v}}}`).join(', ')}</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {apiStep === 2 && (
+                  <>
+                    <p className="text-sm text-gray-600">Label each variable so your team knows what to pass in the API call.</p>
+                    {apiTemplateVars.length === 0 ? (
+                      <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-xl">No variables — your API call only needs the phone number and template name.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {apiTemplateVars.map((v) => (
+                          <div key={v}>
+                            <label className="text-xs font-semibold text-gray-700 mb-1 block">{`{{${v}}}`} — what is this variable?</label>
+                            <input type="text" placeholder="e.g. Customer name, Order ID, Amount…"
+                              value={apiForm.variableDescriptions[v] ?? ''}
+                              onChange={(e) => setApiForm(f => ({ ...f, variableDescriptions: { ...f.variableDescriptions, [v]: e.target.value } }))}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {apiStep === 3 && (
+                  <>
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+                      <p className="text-xs font-semibold text-indigo-800 mb-1">Endpoint</p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 text-xs font-mono text-indigo-700 break-all">POST {apiBaseUrl}/api/v1/send</code>
+                        <button onClick={() => { void navigator.clipboard.writeText(`${apiBaseUrl}/api/v1/send`); toast.success('Copied!'); }}
+                          className="text-xs text-indigo-600 font-semibold whitespace-nowrap">Copy</button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Request body</p>
+                      <div className="bg-gray-900 rounded-xl p-3 text-xs font-mono text-green-400 overflow-x-auto">
+                        <pre>{JSON.stringify({
+                          to: '+233241234567',
+                          templateName: apiSelectedTemplate?.name ?? 'your_template',
+                          language: apiSelectedTemplate?.language ?? 'en_US',
+                          ...(apiTemplateVars.length ? { variables: Object.fromEntries(apiTemplateVars.map(v => [v, apiForm.variableDescriptions[v] ? `<${apiForm.variableDescriptions[v]}>` : `value_${v}`])) } : {}),
+                        }, null, 2)}</pre>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-semibold text-gray-700">Your API Keys <span className="text-gray-400 font-normal">(use one in X-Api-Key header)</span></p>
+                        <button
+                          onClick={async () => {
+                            setCreatingApiKey(true);
+                            try {
+                              const res = await apiKeysApi.create({ name: `API Campaign — ${apiForm.name}` });
+                              const created = res.data as { id: string; name: string; key: string };
+                              setNewApiKey(created);
+                              const listRes = await apiKeysApi.list();
+                              setApiKeys((listRes.data as typeof apiKeys) ?? []);
+                            } catch { toast.error('Failed to create API key'); }
+                            finally { setCreatingApiKey(false); }
+                          }}
+                          disabled={creatingApiKey}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold disabled:opacity-50"
+                        >
+                          {creatingApiKey ? 'Creating…' : '+ New key'}
+                        </button>
+                      </div>
+                      {newApiKey && (
+                        <div className="mb-3 bg-green-50 border border-green-200 rounded-xl p-3">
+                          <p className="text-xs font-semibold text-green-800 mb-1">Key created — copy now, won&apos;t be shown again</p>
+                          <div className="flex items-center gap-2">
+                            <code className="flex-1 text-xs font-mono text-green-800 bg-green-100 px-2 py-1.5 rounded-lg break-all">{newApiKey.key}</code>
+                            <button onClick={() => { void navigator.clipboard.writeText(newApiKey.key); toast.success('Copied!'); }}
+                              className="text-xs text-green-700 hover:text-green-900 font-semibold whitespace-nowrap">Copy</button>
+                          </div>
+                        </div>
+                      )}
+                      {apiKeys.length === 0 && !newApiKey ? (
+                        <p className="text-xs text-gray-400 italic">No API keys yet — create one above.</p>
+                      ) : (
+                        <div className="space-y-1.5 mt-2">
+                          {apiKeys.map(k => (
+                            <div key={k.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                              <div>
+                                <p className="text-xs font-semibold text-gray-800">{k.name}</p>
+                                <p className="text-[10px] text-gray-400 font-mono">{k.keyPrefix}…</p>
+                              </div>
+                              {k.lastUsedAt && <span className="text-[10px] text-gray-400">Last used {new Date(k.lastUsedAt).toLocaleDateString()}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {exampleCurl && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <p className="text-xs font-semibold text-gray-700">cURL Example</p>
+                          <button onClick={() => { void navigator.clipboard.writeText(exampleCurl); toast.success('Copied!'); }}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Copy</button>
+                        </div>
+                        <div className="bg-gray-900 rounded-xl p-3 text-xs font-mono text-gray-300 overflow-x-auto">
+                          <pre>{exampleCurl}</pre>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+                {apiStep > 1 ? (
+                  <button onClick={() => setApiStep(s => s - 1)} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600">Back</button>
+                ) : (
+                  <button onClick={() => setShowApiCreate(false)} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600">Cancel</button>
+                )}
+                {apiStep < 3 ? (
+                  <button onClick={() => setApiStep(s => s + 1)}
+                    disabled={apiStep === 1 && (!apiForm.name.trim() || !apiForm.templateId)}
+                    className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 font-medium flex items-center justify-center gap-1">
+                    Next <ChevronRight size={14} />
+                  </button>
+                ) : (
+                  <button onClick={() => setShowApiCreate(false)} className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium">Done</button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Meta Ads wizard modal */}
+      {showMetaAdsCreate && (() => {
+        const cleanPhone = metaForm.phoneNumber.replace(/[^0-9]/g, '');
+        const waLink = cleanPhone
+          ? `https://wa.me/${cleanPhone}${metaForm.welcomeText ? `?text=${encodeURIComponent(metaForm.welcomeText)}` : ''}`
+          : '';
+
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowMetaAdsCreate(false)}>
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 py-5 border-b border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-semibold text-gray-900">Meta Ads — Click to WhatsApp</h2>
+                  <button onClick={() => setShowMetaAdsCreate(false)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+                </div>
+                <div className="flex items-center gap-2">
+                  {['Setup', 'Welcome Text', 'Get Link'].map((label, i) => (
+                    <div key={label} className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold', metaStep > i + 1 ? 'bg-blue-600 text-white' : metaStep === i + 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500')}>
+                          {metaStep > i + 1 ? '✓' : i + 1}
+                        </div>
+                        <span className={cn('text-xs font-medium', metaStep === i + 1 ? 'text-blue-700' : 'text-gray-400')}>{label}</span>
+                      </div>
+                      {i < 2 && <div className={cn('flex-1 h-0.5 mx-1', metaStep > i + 1 ? 'bg-blue-500' : 'bg-gray-200')} />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+                {metaStep === 1 && (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Campaign Name *</label>
+                      <input type="text" placeholder="e.g. Ramadan Sale — WhatsApp Ad"
+                        value={metaForm.name}
+                        onChange={(e) => setMetaForm(f => ({ ...f, name: e.target.value }))}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Your WhatsApp Business Number *</label>
+                      <input type="text" placeholder="+233241234567 (include country code)"
+                        value={metaForm.phoneNumber}
+                        onChange={(e) => setMetaForm(f => ({ ...f, phoneNumber: e.target.value }))}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-xs text-gray-400 mt-1">The number customers will message. Include country code with no spaces or dashes.</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800 space-y-1.5">
+                      <p className="font-semibold">How this works</p>
+                      <p>We generate a wa.me link that opens a pre-filled WhatsApp conversation when tapped. You add this link as the destination URL in your Facebook or Instagram ad.</p>
+                      <p>All conversations started from ads are automatically tagged as <strong>ad source</strong> in your VerzChat inbox — so you can measure ad-driven engagement.</p>
+                    </div>
+                  </>
+                )}
+
+                {metaStep === 2 && (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Pre-filled Message <span className="text-gray-400 font-normal">(optional)</span></label>
+                      <textarea
+                        placeholder={`Hi! I saw your ad and I'm interested in…`}
+                        value={metaForm.welcomeText}
+                        onChange={(e) => setMetaForm(f => ({ ...f, welcomeText: e.target.value }))}
+                        maxLength={1000}
+                        rows={4}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">{metaForm.welcomeText.length}/1000 — Pre-fills the customer&apos;s message box when they open WhatsApp from your ad.</p>
+                    </div>
+                    {metaForm.welcomeText && (
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-xs text-gray-500 mb-2">Message preview</p>
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 max-w-xs mx-auto">
+                          <div className="bg-green-100 rounded-xl px-3 py-2 text-sm text-gray-800 break-words">{metaForm.welcomeText}</div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {metaStep === 3 && (
+                  <>
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-green-800 mb-2">Your Click-to-WhatsApp Link</p>
+                      <div className="flex items-start gap-2">
+                        <code className="flex-1 text-xs font-mono text-green-800 bg-white border border-green-200 px-2 py-2 rounded-lg break-all leading-relaxed">{waLink}</code>
+                        <button onClick={() => { void navigator.clipboard.writeText(waLink); toast.success('Link copied!'); }}
+                          className="text-xs bg-green-600 text-white px-3 py-2 rounded-lg font-semibold hover:bg-green-700 whitespace-nowrap flex-shrink-0">Copy</button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      <p className="text-xs font-semibold text-gray-700">How to use in Meta Ads Manager</p>
+                      {[
+                        'Go to Meta Ads Manager → Create → Engagement or Leads objective',
+                        'At the ad level, choose WhatsApp as the messaging destination',
+                        'Paste the link above as the destination URL',
+                        'In the ad creative, set the pre-filled text (copy your welcome message from step 2)',
+                        'VerzChat auto-tags all conversations from this ad as source = "ad" in your inbox',
+                      ].map((s, i) => (
+                        <div key={i} className="flex items-start gap-2.5">
+                          <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                          <p className="text-xs text-gray-600">{s}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                      <span className="font-semibold">Conversion tracking: </span>
+                      Conversations started via the ad referral signal are automatically tagged with <code className="bg-amber-100 px-1 py-0.5 rounded">source = &quot;ad&quot;</code> so you can filter them in the inbox and measure ROI.
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+                {metaStep > 1 ? (
+                  <button onClick={() => setMetaStep(s => s - 1)} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600">Back</button>
+                ) : (
+                  <button onClick={() => setShowMetaAdsCreate(false)} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600">Cancel</button>
+                )}
+                {metaStep < 3 ? (
+                  <button onClick={() => setMetaStep(s => s + 1)}
+                    disabled={metaStep === 1 && (!metaForm.name.trim() || !metaForm.phoneNumber.trim())}
+                    className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-1">
+                    Next <ChevronRight size={14} />
+                  </button>
+                ) : (
+                  <button onClick={() => setShowMetaAdsCreate(false)} className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium">Done</button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

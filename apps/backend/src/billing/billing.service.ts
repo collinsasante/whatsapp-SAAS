@@ -136,7 +136,7 @@ export class BillingService {
       },
     });
 
-    return { invoice, paymentUrl: session.paymentUrl, free: false };
+    return { invoice, paymentUrl: session.paymentUrl, reference: session.gatewayReference, free: false };
   }
 
   async verifyAndActivate(opts: {
@@ -258,5 +258,113 @@ export class BillingService {
 
   async getUsageHistory(tenantId: string) {
     return this.usageService.getHistoricalUsage(tenantId);
+  }
+
+  // Credit pack definitions (USD pricing)
+  static readonly CREDIT_PACKS = [
+    { slug: 'starter-200',  credits: 200,  amount: 5,   label: '200 Credits',  description: 'Great for small teams getting started' },
+    { slug: 'growth-600',   credits: 600,  amount: 12,  label: '600 Credits',  description: 'Most popular — 3× more value' },
+    { slug: 'pro-1500',     credits: 1500, amount: 25,  label: '1,500 Credits', description: 'Best value for active workspaces' },
+    { slug: 'scale-4000',   credits: 4000, amount: 55,  label: '4,000 Credits', description: 'High-volume teams' },
+  ] as const;
+
+  getCreditPacks() {
+    return BillingService.CREDIT_PACKS;
+  }
+
+  async getAiCredits(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { aiCredits: true },
+    });
+    return { credits: tenant?.aiCredits ?? 0 };
+  }
+
+  async initiateCreditPurchase(tenantId: string, packSlug: string, billingEmail: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, billingEmail: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    const pack = BillingService.CREDIT_PACKS.find((p) => p.slug === packSlug);
+    if (!pack) throw new BadRequestException('Invalid credit pack');
+
+    const email = billingEmail || tenant.billingEmail || '';
+    if (!email) throw new BadRequestException('Billing email is required');
+
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+
+    // Initialize Paystack transaction
+    const res = await (await import('axios')).default.post(
+      'https://api.paystack.co/transaction/initialize',
+      {
+        email,
+        amount: Math.round(pack.amount * 100),
+        currency: 'USD',
+        callback_url: `${frontendUrl}/billing?credits=success&pack=${packSlug}`,
+        metadata: { tenantId, packSlug, credits: pack.credits, type: 'credit_purchase' },
+      },
+      { headers: { Authorization: `Bearer ${this.config.get<string>('PAYSTACK_SECRET_KEY', '')}` } },
+    ).catch((err) => {
+      throw new BadRequestException(`Paystack error: ${String(err?.response?.data?.message ?? err.message)}`);
+    });
+
+    const { reference, access_code } = res.data.data as { reference: string; access_code: string };
+
+    // Create pending credit purchase record
+    await this.prisma.creditPurchase.create({
+      data: {
+        tenantId,
+        credits: pack.credits,
+        packSlug,
+        amount: pack.amount,
+        currency: 'USD',
+        paystackRef: reference,
+        status: 'PENDING',
+      },
+    });
+
+    return { reference, accessCode: access_code, amount: pack.amount, credits: pack.credits, pack };
+  }
+
+  async verifyCreditPurchase(tenantId: string, reference: string) {
+    const purchase = await this.prisma.creditPurchase.findUnique({
+      where: { paystackRef: reference },
+    });
+    if (!purchase) throw new NotFoundException('Credit purchase not found');
+    if (purchase.tenantId !== tenantId) throw new BadRequestException('Purchase does not belong to this tenant');
+    if (purchase.status === 'SUCCEEDED') {
+      return { success: true, credits: purchase.credits, alreadyProcessed: true };
+    }
+
+    // Verify with Paystack
+    const verified = await this.paystackGateway.verifyPayment(reference);
+    if (verified.status !== 'success') {
+      await this.prisma.creditPurchase.update({
+        where: { id: purchase.id },
+        data: { status: 'FAILED' },
+      });
+      throw new BadRequestException('Payment not successful');
+    }
+
+    // Mark success and add credits atomically
+    await Promise.all([
+      this.prisma.creditPurchase.update({
+        where: { id: purchase.id },
+        data: { status: 'SUCCEEDED' },
+      }),
+      this.prisma.tenant.update({
+        where: { id: tenantId },
+        data: { aiCredits: { increment: purchase.credits } },
+      }),
+    ]);
+
+    const updated = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { aiCredits: true },
+    });
+
+    return { success: true, credits: purchase.credits, newBalance: updated?.aiCredits ?? 0 };
   }
 }
