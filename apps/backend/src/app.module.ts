@@ -44,6 +44,7 @@ import { ReleaseModule } from './release/release.module';
 import { WhatsAppNumbersModule } from './whatsapp-numbers/whatsapp-numbers.module';
 import { PublicModule } from './public/public.module';
 import { InboundModule } from './inbound/inbound.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -113,6 +114,7 @@ import appConfig from './config/app.config';
     WhatsAppNumbersModule,
     PublicModule,
     InboundModule,
+    PlatformAdminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
