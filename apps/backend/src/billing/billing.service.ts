@@ -7,10 +7,10 @@ import { InvoiceService } from './invoice.service';
 import { UsageService } from './usage.service';
 import { EmailService } from '../common/email.service';
 import { InitiateCheckoutDto } from './dto/billing.dto';
-import crypto from 'crypto';
+import { randomBytes } from 'crypto';
 
 function genRef(prefix: string) {
-  return `${prefix}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+  return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
 export const PAYMENT_DETAILS = {
