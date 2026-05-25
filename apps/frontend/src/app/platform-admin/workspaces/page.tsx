@@ -60,7 +60,7 @@ export default function WorkspacesPage() {
   const totalPages = Math.ceil(total / 20);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Workspaces</h1>
@@ -85,7 +85,8 @@ export default function WorkspacesPage() {
       </form>
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
               <th className="text-left px-4 py-3 font-medium text-gray-500">Workspace</th>
@@ -157,6 +158,7 @@ export default function WorkspacesPage() {
             ))}
           </tbody>
         </table>
+        </div>
 
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">

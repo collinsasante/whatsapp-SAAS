@@ -70,7 +70,7 @@ export default function PlansPage() {
   const isDirty = (id: string) => edits[id] && Object.keys(edits[id]).length > 0;
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Plans</h1>
@@ -96,7 +96,7 @@ export default function PlansPage() {
         <div className="space-y-5">
           {plans.map(plan => (
             <div key={plan.id} className="bg-white rounded-xl border border-gray-100 p-6">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <div>
                   <h3 className="font-semibold text-gray-900">{plan.name}</h3>
                   <code className="text-xs text-gray-400">{plan.slug}</code>
