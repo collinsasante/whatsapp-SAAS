@@ -517,9 +517,11 @@ export class MessagesService {
       channel: (conversation as Record<string, unknown>)['channel'] ?? null,
     });
 
-    // Send welcome message on first-ever inbound message from this contact
+    // Send welcome message on first inbound message from this contact today
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
     const priorMessageCount = await this.prisma.message.count({
-      where: { tenantId, conversation: { contactId: contact.id }, direction: MessageDirection.INBOUND, id: { not: message.id } },
+      where: { tenantId, conversation: { contactId: contact.id }, direction: MessageDirection.INBOUND, id: { not: message.id }, createdAt: { gte: startOfDay } },
     });
     if (priorMessageCount === 0) {
       const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { welcomeEnabled: true, welcomeMessage: true } });
