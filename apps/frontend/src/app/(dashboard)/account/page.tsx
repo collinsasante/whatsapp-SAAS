@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { User, Mail, Lock, Shield, CheckCircle, AlertCircle, Eye, EyeOff, Camera } from 'lucide-react';
+import { User, Mail, Lock, Shield, CheckCircle, AlertCircle, Eye, EyeOff, Camera, KeyRound } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi, mediaApi } from '@/lib/api';
 import { UserRole } from '@whatsapp-platform/shared-types';
@@ -45,6 +45,13 @@ export default function AccountPage() {
   const [showNew, setShowNew] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
   const [pwAlert, setPwAlert] = useState<AlertState>(null);
+
+  // PIN form
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinAlert, setPinAlert] = useState<AlertState>(null);
 
   useEffect(() => {
     if (user?.name) setName(user.name);
@@ -121,6 +128,32 @@ export default function AccountPage() {
       setPwAlert({ type: 'error', message: msg ?? 'Failed to change password.' });
     } finally {
       setPwLoading(false);
+    }
+  };
+
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{4,6}$/.test(newPin)) {
+      setPinAlert({ type: 'error', message: 'PIN must be 4–6 digits.' });
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setPinAlert({ type: 'error', message: 'PINs do not match.' });
+      return;
+    }
+    setPinLoading(true);
+    setPinAlert(null);
+    try {
+      await authApi.changePin(currentPin || undefined, newPin);
+      setCurrentPin('');
+      setNewPin('');
+      setConfirmPin('');
+      setPinAlert({ type: 'success', message: 'Login PIN updated.' });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setPinAlert({ type: 'error', message: msg ?? 'Failed to update PIN.' });
+    } finally {
+      setPinLoading(false);
     }
   };
 
@@ -289,6 +322,61 @@ export default function AccountPage() {
               className="px-5 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {pwLoading ? 'Updating…' : 'Update password'}
+            </button>
+          </form>
+        </div>
+
+        {/* PIN card */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+            <KeyRound size={16} className="text-teal-600" />
+            <span className="font-semibold text-gray-800">Login PIN</span>
+          </div>
+          <form onSubmit={handleChangePin} className="px-6 py-6 space-y-4">
+            <p className="text-sm text-gray-500">Your 4-digit PIN is used as a second factor every time you sign in.</p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Current PIN <span className="text-gray-400 text-xs">(leave blank if not set)</span></label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={currentPin}
+                onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Current PIN"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent tracking-widest"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">New PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={newPin}
+                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="4–6 digits"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent tracking-widest"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Confirm new PIN</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={confirmPin}
+                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Repeat new PIN"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent tracking-widest"
+              />
+            </div>
+            <Alert state={pinAlert} />
+            <button
+              type="submit"
+              disabled={pinLoading || !newPin || !confirmPin}
+              className="px-5 py-2.5 bg-teal-600 text-white text-sm font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {pinLoading ? 'Updating…' : 'Update PIN'}
             </button>
           </form>
         </div>

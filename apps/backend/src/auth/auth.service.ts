@@ -138,7 +138,8 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ipAddress?: string): Promise<
-    | { requires2FA: true; tempToken: string }
+    | { requiresPin: true; tempToken: string }
+    | { requiresPinSetup: true; tempToken: string }
     | { requiresWorkspaceSelection: true; workspaces: { id: string; name: string; logoUrl: string | null }[]; tempToken: string }
     | (AuthTokens & { user: object; tenant: object })
   > {
@@ -205,20 +206,10 @@ export class AuthService {
       return { ...tokens, user: safeUser, tenant: safeTenant };
     }
 
-    // Generate 6-digit OTP, store hashed
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const codeHash = await bcrypt.hash(code, this.OTP_ROUNDS);
-    const codeExpiry = new Date(Date.now() + 10 * 60 * 1000);
-
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { twoFactorCode: codeHash, twoFactorCodeExpiry: codeExpiry, lastSeenAt: new Date() },
+      data: { lastSeenAt: new Date() },
     });
-
-    await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
-
-    void this.emailService.sendOtpCode({ to: user.email, name: user.name, code })
-      .catch((err) => this.logger.error('Failed to send OTP email', err));
 
     // Temp token proves password was verified; expires in 15 min
     const tempToken = this.jwtService.sign(
@@ -226,7 +217,12 @@ export class AuthService {
       { secret: this.configService.get<string>('app.jwtSecret'), expiresIn: '15m' },
     );
 
-    return { requires2FA: true, tempToken };
+    // First login ever — user must set their PIN
+    if (!user.loginPin) {
+      return { requiresPinSetup: true, tempToken };
+    }
+
+    return { requiresPin: true, tempToken };
   }
 
   async selectWorkspace(
@@ -260,7 +256,7 @@ export class AuthService {
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
-  async verify2FA(tempToken: string, code: string, ipAddress?: string): Promise<AuthTokens & { user: object; tenant: object }> {
+  async verify2FA(tempToken: string, pin: string, ipAddress?: string): Promise<AuthTokens & { user: object; tenant: object }> {
     let payload: { sub: string; type: string };
     try {
       payload = this.jwtService.verify(tempToken, { secret: this.configService.get<string>('app.jwtSecret') });
@@ -271,24 +267,48 @@ export class AuthService {
     if (payload.type !== '2fa-pending') throw new UnauthorizedException('Invalid token');
 
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user || !user.twoFactorCode || !user.twoFactorCodeExpiry) {
-      throw new UnauthorizedException('No pending 2FA code. Please sign in again.');
-    }
-    if (user.twoFactorCodeExpiry < new Date()) {
-      throw new UnauthorizedException('Code expired. Please sign in again.');
+    if (!user || !user.loginPin) {
+      throw new UnauthorizedException('No PIN set. Please sign in again.');
     }
 
-    const isValid = await bcrypt.compare(code, user.twoFactorCode);
-    if (!isValid) throw new UnauthorizedException('Incorrect code. Please check your email and try again.');
+    const isValid = await bcrypt.compare(pin, user.loginPin);
+    if (!isValid) throw new UnauthorizedException('Incorrect PIN. Please try again.');
 
     const tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
     if (!tenant) throw new UnauthorizedException('Workspace not found');
 
-    // Clear OTP, issue real tokens
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { twoFactorCode: null, twoFactorCodeExpiry: null },
+    await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
+
+    const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
+    return { ...tokens, user: safeUser, tenant: safeTenant };
+  }
+
+  async setupPin(tempToken: string, pin: string, ipAddress?: string): Promise<AuthTokens & { user: object; tenant: object }> {
+    let payload: { sub: string; type: string };
+    try {
+      payload = this.jwtService.verify(tempToken, { secret: this.configService.get<string>('app.jwtSecret') });
+    } catch {
+      throw new UnauthorizedException('Session expired. Please sign in again.');
+    }
+
+    if (payload.type !== '2fa-pending') throw new UnauthorizedException('Invalid token');
+    if (!/^\d{4,6}$/.test(pin)) throw new BadRequestException('PIN must be 4–6 digits');
+
+    const pinHash = await bcrypt.hash(pin, this.BCRYPT_ROUNDS);
+
+    const user = await this.prisma.user.update({
+      where: { id: payload.sub },
+      data: { loginPin: pinHash },
     });
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId, isActive: true } });
+    if (!tenant) throw new UnauthorizedException('Workspace not found');
+
+    await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
 
     const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
@@ -417,7 +437,8 @@ export class AuthService {
     if (payload.type !== 'reset') throw new BadRequestException('Invalid token type');
 
     const passwordHash = await bcrypt.hash(newPassword, this.BCRYPT_ROUNDS);
-    await this.prisma.user.update({ where: { id: payload.sub }, data: { passwordHash, refreshToken: null } });
+    // Also clear loginPin so the user sets a new one on next login
+    await this.prisma.user.update({ where: { id: payload.sub }, data: { passwordHash, refreshToken: null, loginPin: null } });
 
     return { message: 'Password reset successfully' };
   }
@@ -455,6 +476,22 @@ export class AuthService {
     if (!valid) throw new BadRequestException('Current password is incorrect');
     const hashed = await bcrypt.hash(dto.newPassword, this.BCRYPT_ROUNDS);
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hashed } });
+  }
+
+  async changePin(userId: string, dto: { currentPin?: string; newPin: string }) {
+    if (!/^\d{4,6}$/.test(dto.newPin)) throw new BadRequestException('PIN must be 4–6 digits');
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { loginPin: true } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    if (user.loginPin) {
+      if (!dto.currentPin) throw new BadRequestException('Current PIN required');
+      const valid = await bcrypt.compare(dto.currentPin, user.loginPin);
+      if (!valid) throw new BadRequestException('Current PIN is incorrect');
+    }
+
+    const pinHash = await bcrypt.hash(dto.newPin, this.BCRYPT_ROUNDS);
+    await this.prisma.user.update({ where: { id: userId }, data: { loginPin: pinHash } });
   }
 
   async logout(userId: string) {

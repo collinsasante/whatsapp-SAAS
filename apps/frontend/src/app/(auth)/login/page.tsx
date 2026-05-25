@@ -3,7 +3,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2, Building2 } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2, Building2, KeyRound } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
 import { useAuthStore } from '@/store/auth.store';
@@ -20,8 +20,65 @@ function GoogleIcon() {
   );
 }
 
-type Step = 'credentials' | 'otp' | 'unverified' | 'workspace-picker';
+type Step = 'credentials' | 'pin' | 'pin-setup' | 'unverified' | 'workspace-picker';
 type Workspace = { id: string; name: string; logoUrl: string | null };
+
+// Reusable 4-digit PIN input row
+function PinInput({
+  value,
+  onChange,
+  onSubmit,
+  label,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  onSubmit?: () => void;
+  label?: string;
+}) {
+  const refs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const handleChange = (i: number, val: string) => {
+    const cleaned = val.replace(/\D/g, '').slice(-1);
+    const next = [...value];
+    next[i] = cleaned;
+    onChange(next);
+    if (cleaned && i < 3) setTimeout(() => refs.current[i + 1]?.focus(), 0);
+  };
+
+  const handleKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !value[i] && i > 0) refs.current[i - 1]?.focus();
+    if (e.key === 'Enter' && value.join('').length === 4) onSubmit?.();
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4);
+    if (text.length === 4) {
+      onChange(text.split(''));
+      refs.current[3]?.focus();
+    }
+  };
+
+  return (
+    <div>
+      {label && <p className="text-sm text-gray-500 text-center mb-3">{label}</p>}
+      <div className="flex items-center justify-center gap-3" onPaste={handlePaste}>
+        {value.map((digit, i) => (
+          <input
+            key={i}
+            ref={(el) => { refs.current[i] = el; }}
+            type="password"
+            inputMode="numeric"
+            maxLength={1}
+            value={digit}
+            onChange={(e) => handleChange(i, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(i, e)}
+            className="w-14 h-14 text-center text-2xl font-bold border-2 rounded-xl focus:outline-none focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white tracking-widest"
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function LoginPage() {
   const router = useRouter();
@@ -33,13 +90,12 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  // OTP / workspace-picker step state
   const [tempToken, setTempToken] = useState('');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [pin, setPin] = useState(['', '', '', '']);
+  const [pinConfirm, setPinConfirm] = useState(['', '', '', '']);
   const [resending, setResending] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
-  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
     const error = searchParams.get('error');
@@ -49,39 +105,43 @@ function LoginPage() {
     if (verified === '1') toast.success('Email verified! You can now sign in.');
   }, [searchParams]);
 
+  const finishLogin = (data: { accessToken: string; user: { id: string; email: string; name: string; role: UserRole; tenantId: string }; tenant: { id: string; name: string; onboardingCompleted: boolean } }) => {
+    setAuth(data.user, data.tenant, data.accessToken);
+    disconnectSocket();
+    toast.success(`Welcome back, ${data.user.name}!`);
+    router.replace('/dashboard');
+  };
+
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       const res = await authApi.login(form.email, form.password);
       const data = res.data as
-        | { requires2FA: true; tempToken: string }
+        | { requiresPin: true; tempToken: string }
+        | { requiresPinSetup: true; tempToken: string }
         | { requiresWorkspaceSelection: true; workspaces: Workspace[]; tempToken: string }
-        | { accessToken: string; user: object; tenant: object };
+        | { accessToken: string; user: { id: string; email: string; name: string; role: UserRole; tenantId: string }; tenant: { id: string; name: string; onboardingCompleted: boolean } };
 
       if ('requiresWorkspaceSelection' in data) {
         setTempToken(data.tempToken);
         setWorkspaces(data.workspaces);
         setStep('workspace-picker');
-      } else if ('requires2FA' in data) {
+      } else if ('requiresPinSetup' in data) {
         setTempToken(data.tempToken);
-        setStep('otp');
-        setOtp(['', '', '', '', '', '']);
-        setTimeout(() => otpRefs.current[0]?.focus(), 100);
+        setPin(['', '', '', '']);
+        setPinConfirm(['', '', '', '']);
+        setStep('pin-setup');
+      } else if ('requiresPin' in data) {
+        setTempToken(data.tempToken);
+        setPin(['', '', '', '']);
+        setStep('pin');
       } else {
-        const { accessToken, user, tenant } = data as {
-          accessToken: string;
-          user: { id: string; email: string; name: string; role: UserRole; tenantId: string };
-          tenant: { id: string; name: string; onboardingCompleted: boolean };
-        };
-        setAuth(user, tenant, accessToken);
-        disconnectSocket();
-        router.replace('/dashboard');
+        finishLogin(data as Parameters<typeof finishLogin>[0]);
       }
     } catch (err: unknown) {
       type ErrBody = { message?: string | { message?: string; code?: string; email?: string }; code?: string; email?: string };
       const errData = (err as { response?: { data?: ErrBody } })?.response?.data;
-      // ForbiddenException with object payload is nested under errData.message
       const nested = errData?.message && typeof errData.message === 'object' ? errData.message : null;
       const code = nested?.code ?? errData?.code;
       if (code === 'email_not_verified') {
@@ -96,67 +156,36 @@ function LoginPage() {
     }
   };
 
-  const handleOtpChange = (i: number, val: string) => {
-    const cleaned = val.replace(/\D/g, '').slice(-1);
-    const next = [...otp];
-    next[i] = cleaned;
-    setOtp(next);
-    if (cleaned && i < 5) setTimeout(() => otpRefs.current[i + 1]?.focus(), 0);
-  };
-
-  const handleOtpKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otp[i] && i > 0) {
-      otpRefs.current[i - 1]?.focus();
-    }
-  };
-
-  const handleOtpPaste = (e: React.ClipboardEvent) => {
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (text.length === 6) {
-      setOtp(text.split(''));
-      otpRefs.current[5]?.focus();
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    const code = otp.join('');
-    if (code.length !== 6) { toast.error('Enter all 6 digits'); return; }
+  const handleVerifyPin = async () => {
+    const code = pin.join('');
+    if (code.length !== 4) { toast.error('Enter your 4-digit PIN'); return; }
     setLoading(true);
     try {
       const res = await authApi.verify2FA(tempToken, code);
-      const { accessToken, user, tenant } = res.data as {
-        accessToken: string;
-        user: { id: string; email: string; name: string; role: UserRole; tenantId: string };
-        tenant: { id: string; name: string; slug: string };
-      };
-      setAuth(user, tenant, accessToken);
-      disconnectSocket();
-      toast.success(`Welcome back, ${(user as { name: string }).name}!`);
-      router.replace('/dashboard');
+      finishLogin(res.data as Parameters<typeof finishLogin>[0]);
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Incorrect code';
-      toast.error(typeof message === 'string' ? message : 'Incorrect code');
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Incorrect PIN';
+      toast.error(typeof message === 'string' ? message : 'Incorrect PIN');
+      setPin(['', '', '', '']);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleResendOtp = async () => {
-    setResending(true);
+  const handleSetupPin = async () => {
+    const code = pin.join('');
+    const confirm = pinConfirm.join('');
+    if (code.length !== 4) { toast.error('Enter a 4-digit PIN'); return; }
+    if (code !== confirm) { toast.error('PINs do not match'); setPinConfirm(['', '', '', '']); return; }
+    setLoading(true);
     try {
-      // Re-submit login to trigger a fresh OTP
-      const res = await authApi.login(form.email, form.password);
-      const data = res.data as { requires2FA: true; tempToken: string };
-      if ('requires2FA' in data) {
-        setTempToken(data.tempToken);
-        setOtp(['', '', '', '', '', '']);
-        toast.success('A new code has been sent to your email');
-        setTimeout(() => otpRefs.current[0]?.focus(), 100);
-      }
-    } catch {
-      toast.error('Failed to resend code');
+      const res = await authApi.setupPin(tempToken, code);
+      finishLogin(res.data as Parameters<typeof finishLogin>[0]);
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to set PIN';
+      toast.error(typeof message === 'string' ? message : 'Failed to set PIN');
     } finally {
-      setResending(false);
+      setLoading(false);
     }
   };
 
@@ -213,7 +242,6 @@ function LoginPage() {
               Your email is linked to multiple workspaces. Choose one to continue.
             </p>
           </div>
-
           <div className="space-y-2.5">
             {workspaces.map((ws) => (
               <button
@@ -233,7 +261,6 @@ function LoginPage() {
               </button>
             ))}
           </div>
-
           <button
             onClick={() => { setStep('credentials'); setWorkspaces([]); }}
             className="w-full text-sm text-gray-400 hover:text-gray-600 py-3 mt-3 transition-colors"
@@ -278,8 +305,8 @@ function LoginPage() {
     );
   }
 
-  // ── STEP: OTP ─────────────────────────────────────────────────────────────
-  if (step === 'otp') {
+  // ── STEP: ENTER PIN ────────────────────────────────────────────────────────
+  if (step === 'pin') {
     return (
       <div className="w-full max-w-[420px]">
         <div className="lg:hidden flex items-center mb-8 justify-center">
@@ -293,57 +320,80 @@ function LoginPage() {
             </div>
           </div>
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Check your email</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Enter your PIN</h1>
             <p className="text-gray-500 text-sm mt-2">
-              We sent a 6-digit code to <span className="font-semibold text-gray-700">{form.email}</span>
+              Enter the 4-digit PIN for <span className="font-semibold text-gray-700">{form.email}</span>
             </p>
           </div>
 
-          <div className="flex items-center justify-center gap-2 mb-6" onPaste={handleOtpPaste}>
-            {otp.map((digit, i) => (
-              <input
-                key={i}
-                ref={(el) => { otpRefs.current[i] = el; }}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleOtpChange(i, e.target.value)}
-                onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                className="w-11 h-13 text-center text-xl font-bold border-2 rounded-xl focus:outline-none focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white"
-                style={{ height: '52px' }}
-              />
-            ))}
+          <div className="mb-6">
+            <PinInput value={pin} onChange={setPin} onSubmit={() => void handleVerifyPin()} />
           </div>
 
           <button
-            onClick={() => void handleVerifyOtp()}
-            disabled={loading || otp.join('').length < 6}
+            onClick={() => void handleVerifyPin()}
+            disabled={loading || pin.join('').length < 4}
             className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors mb-4"
           >
-            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><CheckCircle2 className="w-4 h-4" /> Verify & Sign In</>}
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><CheckCircle2 className="w-4 h-4" /> Sign In</>}
           </button>
 
           <div className="flex items-center justify-between text-sm">
+            <Link href="/forgot-password" className="text-teal-600 hover:text-teal-700 font-medium transition-colors text-xs">
+              Forgot PIN? Reset password
+            </Link>
             <button
-              onClick={() => void handleResendOtp()}
-              disabled={resending}
-              className="flex items-center gap-1.5 text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50 transition-colors"
+              onClick={() => { setStep('credentials'); setPin(['', '', '', '']); }}
+              className="text-gray-400 hover:text-gray-600 transition-colors text-xs"
             >
-              {resending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              Resend code
-            </button>
-            <button
-              onClick={() => { setStep('credentials'); setOtp(['', '', '', '', '', '']); }}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              Change email
+              Change account
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
 
-          <p className="text-xs text-gray-400 text-center mt-4">
-            Code expires in 10 minutes. Check your spam folder if you don&apos;t see it.
-          </p>
+  // ── STEP: SET UP PIN (first login) ─────────────────────────────────────────
+  if (step === 'pin-setup') {
+    return (
+      <div className="w-full max-w-[420px]">
+        <div className="lg:hidden flex items-center mb-8 justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="VerzChat" className="h-9" />
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+          <div className="flex items-center justify-center mb-5">
+            <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center">
+              <KeyRound className="w-7 h-7 text-teal-600" />
+            </div>
+          </div>
+          <div className="text-center mb-6">
+            <h1 className="text-2xl font-bold text-gray-900">Set your login PIN</h1>
+            <p className="text-gray-500 text-sm mt-2">
+              Choose a 4-digit PIN you&apos;ll use every time you sign in. Keep it safe — it replaces your email code.
+            </p>
+          </div>
+
+          <div className="space-y-5 mb-6">
+            <PinInput value={pin} onChange={setPin} label="Choose a PIN" />
+            <PinInput value={pinConfirm} onChange={setPinConfirm} onSubmit={() => void handleSetupPin()} label="Confirm PIN" />
+          </div>
+
+          <button
+            onClick={() => void handleSetupPin()}
+            disabled={loading || pin.join('').length < 4 || pinConfirm.join('').length < 4}
+            className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving PIN...</> : <><CheckCircle2 className="w-4 h-4" /> Set PIN & Sign In</>}
+          </button>
+
+          <button
+            onClick={() => { setStep('credentials'); setPin(['', '', '', '']); setPinConfirm(['', '', '', '']); }}
+            className="w-full text-sm text-gray-400 hover:text-gray-600 py-3 mt-2 transition-colors"
+          >
+            ← Back to sign in
+          </button>
         </div>
       </div>
     );
