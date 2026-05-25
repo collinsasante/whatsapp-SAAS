@@ -62,7 +62,7 @@ export default function BillingPage() {
   const hasPending = invoices.length > 0 || credits.length > 0;
 
   return (
-    <div className="p-8 space-y-8">
+    <div className="p-4 sm:p-8 space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
@@ -91,7 +91,8 @@ export default function BillingPage() {
             )}
           </h2>
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[560px]">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Workspace</th>
@@ -131,6 +132,7 @@ export default function BillingPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -145,7 +147,8 @@ export default function BillingPage() {
             )}
           </h2>
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[620px]">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Workspace</th>
@@ -187,6 +190,7 @@ export default function BillingPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}

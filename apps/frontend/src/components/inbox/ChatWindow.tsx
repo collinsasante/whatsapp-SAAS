@@ -1402,7 +1402,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
-        <div className="flex-1 flex flex-col min-h-0 relative">
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col relative min-h-0">
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
@@ -1471,6 +1472,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </button>
             </div>
           )}
+          </div>
 
           {/* Input area */}
           <div className="border-t border-gray-100 px-4 pt-2 pb-3 flex-shrink-0 bg-white relative">

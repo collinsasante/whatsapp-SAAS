@@ -55,8 +55,8 @@ export default function Hero() {
             </div>
           </div>
 
-          {/* Right — inline inbox mockup */}
-          <div className="col-lg-6" data-aos="fade-left" data-aos-delay="150">
+          {/* Right — inline inbox mockup (hidden on mobile, shows at lg+) */}
+          <div className="col-lg-6 d-none d-lg-block" data-aos="fade-left" data-aos-delay="150">
             <div className="hero_img_wrap">
               <div className="hero_star_tl">✦</div>
               <div className="hero_star_br">✦</div>

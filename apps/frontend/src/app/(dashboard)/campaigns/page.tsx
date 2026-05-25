@@ -254,16 +254,21 @@ export default function CampaignsPage() {
         scheduledAt: form.scheduledAt || undefined,
         templateVariables: Object.keys(form.templateVariables).length ? form.templateVariables : undefined,
       });
-      setShowCreate(false);
-      resetForm();
-      await load();
-      toast.success('Campaign created!');
     } catch (err) {
       const msg = err && typeof err === 'object' && 'response' in err
         ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Failed'
         : 'Failed';
       toast.error(typeof msg === 'string' ? msg : 'Failed to create campaign');
-    } finally { setSubmitting(false); }
+      setSubmitting(false);
+      return;
+    }
+
+    // Creation succeeded — close modal before refreshing list
+    setShowCreate(false);
+    resetForm();
+    setSubmitting(false);
+    toast.success('Campaign created!');
+    void load();
   };
 
   const launch = async (id: string) => {
