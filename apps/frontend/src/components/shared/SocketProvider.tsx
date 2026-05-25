@@ -146,6 +146,15 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const activeId = activeConversationIdRef.current;
     if (activeId) {
       getSocket().emit(SocketEvent.JOIN_CONVERSATION, activeId);
+      // Re-fetch recent messages to catch any that arrived while the socket was disconnected
+      void import('@/lib/api').then(({ messagesApi }) =>
+        messagesApi.list(activeId, { limit: 30 })
+          .then((res) => {
+            const msgs = (res.data as { data: Message[] }).data;
+            msgs.forEach((m) => addMessage(activeId, m));
+          })
+          .catch(() => {}),
+      );
     }
     // On reconnect, recover any ringing call that fired while we were disconnected
     const { incomingCall, outboundCall } = useCallsStore.getState();
@@ -165,7 +174,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => { /* best-effort */ });
     }
-  }, [stopPolling, setIncomingCall]);
+  }, [stopPolling, setIncomingCall, addMessage]);
 
   useEffect(() => {
     const socket = getSocket();

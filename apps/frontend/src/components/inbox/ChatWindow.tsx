@@ -394,7 +394,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           conversationsApi.getNotes(conversation.id),
           activityLogApi.forConversation(conversation.id),
         ]);
-        if (msgsRes.status === 'fulfilled') { setMessages(conversation.id, (msgsRes.value.data as { data: Message[] }).data); scrollToBottom(true); }
+        if (msgsRes.status === 'fulfilled') {
+          setMessages(conversation.id, (msgsRes.value.data as { data: Message[] }).data);
+          scrollToBottom(true);
+          // Second scroll after virtualizer re-measures actual item heights
+          requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true)));
+        }
         if (notesRes.status === 'fulfilled') setNotes(notesRes.value.data as typeof notes);
         if (activityRes.status === 'fulfilled') setActivityLogs(conversation.id, (activityRes.value.data as ActivityEntry[]) ?? []);
         void conversationsApi.markRead(conversation.id).catch(() => {});
