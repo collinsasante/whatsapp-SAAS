@@ -23,7 +23,7 @@ function GoogleIcon() {
 type Step = 'credentials' | 'pin' | 'pin-setup' | 'unverified' | 'workspace-picker';
 type Workspace = { id: string; name: string; logoUrl: string | null };
 
-// Reusable 4-digit PIN input row
+// Reusable 6-digit PIN input row
 function PinInput({
   value,
   onChange,
@@ -42,19 +42,19 @@ function PinInput({
     const next = [...value];
     next[i] = cleaned;
     onChange(next);
-    if (cleaned && i < 3) setTimeout(() => refs.current[i + 1]?.focus(), 0);
+    if (cleaned && i < 5) setTimeout(() => refs.current[i + 1]?.focus(), 0);
   };
 
   const handleKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace' && !value[i] && i > 0) refs.current[i - 1]?.focus();
-    if (e.key === 'Enter' && value.join('').length === 4) onSubmit?.();
+    if (e.key === 'Enter' && value.join('').length === 6) onSubmit?.();
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4);
-    if (text.length === 4) {
+    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (text.length === 6) {
       onChange(text.split(''));
-      refs.current[3]?.focus();
+      refs.current[5]?.focus();
     }
   };
 
@@ -92,8 +92,8 @@ function LoginPage() {
 
   const [tempToken, setTempToken] = useState('');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [pin, setPin] = useState(['', '', '', '']);
-  const [pinConfirm, setPinConfirm] = useState(['', '', '', '']);
+  const [pin, setPin] = useState(['', '', '', '', '', '']);
+  const [pinConfirm, setPinConfirm] = useState(['', '', '', '', '', '']);
   const [resending, setResending] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
 
@@ -129,12 +129,12 @@ function LoginPage() {
         setStep('workspace-picker');
       } else if ('requiresPinSetup' in data) {
         setTempToken(data.tempToken);
-        setPin(['', '', '', '']);
-        setPinConfirm(['', '', '', '']);
+        setPin(['', '', '', '', '', '']);
+        setPinConfirm(['', '', '', '', '', '']);
         setStep('pin-setup');
       } else if ('requiresPin' in data) {
         setTempToken(data.tempToken);
-        setPin(['', '', '', '']);
+        setPin(['', '', '', '', '', '']);
         setStep('pin');
       } else {
         finishLogin(data as Parameters<typeof finishLogin>[0]);
@@ -158,7 +158,7 @@ function LoginPage() {
 
   const handleVerifyPin = async () => {
     const code = pin.join('');
-    if (code.length !== 4) { toast.error('Enter your 4-digit PIN'); return; }
+    if (code.length !== 6) { toast.error('Enter your 6-digit PIN'); return; }
     setLoading(true);
     try {
       const res = await authApi.verify2FA(tempToken, code);
@@ -166,7 +166,7 @@ function LoginPage() {
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Incorrect PIN';
       toast.error(typeof message === 'string' ? message : 'Incorrect PIN');
-      setPin(['', '', '', '']);
+      setPin(['', '', '', '', '', '']);
     } finally {
       setLoading(false);
     }
@@ -175,8 +175,8 @@ function LoginPage() {
   const handleSetupPin = async () => {
     const code = pin.join('');
     const confirm = pinConfirm.join('');
-    if (code.length !== 4) { toast.error('Enter a 4-digit PIN'); return; }
-    if (code !== confirm) { toast.error('PINs do not match'); setPinConfirm(['', '', '', '']); return; }
+    if (code.length !== 6) { toast.error('Enter a 6-digit PIN'); return; }
+    if (code !== confirm) { toast.error('PINs do not match'); setPinConfirm(['', '', '', '', '', '']); return; }
     setLoading(true);
     try {
       const res = await authApi.setupPin(tempToken, code);
@@ -322,7 +322,7 @@ function LoginPage() {
           <div className="text-center mb-6">
             <h1 className="text-2xl font-bold text-gray-900">Enter your PIN</h1>
             <p className="text-gray-500 text-sm mt-2">
-              Enter the 4-digit PIN for <span className="font-semibold text-gray-700">{form.email}</span>
+              Enter the 6-digit PIN for <span className="font-semibold text-gray-700">{form.email}</span>
             </p>
           </div>
 
@@ -332,7 +332,7 @@ function LoginPage() {
 
           <button
             onClick={() => void handleVerifyPin()}
-            disabled={loading || pin.join('').length < 4}
+            disabled={loading || pin.join('').length < 6}
             className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors mb-4"
           >
             {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><CheckCircle2 className="w-4 h-4" /> Sign In</>}
@@ -343,7 +343,7 @@ function LoginPage() {
               Forgot PIN? Reset password
             </Link>
             <button
-              onClick={() => { setStep('credentials'); setPin(['', '', '', '']); }}
+              onClick={() => { setStep('credentials'); setPin(['', '', '', '', '', '']); }}
               className="text-gray-400 hover:text-gray-600 transition-colors text-xs"
             >
               Change account
@@ -371,7 +371,7 @@ function LoginPage() {
           <div className="text-center mb-6">
             <h1 className="text-2xl font-bold text-gray-900">Set your login PIN</h1>
             <p className="text-gray-500 text-sm mt-2">
-              Choose a 4-digit PIN you&apos;ll use every time you sign in. Keep it safe — it replaces your email code.
+              Choose a 6-digit PIN you&apos;ll use every time you sign in. Keep it safe — it replaces your email code.
             </p>
           </div>
 
@@ -382,7 +382,7 @@ function LoginPage() {
 
           <button
             onClick={() => void handleSetupPin()}
-            disabled={loading || pin.join('').length < 4 || pinConfirm.join('').length < 4}
+            disabled={loading || pin.join('').length < 6 || pinConfirm.join('').length < 6}
             className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving PIN...</> : <><CheckCircle2 className="w-4 h-4" /> Set PIN & Sign In</>}

@@ -431,18 +431,31 @@ function MemberActionMenu({ member, isMe, onEdit, onSuspend, onReactivate, onFor
 function InviteForm({ onDone }: { onDone: () => void }) {
   const [form, setForm] = useState({ email: '', role: 'AGENT', name: '' });
   const [inviting, setInviting] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
 
   const send = async () => {
     if (!form.email) { toast.error('Email is required'); return; }
     setInviting(true);
     try {
-      await workspaceApi.invite(form.email, form.role, form.name || undefined);
-      toast.success(`Invite sent to ${form.email}`);
-      onDone();
+      const res = await workspaceApi.invite(form.email, form.role, form.name || undefined);
+      const data = res.data as { link?: string };
+      if (data.link) {
+        setGeneratedLink(data.link);
+        toast.success('Invite created — copy the link below');
+      } else {
+        toast.success(`Invite sent to ${form.email}`);
+        onDone();
+      }
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg ?? 'Failed to send invitation');
     } finally { setInviting(false); }
+  };
+
+  const copyLink = () => {
+    if (!generatedLink) return;
+    void navigator.clipboard.writeText(generatedLink);
+    toast.success('Link copied!');
   };
 
   return (
@@ -452,7 +465,25 @@ function InviteForm({ onDone }: { onDone: () => void }) {
         <button onClick={onDone} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
       </div>
 
-      <>
+      {generatedLink ? (
+        <div className="space-y-4">
+          <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl">
+            <p className="text-xs font-semibold text-teal-700 mb-2">Invite link for {form.email}</p>
+            <div className="flex items-center gap-2 bg-white border border-teal-200 rounded-lg px-3 py-2">
+              <span className="text-xs text-gray-600 flex-1 truncate font-mono">{generatedLink}</span>
+              <button onClick={copyLink} className="shrink-0 text-teal-600 hover:text-teal-800 transition-colors">
+                <LinkIcon size={14} />
+              </button>
+            </div>
+            <p className="text-xs text-teal-600 mt-2">Copy and send this link to {form.name || form.email}. It expires in 48 hours.</p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={copyLink} className={BTN_PRIMARY}>Copy Link</button>
+            <button onClick={onDone} className={BTN_GHOST}>Done</button>
+          </div>
+        </div>
+      ) : (
+        <>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Field label="Email *">
@@ -472,11 +503,12 @@ function InviteForm({ onDone }: { onDone: () => void }) {
           </div>
           <div className="flex gap-3 mt-4">
             <button onClick={() => { void send(); }} disabled={inviting || !form.email} className={BTN_PRIMARY}>
-              {inviting ? 'Sending…' : 'Send Invite'}
+              {inviting ? 'Generating…' : 'Generate Invite Link'}
             </button>
             <button onClick={onDone} className={BTN_GHOST}>Cancel</button>
           </div>
         </>
+      )}
     </div>
   );
 }
