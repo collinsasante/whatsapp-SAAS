@@ -168,9 +168,23 @@ export const useInboxStore = create<InboxState>((set) => ({
     }),
 
   setMessages: (conversationId, messages) =>
-    set((state) => ({
-      messages: { ...state.messages, [conversationId]: messages },
-    })),
+    set((state) => {
+      const existing = state.messages[conversationId];
+      if (!existing?.length) {
+        return { messages: { ...state.messages, [conversationId]: messages } };
+      }
+      // Preserve any non-temp socket messages not in the API response
+      // (they arrived via socket AFTER the API request was sent — would otherwise be lost)
+      const apiIds = new Set(messages.map((m) => m.id));
+      const socketExtras = existing.filter((m) => !m.id.startsWith('temp-') && !apiIds.has(m.id));
+      if (!socketExtras.length) {
+        return { messages: { ...state.messages, [conversationId]: messages } };
+      }
+      const merged = [...messages, ...socketExtras].sort((a, b) =>
+        String(a.createdAt).localeCompare(String(b.createdAt))
+      );
+      return { messages: { ...state.messages, [conversationId]: merged } };
+    }),
 
   updateConversation: (id, data) =>
     set((state) => ({
