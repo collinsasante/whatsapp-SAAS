@@ -72,7 +72,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Login with email and password — returns requires2FA or full tokens' })
+  @ApiOperation({ summary: 'Login with email and password — returns requiresPin, requiresPinSetup, requiresWorkspaceSelection, or full tokens' })
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -81,11 +81,28 @@ export class AuthController {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const result = await this.authService.login(dto, ip);
 
-    if ('requires2FA' in result) return result;
+    if ('requiresPin' in result || 'requiresPinSetup' in result || 'requiresWorkspaceSelection' in result) return result;
 
-    // Fallback: full tokens (Google OAuth path — should not happen via this route)
+    // Full tokens path (SKIP_2FA=true or similar)
     this.setRefreshCookie(res, (result as { refreshToken: string }).refreshToken);
     const { refreshToken: _, ...safe } = result as typeof result & { refreshToken: string };
+    return safe;
+  }
+
+  @Post('setup-pin')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Set login PIN for the first time after password verification' })
+  async setupPin(
+    @Body() body: { tempToken: string; pin: string },
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    const result = await this.authService.setupPin(body.tempToken, body.pin, ip);
+    this.setRefreshCookie(res, result.refreshToken);
+    const { refreshToken: _, ...safe } = result;
     return safe;
   }
 
@@ -110,7 +127,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: 'Verify 2FA OTP code and complete sign-in' })
+  @ApiOperation({ summary: 'Verify login PIN and complete sign-in' })
   async verify2FA(
     @Body() body: { tempToken: string; code: string },
     @Req() req: Request,
@@ -163,6 +180,15 @@ export class AuthController {
   @ApiOperation({ summary: 'Change current user password' })
   changePassword(@CurrentUser() user: JwtPayload, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(user.sub, dto);
+  }
+
+  @Patch('me/pin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change or set login PIN' })
+  changePin(@CurrentUser() user: JwtPayload, @Body() body: { currentPin?: string; newPin: string }) {
+    return this.authService.changePin(user.sub, body);
   }
 
   @Post('logout')

@@ -101,8 +101,10 @@ export { silentRefresh };
 export const authApi = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
-  verify2FA: (tempToken: string, code: string) =>
-    api.post('/auth/verify-2fa', { tempToken, code }),
+  verify2FA: (tempToken: string, pin: string) =>
+    api.post('/auth/verify-2fa', { tempToken, code: pin }),
+  setupPin: (tempToken: string, pin: string) =>
+    api.post('/auth/setup-pin', { tempToken, pin }),
   selectWorkspace: (tempToken: string, tenantId: string) =>
     api.post('/auth/select-workspace', { tempToken, tenantId }),
   register: (name: string, email: string, password: string, phoneNumber?: string) =>
@@ -124,6 +126,8 @@ export const authApi = {
   updateMe: (data: { name?: string; avatarUrl?: string }) => api.patch('/auth/me', data),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.patch('/auth/me/password', { currentPassword, newPassword }),
+  changePin: (currentPin: string | undefined, newPin: string) =>
+    api.patch('/auth/me/pin', { ...(currentPin ? { currentPin } : {}), newPin }),
 };
 
 export const workspaceApi = {
