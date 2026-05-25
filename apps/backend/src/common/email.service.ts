@@ -260,8 +260,12 @@ export class EmailService {
     }
 
     try {
-      await this.resend.emails.send({ from, to: opts.to, subject: opts.subject, html: opts.html });
-      this.logger.log(`Email sent to ${opts.to}: ${opts.subject}`);
+      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject: opts.subject, html: opts.html });
+      if (error) {
+        this.logger.error(`Resend rejected email to ${opts.to}: ${JSON.stringify(error)}`);
+      } else {
+        this.logger.log(`Email sent to ${opts.to}: ${opts.subject} (id: ${data?.id})`);
+      }
     } catch (err) {
       this.logger.error(`Failed to send email to ${opts.to}: ${String(err)}`);
     }
