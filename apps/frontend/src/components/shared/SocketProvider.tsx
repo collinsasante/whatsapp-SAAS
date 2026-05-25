@@ -106,6 +106,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     requestBrowserNotificationPermission();
   }, []);
 
+  // Reconnect socket when tab comes back into focus — mobile browsers drop idle connections
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      const sock = getSocket();
+      if (!sock.connected) sock.connect();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   useEffect(() => {
     setSocketAuthErrorHandler(() => {
       // Before giving up, try a silent token refresh — the access token may have
@@ -131,6 +142,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   const onSocketConnect = useCallback(() => {
     stopPolling();
+    // Re-join the active conversation room — server forgets room memberships after reconnect
+    const activeId = activeConversationIdRef.current;
+    if (activeId) {
+      getSocket().emit(SocketEvent.JOIN_CONVERSATION, activeId);
+    }
     // On reconnect, recover any ringing call that fired while we were disconnected
     const { incomingCall, outboundCall } = useCallsStore.getState();
     if (!incomingCall && !outboundCall) {

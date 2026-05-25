@@ -94,8 +94,12 @@ export class EmailService {
     }
 
     try {
-      await this.resend.emails.send({ from, to: opts.to, subject, html, replyTo });
-      this.logger.log(`Invite email sent to ${opts.to}`);
+      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html, replyTo });
+      if (error) {
+        this.logger.error(`Resend rejected invite email to ${opts.to}: ${JSON.stringify(error)}`);
+      } else {
+        this.logger.log(`Invite email sent to ${opts.to} (id: ${data?.id})`);
+      }
     } catch (err) {
       this.logger.error(`Failed to send invite email to ${opts.to}: ${String(err)}`);
     }
@@ -147,8 +151,12 @@ export class EmailService {
       return;
     }
     try {
-      await this.resend.emails.send({ from, to: opts.to, subject, html });
-      this.logger.log(`Verification email sent to ${opts.to}`);
+      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html });
+      if (error) {
+        this.logger.error(`Resend rejected verification email to ${opts.to}: ${JSON.stringify(error)}`);
+      } else {
+        this.logger.log(`Verification email sent to ${opts.to} (id: ${data?.id})`);
+      }
     } catch (err) {
       this.logger.error(`Failed to send verification email to ${opts.to}: ${String(err)}`);
     }
@@ -191,8 +199,12 @@ export class EmailService {
       return;
     }
     try {
-      await this.resend.emails.send({ from, to: opts.to, subject, html });
-      this.logger.log(`OTP email sent to ${opts.to}`);
+      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html });
+      if (error) {
+        this.logger.error(`Resend rejected OTP email to ${opts.to}: ${JSON.stringify(error)}`);
+      } else {
+        this.logger.log(`OTP email sent to ${opts.to} (id: ${data?.id})`);
+      }
     } catch (err) {
       this.logger.error(`Failed to send OTP email to ${opts.to}: ${String(err)}`);
     }
@@ -244,8 +256,12 @@ export class EmailService {
       return;
     }
     try {
-      await this.resend.emails.send({ from, to: opts.to, subject, html });
-      this.logger.log(`Password reset email sent to ${opts.to}`);
+      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html });
+      if (error) {
+        this.logger.error(`Resend rejected password reset email to ${opts.to}: ${JSON.stringify(error)}`);
+      } else {
+        this.logger.log(`Password reset email sent to ${opts.to} (id: ${data?.id})`);
+      }
     } catch (err) {
       this.logger.error(`Failed to send password reset email to ${opts.to}: ${String(err)}`);
     }
