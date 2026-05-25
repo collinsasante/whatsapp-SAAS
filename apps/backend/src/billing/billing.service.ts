@@ -113,12 +113,13 @@ export class BillingService {
 
     const currencySymbol = '$';
 
-    const notifyEmail = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'support@verzchat.com');
+    const notifyEmail = this.config.get<string>('BILLING_NOTIFY_EMAIL', '');
 
-    await this.emailService.sendRaw({
-      to: notifyEmail,
-      subject: `[payment] ${tenant.name} — ${plan.name} Plan (${dto.cycle}) — ${currencySymbol}${baseAmount}`,
-      html: `
+    if (notifyEmail) {
+      await this.emailService.sendRaw({
+        to: notifyEmail,
+        subject: `[payment] ${tenant.name} — ${plan.name} Plan (${dto.cycle}) — ${currencySymbol}${baseAmount}`,
+        html: `
         <h2 style="margin:0 0 16px">New Plan Payment Pending</h2>
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
@@ -135,9 +136,10 @@ export class BillingService {
         </a>
         <p style="font-size:11px;color:#9ca3af;margin-top:12px">Or copy this link: ${activateUrl}</p>
       `,
-    }).catch((err: unknown) => {
-      this.logger.error('Failed to send payment notification email', (err as Error).message);
-    });
+      }).catch((err: unknown) => {
+        this.logger.error('Failed to send payment notification email', (err as Error).message);
+      });
+    }
 
     return { free: false, reference, paymentDetails: PAYMENT_DETAILS, amount: baseAmount, currency: 'USD', plan };
   }
@@ -267,12 +269,13 @@ export class BillingService {
     const apiUrl = this.config.get<string>('API_URL', 'https://verzchat.com/api/v1');
     const activateUrl = `${apiUrl}/billing/admin/activate-credits?ref=${reference}&secret=${encodeURIComponent(adminSecret)}`;
 
-    const notifyEmail = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'support@verzchat.com');
+    const notifyEmail = this.config.get<string>('BILLING_NOTIFY_EMAIL', '');
 
-    await this.emailService.sendRaw({
-      to: notifyEmail,
-      subject: `[credits] ${tenant.name} — ${pack.label} — $${pack.amount} USD`,
-      html: `
+    if (notifyEmail) {
+      await this.emailService.sendRaw({
+        to: notifyEmail,
+        subject: `[credits] ${tenant.name} — ${pack.label} — $${pack.amount} USD`,
+        html: `
         <h2 style="margin:0 0 16px">New AI Credits Payment Pending</h2>
         <table style="width:100%;border-collapse:collapse;font-size:14px">
           <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
@@ -287,9 +290,10 @@ export class BillingService {
         </a>
         <p style="font-size:11px;color:#9ca3af;margin-top:12px">Or copy this link: ${activateUrl}</p>
       `,
-    }).catch((err: unknown) => {
-      this.logger.error('Failed to send credits notification email', (err as Error).message);
-    });
+      }).catch((err: unknown) => {
+        this.logger.error('Failed to send credits notification email', (err as Error).message);
+      });
+    }
 
     return { reference, amount: pack.amount, credits: pack.credits, pack, paymentDetails: PAYMENT_DETAILS };
   }
