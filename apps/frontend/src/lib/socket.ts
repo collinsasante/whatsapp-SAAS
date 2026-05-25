@@ -28,8 +28,9 @@ function createSocket(token: string | null): Socket {
     transports: ['websocket', 'polling'],
     autoConnect: true,
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
+    reconnectionDelayMax: 30000,
   });
   s.on('connect_error', (err) => {
     const isAuthorized = s === authorizedSocket;
