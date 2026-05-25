@@ -1,23 +1,42 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
+import { SESClient, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-ses';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private resend: Resend | null = null;
+  private ses: SESClient | null = null;
   private fromAddress: string;
   private replyToDefault: string;
 
   constructor(private readonly config: ConfigService) {
-    const apiKey = config.get<string>('RESEND_API_KEY');
     this.fromAddress = config.get<string>('SMTP_FROM', 'notifications@verzchat.com');
     this.replyToDefault = config.get<string>('SMTP_REPLY_TO', 'support@verzchat.com');
 
-    if (apiKey) {
-      this.resend = new Resend(apiKey);
+    const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY');
+    const region = config.get<string>('AWS_REGION', 'us-east-1');
+
+    if (accessKeyId && secretAccessKey) {
+      this.ses = new SESClient({
+        region,
+        credentials: { accessKeyId, secretAccessKey },
+      });
     } else {
-      this.logger.warn('RESEND_API_KEY not set — invite emails will be logged only');
+      this.logger.warn('AWS credentials not set — emails will be logged only');
+    }
+  }
+
+  private async send(input: SendEmailCommandInput, label: string): Promise<void> {
+    if (!this.ses) {
+      this.logger.log(`[${label} — SES not configured] To: ${JSON.stringify(input.Destination?.ToAddresses)}`);
+      return;
+    }
+    try {
+      const result = await this.ses.send(new SendEmailCommand(input));
+      this.logger.log(`${label} sent (MessageId: ${result.MessageId})`);
+    } catch (err) {
+      this.logger.error(`${label} failed: ${String(err)}`);
     }
   }
 
@@ -30,11 +49,9 @@ export class EmailService {
     inviteLink: string;
     expiresAt: Date;
   }): Promise<void> {
-    const from = `VerzChat <${this.fromAddress}>`;
     const replyTo = opts.inviterEmail
       ? `${opts.inviterName} <${opts.inviterEmail}>`
       : `VerzChat Support <${this.replyToDefault}>`;
-    const subject = `${opts.inviterName} invited you to join ${opts.workspaceName}`;
 
     const expiryStr = opts.expiresAt.toLocaleDateString(undefined, {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -52,35 +69,20 @@ export class EmailService {
           <h1 style="color:#ffffff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.3px">You&rsquo;re invited!</h1>
         </td></tr>
         <tr><td style="padding:36px 40px">
-          <p style="margin:0 0 12px;color:#374151;font-size:15px">
-            Hi${opts.inviteeName ? ' ' + opts.inviteeName : ''},
-          </p>
+          <p style="margin:0 0 12px;color:#374151;font-size:15px">Hi${opts.inviteeName ? ' ' + opts.inviteeName : ''},</p>
           <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6">
-            <strong>${opts.inviterName}</strong> has invited you to join the <strong>${opts.workspaceName}</strong> workspace on VerzChat.
-            Click the button below to accept and set up your account.
+            <strong>${opts.inviterName}</strong> has invited you to join <strong>${opts.workspaceName}</strong> on VerzChat.
           </p>
           <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px">
             <tr><td style="border-radius:8px;background:#0d9488">
               <a href="${opts.inviteLink}" target="_blank"
-                style="display:inline-block;padding:13px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;letter-spacing:0.1px">
+                style="display:inline-block;padding:13px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none">
                 Accept Invitation
               </a>
             </td></tr>
           </table>
-          <p style="margin:0 0 8px;color:#6b7280;font-size:13px;text-align:center">
-            Or copy this link into your browser:
-          </p>
-          <p style="margin:0 0 24px;color:#0d9488;font-size:12px;word-break:break-all;text-align:center">
-            ${opts.inviteLink}
-          </p>
-          <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center">
-            This invitation expires on ${expiryStr}.
-          </p>
-        </td></tr>
-        <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
-          <p style="margin:0;color:#d1d5db;font-size:11px">
-            If you didn&rsquo;t expect this invitation you can safely ignore this email.
-          </p>
+          <p style="margin:0 0 24px;color:#0d9488;font-size:12px;word-break:break-all;text-align:center">${opts.inviteLink}</p>
+          <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center">Expires ${expiryStr}.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -88,27 +90,18 @@ export class EmailService {
 </body>
 </html>`;
 
-    if (!this.resend) {
-      this.logger.log(`[Invite email — Resend not configured] To: ${opts.to} | Link: ${opts.inviteLink}`);
-      return;
-    }
-
-    try {
-      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html, replyTo });
-      if (error) {
-        this.logger.error(`Resend rejected invite email to ${opts.to}: ${JSON.stringify(error)}`);
-      } else {
-        this.logger.log(`Invite email sent to ${opts.to} (id: ${data?.id})`);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to send invite email to ${opts.to}: ${String(err)}`);
-    }
+    await this.send({
+      Source: `VerzChat <${this.fromAddress}>`,
+      Destination: { ToAddresses: [opts.to] },
+      ReplyToAddresses: [replyTo],
+      Message: {
+        Subject: { Data: `${opts.inviterName} invited you to join ${opts.workspaceName}`, Charset: 'UTF-8' },
+        Body: { Html: { Data: html, Charset: 'UTF-8' } },
+      },
+    }, `Invite email to ${opts.to}`);
   }
 
   async sendEmailVerification(opts: { to: string; name: string; verifyLink: string }): Promise<void> {
-    const from = `VerzChat <${this.fromAddress}>`;
-    const subject = 'Verify your VerzChat email address';
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -123,7 +116,7 @@ export class EmailService {
         <tr><td style="padding:36px 40px">
           <p style="margin:0 0 12px;color:#374151;font-size:15px">Hi ${opts.name},</p>
           <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6">
-            Thanks for signing up for VerzChat. Click the button below to verify your email address and activate your account.
+            Click below to verify your email and activate your VerzChat account.
           </p>
           <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px">
             <tr><td style="border-radius:8px;background:#0d9488">
@@ -133,12 +126,8 @@ export class EmailService {
               </a>
             </td></tr>
           </table>
-          <p style="margin:0 0 8px;color:#6b7280;font-size:13px;text-align:center">Or copy this link into your browser:</p>
           <p style="margin:0 0 24px;color:#0d9488;font-size:12px;word-break:break-all;text-align:center">${opts.verifyLink}</p>
           <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center">This link expires in 24 hours.</p>
-        </td></tr>
-        <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
-          <p style="margin:0;color:#d1d5db;font-size:11px">If you didn&rsquo;t create a VerzChat account, you can safely ignore this email.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -146,26 +135,17 @@ export class EmailService {
 </body>
 </html>`;
 
-    if (!this.resend) {
-      this.logger.log(`[Verify email — Resend not configured] To: ${opts.to} | Link: ${opts.verifyLink}`);
-      return;
-    }
-    try {
-      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html });
-      if (error) {
-        this.logger.error(`Resend rejected verification email to ${opts.to}: ${JSON.stringify(error)}`);
-      } else {
-        this.logger.log(`Verification email sent to ${opts.to} (id: ${data?.id})`);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to send verification email to ${opts.to}: ${String(err)}`);
-    }
+    await this.send({
+      Source: `VerzChat <${this.fromAddress}>`,
+      Destination: { ToAddresses: [opts.to] },
+      Message: {
+        Subject: { Data: 'Verify your VerzChat email address', Charset: 'UTF-8' },
+        Body: { Html: { Data: html, Charset: 'UTF-8' } },
+      },
+    }, `Verification email to ${opts.to}`);
   }
 
   async sendOtpCode(opts: { to: string; name: string; code: string }): Promise<void> {
-    const from = `VerzChat <${this.fromAddress}>`;
-    const subject = `${opts.code} — your VerzChat sign-in code`;
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -182,11 +162,7 @@ export class EmailService {
           <div style="display:inline-block;background:#f0fdf9;border:2px solid #0d9488;border-radius:12px;padding:18px 40px;margin-bottom:20px">
             <span style="font-size:36px;font-weight:800;letter-spacing:8px;color:#0d9488;font-family:'Courier New',monospace">${opts.code}</span>
           </div>
-          <p style="margin:0 0 8px;color:#6b7280;font-size:13px">This code expires in <strong>10 minutes</strong>.</p>
-          <p style="margin:0;color:#9ca3af;font-size:12px">Never share this code with anyone. VerzChat will never ask for it.</p>
-        </td></tr>
-        <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
-          <p style="margin:0;color:#d1d5db;font-size:11px">If you didn&rsquo;t try to sign in, please ignore this email or contact support.</p>
+          <p style="margin:0 0 8px;color:#6b7280;font-size:13px">Expires in <strong>10 minutes</strong>.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -194,26 +170,17 @@ export class EmailService {
 </body>
 </html>`;
 
-    if (!this.resend) {
-      this.logger.log(`[OTP email — Resend not configured] To: ${opts.to} | Code: ${opts.code}`);
-      return;
-    }
-    try {
-      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html });
-      if (error) {
-        this.logger.error(`Resend rejected OTP email to ${opts.to}: ${JSON.stringify(error)}`);
-      } else {
-        this.logger.log(`OTP email sent to ${opts.to} (id: ${data?.id})`);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to send OTP email to ${opts.to}: ${String(err)}`);
-    }
+    await this.send({
+      Source: `VerzChat <${this.fromAddress}>`,
+      Destination: { ToAddresses: [opts.to] },
+      Message: {
+        Subject: { Data: `${opts.code} — your VerzChat sign-in code`, Charset: 'UTF-8' },
+        Body: { Html: { Data: html, Charset: 'UTF-8' } },
+      },
+    }, `OTP email to ${opts.to}`);
   }
 
   async sendPasswordReset(opts: { to: string; name: string; resetLink: string }): Promise<void> {
-    const from = `VerzChat <${this.fromAddress}>`;
-    const subject = 'Reset your VerzChat password';
-
     const html = `
 <!DOCTYPE html>
 <html>
@@ -228,7 +195,7 @@ export class EmailService {
         <tr><td style="padding:36px 40px">
           <p style="margin:0 0 12px;color:#374151;font-size:15px">Hi ${opts.name},</p>
           <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6">
-            We received a request to reset your VerzChat password. Click the button below to choose a new one.
+            Click below to reset your VerzChat password. This link expires in 1 hour.
           </p>
           <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px">
             <tr><td style="border-radius:8px;background:#0d9488">
@@ -238,12 +205,8 @@ export class EmailService {
               </a>
             </td></tr>
           </table>
-          <p style="margin:0 0 8px;color:#6b7280;font-size:13px;text-align:center">Or copy this link into your browser:</p>
           <p style="margin:0 0 24px;color:#0d9488;font-size:12px;word-break:break-all;text-align:center">${opts.resetLink}</p>
-          <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center">This link expires in 1 hour.</p>
-        </td></tr>
-        <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
-          <p style="margin:0;color:#d1d5db;font-size:11px">If you didn&rsquo;t request a password reset, you can safely ignore this email.</p>
+          <p style="margin:0;color:#9ca3af;font-size:12px;text-align:center">If you didn&rsquo;t request this, ignore it.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -251,39 +214,25 @@ export class EmailService {
 </body>
 </html>`;
 
-    if (!this.resend) {
-      this.logger.log(`[Password reset — Resend not configured] To: ${opts.to} | Link: ${opts.resetLink}`);
-      return;
-    }
-    try {
-      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject, html });
-      if (error) {
-        this.logger.error(`Resend rejected password reset email to ${opts.to}: ${JSON.stringify(error)}`);
-      } else {
-        this.logger.log(`Password reset email sent to ${opts.to} (id: ${data?.id})`);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to send password reset email to ${opts.to}: ${String(err)}`);
-    }
+    await this.send({
+      Source: `VerzChat <${this.fromAddress}>`,
+      Destination: { ToAddresses: [opts.to] },
+      Message: {
+        Subject: { Data: 'Reset your VerzChat password', Charset: 'UTF-8' },
+        Body: { Html: { Data: html, Charset: 'UTF-8' } },
+      },
+    }, `Password reset email to ${opts.to}`);
   }
 
   async sendRaw(opts: { to: string; from?: string; subject: string; html: string }): Promise<void> {
-    const from = opts.from ?? `VerzChat <${this.fromAddress}>`;
-
-    if (!this.resend) {
-      this.logger.log(`[sendRaw — Resend not configured] To: ${opts.to} | Subject: ${opts.subject}`);
-      return;
-    }
-
-    try {
-      const { data, error } = await this.resend.emails.send({ from, to: opts.to, subject: opts.subject, html: opts.html });
-      if (error) {
-        this.logger.error(`Resend rejected email to ${opts.to}: ${JSON.stringify(error)}`);
-      } else {
-        this.logger.log(`Email sent to ${opts.to}: ${opts.subject} (id: ${data?.id})`);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to send email to ${opts.to}: ${String(err)}`);
-    }
+    const source = opts.from ?? `VerzChat <${this.fromAddress}>`;
+    await this.send({
+      Source: source,
+      Destination: { ToAddresses: [opts.to] },
+      Message: {
+        Subject: { Data: opts.subject, Charset: 'UTF-8' },
+        Body: { Html: { Data: opts.html, Charset: 'UTF-8' } },
+      },
+    }, `Email to ${opts.to}: ${opts.subject}`);
   }
 }
