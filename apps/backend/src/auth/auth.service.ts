@@ -296,7 +296,7 @@ export class AuthService {
     }
 
     if (payload.type !== '2fa-pending') throw new UnauthorizedException('Invalid token');
-    if (!/^\d{4,6}$/.test(pin)) throw new BadRequestException('PIN must be 4–6 digits');
+    if (!/^\d{6}$/.test(pin)) throw new BadRequestException('PIN must be exactly 6 digits');
 
     const pinHash = await bcrypt.hash(pin, this.BCRYPT_ROUNDS);
 

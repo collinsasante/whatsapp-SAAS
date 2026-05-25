@@ -225,8 +225,6 @@ const Pricing2 = ({
                     ) : (
                       <a
                         href={plan.button.url}
-                        target="_blank"
-                        rel="noreferrer"
                         className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-zinc-100 text-zinc-900 hover:bg-zinc-200 text-sm font-semibold transition-colors"
                       >
                         {plan.button.text}

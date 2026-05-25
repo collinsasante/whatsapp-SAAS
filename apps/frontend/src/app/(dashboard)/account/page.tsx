@@ -133,8 +133,8 @@ export default function AccountPage() {
 
   const handleChangePin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!/^\d{4,6}$/.test(newPin)) {
-      setPinAlert({ type: 'error', message: 'PIN must be 4–6 digits.' });
+    if (!/^\d{6}$/.test(newPin)) {
+      setPinAlert({ type: 'error', message: 'PIN must be exactly 6 digits.' });
       return;
     }
     if (newPin !== confirmPin) {
@@ -333,7 +333,7 @@ export default function AccountPage() {
             <span className="font-semibold text-gray-800">Login PIN</span>
           </div>
           <form onSubmit={handleChangePin} className="px-6 py-6 space-y-4">
-            <p className="text-sm text-gray-500">Your 4-digit PIN is used as a second factor every time you sign in.</p>
+            <p className="text-sm text-gray-500">Your 6-digit PIN is used as a second factor every time you sign in.</p>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Current PIN <span className="text-gray-400 text-xs">(leave blank if not set)</span></label>
               <input
@@ -354,7 +354,7 @@ export default function AccountPage() {
                 maxLength={6}
                 value={newPin}
                 onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="4–6 digits"
+                placeholder="6 digits"
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent tracking-widest"
               />
             </div>
