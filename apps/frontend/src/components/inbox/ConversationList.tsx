@@ -527,7 +527,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                 menuClassName="right-0 min-w-full"
                 trigger={
                   <div className={cn(
-                    'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium',
+                    'w-full flex items-center justify-between gap-1.5 px-3 py-2 text-xs rounded-xl border transition-colors font-medium overflow-hidden',
                     memberFilter === 'All' ? 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50' : 'bg-teal-600 border-teal-600 text-white',
                   )}>
                     <span className="flex items-center gap-1.5 min-w-0">
@@ -605,7 +605,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                     return true;
                   }).length
                 : f.key === 'RESOLVED'
-                  ? null
+                  ? (statusCounts?.RESOLVED ?? null)
                   : conversations.filter(c => c.status === f.key).length;
               const isActive = statusFilter === f.key;
               const isUrgent = (f.key === 'REQUESTED' || f.key === 'INTERVENED') && (count ?? 0) > 0;
