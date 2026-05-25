@@ -23,6 +23,12 @@ export class InboundService {
     const match = /^(?:(.*?)\s*<([^>]+)>|(.+))$/.exec(raw.trim());
     const senderEmail = (match?.[2] ?? match?.[3] ?? raw).trim().toLowerCase();
 
+    // Skip emails from our own system to prevent forwarding loops
+    if (senderEmail.endsWith('@verzchat.com')) {
+      this.logger.debug(`Skipping inbound forward for system email from ${senderEmail}`);
+      return;
+    }
+
     const forwardTo = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'support@verzchat.com');
     const bodyHtml = html || `<pre>${text}</pre>`;
 

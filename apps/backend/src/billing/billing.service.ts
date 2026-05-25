@@ -7,10 +7,10 @@ import { InvoiceService } from './invoice.service';
 import { UsageService } from './usage.service';
 import { EmailService } from '../common/email.service';
 import { InitiateCheckoutDto } from './dto/billing.dto';
-import crypto from 'crypto';
+import { randomBytes } from 'crypto';
 
 function genRef(prefix: string) {
-  return `${prefix}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+  return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
 export const PAYMENT_DETAILS = {
@@ -113,8 +113,10 @@ export class BillingService {
 
     const currencySymbol = '$';
 
+    const notifyEmail = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'support@verzchat.com');
+
     await this.emailService.sendRaw({
-      to: 'support@verzchat.com',
+      to: notifyEmail,
       subject: `[payment] ${tenant.name} — ${plan.name} Plan (${dto.cycle}) — ${currencySymbol}${baseAmount}`,
       html: `
         <h2 style="margin:0 0 16px">New Plan Payment Pending</h2>
@@ -265,8 +267,10 @@ export class BillingService {
     const apiUrl = this.config.get<string>('API_URL', 'https://verzchat.com/api/v1');
     const activateUrl = `${apiUrl}/billing/admin/activate-credits?ref=${reference}&secret=${encodeURIComponent(adminSecret)}`;
 
+    const notifyEmail = this.config.get<string>('SUPPORT_FORWARD_EMAIL', 'support@verzchat.com');
+
     await this.emailService.sendRaw({
-      to: 'support@verzchat.com',
+      to: notifyEmail,
       subject: `[credits] ${tenant.name} — ${pack.label} — $${pack.amount} USD`,
       html: `
         <h2 style="margin:0 0 16px">New AI Credits Payment Pending</h2>
