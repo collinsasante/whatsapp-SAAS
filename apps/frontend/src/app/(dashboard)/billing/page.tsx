@@ -1,13 +1,12 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  AlertCircle, BarChart3, Bot, Check,
+  AlertCircle, BarChart3, Bot, Check, CheckCircle2,
   CreditCard, Copy, Download, Mail, RefreshCw, Sparkles, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
-import { Pricing2 } from '@/components/ui/pricing-cards';
 import { PaymentSummary } from '@/components/ui/payment';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -459,6 +458,62 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
   );
 }
 
+// ─── ProPlanCard ─────────────────────────────────────────────────────────────
+
+function ProPlanCard({ plan, isCurrent, onSelect }: {
+  plan: Plan; isCurrent: boolean; onSelect: () => void;
+}) {
+  return (
+    <div className={cn(
+      'relative rounded-2xl border-2 p-6 flex flex-col md:flex-row gap-6 items-start md:items-center transition-all',
+      isCurrent ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500 ring-offset-2' : 'border-teal-200 bg-white hover:border-teal-300',
+    )}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-xs font-bold px-2.5 py-1 rounded-full uppercase tracking-wider bg-teal-100 text-teal-700">
+            {plan.name}
+          </span>
+          {plan.trialDays > 0 && !isCurrent && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+              {plan.trialDays}-day free trial
+            </span>
+          )}
+          {isCurrent && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-teal-600 text-white">
+              Current Plan
+            </span>
+          )}
+        </div>
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-3xl font-bold text-gray-900">${plan.monthlyPrice}</span>
+          <span className="text-sm text-gray-400">/month</span>
+        </div>
+        {plan.description && <p className="text-sm text-gray-500 mb-4">{plan.description}</p>}
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+          {(plan.features as string[]).map((f) => (
+            <li key={f} className="flex items-center gap-2 text-xs text-gray-600">
+              <CheckCircle2 size={12} className="text-teal-500 flex-shrink-0" />
+              {f}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="flex-shrink-0 w-full md:w-auto">
+        {isCurrent ? (
+          <div className="py-2.5 px-6 text-center text-sm font-semibold text-teal-700 bg-teal-100 rounded-xl whitespace-nowrap">
+            Active
+          </div>
+        ) : (
+          <button onClick={onSelect}
+            className="w-full md:w-auto py-2.5 px-6 text-sm font-semibold text-white bg-teal-600 rounded-xl hover:bg-teal-700 transition-colors whitespace-nowrap">
+            Upgrade to Pro
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
@@ -519,6 +574,7 @@ export default function BillingPage() {
   const sub = status.subscription;
   const currentPlan = sub.plan;
   const currentSlug = currentPlan.slug;
+  const proPlan = plans.find((p) => p.slug === 'pro') ?? plans.find((p) => p.slug !== 'free') ?? null;
   const { usage, limits } = usageData;
 
   const periodLabel = new Date(usage.periodStart).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -624,26 +680,18 @@ export default function BillingPage() {
             )}
           </div>
 
-          {/* Plans & pricing */}
-          {plans.length > 0 && (
-            <Pricing2
-              heading="Plans & Pricing"
-              description="Choose the plan that matches your workflow and scale with ease."
-              plans={plans.map((p) => ({
-                id: p.slug,
-                name: p.name,
-                description: p.description ?? '',
-                monthlyPrice: p.monthlyPrice === 0 ? 'Free' : `$${p.monthlyPrice}`,
-                yearlyPrice: p.yearlyPrice === 0 ? 'Free' : `$${p.yearlyPrice}`,
-                features: (p.features as string[]).map((f) => ({ text: f })),
-                button: { text: p.slug === currentSlug ? 'Current Plan' : 'Upgrade Now', url: '#' },
-              }))}
-              currentPlanId={currentSlug}
-              onPlanSelect={(planSlug) => {
-                const plan = plans.find((p) => p.slug === planSlug);
-                if (plan && plan.slug !== currentSlug) setCheckoutPlan(plan);
-              }}
-            />
+          {/* Plan card */}
+          {proPlan && (
+            <div>
+              <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <Zap size={16} className="text-teal-600" />Your Plan
+              </h2>
+              <ProPlanCard
+                plan={proPlan}
+                isCurrent={currentSlug === proPlan.slug}
+                onSelect={() => setCheckoutPlan(proPlan)}
+              />
+            </div>
           )}
 
           {/* Usage meters */}
