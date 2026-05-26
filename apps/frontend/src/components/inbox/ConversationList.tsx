@@ -1,8 +1,8 @@
 'use client';
-import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { cn, formatMessageTime, getInitials, truncate } from '@/lib/utils';
+import { cn, formatMessageTime, getInitials } from '@/lib/utils';
 import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
@@ -55,6 +55,28 @@ const CHANNEL_FILTERS = [
   { key: 'MESSENGER', label: 'Messenger' },
   { key: 'INSTAGRAM', label: 'Instagram' },
 ];
+
+const PREVIEW_RE = /__([^_\n]+)__|~([^~\n]+)~|\*([^*\n]+)\*|_([^_\n]+)_/g;
+
+function renderPreviewText(text: string): React.ReactNode {
+  const s = text.length > 50 ? text.slice(0, 50) + '…' : text;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  PREVIEW_RE.lastIndex = 0;
+  while ((match = PREVIEW_RE.exec(s)) !== null) {
+    if (match.index > lastIndex) parts.push(s.slice(lastIndex, match.index));
+    if (match[1] !== undefined)      parts.push(<u key={match.index}>{match[1]}</u>);
+    else if (match[2] !== undefined) parts.push(<del key={match.index}>{match[2]}</del>);
+    else if (match[3] !== undefined) parts.push(<strong key={match.index}>{match[3]}</strong>);
+    else if (match[4] !== undefined) parts.push(<em key={match.index}>{match[4]}</em>);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < s.length) parts.push(s.slice(lastIndex));
+  if (parts.length === 0) return s;
+  if (parts.length === 1) return parts[0];
+  return <>{parts}</>;
+}
 
 function ConvChannelBadge({ channelType }: { channelType?: string }) {
   const type = (channelType ?? 'WHATSAPP').toUpperCase();
@@ -242,7 +264,7 @@ const ConvRow = memo(function ConvRow({
                 const showActivity = actTime > msgTime;
 
                 if (!showActivity) {
-                  if (lastMsg?.content) return truncate(lastMsg.content, 38);
+                  if (lastMsg?.content) return renderPreviewText(lastMsg.content);
                   if (lastMsg?.type === 'IMAGE') return '📷 Photo';
                   if (lastMsg?.type === 'VIDEO') return '🎥 Video';
                   if (lastMsg?.type === 'AUDIO') return '🎵 Audio';
