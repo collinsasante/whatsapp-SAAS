@@ -2039,7 +2039,7 @@ function renderLinks(text: string, isOutbound: boolean, keyOffset = 0): React.Re
 }
 
 // WhatsApp format markers: __ before _ so underline matches before italic
-const WA_FORMAT_RE = /(__|~|\*|_)(.+?)\1/gs;
+const WA_FORMAT_RE = /(__|~|\*|_)([\s\S]+?)\1/g;
 
 function renderWithLinks(text: string, isOutbound: boolean, _keyOffset = 0): React.ReactNode {
   const parts: React.ReactNode[] = [];
