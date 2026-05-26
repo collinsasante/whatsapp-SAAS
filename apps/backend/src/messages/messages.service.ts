@@ -526,9 +526,23 @@ export class MessagesService {
     if (priorMessageCount === 0) {
       const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { welcomeEnabled: true, welcomeMessage: true } });
       if (tenantSettings?.welcomeEnabled && tenantSettings.welcomeMessage) {
-        void this.whatsappService.sendTextMessage(tenantId, contact.phone, tenantSettings.welcomeMessage)
-          .then(() => this.logger.log(`Welcome message sent to ${contact.phone}`))
-          .catch((err: unknown) => this.logger.error(`Welcome message failed for ${contact.phone}: ${(err as Error).message}`));
+        void (async () => {
+          try {
+            const welcomeText = tenantSettings.welcomeMessage!;
+            const draft = await this.prisma.message.create({
+              data: { tenantId, conversationId: conversation.id, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content: welcomeText },
+            });
+            const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, welcomeText).catch(() => null);
+            const sent = await this.prisma.message.update({
+              where: { id: draft.id },
+              data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined },
+            });
+            this.realtimeService.emitNewMessage(tenantId, conversation.id, sent as unknown as Record<string, unknown>);
+            this.logger.log(`Welcome message sent to ${contact.phone}`);
+          } catch (err: unknown) {
+            this.logger.error(`Welcome message failed for ${contact.phone}: ${(err as Error).message}`);
+          }
+        })();
       } else {
         this.logger.debug(`Welcome skipped: enabled=${tenantSettings?.welcomeEnabled} hasMsg=${!!tenantSettings?.welcomeMessage}`);
       }

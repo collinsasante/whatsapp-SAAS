@@ -2015,55 +2015,31 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
 // ─── Link renderer ────────────────────────────────────────────────────────────
 
-const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
+// Single-pass: WhatsApp format markers + URLs, no backreferences, no recursion.
+// Character-class exclusions ([^*\n]+) prevent catastrophic backtracking.
+// __ must appear before _ in the alternation so underline wins over italic.
+const RENDER_RE = /__([^_\n]+)__|~([^~\n]+)~|\*([^*\n]+)\*|_([^_\n]+)_|(https?:\/\/[^\s<>"{}|\\^`[\]]+)/g;
 
-// Splits a plain-text segment into text + link nodes
-function renderLinks(text: string, isOutbound: boolean, keyOffset = 0): React.ReactNode[] {
+function renderWithLinks(text: string, isOutbound: boolean): React.ReactNode {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  URL_REGEX.lastIndex = 0;
-  while ((match = URL_REGEX.exec(text)) !== null) {
+  RENDER_RE.lastIndex = 0;
+  while ((match = RENDER_RE.exec(text)) !== null) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
-    const url = match[0];
-    parts.push(
-      <a key={keyOffset + match.index} href={url} target="_blank" rel="noopener noreferrer"
+    if (match[1] !== undefined)      parts.push(<u key={match.index}>{match[1]}</u>);
+    else if (match[2] !== undefined) parts.push(<del key={match.index}>{match[2]}</del>);
+    else if (match[3] !== undefined) parts.push(<strong key={match.index}>{match[3]}</strong>);
+    else if (match[4] !== undefined) parts.push(<em key={match.index}>{match[4]}</em>);
+    else parts.push(
+      <a key={match.index} href={match[5]} target="_blank" rel="noopener noreferrer"
         className={cn('underline break-all', isOutbound ? 'text-teal-100 hover:text-white' : 'text-teal-600 hover:text-teal-700')}
         onClick={(e) => e.stopPropagation()}
-      >{url}</a>,
+      >{match[5]}</a>,
     );
-    lastIndex = match.index + url.length;
-  }
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
-}
-
-// WhatsApp format markers: __ before _ so underline matches before italic
-const WA_FORMAT_RE = /(__|~|\*|_)([\s\S]+?)\1/g;
-
-function renderWithLinks(text: string, isOutbound: boolean, _keyOffset = 0): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  WA_FORMAT_RE.lastIndex = 0;
-  while ((match = WA_FORMAT_RE.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(...renderLinks(text.slice(lastIndex, match.index), isOutbound, lastIndex));
-    }
-    const marker = match[1];
-    const inner = match[2];
-    const key = match.index;
-    // Recursively render nested markers inside the content
-    const content = renderWithLinks(inner, isOutbound, key + 1);
-    if (marker === '*')  parts.push(<strong key={key}>{content}</strong>);
-    else if (marker === '__') parts.push(<u key={key}>{content}</u>);
-    else if (marker === '_')  parts.push(<em key={key}>{content}</em>);
-    else if (marker === '~')  parts.push(<del key={key}>{content}</del>);
     lastIndex = match.index + match[0].length;
   }
-  if (lastIndex < text.length) {
-    parts.push(...renderLinks(text.slice(lastIndex), isOutbound, lastIndex));
-  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   if (parts.length === 0) return text;
   if (parts.length === 1) return parts[0];
   return <>{parts}</>;
