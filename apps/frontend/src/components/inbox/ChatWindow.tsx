@@ -2017,7 +2017,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
 const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`[\]]+/g;
 
-function renderWithLinks(text: string, isOutbound: boolean): React.ReactNode {
+// Splits a plain-text segment into text + link nodes
+function renderLinks(text: string, isOutbound: boolean, keyOffset = 0): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -2026,7 +2027,7 @@ function renderWithLinks(text: string, isOutbound: boolean): React.ReactNode {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     const url = match[0];
     parts.push(
-      <a key={match.index} href={url} target="_blank" rel="noopener noreferrer"
+      <a key={keyOffset + match.index} href={url} target="_blank" rel="noopener noreferrer"
         className={cn('underline break-all', isOutbound ? 'text-teal-100 hover:text-white' : 'text-teal-600 hover:text-teal-700')}
         onClick={(e) => e.stopPropagation()}
       >{url}</a>,
@@ -2034,7 +2035,38 @@ function renderWithLinks(text: string, isOutbound: boolean): React.ReactNode {
     lastIndex = match.index + url.length;
   }
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts.length > 1 ? <>{parts}</> : text;
+  return parts;
+}
+
+// WhatsApp format markers: __ before _ so underline matches before italic
+const WA_FORMAT_RE = /(__|~|\*|_)(.+?)\1/gs;
+
+function renderWithLinks(text: string, isOutbound: boolean, _keyOffset = 0): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  WA_FORMAT_RE.lastIndex = 0;
+  while ((match = WA_FORMAT_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(...renderLinks(text.slice(lastIndex, match.index), isOutbound, lastIndex));
+    }
+    const marker = match[1];
+    const inner = match[2];
+    const key = match.index;
+    // Recursively render nested markers inside the content
+    const content = renderWithLinks(inner, isOutbound, key + 1);
+    if (marker === '*')  parts.push(<strong key={key}>{content}</strong>);
+    else if (marker === '__') parts.push(<u key={key}>{content}</u>);
+    else if (marker === '_')  parts.push(<em key={key}>{content}</em>);
+    else if (marker === '~')  parts.push(<del key={key}>{content}</del>);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(...renderLinks(text.slice(lastIndex), isOutbound, lastIndex));
+  }
+  if (parts.length === 0) return text;
+  if (parts.length === 1) return parts[0];
+  return <>{parts}</>;
 }
 
 // ─── Note Bubble ──────────────────────────────────────────────────────────────
@@ -2152,11 +2184,11 @@ const ActivityBubble = memo(function ActivityBubble({ entry }: { entry: Activity
 
   const time = new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
-  // Call ended — WhatsApp-style call bubble
-  if (entry.action === 'CALL_ENDED') {
+  // Call ended / missed — WhatsApp-style call bubble
+  if (entry.action === 'CALL_ENDED' || entry.action === 'CALL_MISSED') {
     const { direction, status, duration, recordingUrl } = entry.metadata as { direction: string; status: string; duration: number; recordingUrl?: string | null };
     const isOutbound = direction === 'OUTBOUND';
-    const isMissed = status === 'MISSED' || status === 'FAILED';
+    const isMissed = entry.action === 'CALL_MISSED' || status === 'MISSED' || status === 'FAILED';
     const durationLabel = formatCallDuration(duration ?? 0);
     const IconEl = isMissed ? PhoneMissed : isOutbound ? PhoneOutgoing : PhoneIncoming;
     return (
