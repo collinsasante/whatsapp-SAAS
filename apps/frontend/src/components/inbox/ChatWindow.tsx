@@ -202,7 +202,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [localStatus, setLocalStatus] = useState(conversation.status);
   const [tookOver, setTookOver] = useState(false);
-  const [isBlocked, setIsBlocked] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(() => !!(conversation.contact as { isBlocked?: boolean } | undefined)?.isBlocked);
   const isAtBottomRef = useRef(true);
   const [newMsgCount, setNewMsgCount] = useState(0);
   const prevMsgLengthRef = useRef(0);
@@ -211,6 +211,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   useEffect(() => {
     setLocalStatus(conversation.status);
   }, [conversation.status]);
+
+  // Keep isBlocked in sync when switching conversations
+  useEffect(() => {
+    setIsBlocked(!!(conversation.contact as { isBlocked?: boolean } | undefined)?.isBlocked);
+  }, [conversation.id, (conversation.contact as { isBlocked?: boolean } | undefined)?.isBlocked]);
   const [replyTo, setReplyTo] = useState<{ id: string; content?: string; type: string; direction: string; mediaCaption?: string } | null>(null);
 
   // Transfer
@@ -1082,7 +1087,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   // tookOver bypasses the gate immediately after a successful takeover API call.
   const assignedToOther = !tookOver && !!assigneeId && assigneeId !== user?.id;
   // VIEWERs are read-only — they can observe but never send or note.
-  const inputDisabled = isViewer || assignedToOther || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
+  const inputDisabled = isViewer || assignedToOther || isBlocked || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
   const sendDisabled = sending || inputDisabled;
   const statusColor =
     localStatus === 'RESOLVED' ? 'text-gray-400' :
@@ -1556,6 +1561,16 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 >
                   Intervene
                 </button>
+              </div>
+            )}
+
+            {/* Blocked contact banner */}
+            {isBlocked && inputMode === 'message' && (
+              <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-red-50 rounded-xl border border-red-200">
+                <ShieldOff size={13} className="text-red-500 flex-shrink-0" />
+                <span className="text-xs text-red-700 flex-1">
+                  <span className="font-medium">This contact is blocked.</span> Unblock to send messages.
+                </span>
               </div>
             )}
 
