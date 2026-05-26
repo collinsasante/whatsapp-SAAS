@@ -9,6 +9,7 @@ import {
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
   ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain, BellOff, ShieldOff, Shield, Pencil, Trash2,
+  Bold, Italic, Strikethrough, Underline,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -292,6 +293,20 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const applyFormat = (prefix: string, suffix: string) => {
+    const el = inputRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const selected = text.slice(start, end);
+    const newText = text.slice(0, start) + prefix + selected + suffix + text.slice(end);
+    setText(newText);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + prefix.length, end + prefix.length + selected.length);
+    });
+  };
 
   // Auto-grow textarea height to match content (max ~5 lines)
   useEffect(() => {
@@ -1678,6 +1693,24 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     </button>
                   ))
                 )}
+              </div>
+            )}
+
+            {/* Formatting toolbar */}
+            {inputMode === 'message' && !recording && !inputDisabled && (
+              <div className="flex items-center gap-0.5 mb-1.5 px-1">
+                <button onMouseDown={(e) => { e.preventDefault(); applyFormat('*', '*'); }} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" title="Bold (*text*)">
+                  <Bold size={13} />
+                </button>
+                <button onMouseDown={(e) => { e.preventDefault(); applyFormat('_', '_'); }} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" title="Italic (_text_)">
+                  <Italic size={13} />
+                </button>
+                <button onMouseDown={(e) => { e.preventDefault(); applyFormat('~', '~'); }} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" title="Strikethrough (~text~)">
+                  <Strikethrough size={13} />
+                </button>
+                <button onMouseDown={(e) => { e.preventDefault(); applyFormat('__', '__'); }} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors" title="Underline (__text__)">
+                  <Underline size={13} />
+                </button>
               </div>
             )}
 

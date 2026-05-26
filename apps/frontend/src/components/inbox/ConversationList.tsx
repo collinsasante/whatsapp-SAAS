@@ -523,7 +523,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
             {teamMembers.length > 0 && (
               <Dropdown
-                className="flex-1"
+                className="flex-1 min-w-0"
                 menuClassName="right-0 min-w-full"
                 trigger={
                   <div className={cn(
