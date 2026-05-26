@@ -58,7 +58,7 @@ export function Dropdown({ trigger, children, align = 'left', className, menuCla
   }, [open]);
 
   return (
-    <div className={cn('dropdown relative inline-block', className)} ref={ref}>
+    <div className={cn('dropdown relative', className)} ref={ref}>
       <button
         type="button"
         aria-haspopup="true"

@@ -182,12 +182,18 @@ export class ConversationsService {
   }
 
   async getStatusCounts(tenantId: string) {
-    const counts = await this.prisma.conversation.groupBy({
-      by: ['status'],
-      where: { tenantId },
-      _count: { id: true },
-    });
-    const result: Record<string, number> = { OPEN: 0, REQUESTED: 0, INTERVENED: 0, RESOLVED: 0 };
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [counts, resolvedCount] = await Promise.all([
+      this.prisma.conversation.groupBy({
+        by: ['status'],
+        where: { tenantId, status: { notIn: ['RESOLVED'] } },
+        _count: { id: true },
+      }),
+      this.prisma.conversation.count({
+        where: { tenantId, status: 'RESOLVED', resolvedAt: { gte: since24h } },
+      }),
+    ]);
+    const result: Record<string, number> = { OPEN: 0, REQUESTED: 0, INTERVENED: 0, RESOLVED: resolvedCount };
     for (const row of counts) {
       result[row.status] = row._count.id;
     }
