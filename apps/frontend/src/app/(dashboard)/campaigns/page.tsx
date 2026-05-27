@@ -944,8 +944,10 @@ export default function CampaignsPage() {
         const sampleVarsJson = apiTemplateVars.length
           ? `"variables": ${JSON.stringify(Object.fromEntries(apiTemplateVars.map(v => [v, apiForm.variableDescriptions[v] ? `<${apiForm.variableDescriptions[v]}>` : `value_${v}`])), null, 4)}`
           : '';
-        const exampleCurl = apiKeys[0]
-          ? `curl -X POST "${apiBaseUrl}/api/v1/send" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Api-Key: ${apiKeys[0].keyPrefix}..." \\\n  -d '{\n    "to": "+233241234567",\n    "templateName": "${apiSelectedTemplate?.name ?? 'your_template'}",\n    "language": "${apiSelectedTemplate?.language ?? 'en_US'}"${sampleVarsJson ? `,\n    ${sampleVarsJson}` : ''}\n  }'`
+        // Prefer the full key if just created — never use the truncated prefix as a literal key
+        const curlApiKey = newApiKey?.key ?? 'YOUR_API_KEY';
+        const exampleCurl = (newApiKey || apiKeys.length > 0)
+          ? `curl -X POST "${apiBaseUrl}/api/v1/send" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Api-Key: ${curlApiKey}" \\\n  -d '{\n    "to": "+233241234567",\n    "templateName": "${apiSelectedTemplate?.name ?? 'your_template'}",\n    "language": "${apiSelectedTemplate?.language ?? 'en_US'}"${sampleVarsJson ? `,\n    ${sampleVarsJson}` : ''}\n  }'`
           : '';
 
         return (
