@@ -19,7 +19,7 @@ class SendTemplateDto {
 }
 
 @ApiTags('Public API')
-@Controller('v1')
+@Controller()
 export class PublicController {
   constructor(private readonly publicService: PublicService) {}
 
