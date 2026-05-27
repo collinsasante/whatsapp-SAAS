@@ -150,15 +150,21 @@ export default function CampaignsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [camRes, tplRes, segRes] = await Promise.all([
+      const [camRes, tplRes, segRes] = await Promise.allSettled([
         campaignsApi.list({ limit: 100 }),
         templatesApi.list({ status: 'APPROVED', limit: 100 }),
         segmentsApi.list(),
       ]);
-      setCampaigns((camRes.data as { data: Campaign[] }).data ?? []);
-      setTotal((camRes.data as { meta: { total: number } }).meta?.total ?? 0);
-      setTemplates((tplRes.data as { data: Template[] }).data ?? []);
-      setSegments((segRes.data as Segment[]) ?? []);
+      if (camRes.status === 'fulfilled') {
+        setCampaigns((camRes.value.data as { data: Campaign[] }).data ?? []);
+        setTotal((camRes.value.data as { meta: { total: number } }).meta?.total ?? 0);
+      }
+      if (tplRes.status === 'fulfilled') {
+        setTemplates((tplRes.value.data as { data: Template[] }).data ?? []);
+      }
+      if (segRes.status === 'fulfilled') {
+        setSegments((segRes.value.data as Segment[]) ?? []);
+      }
     } finally { setLoading(false); }
   }, []);
 
