@@ -80,6 +80,13 @@ export class BillingController {
     return this.billingService.updateBillingEmail(tenantId, dto.billingEmail);
   }
 
+  @Post('payment-confirmed')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Notify support that a business has confirmed payment intent' })
+  notifyPaymentConfirmed(@CurrentTenant() tenantId: string, @Body() dto: { reference: string }) {
+    return this.billingService.notifyPaymentConfirmed(tenantId, dto.reference);
+  }
+
   @Get('credits/packs')
   @ApiOperation({ summary: 'Get available AI credit packs' })
   getCreditPacks() {

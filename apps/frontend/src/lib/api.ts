@@ -419,6 +419,8 @@ export const billingApi = {
   getAiCredits: () => api.get('/billing/credits/balance'),
   initializeCreditPurchase: (packSlug: string) =>
     api.post('/billing/credits/initialize', { packSlug }),
+  notifyPaymentConfirmed: (reference: string) =>
+    api.post('/billing/payment-confirmed', { reference }),
 };
 
 export const teamsApi = {

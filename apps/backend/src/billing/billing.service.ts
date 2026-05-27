@@ -319,4 +319,38 @@ export class BillingService {
 
     return { activated: true, creditsAdded: purchase.credits, newBalance: updated?.aiCredits ?? 0 };
   }
+
+  async notifyPaymentConfirmed(tenantId: string, reference: string) {
+    const [tenant, invoice] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true, billingEmail: true } }),
+      this.prisma.invoice.findFirst({ where: { tenantId, gatewayInvoiceId: reference } }),
+    ]);
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    const supportEmail = 'support@verzchat.com';
+    await this.emailService.sendRaw({
+      to: supportEmail,
+      subject: `[payment confirmed] ${tenant.name} — Ref: ${reference}`,
+      html: `
+        <h2 style="margin:0 0 16px">Payment Intent Confirmed</h2>
+        <p style="font-size:14px;color:#374151;margin:0 0 16px">
+          A business has confirmed they will make payment. Please verify and activate their account.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <tr><td style="padding:6px 0;color:#666">Workspace</td><td style="font-weight:600">${tenant.name}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Reference</td><td style="font-weight:600;font-family:monospace">${reference}</td></tr>
+          ${invoice ? `<tr><td style="padding:6px 0;color:#666">Plan</td><td style="font-weight:600">${(invoice.metadata as Record<string, string> | null)?.planName ?? '—'}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Amount</td><td style="font-weight:600">$${invoice.total} USD</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Invoice</td><td>${invoice.invoiceNumber}</td></tr>` : ''}
+          <tr><td style="padding:6px 0;color:#666">Billing Email</td><td>${tenant.billingEmail ?? '—'}</td></tr>
+        </table>
+        <hr style="margin:20px 0;border:none;border-top:1px solid #e5e7eb" />
+        <p style="font-size:13px;color:#374151">Log in to the platform admin to activate their subscription once payment is received.</p>
+      `,
+    }).catch((err: unknown) => {
+      this.logger.error('Failed to send payment confirmed notification', (err as Error).message);
+    });
+
+    return { ok: true };
+  }
 }

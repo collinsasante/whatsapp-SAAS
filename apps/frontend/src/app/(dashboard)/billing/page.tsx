@@ -182,10 +182,23 @@ function PaymentModal({ title, amount, currency, reference, paymentDetails, onCl
   paymentDetails: PaymentDetails;
   onClose: () => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
   const currSym = '$';
   const copy = (text: string) => {
     void navigator.clipboard.writeText(text);
     toast.success('Copied');
+  };
+
+  const handleConfirm = async () => {
+    setConfirming(true);
+    try {
+      await billingApi.notifyPaymentConfirmed(reference);
+    } catch {
+      // non-fatal — don't block the user
+    } finally {
+      setConfirming(false);
+      onClose();
+    }
   };
 
   return (
@@ -237,9 +250,11 @@ function PaymentModal({ title, amount, currency, reference, paymentDetails, onCl
         </div>
 
         <div className="px-5 pb-5 flex-shrink-0">
-          <button onClick={onClose}
-            className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors text-sm flex items-center justify-center gap-2">
-            <Check size={15} /> I understand, I&apos;ll pay now
+          <button onClick={() => { void handleConfirm(); }} disabled={confirming}
+            className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors text-sm flex items-center justify-center gap-2">
+            {confirming
+              ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Confirming…</>
+              : <><Check size={15} /> I understand, I&apos;ll pay now</>}
           </button>
         </div>
       </div>

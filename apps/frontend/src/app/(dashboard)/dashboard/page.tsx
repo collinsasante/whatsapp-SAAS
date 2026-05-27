@@ -4,7 +4,7 @@ import {
   Building2, Users, MessageSquare, CheckCircle, RefreshCw,
   Wifi, WifiOff, Shield, TrendingUp, TrendingDown,
   CalendarDays, Plus, ArrowUp, ArrowDown, Clock,
-  Phone, Megaphone, ChevronRight,
+  Phone, Megaphone, ChevronRight, Zap,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
@@ -258,7 +258,23 @@ export default function DashboardPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+            {biz?.plan && (
+              <span
+                onClick={() => router.push('/billing')}
+                className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors',
+                  biz.plan.toLowerCase() === 'pro' || biz.plan.toLowerCase() === 'enterprise'
+                    ? 'bg-teal-100 text-teal-700 hover:bg-teal-200'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                )}
+              >
+                <Zap size={10} className={biz.plan.toLowerCase() === 'pro' || biz.plan.toLowerCase() === 'enterprise' ? 'text-teal-600' : 'text-gray-400'} />
+                {biz.plan} Plan
+              </span>
+            )}
+          </div>
           <button
             onClick={() => { void load(true); }}
             disabled={refreshing}
@@ -422,6 +438,7 @@ export default function DashboardPage() {
               <InfoRow label="Email"           value={metaBiz?.profile?.email ?? biz?.email} />
               <InfoRow label="Quality Rating"  value={metaBiz?.phone?.quality_rating} />
               <InfoRow label="Messaging Limit" value={metaBiz?.phone?.messaging_limit_tier} />
+              <InfoRow label="Current Plan"    value={biz?.plan ? `${biz.plan} Plan` : undefined} />
               <InfoRow label="Website"         value={
                 (metaBiz?.profile?.websites?.[0] ?? biz?.website)
                   ? <a href={metaBiz?.profile?.websites?.[0] ?? biz?.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">

@@ -37,7 +37,10 @@ export class DashboardService {
       this.prisma.campaign.count({ where: { tenantId } }),
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
-        include: { settings: true },
+        include: {
+          settings: true,
+          subscription: { include: { plan: true } },
+        },
       }),
     ]);
 
@@ -65,7 +68,7 @@ export class DashboardService {
         description: tenant?.settings?.businessDescription ?? '',
         wabaId: tenant?.wabaId ?? null,
         phoneNumberId: tenant?.phoneNumberId ?? null,
-        plan: tenant?.plan ?? 'starter',
+        plan: tenant?.subscription?.plan?.name ?? tenant?.plan ?? 'Free',
       },
     };
   }
