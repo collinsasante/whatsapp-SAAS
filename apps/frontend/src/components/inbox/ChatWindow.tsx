@@ -22,7 +22,7 @@ import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
-import { cn, getInitials, formatMessageTime, getProxiedMediaUrl } from '@/lib/utils';
+import { cn, getInitials, formatMessageTime, getProxiedMediaUrl, getApiError } from '@/lib/utils';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { offlineQueue } from '@/lib/offline-queue';
 import { useOfflineStore } from '@/store/offline.store';
@@ -556,7 +556,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     try {
       const res = await usersApi.list();
       setTeamMembers(res.data as TeamMember[]);
-    } catch { toast.error('Failed to load team members'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to load team members')); }
   }, [teamMembers.length]);
 
   // Pre-load team members when note mode is active (needed for @mention)
@@ -573,7 +573,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       updateConversation(conversation.id, { assignedTo: { id: memberId, name: memberName }, status: 'REQUESTED' });
       toast.success(`Transferred to ${memberName}`);
       setShowTransfer(false);
-    } catch { toast.error('Failed to transfer conversation'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to transfer conversation')); }
     finally { setTransferring(false); }
   };
 
@@ -724,10 +724,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         removeMessage(conversation.id, tempId);
         addMessage(conversation.id, real);
       }
-    } catch {
+    } catch (err) {
       removeMessage(conversation.id, tempId);
       setText(content);
-      toast.error('Failed to send message');
+      toast.error(getApiError(err, 'Failed to send message'));
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -779,8 +779,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       } catch (err: unknown) {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         removeMessage(conversation.id, tempId);
-        const msg = err && typeof err === 'object' && 'response' in err ? (err as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
-        toast.error(typeof msg === 'string' ? msg : `Failed to send ${file.name}`);
+        toast.error(getApiError(err, `Failed to send ${file.name}`));
       }
     }
     if (toastId) toast.success(`${total} file${total > 1 ? 's' : ''} sent`, { id: toastId });
@@ -872,7 +871,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       setLocalStatus('RESOLVED');
       updateConversation(conversation.id, { status: 'RESOLVED' });
       toast.success('Conversation resolved');
-    } catch { toast.error('Failed to resolve'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to resolve conversation')); }
   };
 
   const handleReopen = async () => {
@@ -882,7 +881,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       setLocalStatus('OPEN');
       updateConversation(conversation.id, { status: 'OPEN', slaDeadline: undefined, requestedAt: undefined });
       toast.success('Conversation reopened');
-    } catch { toast.error('Failed to reopen'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to reopen conversation')); }
   };
 
   const handleTakeover = async () => {
@@ -898,7 +897,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         intervenedAt: data.intervenedAt,
       });
       toast.success('You have taken over this conversation');
-    } catch { toast.error('Failed to take over'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to take over conversation')); }
   };
 
   const handleIntervene = async () => {
@@ -914,10 +913,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         intervenedAt: data.intervenedAt,
       });
       toast.success('You are now handling this conversation');
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(typeof msg === 'string' ? msg : 'Failed to intervene — conversation may have been taken by another agent');
-    }
+    } catch (err) { toast.error(getApiError(err, 'Failed to intervene — conversation may have been taken by another agent')); }
   };
 
   const handleMarkPending = async () => {
@@ -927,7 +923,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       setLocalStatus('PENDING');
       updateConversation(conversation.id, { status: 'PENDING' });
       toast.success('Marked as pending');
-    } catch { toast.error('Failed to update'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to update status')); }
   };
 
   const handleArchive = async () => {
@@ -936,7 +932,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       await conversationsApi.archive(conversation.id);
       setLocalStatus('ARCHIVED');
       toast.success('Conversation archived');
-    } catch { toast.error('Failed to archive'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to archive conversation')); }
   };
 
   const handleToggleBlock = async () => {
@@ -947,7 +943,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       const { isBlocked: blocked } = res.data as { isBlocked: boolean };
       setIsBlocked(blocked);
       toast.success(blocked ? 'Contact blocked' : 'Contact unblocked');
-    } catch { toast.error('Failed to update block status'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to update block status')); }
   };
 
   const handleDeleteNote = useCallback(async (noteId: string) => {
@@ -977,7 +973,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         ? `today at ${timeLabel}`
         : `${until.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${timeLabel}`;
       toast.success(`Snoozed until ${dateLabel}`);
-    } catch { toast.error('Failed to snooze'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to snooze conversation')); }
   };
 
   const snoozeOptions: { label: string; until: () => Date }[] = [
@@ -1018,7 +1014,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           setSavedTags(prev => [...prev, r.data as { id: string; name: string; color?: string }]);
         } catch { /* tag may already exist server-side — non-fatal */ }
       }
-    } catch { toast.error('Failed to add label'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to add label')); }
   };
 
   const handleRemoveLabel = async (label: string) => {
@@ -1026,7 +1022,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     try {
       await conversationsApi.update(conversation.id, { labels: updated });
       updateConversation(conversation.id, { labels: updated });
-    } catch { toast.error('Failed to remove label'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to remove label')); }
   };
 
   const selectMention = useCallback((member: TeamMember) => {
@@ -1043,7 +1039,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       await conversationsApi.delete(conversation.id);
       removeConversation(conversation.id);
       toast.success('Conversation deleted');
-    } catch { toast.error('Failed to delete'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to delete conversation')); }
   };
 
   const isRequested = localStatus === 'REQUESTED';
@@ -1955,10 +1951,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           onSend={async (templateId, variables) => {
             try {
               await messagesApi.send(conversation.id, { type: 'TEMPLATE', templateId, templateVariables: Object.keys(variables).length > 0 ? variables : undefined });
-            } catch (err: unknown) {
-              const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to send template';
-              toast.error(msg);
-            }
+            } catch (err) { toast.error(getApiError(err, 'Failed to send template')); }
             setShowTemplatePicker(false);
           }}
         />
@@ -1989,9 +1982,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 const real = res.data as Message;
                 removeMessage(conversation.id, tempId);
                 if (real?.id) addMessage(conversation.id, real);
-              } catch {
+              } catch (err) {
                 removeMessage(conversation.id, tempId);
-                toast.error('Failed to send item');
+                toast.error(getApiError(err, 'Failed to send item'));
               }
             }
           }}
@@ -2302,7 +2295,7 @@ function ForwardModal({ message, conversations, onClose }: {
       }
       toast.success('Message forwarded');
       onClose();
-    } catch { toast.error('Failed to forward message'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to forward message')); }
     finally { setForwarding(null); }
   };
 
@@ -2457,7 +2450,7 @@ const MessageBubble = memo(function MessageBubble({
     try {
       await messagesApi.star(conversationId, message.id);
       setStarred((v) => !v);
-    } catch { toast.error('Failed to star message'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to star message')); }
   };
 
   const handlePin = async () => {
@@ -2465,7 +2458,7 @@ const MessageBubble = memo(function MessageBubble({
     try {
       await messagesApi.pin(conversationId, message.id);
       toast.success(message.isPinned ? 'Unpinned' : 'Pinned');
-    } catch { toast.error('Failed to pin message'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to pin message')); }
   };
 
   const openContextMenuFromTouch = (e: React.TouchEvent) => {
@@ -2501,7 +2494,7 @@ const MessageBubble = memo(function MessageBubble({
       } else {
         await messagesApi.react(conversationId, message.id, emoji);
       }
-    } catch { toast.error('Failed to react'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to send reaction')); }
   };
 
   return (

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
-import { cn } from '@/lib/utils';
+import { cn, getApiError } from '@/lib/utils';
 import { PaymentSummary } from '@/components/ui/payment';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -276,8 +276,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
         onGenerated(data.reference, data.amount ?? amount, data.currency ?? 'USD', data.paymentDetails);
       }
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to generate reference';
-      toast.error(msg);
+      toast.error(getApiError(err, 'Failed to generate payment reference'));
     } finally { setLoading(false); }
   };
 
@@ -373,8 +372,7 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
       const data = res.data as { reference: string; amount: number; currency: string; paymentDetails: PaymentDetails };
       setPaymentModal({ reference: data.reference, amount: data.amount, currency: data.currency ?? 'USD', details: data.paymentDetails });
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to initialize payment';
-      toast.error(msg);
+      toast.error(getApiError(err, 'Failed to initialize payment'));
     } finally { setBuying(null); }
   };
 
@@ -544,8 +542,8 @@ export default function BillingPage() {
       setUsageData(usageRes.data as UsageResponse);
       setInvoices((invoicesRes.data as Invoice[]) ?? []);
       setPlans((plansRes.data as Plan[]) ?? []);
-    } catch {
-      toast.error('Failed to load billing data');
+    } catch (err) {
+      toast.error(getApiError(err, 'Failed to load billing data'));
     } finally { setLoading(false); }
   }, []);
 
@@ -557,7 +555,7 @@ export default function BillingPage() {
     try {
       await billingApi.updateBillingEmail(billingEmail.trim());
       toast.success('Billing email updated');
-    } catch { toast.error('Failed to update email'); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to update billing email')); }
     finally { setSavingEmail(false); }
   };
 
@@ -801,7 +799,7 @@ export default function BillingPage() {
                     await billingApi.cancelSubscription(false);
                     toast.success('Subscription will cancel at period end');
                     void load();
-                  } catch { toast.error('Failed to cancel subscription'); }
+                  } catch (err) { toast.error(getApiError(err, 'Failed to cancel subscription')); }
                 }}
                 className="px-4 py-2 text-sm text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors font-medium">
                 Cancel Subscription

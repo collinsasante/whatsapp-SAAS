@@ -73,3 +73,22 @@ export function isAudioSupported(file: File): boolean {
   return SUPPORTED_AUDIO_TYPES.some((t) => file.type.startsWith(t)) ||
     /\.(ogg|mp3|aac|amr|m4a)$/i.test(file.name);
 }
+
+// Extracts a human-readable message from an Axios/fetch error.
+// Falls back to `fallback` when no backend message is available.
+export function getApiError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  if (err && typeof err === 'object') {
+    const axiosErr = err as { response?: { status?: number; data?: { message?: string | string[] } } };
+    const status = axiosErr.response?.status;
+    const raw = axiosErr.response?.data?.message;
+    const msg = Array.isArray(raw) ? raw[0] : raw;
+
+    if (status === 401) return 'Your session has expired. Please log in again.';
+    if (status === 403) return msg ?? 'You don\'t have permission to do that.';
+    if (status === 429) return 'Too many requests. Please wait a moment and try again.';
+    if (status === 413) return 'File is too large.';
+    if (typeof msg === 'string' && msg.length > 0) return msg;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}

@@ -8,7 +8,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { campaignsApi, templatesApi, segmentsApi, apiKeysApi } from '@/lib/api';
 import toast from 'react-hot-toast';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn, formatRelativeTime, getApiError } from '@/lib/utils';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { offlineQueue } from '@/lib/offline-queue';
 import { useOfflineStore } from '@/store/offline.store';
@@ -255,10 +255,7 @@ export default function CampaignsPage() {
         templateVariables: Object.keys(form.templateVariables).length ? form.templateVariables : undefined,
       });
     } catch (err) {
-      const msg = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Failed'
-        : 'Failed';
-      toast.error(typeof msg === 'string' ? msg : 'Failed to create campaign');
+      toast.error(getApiError(err, 'Failed to create campaign'));
       setSubmitting(false);
       return;
     }
@@ -273,7 +270,7 @@ export default function CampaignsPage() {
 
   const launch = async (id: string) => {
     try { await campaignsApi.launch(id); await load(); toast.success('Campaign launched!'); }
-    catch { toast.error('Failed to launch'); }
+    catch (err) { toast.error(getApiError(err, 'Failed to launch campaign')); }
   };
   const pause = async (id: string) => {
     if (pausingId) return;
@@ -282,7 +279,7 @@ export default function CampaignsPage() {
     catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 400) { await load(); toast.error('Campaign is no longer running'); }
-      else toast.error('Failed to pause');
+      else toast.error(getApiError(err, 'Failed to pause campaign'));
     }
     finally { setPausingId(null); }
   };
@@ -291,10 +288,7 @@ export default function CampaignsPage() {
     if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
     setDeletingId(id);
     try { await campaignsApi.delete(id); await load(); toast.success('Campaign deleted'); }
-    catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(typeof msg === 'string' ? msg : 'Failed to delete campaign');
-    }
+    catch (err) { toast.error(getApiError(err, 'Failed to delete campaign')); }
     finally { setDeletingId(null); }
   };
 
@@ -1060,7 +1054,7 @@ export default function CampaignsPage() {
                               setNewApiKey(created);
                               const listRes = await apiKeysApi.list();
                               setApiKeys((listRes.data as typeof apiKeys) ?? []);
-                            } catch { toast.error('Failed to create API key'); }
+                            } catch (err) { toast.error(getApiError(err, 'Failed to create API key')); }
                             finally { setCreatingApiKey(false); }
                           }}
                           disabled={creatingApiKey}
