@@ -499,42 +499,75 @@ export class AuthService {
   }
 
   async getWorkspaces(userId: string) {
-    const memberships = await this.prisma.workspaceMember.findMany({
-      where: { userId, status: 'ACTIVE' },
-      orderBy: { joinedAt: 'asc' },
+    const currentUser = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (!currentUser) return [];
+
+    // Find all user records sharing this email (one per workspace they registered/were invited to)
+    const allUsers = await this.prisma.user.findMany({
+      where: { email: currentUser.email, isActive: true },
+      select: { id: true, tenantId: true, role: true },
     });
-    const workspaceIds = memberships.map((m) => m.workspaceId);
-    const workspaces = workspaceIds.length
+    const allUserIds = allUsers.map((u) => u.id);
+
+    // Also pick up workspaces where any of these user records have a WorkspaceMember entry
+    const memberships = await this.prisma.workspaceMember.findMany({
+      where: { userId: { in: allUserIds }, status: 'ACTIVE' },
+    });
+
+    const allTenantIds = [...new Set([
+      ...allUsers.map((u) => u.tenantId),
+      ...memberships.map((m) => m.workspaceId),
+    ])];
+
+    const workspaces = allTenantIds.length
       ? await this.prisma.tenant.findMany({
-          where: { id: { in: workspaceIds }, isActive: true },
+          where: { id: { in: allTenantIds }, isActive: true },
           select: { id: true, name: true },
+          orderBy: { createdAt: 'asc' },
         })
       : [];
+
     return workspaces.map((ws) => {
-      const m = memberships.find((mem) => mem.workspaceId === ws.id)!;
-      return { ...ws, role: m.role };
+      const membership = memberships.find((m) => m.workspaceId === ws.id);
+      const directUser = allUsers.find((u) => u.tenantId === ws.id);
+      const role = membership?.role ?? directUser?.role ?? 'MEMBER';
+      return { ...ws, role };
     });
   }
 
-  async switchWorkspace(userId: string, workspaceId: string): Promise<AuthTokens> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new UnauthorizedException('User not found');
-
-    const membership = await this.prisma.workspaceMember.findFirst({
-      where: { userId, workspaceId, status: 'ACTIVE' },
-    });
-    const isTenantOwner = user.tenantId === workspaceId;
-    if (!membership && !isTenantOwner) {
-      throw new ForbiddenException('You are not a member of this workspace');
-    }
+  async switchWorkspace(userId: string, workspaceId: string): Promise<AuthTokens & { user: object; tenant: object }> {
+    const currentUser = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!currentUser) throw new UnauthorizedException('User not found');
 
     const workspace = await this.prisma.tenant.findUnique({ where: { id: workspaceId, isActive: true } });
     if (!workspace) throw new NotFoundException('Workspace not found');
 
-    const effectiveRole = membership ? workspaceRoleToUserRole(membership.role) : user.role;
-    const tokens = await this.generateTokens(user.id, user.email, workspaceId, effectiveRole);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
-    return tokens;
+    // Check WorkspaceMember for the current user ID first (invite-joined workspaces)
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: { userId, workspaceId, status: 'ACTIVE' },
+    });
+
+    let targetUser = currentUser;
+    let effectiveRole = currentUser.role;
+
+    if (membership) {
+      effectiveRole = workspaceRoleToUserRole(membership.role);
+    } else if (currentUser.tenantId !== workspaceId) {
+      // The target workspace may have been created under a separate User record (same email)
+      const found = await this.prisma.user.findFirst({
+        where: { email: currentUser.email, tenantId: workspaceId, isActive: true },
+      });
+      if (!found) throw new ForbiddenException('You are not a member of this workspace');
+      targetUser = found;
+      effectiveRole = found.role;
+    }
+
+    const tokens = await this.generateTokens(targetUser.id, targetUser.email, workspaceId, effectiveRole);
+    await this.updateRefreshToken(targetUser.id, tokens.refreshToken);
+
+    const safeUser = { id: targetUser.id, email: targetUser.email, name: targetUser.name, role: effectiveRole, tenantId: workspaceId };
+    const safeTenant = { id: workspace.id, name: workspace.name, onboardingCompleted: workspace.onboardingCompleted };
+    return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
   async verifyInvite(token: string) {

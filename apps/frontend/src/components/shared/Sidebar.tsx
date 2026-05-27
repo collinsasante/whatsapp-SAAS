@@ -184,7 +184,7 @@ function NavItemButton({ item, openGroup, setOpenGroup }: {
 
 function WorkspaceSwitcher() {
   const router = useRouter();
-  const { tenant, workspaces, switchTenant, setWorkspaces } = useAuthStore();
+  const { tenant, workspaces, setAuth, setWorkspaces } = useAuthStore();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -229,8 +229,13 @@ function WorkspaceSwitcher() {
     setSwitching(ws.id);
     try {
       const res = await authApi.switchWorkspace(ws.id);
-      const { accessToken } = res.data as { accessToken: string };
-      switchTenant({ id: ws.id, name: ws.name }, accessToken);
+      const { accessToken, user, tenant: newTenant } = res.data as {
+        accessToken: string;
+        user: { id: string; email: string; name: string; role: string; tenantId: string; avatarUrl?: string | null };
+        tenant: { id: string; name: string; onboardingCompleted?: boolean };
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setAuth(user as any, newTenant, accessToken);
       setOpen(false);
       // Full page reload so all queries re-fetch with the new tenantId JWT
       window.location.href = '/dashboard';

@@ -267,7 +267,7 @@ export class AuthController {
   ) {
     const result = await this.authService.switchWorkspace(user.sub, body.workspaceId);
     this.setRefreshCookie(res as unknown as import('express').Response, result.refreshToken);
-    return { accessToken: result.accessToken, expiresIn: result.expiresIn };
+    return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user, tenant: result.tenant };
   }
 
   @Get('invite/verify/:token')
