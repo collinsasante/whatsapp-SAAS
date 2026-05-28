@@ -457,7 +457,7 @@ export default function CampaignsPage() {
                                 <Play size={11} />Resume
                               </button>
                             )}
-                            {(campaign.status === 'DRAFT' || campaign.status === 'FAILED') && (
+                            {(campaign.status === 'DRAFT' || campaign.status === 'SCHEDULED' || campaign.status === 'FAILED') && (
                               <button onClick={() => { void deleteCampaign(campaign.id, campaign.name); }}
                                 disabled={deletingId === campaign.id}
                                 className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"

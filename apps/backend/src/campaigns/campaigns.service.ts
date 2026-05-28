@@ -257,8 +257,8 @@ export class CampaignsService {
 
   async delete(tenantId: string, campaignId: string) {
     const campaign = await this.findOne(tenantId, campaignId);
-    if (!([CampaignStatus.DRAFT, CampaignStatus.FAILED] as CampaignStatus[]).includes(campaign.status as CampaignStatus)) {
-      throw new BadRequestException('Only draft or failed campaigns can be deleted');
+    if (!([CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.FAILED] as CampaignStatus[]).includes(campaign.status as CampaignStatus)) {
+      throw new BadRequestException('Only draft, scheduled, or failed campaigns can be deleted');
     }
     await this.prisma.campaignRecipient.deleteMany({ where: { campaignId } });
     await this.prisma.campaign.delete({ where: { id: campaignId } });
