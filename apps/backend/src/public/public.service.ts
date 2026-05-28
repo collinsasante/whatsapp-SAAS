@@ -21,11 +21,17 @@ export class PublicService {
     language: string,
     variables: Record<string, string> = {},
   ) {
+    console.log('[PublicAPI] sendTemplateMessage called', { to, templateName, language, variables });
+
     // Validate API key
     const keyRecord = await this.apiKeysService.validateKey(rawApiKey);
-    if (!keyRecord) throw new UnauthorizedException('Invalid or expired API key');
+    if (!keyRecord) {
+      console.error('[PublicAPI] Invalid or missing API key');
+      throw new UnauthorizedException('Invalid or expired API key');
+    }
 
     const { tenantId } = keyRecord;
+    console.log('[PublicAPI] API key valid, tenantId:', tenantId);
 
     // Get tenant credentials
     const tenant = await this.prisma.tenant.findUnique({
@@ -33,30 +39,38 @@ export class PublicService {
       select: { phoneNumberId: true, accessToken: true },
     });
     if (!tenant?.phoneNumberId || !tenant?.accessToken) {
+      console.error('[PublicAPI] WhatsApp not configured for tenant:', tenantId);
       throw new BadRequestException('WhatsApp is not configured for this workspace');
     }
+    console.log('[PublicAPI] Tenant found, phoneNumberId:', tenant.phoneNumberId);
 
     // Find the template
     const template = await this.prisma.template.findFirst({
       where: { tenantId, name: templateName, language, status: 'APPROVED' },
     });
     if (!template) {
+      console.error('[PublicAPI] Template not found:', { tenantId, templateName, language });
       throw new BadRequestException(`Template "${templateName}" (${language}) not found or not approved`);
     }
+    console.log('[PublicAPI] Template found:', template.id);
 
     // Normalize and resolve contact
     const normalizedPhone = normalizePhone(to);
+    console.log('[PublicAPI] Normalized phone:', normalizedPhone);
     let contact = await this.prisma.contact.findFirst({
       where: { tenantId, phone: normalizedPhone },
     });
     if (!contact) {
+      console.log('[PublicAPI] Contact not found, creating new contact for:', normalizedPhone);
       contact = await this.prisma.contact.create({
         data: { tenantId, phone: normalizedPhone, name: normalizedPhone },
       });
     }
+    console.log('[PublicAPI] Contact id:', contact.id);
 
     // Build template components and send
     const components = buildTemplateComponents(template.components as never, variables);
+    console.log('[PublicAPI] Sending to WhatsApp API, components:', JSON.stringify(components));
 
     const response = await axios.post(
       `${GRAPH_API_BASE}/${tenant.phoneNumberId}/messages`,
@@ -79,10 +93,12 @@ export class PublicService {
       },
     ).catch((err) => {
       const msg = err?.response?.data?.error?.message ?? err.message;
+      console.error('[PublicAPI] WhatsApp Graph API error:', err?.response?.data ?? err.message);
       throw new BadRequestException(`WhatsApp API error: ${msg}`);
     });
 
     const whatsappMessageId = (response.data as { messages: { id: string }[] }).messages[0].id;
+    console.log('[PublicAPI] Message sent, whatsappMessageId:', whatsappMessageId);
 
     // Get or create conversation for audit trail
     const conv = await this.prisma.conversation.findFirst({
