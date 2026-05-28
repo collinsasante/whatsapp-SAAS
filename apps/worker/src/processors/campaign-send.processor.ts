@@ -4,9 +4,11 @@ import { MessageStatus, MessageDirection, MessageType } from '@whatsapp-platform
 import axios from 'axios';
 import { QueueName, CampaignSendJob } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
+import { randomBytes } from 'crypto';
 
 const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
 const RATE_LIMIT_DELAY_MS = 1000;
+const PUBLIC_BASE_URL = process.env['PUBLIC_BASE_URL'] ?? 'https://verzchat.com/api/v1';
 
 export class CampaignSendWorker {
   private worker?: Worker;
@@ -84,6 +86,18 @@ export class CampaignSendWorker {
 
       try {
         const templateVariables = (campaign.templateVariables as Record<string, string>) ?? {};
+
+        // Generate a per-recipient click tracking code if campaign has a tracking URL
+        let trackingCode: string | null = null;
+        if (campaign.trackingUrl) {
+          trackingCode = randomBytes(8).toString('hex');
+          await this.prisma.campaignClick.create({
+            data: { campaignId, contactId: recipient.contactId, code: trackingCode },
+          });
+          // Inject the short tracking URL as an extra variable so templates can include it
+          templateVariables['tracking_url'] = `${PUBLIC_BASE_URL}/c/${trackingCode}`;
+        }
+
         const components = buildTemplateComponents(campaign.template.components as never, templateVariables);
 
         const response = await axios.post(

@@ -6,6 +6,8 @@ import { MessageRetryWorker } from './processors/message-retry.processor';
 import { SnoozeWorker } from './processors/snooze.processor';
 import { AiTrialWorker } from './processors/ai-trial.processor';
 import { BillingCronWorker } from './processors/billing-cron.processor';
+import { SlaMonitorWorker } from './processors/sla-monitor.processor';
+import { InactivityTriggerWorker } from './processors/inactivity-trigger.processor';
 
 const REDIS_HOST = process.env['REDIS_HOST'] ?? 'localhost';
 const REDIS_PORT = parseInt(process.env['REDIS_PORT'] ?? '6379', 10);
@@ -34,6 +36,8 @@ async function bootstrap() {
   const snoozeWorker = new SnoozeWorker(prisma, connection);
   const aiTrialWorker = new AiTrialWorker(prisma, connection);
   const billingCronWorker = new BillingCronWorker(prisma);
+  const slaMonitorWorker = new SlaMonitorWorker(prisma, connection);
+  const inactivityWorker = new InactivityTriggerWorker(prisma, connection);
 
   campaignWorker.start();
   automationWorker.start();
@@ -41,13 +45,15 @@ async function bootstrap() {
   snoozeWorker.start();
   aiTrialWorker.start();
   billingCronWorker.start();
+  await slaMonitorWorker.start();
+  await inactivityWorker.start();
 
   console.log('All workers started');
 
   process.on('SIGTERM', async () => {
     console.log('Worker: Graceful shutdown...');
     billingCronWorker.stop();
-    await Promise.all([campaignWorker.stop(), automationWorker.stop(), retryWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop()]);
+    await Promise.all([campaignWorker.stop(), automationWorker.stop(), retryWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop(), slaMonitorWorker.stop(), inactivityWorker.stop()]);
     await prisma.$disconnect();
     redis.disconnect();
     process.exit(0);

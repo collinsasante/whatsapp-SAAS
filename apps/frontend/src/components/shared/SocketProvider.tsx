@@ -510,6 +510,32 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       );
     });
 
+    // SLA breach — conversation has exceeded its response deadline
+    socket.on('sla:breach', (data: { conversationId: string; status: string; assignedToId: string | null }) => {
+      if (isMuted()) return;
+      toast.custom(
+        (t) => (
+          <div
+            className={`flex items-center gap-3 bg-white rounded-2xl shadow-xl border border-red-100 px-4 py-3 max-w-xs cursor-pointer transition-all ${t.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
+            style={{ minWidth: 280 }}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('inbox:open-conversation', { detail: { conversationId: data.conversationId } }));
+              toast.dismiss(t.id);
+            }}
+          >
+            <div className="w-9 h-9 rounded-full bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0 text-lg">⏰</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-gray-900">SLA Deadline Breached</p>
+              <p className="text-xs text-gray-500 truncate">A conversation needs urgent attention</p>
+            </div>
+            <span className="text-[10px] text-gray-300 flex-shrink-0">now</span>
+          </div>
+        ),
+        { duration: 10000, id: `sla-${data.conversationId}` },
+      );
+      showBrowserNotification('SLA Breached', 'A conversation has exceeded its response deadline');
+    });
+
     // Inbound WhatsApp call arriving — skip if this agent is already on a call
     const onIncomingCall = (data: { tenantId: string; call: { callLogId: string; whatsappCallId: string; from: string; contactName: string | null; sdpOffer: string | null } }) => {
       const { outboundCall, incomingCall } = useCallsStore.getState();
@@ -566,6 +592,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.off('call_updated', onCallUpdated);
       socket.off('conversation_snoozed');
       socket.off('conversation_unsnooze');
+      socket.off('sla:breach');
     };
   // NOTE: activeConversationId intentionally excluded — we use activeConversationIdRef instead
   // to avoid tearing down all socket listeners on every conversation switch.

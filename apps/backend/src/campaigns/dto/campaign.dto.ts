@@ -47,6 +47,11 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsBoolean()
   apiOnly?: boolean;
+
+  @ApiProperty({ required: false, description: 'Destination URL to track clicks for this campaign' })
+  @IsOptional()
+  @IsString()
+  trackingUrl?: string;
 }
 
 export class UpdateCampaignDto {

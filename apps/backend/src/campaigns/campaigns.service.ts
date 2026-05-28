@@ -86,6 +86,7 @@ export class CampaignsService {
         templateId: dto.templateId,
         templateVariables: dto.templateVariables ?? undefined,
         scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
+        trackingUrl: dto.trackingUrl ?? undefined,
         totalRecipients: contactIds.length,
         status: dto.scheduledAt ? CampaignStatus.SCHEDULED : CampaignStatus.DRAFT,
       },

@@ -43,6 +43,7 @@ import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ReleaseModule } from './release/release.module';
 import { WhatsAppNumbersModule } from './whatsapp-numbers/whatsapp-numbers.module';
 import { PublicModule } from './public/public.module';
+import { ReportsModule } from './reports/reports.module';
 import { InboundModule } from './inbound/inbound.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import appConfig from './config/app.config';
@@ -113,6 +114,7 @@ import appConfig from './config/app.config';
     ReleaseModule,
     WhatsAppNumbersModule,
     PublicModule,
+    ReportsModule,
     InboundModule,
     PlatformAdminModule,
   ],

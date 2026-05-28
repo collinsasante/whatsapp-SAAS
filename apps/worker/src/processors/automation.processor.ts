@@ -133,8 +133,73 @@ export class AutomationWorker {
       case AutomationAction.RESOLVE_CONVERSATION: {
         await this.prisma.conversation.update({
           where: { id: ctx.conversationId },
-          data: { status: 'RESOLVED' },
+          data: { status: 'RESOLVED', resolvedAt: new Date() },
         });
+        break;
+      }
+
+      case AutomationAction.UNASSIGN_AGENT: {
+        await this.prisma.conversation.update({
+          where: { id: ctx.conversationId },
+          data: { assignedToId: null },
+        });
+        break;
+      }
+
+      case AutomationAction.REMOVE_LABEL: {
+        const label = payload['label'];
+        if (label) {
+          const conv = await this.prisma.conversation.findUnique({
+            where: { id: ctx.conversationId },
+            select: { labels: true },
+          });
+          if (conv) {
+            await this.prisma.conversation.update({
+              where: { id: ctx.conversationId },
+              data: { labels: conv.labels.filter((l) => l !== label) },
+            });
+          }
+        }
+        break;
+      }
+
+      case AutomationAction.ADD_NOTE: {
+        const note = payload['note'];
+        if (note) {
+          // Use the tenant's AI agent user as author; fall back to first admin
+          const author = await this.prisma.user.findFirst({
+            where: { tenantId: ctx.tenantId, OR: [{ isAiAgent: true }, { role: 'ADMIN' }] },
+            orderBy: { isAiAgent: 'desc' },
+            select: { id: true },
+          });
+          if (author) {
+            await this.prisma.conversationNote.create({
+              data: { conversationId: ctx.conversationId, authorId: author.id, content: note },
+            });
+          }
+        }
+        break;
+      }
+
+      case AutomationAction.SEND_WEBHOOK: {
+        const url = payload['url'];
+        if (url) {
+          await axios.post(
+            url,
+            {
+              event: 'automation.triggered',
+              tenantId: ctx.tenantId,
+              conversationId: ctx.conversationId,
+              contactId: ctx.contactId,
+              contact: { phone: ctx.contact.phone, name: ctx.contact.name },
+              timestamp: new Date().toISOString(),
+            },
+            {
+              headers: { 'Content-Type': 'application/json', ...(payload['secret'] ? { 'X-Webhook-Secret': payload['secret'] } : {}) },
+              timeout: 10000,
+            },
+          );
+        }
         break;
       }
 

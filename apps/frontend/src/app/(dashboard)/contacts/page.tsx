@@ -21,8 +21,10 @@ import ConversationDetails from '@/components/inbox/ConversationDetails';
 interface Segment { id: string; name: string; description?: string; filters: unknown[]; contactCount: number }
 
 // ─── CSV Import Modal ─────────────────────────────────────────────────────
-const CONTACT_FIELDS = ['phone', 'name', 'email', 'labels', 'country', 'language'] as const;
+const CONTACT_FIELDS = ['phone', 'name', 'email', 'labels', 'custom_field'] as const;
 type ContactField = typeof CONTACT_FIELDS[number];
+// Fields that go into customFields rather than top-level contact properties
+const CUSTOM_FIELD_VALUES = new Set(['country', 'language', 'custom_field']);
 
 function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (count: number) => void }) {
   const [step, setStep] = useState<'upload' | 'map' | 'result'>('upload');
@@ -55,9 +57,7 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
         else if (lc === 'name' || lc.includes('firstname') || lc.includes('fullname')) auto[col] = 'name';
         else if (lc.includes('email')) auto[col] = 'email';
         else if (lc.includes('tag') || lc.includes('label')) auto[col] = 'labels';
-        else if (lc.includes('country')) auto[col] = 'country';
-        else if (lc.includes('lang')) auto[col] = 'language';
-        else auto[col] = '';
+        else auto[col] = 'custom_field'; // default extra columns to custom fields
       });
       setMapping(auto);
       setStep('map');
@@ -83,17 +83,22 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
     try {
       const contacts = rows.map(row => {
         const obj: Record<string, unknown> = {};
+        const customFields: Record<string, string> = {};
         headers.forEach((h, i) => {
           const field = mapping[h];
           if (!field) return;
           const val = (row[i] ?? '').trim();
-          if (!val) return; // skip empty cells so optional validators don't see ''
+          if (!val) return;
           if (field === 'labels') {
-            obj[field] = val.split(/[,;|]/).map(s => s.trim()).filter(Boolean);
+            obj[field] = val.split(/[,;|]/).map((s: string) => s.trim()).filter(Boolean);
+          } else if (CUSTOM_FIELD_VALUES.has(field) || field === 'custom_field') {
+            // Use the CSV column header as the custom field key
+            customFields[h] = val;
           } else {
             obj[field] = val;
           }
         });
+        if (Object.keys(customFields).length) obj['customFields'] = customFields;
         return obj;
       }).filter(c => (c.phone as string)?.trim());
 
@@ -210,7 +215,11 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
                       className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-teal-500"
                     >
                       <option value="">Skip</option>
-                      {CONTACT_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
+                      <option value="phone">Phone</option>
+                      <option value="name">Name</option>
+                      <option value="email">Email</option>
+                      <option value="labels">Labels / Tags</option>
+                      <option value="custom_field">Custom Field (uses column name as key)</option>
                     </select>
                   </div>
                 ))}

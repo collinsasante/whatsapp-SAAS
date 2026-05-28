@@ -197,6 +197,54 @@ export class DashboardService {
     return { opened, closed };
   }
 
+  async getMessageVolume(tenantId: string, days = 14) {
+    // Single query per day pair is expensive for large tenants — use raw SQL aggregation
+    const result = await this.prisma.$queryRaw<{ date: string; inbound: bigint; outbound: bigint }[]>`
+      SELECT
+        DATE_TRUNC('day', created_at)::date::text AS date,
+        COUNT(*) FILTER (WHERE direction = 'INBOUND')  AS inbound,
+        COUNT(*) FILTER (WHERE direction = 'OUTBOUND') AS outbound
+      FROM messages
+      WHERE tenant_id = ${tenantId}
+        AND created_at >= NOW() - (${days} || ' days')::interval
+      GROUP BY DATE_TRUNC('day', created_at)
+      ORDER BY DATE_TRUNC('day', created_at) ASC
+    `;
+
+    return result.map((r) => ({
+      date: r.date,
+      inbound: Number(r.inbound),
+      outbound: Number(r.outbound),
+    }));
+  }
+
+  async getResponseTimeStats(tenantId: string, days = 14) {
+    const rows = await this.prisma.$queryRaw<{ date: string; avg_ms: bigint | null }[]>`
+      SELECT
+        DATE_TRUNC('day', in_msg.created_at)::date::text AS date,
+        AVG(EXTRACT(EPOCH FROM (out_msg.created_at - in_msg.created_at)) * 1000)::bigint AS avg_ms
+      FROM messages in_msg
+      JOIN LATERAL (
+        SELECT created_at FROM messages
+        WHERE conversation_id = in_msg.conversation_id
+          AND direction = 'OUTBOUND'
+          AND created_at > in_msg.created_at
+        ORDER BY created_at ASC
+        LIMIT 1
+      ) out_msg ON true
+      WHERE in_msg.tenant_id = ${tenantId}
+        AND in_msg.direction = 'INBOUND'
+        AND in_msg.created_at >= NOW() - (${days} || ' days')::interval
+      GROUP BY DATE_TRUNC('day', in_msg.created_at)
+      ORDER BY DATE_TRUNC('day', in_msg.created_at) ASC
+    `;
+
+    return rows.map((r) => ({
+      date: r.date,
+      avgResponseMs: r.avg_ms !== null ? Number(r.avg_ms) : null,
+    }));
+  }
+
   async getBusinessProfile(tenantId: string) {
     return this.whatsappService.getBusinessProfile(tenantId);
   }

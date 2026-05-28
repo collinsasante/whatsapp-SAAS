@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ContactsService } from './contacts.service';
 import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/contact.dto';
@@ -81,5 +81,15 @@ export class ContactsController {
   @ApiOperation({ summary: 'Toggle block status for a contact' })
   toggleBlock(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.contactsService.toggleBlock(tenantId, id);
+  }
+
+  @Get(':id/timeline')
+  @ApiOperation({ summary: 'Unified activity timeline for a contact: conversations, campaigns, activity log' })
+  getTimeline(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+  ) {
+    return this.contactsService.getTimeline(tenantId, id, limit);
   }
 }

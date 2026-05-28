@@ -269,4 +269,47 @@ export class ContactsService {
       select: { id: true, isBlocked: true },
     });
   }
+
+  async getTimeline(tenantId: string, contactId: string, limit = 50) {
+    await this.findOne(tenantId, contactId);
+
+    const [activities, conversations, campaigns] = await Promise.all([
+      this.prisma.activityLog.findMany({
+        where: {
+          tenantId,
+          OR: [{ contactId }, { entityId: contactId }],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: {
+          user: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      }),
+
+      this.prisma.conversation.findMany({
+        where: { tenantId, contactId },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          id: true, status: true, createdAt: true, updatedAt: true,
+          csatScore: true, slaDeadline: true,
+          assignedTo: { select: { id: true, name: true, avatarUrl: true } },
+          resolvedBy: { select: { id: true, name: true } },
+          _count: { select: { messages: true } },
+        },
+      }),
+
+      this.prisma.campaignRecipient.findMany({
+        where: { contact: { id: contactId, tenantId } },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          status: true, sentAt: true, deliveredAt: true, readAt: true, failedAt: true,
+          campaign: { select: { id: true, name: true, status: true, createdAt: true } },
+        },
+      }),
+    ]);
+
+    return { activities, conversations, campaigns };
+  }
 }

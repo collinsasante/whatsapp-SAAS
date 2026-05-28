@@ -284,6 +284,7 @@ model Conversation {
   resolvedAt     DateTime?          @map("resolved_at")
   reopenedAt     DateTime?          @map("reopened_at")
   slaDeadline    DateTime?          @map("sla_deadline")
+  slaBreached    Boolean            @default(false) @map("sla_breached")
   csatScore      Int?               @map("csat_score")
   csatComment    String?            @map("csat_comment")
   csatSubmittedAt DateTime?         @map("csat_submitted_at")
@@ -726,6 +727,8 @@ model Campaign {
   readCount         Int            @default(0) @map("read_count")
   failedCount       Int            @default(0) @map("failed_count")
   createdById       String         @map("created_by_id")
+  trackingUrl       String?        @map("tracking_url")
+  clickCount        Int            @default(0) @map("click_count")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
@@ -733,6 +736,7 @@ model Campaign {
   template   Template            @relation(fields: [templateId], references: [id])
   createdBy  User                @relation("CampaignCreator", fields: [createdById], references: [id])
   recipients CampaignRecipient[]
+  clicks     CampaignClick[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -763,6 +767,23 @@ model CampaignRecipient {
   @@index([campaignId])
   @@index([campaignId, status])
   @@map("campaign_recipients")
+}
+
+model CampaignClick {
+  id          String   @id @default(uuid())
+  campaignId  String   @map("campaign_id")
+  contactId   String?  @map("contact_id")
+  code        String   @unique
+  clickedAt   DateTime? @map("clicked_at")
+  userAgent   String?  @map("user_agent")
+  ip          String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([code])
+  @@map("campaign_clicks")
 }
 
 enum RecipientStatus {
