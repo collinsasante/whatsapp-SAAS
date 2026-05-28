@@ -938,14 +938,12 @@ export default function CampaignsPage() {
       {showApiCreate && (() => {
         const apiSelectedTemplate = templates.find((t) => t.id === apiForm.templateId) ?? null;
         const apiTemplateVars = apiSelectedTemplate ? extractVariables(apiSelectedTemplate.components) : [];
-        const apiBaseUrl = typeof window !== 'undefined'
-          ? `${window.location.protocol}//${window.location.host}`
-          : 'https://api.verzchat.com';
+        const apiBaseUrl = (process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001/api/v1').replace(/\/api\/v1\/?$/, '');
         const sampleVarsJson = apiTemplateVars.length
-          ? `"variables": ${JSON.stringify(Object.fromEntries(apiTemplateVars.map(v => [v, apiForm.variableDescriptions[v] ? `<${apiForm.variableDescriptions[v]}>` : `value_${v}`])), null, 4)}`
+          ? `"variables": ${JSON.stringify(Object.fromEntries(apiTemplateVars.map(v => [v, apiForm.variableDescriptions[v] ?? `value_for_${v}`])), null, 4)}`
           : '';
-        // Prefer the full key if just created — never use the truncated prefix as a literal key
-        const curlApiKey = newApiKey?.key ?? 'YOUR_API_KEY';
+        // Prefer the full key if just created; fall back to first existing key's prefix so the user knows which key to use
+        const curlApiKey = newApiKey?.key ?? (apiKeys[0] ? `${apiKeys[0].keyPrefix}... (paste your full key here)` : 'YOUR_API_KEY');
         const exampleCurl = (newApiKey || apiKeys.length > 0)
           ? `curl -X POST "${apiBaseUrl}/api/v1/send" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Api-Key: ${curlApiKey}" \\\n  -d '{\n    "to": "+233241234567",\n    "templateName": "${apiSelectedTemplate?.name ?? 'your_template'}",\n    "language": "${apiSelectedTemplate?.language ?? 'en_US'}"${sampleVarsJson ? `,\n    ${sampleVarsJson}` : ''}\n  }'`
           : '';
@@ -1127,7 +1125,25 @@ export default function CampaignsPage() {
                     Next <ChevronRight size={14} />
                   </button>
                 ) : (
-                  <button onClick={() => setShowApiCreate(false)} className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium">Done</button>
+                  <button
+                    onClick={async () => {
+                      setSubmitting(true);
+                      try {
+                        await campaignsApi.create({ name: apiForm.name, templateId: apiForm.templateId });
+                        setShowApiCreate(false);
+                        toast.success('API campaign created!');
+                        void load();
+                      } catch (err) {
+                        toast.error(getApiError(err, 'Failed to create campaign'));
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={submitting}
+                    className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 font-medium"
+                  >
+                    {submitting ? 'Creating…' : 'Done'}
+                  </button>
                 )}
               </div>
             </div>
