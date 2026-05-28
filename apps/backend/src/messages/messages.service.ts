@@ -768,4 +768,38 @@ export class MessagesService {
       conversationId: message.conversationId,
     });
   }
+
+  async globalSearch(tenantId: string, q: string, page = 1, limit = 20) {
+    const term = q.trim();
+    if (!term) return { data: [], meta: { total: 0, page, limit } };
+
+    const skip = getPaginationSkip(page, limit);
+    const where = {
+      tenantId,
+      type: { in: ['TEXT', 'NOTE', 'TEMPLATE'] as never[] },
+      content: { contains: term, mode: 'insensitive' as const },
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.message.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          content: true,
+          type: true,
+          direction: true,
+          createdAt: true,
+          conversationId: true,
+          contact: { select: { id: true, name: true, phone: true, avatarUrl: true } },
+          sender: { select: { id: true, name: true, avatarUrl: true } },
+        },
+      }),
+      this.prisma.message.count({ where }),
+    ]);
+
+    return { data, meta: { total: Number(total), page, limit, pages: Math.ceil(Number(total) / limit) } };
+  }
 }

@@ -126,4 +126,29 @@ export class PublicService {
 
     return { success: true, messageId: whatsappMessageId, to: normalizedPhone };
   }
+
+  async recordClick(code: string, ip?: string, userAgent?: string): Promise<string | null> {
+    const click = await this.prisma.campaignClick.findUnique({ where: { code } });
+    if (!click) return null;
+
+    // Only record the first click per code
+    if (!click.clickedAt) {
+      await Promise.all([
+        this.prisma.campaignClick.update({
+          where: { code },
+          data: { clickedAt: new Date(), ip: ip ?? null, userAgent: userAgent ?? null },
+        }),
+        this.prisma.campaign.update({
+          where: { id: click.campaignId },
+          data: { clickCount: { increment: 1 } },
+        }),
+      ]);
+    }
+
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id: click.campaignId },
+      select: { trackingUrl: true },
+    });
+    return campaign?.trackingUrl ?? null;
+  }
 }

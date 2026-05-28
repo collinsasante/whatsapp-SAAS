@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Headers, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, HttpCode, HttpStatus, Param, Redirect, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiHeader } from '@nestjs/swagger';
 import { PublicService } from './public.service';
 import { IsString, IsOptional, IsObject } from 'class-validator';
+import { Request } from 'express';
 
 class SendTemplateDto {
   @IsString()
@@ -38,5 +39,13 @@ export class PublicController {
       dto.language,
       dto.variables,
     );
+  }
+
+  @Get('c/:code')
+  @Redirect()
+  @ApiOperation({ summary: 'Campaign link click tracker — logs the click and redirects to destination' })
+  async trackClick(@Param('code') code: string, @Req() req: Request) {
+    const url = await this.publicService.recordClick(code, req.ip, req.headers['user-agent']);
+    return { url: url ?? 'https://verzchat.com', statusCode: 302 };
   }
 }
