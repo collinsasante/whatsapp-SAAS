@@ -48,4 +48,5 @@ export enum QueueName {
   CSAT_SURVEY = 'csat-survey',
   SNOOZE = 'snooze',
   AI_TRIAL = 'ai-trial',
+  SLA_MONITOR = 'sla-monitor',
 }

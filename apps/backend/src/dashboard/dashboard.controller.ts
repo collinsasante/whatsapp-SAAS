@@ -44,6 +44,24 @@ export class DashboardController {
     return this.dashboardService.getConversationStats(tenantId, fromDate, toDate);
   }
 
+  @Get('message-volume')
+  @ApiOperation({ summary: 'Daily inbound/outbound message counts for last N days' })
+  getMessageVolume(
+    @CurrentTenant() tenantId: string,
+    @Query('days') days?: string,
+  ) {
+    return this.dashboardService.getMessageVolume(tenantId, days ? parseInt(days, 10) : 14);
+  }
+
+  @Get('response-time')
+  @ApiOperation({ summary: 'Daily average first-response time for last N days' })
+  getResponseTime(
+    @CurrentTenant() tenantId: string,
+    @Query('days') days?: string,
+  ) {
+    return this.dashboardService.getResponseTimeStats(tenantId, days ? parseInt(days, 10) : 14);
+  }
+
   @Get('whatsapp-status')
   @ApiOperation({ summary: 'Get WhatsApp API connection status' })
   getWhatsAppStatus(@CurrentTenant() tenantId: string) {

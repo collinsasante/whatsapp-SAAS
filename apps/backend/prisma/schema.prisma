@@ -284,6 +284,7 @@ model Conversation {
   resolvedAt     DateTime?          @map("resolved_at")
   reopenedAt     DateTime?          @map("reopened_at")
   slaDeadline    DateTime?          @map("sla_deadline")
+  slaBreached    Boolean            @default(false) @map("sla_breached")
   csatScore      Int?               @map("csat_score")
   csatComment    String?            @map("csat_comment")
   csatSubmittedAt DateTime?         @map("csat_submitted_at")
