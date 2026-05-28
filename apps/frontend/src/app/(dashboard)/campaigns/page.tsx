@@ -1129,7 +1129,7 @@ export default function CampaignsPage() {
                     onClick={async () => {
                       setSubmitting(true);
                       try {
-                        await campaignsApi.create({ name: apiForm.name, templateId: apiForm.templateId });
+                        await campaignsApi.create({ name: apiForm.name, templateId: apiForm.templateId, apiOnly: true });
                         setShowApiCreate(false);
                         toast.success('API campaign created!');
                         void load();
