@@ -35,6 +35,9 @@ export class CampaignsService {
 
     let contactIds = dto.contactIds ?? [];
 
+    if (dto.apiOnly) {
+      // API campaigns have no pre-built recipient list — messages are sent one-by-one via the send API
+    } else {
     // Segment targeting
     if (dto.segmentId && !contactIds.length) {
       const segment = await this.prisma.contactSegment.findFirst({ where: { id: dto.segmentId, tenantId } });
@@ -73,6 +76,7 @@ export class CampaignsService {
       });
       contactIds = contacts.map((c) => c.id);
     }
+    } // end of !apiOnly block
 
     const campaign = await this.prisma.campaign.create({
       data: {

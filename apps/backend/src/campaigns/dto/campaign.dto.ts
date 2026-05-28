@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsObject, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsObject, IsDateString, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateCampaignDto {
@@ -42,6 +42,11 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+
+  @ApiProperty({ required: false, description: 'API-only campaign — no recipients; messages are sent individually via the send API' })
+  @IsOptional()
+  @IsBoolean()
+  apiOnly?: boolean;
 }
 
 export class UpdateCampaignDto {
