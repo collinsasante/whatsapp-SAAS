@@ -62,10 +62,10 @@ interface Props {
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  [MessageStatus.QUEUED]: <Clock size={11} className="text-teal-200" />,
-  [MessageStatus.SENT]: <Check size={11} className="text-teal-200" />,
-  [MessageStatus.DELIVERED]: <CheckCheck size={11} className="text-teal-200" />,
-  [MessageStatus.READ]: <CheckCheck size={11} className="text-teal-100" />,
+  [MessageStatus.QUEUED]: <Clock size={11} className="text-white/60" />,
+  [MessageStatus.SENT]: <Check size={11} className="text-white/80" />,
+  [MessageStatus.DELIVERED]: <CheckCheck size={11} className="text-white/80" />,
+  [MessageStatus.READ]: <CheckCheck size={11} className="text-white" />,
   [MessageStatus.FAILED]: <XCircle size={11} className="text-red-300" />,
 };
 
@@ -2660,6 +2660,24 @@ const MessageBubble = memo(function MessageBubble({
                   </div>
                 );
               })()}
+              {/* Timestamp + status — inside the bubble */}
+              <div className={cn('flex items-center gap-1 mt-1', isOutbound ? 'justify-end' : 'justify-start')}>
+                {starred && <Star size={9} className="text-yellow-300 fill-yellow-300" />}
+                <span className={cn('text-[10px]', isOutbound ? 'text-white/60' : 'text-gray-400')}>{formatMessageTime(message.createdAt)}</span>
+                {isOutbound && (
+                  <span title={
+                    message.status === MessageStatus.READ ? `Read ${fmtTimestamp(message.readAt) ?? ''}` :
+                    message.status === MessageStatus.DELIVERED ? `Delivered ${fmtTimestamp(message.deliveredAt) ?? ''}` :
+                    message.status === MessageStatus.SENT ? `Sent ${fmtTimestamp(message.sentAt) ?? ''}` :
+                    message.status === MessageStatus.FAILED ? 'Failed to deliver' : ''
+                  }>
+                    {STATUS_ICONS[message.status] ?? null}
+                  </span>
+                )}
+                {message.status === MessageStatus.FAILED && (
+                  <span className="text-[10px] text-red-300">Failed</span>
+                )}
+              </div>
             </div>
 
             {/* Reaction pills */}
@@ -2702,24 +2720,9 @@ const MessageBubble = memo(function MessageBubble({
               </div>
             )}
 
-            {/* Timestamp + status */}
-            <div className={cn('flex items-center gap-1.5 px-1', isOutbound ? 'justify-end' : 'justify-start')}>
-              {starred && <Star size={10} className="text-yellow-500 fill-yellow-500" />}
-              <span className="text-xs text-gray-400">{formatMessageTime(message.createdAt)}</span>
-              {isOutbound && (
-                <span title={
-                  message.status === MessageStatus.READ ? `Read ${fmtTimestamp(message.readAt) ?? ''}` :
-                  message.status === MessageStatus.DELIVERED ? `Delivered ${fmtTimestamp(message.deliveredAt) ?? ''}` :
-                  message.status === MessageStatus.SENT ? `Sent ${fmtTimestamp(message.sentAt) ?? ''}` :
-                  message.status === MessageStatus.FAILED ? 'Failed to deliver' : ''
-                }>
-                  {STATUS_ICONS[message.status] ?? null}
-                </span>
-              )}
-              {message.status === MessageStatus.FAILED && (
-                <span className="text-xs text-red-400">Failed</span>
-              )}
-              <button onClick={() => setShowInfo((v) => !v)} className="opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity">
+            {/* Info toggle — outside bubble, hover-only */}
+            <div className={cn('flex px-1', isOutbound ? 'justify-end' : 'justify-start')}>
+              <button onClick={() => setShowInfo((v) => !v)} className="opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity">
                 <Info size={10} className="text-gray-400" />
               </button>
             </div>
