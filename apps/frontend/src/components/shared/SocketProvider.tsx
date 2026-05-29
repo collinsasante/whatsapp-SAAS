@@ -81,6 +81,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { setIncomingCall, clearCallIfMatches, outboundSession, setOutboundSession } = useCallsStore();
   const router = useRouter();
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const msgPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
   // Ref so we can read current value inside socket handlers without adding to useEffect deps
@@ -89,22 +90,49 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   activeConversationIdRef.current = activeConversationId;
 
   const startPolling = useCallback(() => {
-    if (pollIntervalRef.current) return;
-    pollIntervalRef.current = setInterval(() => {
-      window.dispatchEvent(new CustomEvent('socket:reconnect-poll'));
-    }, 20_000);
-  }, []);
+    // Conversation list poll — always runs every 30s regardless of socket state
+    if (!pollIntervalRef.current) {
+      pollIntervalRef.current = setInterval(() => {
+        window.dispatchEvent(new CustomEvent('socket:reconnect-poll'));
+      }, 30_000);
+    }
+    // Message poll for the active conversation — catches anything the socket missed
+    if (!msgPollIntervalRef.current) {
+      msgPollIntervalRef.current = setInterval(() => {
+        const convId = activeConversationIdRef.current;
+        if (!convId) return;
+        import('@/lib/api').then(({ messagesApi }) =>
+          messagesApi.list(convId, { limit: 30 })
+            .then((res) => {
+              const msgs = (res.data as { data: import('@whatsapp-platform/shared-types').Message[] }).data;
+              msgs.forEach((m) => addMessage(convId, m));
+            })
+            .catch(() => {}),
+        );
+      }, 30_000);
+    }
+  }, [addMessage]);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
+    if (msgPollIntervalRef.current) {
+      clearInterval(msgPollIntervalRef.current);
+      msgPollIntervalRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
     requestBrowserNotificationPermission();
   }, []);
+
+  // Start background polling immediately on mount — runs always, not just when disconnected
+  useEffect(() => {
+    startPolling();
+    return () => stopPolling();
+  }, [startPolling, stopPolling]);
 
   // Reconnect socket when tab comes back into focus — mobile browsers drop idle connections
   useEffect(() => {
@@ -141,7 +169,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, [clearAuth, router]);
 
   const onSocketConnect = useCallback(() => {
-    stopPolling();
+    // Do NOT stop polling on connect — message poll runs always as a safety net.
     // Re-join the active conversation room — server forgets room memberships after reconnect
     const activeId = activeConversationIdRef.current;
     if (activeId) {
