@@ -51,6 +51,10 @@ if [[ "$TARGET" == "backend" || "$TARGET" == "all" ]]; then
   if [[ -n "$SHARED_TYPES_CONTAINER_PATH" ]]; then
     docker cp packages/shared-types/dist/. "${BACKEND_CTR}:${SHARED_TYPES_CONTAINER_PATH}/dist/"
   fi
+  SHARED_UTILS_CONTAINER_PATH=$(docker exec "${BACKEND_CTR}" node -e "console.log(require.resolve('@whatsapp-platform/shared-utils'))" 2>/dev/null | sed 's|/dist/index.js||')
+  if [[ -n "$SHARED_UTILS_CONTAINER_PATH" ]]; then
+    docker cp packages/shared-utils/dist/. "${BACKEND_CTR}:${SHARED_UTILS_CONTAINER_PATH}/dist/"
+  fi
   docker cp apps/backend/prisma/schema.prisma "${BACKEND_CTR}:/app/prisma/schema.prisma"
   docker cp apps/backend/prisma/migrations/. "${BACKEND_CTR}:/app/prisma/migrations/"
   docker exec "${BACKEND_CTR}" sh -c "cd /app && prisma generate --schema prisma/schema.prisma" 2>&1 || true
