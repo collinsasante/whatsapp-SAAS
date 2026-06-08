@@ -19,8 +19,8 @@ export class PlatformAdminAuthService {
       throw new UnauthorizedException('Invalid setup secret');
     }
 
-    const existing = await this.prisma.platformAdmin.findFirst();
-    if (existing) throw new ConflictException('Platform admin already configured');
+    const existing = await this.prisma.platformAdmin.findUnique({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Admin with this email already exists');
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const admin = await this.prisma.platformAdmin.create({
