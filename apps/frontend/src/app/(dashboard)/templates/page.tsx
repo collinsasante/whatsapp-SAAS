@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 // ─── types ────────────────────────────────────────────────────────────────────
-interface TemplateButton { type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'; text: string; url?: string; phone_number?: string }
+interface TemplateButton { type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'; text: string; url?: string; phone_number?: string; example?: string[] }
 interface TemplateComponent {
   type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
   format?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'LOCATION';
@@ -85,7 +85,18 @@ function builderToComponents(b: BuilderState): TemplateComponent[] {
     components.push(comp);
   }
   if (b.footer) components.push({ type: 'FOOTER', text: b.footer });
-  if (b.buttons.length > 0) components.push({ type: 'BUTTONS', buttons: b.buttons });
+  if (b.buttons.length > 0) {
+    const buttons = b.buttons.map(btn => {
+      if (btn.type === 'URL' && btn.url?.includes('{{') && btn.example?.[0]) {
+        return { ...btn };
+      }
+      // Strip example from static URL buttons so Meta doesn't get confused
+      const { example: _ex, ...rest } = btn;
+      void _ex;
+      return rest;
+    });
+    components.push({ type: 'BUTTONS', buttons });
+  }
   return components;
 }
 
@@ -210,7 +221,10 @@ function TemplateBuilder({ initial, onSave, onBack }: {
       body: body?.text ?? '',
       bodyExamples: body?.example?.body_text?.[0] ?? [],
       footer: footer?.text ?? '',
-      buttons: (buttons?.buttons ?? []) as TemplateButton[],
+      buttons: (buttons?.buttons ?? []).map((btn: TemplateButton) => ({
+        ...btn,
+        example: btn.example ?? undefined,
+      })),
     };
   });
 
@@ -253,6 +267,8 @@ function TemplateBuilder({ initial, onSave, onBack }: {
     if (/\}\}\s*$/.test(b.body)) return 'Body text cannot end with a variable like {{1}}. Add some text after it, e.g. "{{1}} has been confirmed."';
     const phoneBtn = b.buttons.find(btn => btn.type === 'PHONE_NUMBER');
     if (phoneBtn && !/^\+\d{7,15}$/.test(phoneBtn.phone_number ?? '')) return 'Phone number must be in E.164 format, e.g. +966534342217';
+    const urlBtn = b.buttons.find(btn => btn.type === 'URL');
+    if (urlBtn?.url?.includes('{{') && !urlBtn.example?.[0]?.trim()) return 'Provide a sample value for the dynamic URL — required by Meta';
     return null;
   };
 
@@ -515,9 +531,19 @@ function TemplateBuilder({ initial, onSave, onBack }: {
                   placeholder="Button label" maxLength={20}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-teal-500" />
                 {btn.type === 'URL' && (
-                  <input value={btn.url ?? ''} onChange={e => updateButton(i, { url: e.target.value })}
-                    placeholder="https://yoursite.com/page"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                  <div className="space-y-1.5">
+                    <input value={btn.url ?? ''} onChange={e => updateButton(i, { url: e.target.value })}
+                      placeholder="https://yoursite.com/page/{{1}} — use {{1}} for dynamic value"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:ring-1 focus:ring-teal-500" />
+                    {btn.url?.includes('{{') && (
+                      <div>
+                        <input value={btn.example?.[0] ?? ''} onChange={e => updateButton(i, { example: [e.target.value] })}
+                          placeholder="Sample value for {{1}}, e.g. ORD2528-SF0LV"
+                          className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-amber-50 focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                        <p className="text-[10px] text-amber-600 mt-0.5">Required by Meta: a sample value for the dynamic part of the URL</p>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {btn.type === 'PHONE_NUMBER' && (
                   <div>
