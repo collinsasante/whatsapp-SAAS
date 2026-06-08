@@ -147,8 +147,8 @@ export default function CampaignsPage() {
   const templateVars = selectedTemplate ? extractVariables(selectedTemplate.components) : [];
   const isUtility = selectedTemplate?.category?.toUpperCase() === 'UTILITY';
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [camRes, tplRes, segRes] = await Promise.allSettled([
         campaignsApi.list({ limit: 100 }),
@@ -165,10 +165,18 @@ export default function CampaignsPage() {
       if (segRes.status === 'fulfilled') {
         setSegments((segRes.value.data as Segment[]) ?? []);
       }
-    } finally { setLoading(false); }
+    } finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Poll every 5 s while any campaign is RUNNING or PAUSED so progress stays live
+  useEffect(() => {
+    const hasActive = campaigns.some(c => c.status === 'RUNNING' || c.status === 'PAUSED');
+    if (!hasActive) return;
+    const id = setInterval(() => { void load(true); }, 5000);
+    return () => clearInterval(id);
+  }, [campaigns, load]);
 
   // Re-estimate recipient count whenever audience selection changes
   useEffect(() => {
