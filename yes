@@ -1,0 +1,88 @@
+[1mdiff --git a/apps/backend/prisma/migrations/20260528200000_campaign_click_tracking/migration.sql b/apps/backend/prisma/migrations/20260528200000_campaign_click_tracking/migration.sql[m
+[1mindex 5f13316..bf723c6 100644[m
+[1m--- a/apps/backend/prisma/migrations/20260528200000_campaign_click_tracking/migration.sql[m
+[1m+++ b/apps/backend/prisma/migrations/20260528200000_campaign_click_tracking/migration.sql[m
+[36m@@ -5,9 +5,9 @@[m [mALTER TABLE "campaigns"[m
+   ADD COLUMN "click_count"  INTEGER NOT NULL DEFAULT 0;[m
+ [m
+ CREATE TABLE "campaign_clicks" ([m
+[31m-  "id"          UUID        NOT NULL DEFAULT gen_random_uuid(),[m
+[31m-  "campaign_id" UUID        NOT NULL,[m
+[31m-  "contact_id"  UUID,[m
+[32m+[m[32m  "id"          TEXT        NOT NULL DEFAULT gen_random_uuid()::text,[m
+[32m+[m[32m  "campaign_id" TEXT        NOT NULL,[m
+[32m+[m[32m  "contact_id"  TEXT,[m
+   "code"        TEXT        NOT NULL,[m
+   "clicked_at"  TIMESTAMPTZ,[m
+   "user_agent"  TEXT,[m
+[1mdiff --git a/apps/backend/src/contacts/contacts.service.ts b/apps/backend/src/contacts/contacts.service.ts[m
+[1mindex f2a95c5..4ee2ab6 100644[m
+[1m--- a/apps/backend/src/contacts/contacts.service.ts[m
+[1m+++ b/apps/backend/src/contacts/contacts.service.ts[m
+[36m@@ -154,7 +154,7 @@[m [mexport class ContactsService {[m
+               channel: { select: { id: true, name: true, type: true } },[m
+               messages: {[m
+                 take: 1,[m
+[31m-                orderBy: { createdAt: 'desc' },[m
+[32m+[m[32m                orderBy: { sentAt: 'desc' },[m
+                 select: { id: true, content: true, type: true, direction: true, createdAt: true, mediaCaption: true },[m
+               },[m
+             },[m
+[36m@@ -277,7 +277,7 @@[m [mexport class ContactsService {[m
+       this.prisma.activityLog.findMany({[m
+         where: {[m
+           tenantId,[m
+[31m-          OR: [{ contactId }, { entityId: contactId }],[m
+[32m+[m[32m          contactId,[m
+         },[m
+         orderBy: { createdAt: 'desc' },[m
+         take: limit,[m
+[36m@@ -294,17 +294,16 @@[m [mexport class ContactsService {[m
+           id: true, status: true, createdAt: true, updatedAt: true,[m
+           csatScore: true, slaDeadline: true,[m
+           assignedTo: { select: { id: true, name: true, avatarUrl: true } },[m
+[31m-          resolvedBy: { select: { id: true, name: true } },[m
+           _count: { select: { messages: true } },[m
+         },[m
+       }),[m
+ [m
+       this.prisma.campaignRecipient.findMany({[m
+         where: { contact: { id: contactId, tenantId } },[m
+[31m-        orderBy: { createdAt: 'desc' },[m
+[32m+[m[32m        orderBy: { sentAt: 'desc' },[m
+         take: 20,[m
+         select: {[m
+[31m-          status: true, sentAt: true, deliveredAt: true, readAt: true, failedAt: true,[m
+[32m+[m[32m          status: true, sentAt: true,[m
+           campaign: { select: { id: true, name: true, status: true, createdAt: true } },[m
+         },[m
+       }),[m
+[1mdiff --git a/apps/backend/src/reports/reports.service.ts b/apps/backend/src/reports/reports.service.ts[m
+[1mindex e84890b..81bc738 100644[m
+[1m--- a/apps/backend/src/reports/reports.service.ts[m
+[1m+++ b/apps/backend/src/reports/reports.service.ts[m
+[36m@@ -94,14 +94,13 @@[m [mexport class ReportsService {[m
+         csatScore: true,[m
+         contact: { select: { name: true, phone: true, email: true } },[m
+         assignedTo: { select: { name: true } },[m
+[31m-        resolvedBy: { select: { name: true } },[m
+         _count: { select: { messages: true } },[m
+       },[m
+     });[m
+ [m
+     const headers = [[m
+       'ID', 'Status', 'Contact Name', 'Contact Phone', 'Contact Email',[m
+[31m-      'Assigned To', 'Resolved By', 'Labels', 'Source',[m
+[32m+[m[32m      'Assigned To', 'Labels', 'Source',[m
+       'Messages', 'CSAT Score', 'SLA Breached',[m
+       'Created At', 'Resolved At',[m
+     ];[m
+[36m@@ -109,7 +108,7 @@[m [mexport class ReportsService {[m
+     const rows = conversations.map((c) => toCsvRow([[m
+       c.id, c.status,[m
+       c.contact.name ?? '', c.contact.phone, c.contact.email ?? '',[m
+[31m-      c.assignedTo?.name ?? '', c.resolvedBy?.name ?? '',[m
+[32m+[m[32m      c.assignedTo?.name ?? '',[m
+       c.labels.join('; '), c.contactSource,[m
+       c._count.messages, c.csatScore ?? '', c.slaBreached ? 'Yes' : 'No',[m
+       c.createdAt.toISOString(), c.resolvedAt?.toISOString() ?? '',[m
