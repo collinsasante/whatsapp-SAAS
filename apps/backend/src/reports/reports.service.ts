@@ -94,14 +94,13 @@ export class ReportsService {
         csatScore: true,
         contact: { select: { name: true, phone: true, email: true } },
         assignedTo: { select: { name: true } },
-        resolvedBy: { select: { name: true } },
         _count: { select: { messages: true } },
       },
     });
 
     const headers = [
       'ID', 'Status', 'Contact Name', 'Contact Phone', 'Contact Email',
-      'Assigned To', 'Resolved By', 'Labels', 'Source',
+      'Assigned To', 'Labels', 'Source',
       'Messages', 'CSAT Score', 'SLA Breached',
       'Created At', 'Resolved At',
     ];
@@ -109,7 +108,7 @@ export class ReportsService {
     const rows = conversations.map((c) => toCsvRow([
       c.id, c.status,
       c.contact.name ?? '', c.contact.phone, c.contact.email ?? '',
-      c.assignedTo?.name ?? '', c.resolvedBy?.name ?? '',
+      c.assignedTo?.name ?? '',
       c.labels.join('; '), c.contactSource,
       c._count.messages, c.csatScore ?? '', c.slaBreached ? 'Yes' : 'No',
       c.createdAt.toISOString(), c.resolvedAt?.toISOString() ?? '',

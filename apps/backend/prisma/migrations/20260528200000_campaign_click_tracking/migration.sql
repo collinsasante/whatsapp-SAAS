@@ -5,9 +5,9 @@ ALTER TABLE "campaigns"
   ADD COLUMN "click_count"  INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE "campaign_clicks" (
-  "id"          UUID        NOT NULL DEFAULT gen_random_uuid(),
-  "campaign_id" UUID        NOT NULL,
-  "contact_id"  UUID,
+  "id"          TEXT        NOT NULL DEFAULT gen_random_uuid()::text,
+  "campaign_id" TEXT        NOT NULL,
+  "contact_id"  TEXT,
   "code"        TEXT        NOT NULL,
   "clicked_at"  TIMESTAMPTZ,
   "user_agent"  TEXT,

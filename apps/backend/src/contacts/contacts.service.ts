@@ -154,7 +154,7 @@ export class ContactsService {
               channel: { select: { id: true, name: true, type: true } },
               messages: {
                 take: 1,
-                orderBy: { createdAt: 'desc' },
+                orderBy: { sentAt: 'desc' },
                 select: { id: true, content: true, type: true, direction: true, createdAt: true, mediaCaption: true },
               },
             },
@@ -277,7 +277,7 @@ export class ContactsService {
       this.prisma.activityLog.findMany({
         where: {
           tenantId,
-          OR: [{ contactId }, { entityId: contactId }],
+          contactId,
         },
         orderBy: { createdAt: 'desc' },
         take: limit,
@@ -294,17 +294,16 @@ export class ContactsService {
           id: true, status: true, createdAt: true, updatedAt: true,
           csatScore: true, slaDeadline: true,
           assignedTo: { select: { id: true, name: true, avatarUrl: true } },
-          resolvedBy: { select: { id: true, name: true } },
           _count: { select: { messages: true } },
         },
       }),
 
       this.prisma.campaignRecipient.findMany({
         where: { contact: { id: contactId, tenantId } },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { sentAt: 'desc' },
         take: 20,
         select: {
-          status: true, sentAt: true, deliveredAt: true, readAt: true, failedAt: true,
+          status: true, sentAt: true,
           campaign: { select: { id: true, name: true, status: true, createdAt: true } },
         },
       }),
