@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsNumber, IsBoolean, IsArray } from 'class-validator';
 
 export class AdminSetupDto {
   @IsString()
@@ -24,16 +24,18 @@ export class AdminLoginDto {
 }
 
 export class UpdatePlanDto {
-  name?: string;
-  monthlyPrice?: number;
-  yearlyPrice?: number;
-  isActive?: boolean;
-  isPublic?: boolean;
-  limMaxAgents?: number;
-  limMaxContacts?: number;
-  limMessagesPerMonth?: number;
-  limAiCreditsPerMonth?: number;
-  limMaxChannels?: number;
-  limMaxCampaigns?: number;
-  limStorageGb?: number;
+  @IsOptional() @IsString()  name?: string;
+  @IsOptional() @IsNumber()  monthlyPrice?: number;
+  @IsOptional() @IsNumber()  yearlyPrice?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsBoolean() isPublic?: boolean;
+  @IsOptional() @IsNumber()  limMaxAgents?: number;
+  @IsOptional() @IsNumber()  limMaxContacts?: number;
+  @IsOptional() @IsNumber()  limMessagesPerMonth?: number;
+  @IsOptional() @IsNumber()  limAiCreditsPerMonth?: number;
+  @IsOptional() @IsNumber()  limMaxChannels?: number;
+  @IsOptional() @IsNumber()  limMaxCampaigns?: number;
+  @IsOptional() @IsNumber()  limStorageGb?: number;
+  @IsOptional() @IsNumber()  limMaxTemplates?: number;
+  @IsOptional() @IsArray()   features?: string[];
 }
