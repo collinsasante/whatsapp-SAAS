@@ -18,12 +18,6 @@ if [[ -z "$_DEPLOY_REEXEC" ]]; then
   exec bash "$0" "$@"
 fi
 
-# Re-exec the updated script so any changes to deploy.sh itself take effect
-if [[ -z "$_DEPLOY_REEXEC" ]]; then
-  export _DEPLOY_REEXEC=1
-  exec bash "$0" "$@"
-fi
-
 # Load production env vars so NEXT_PUBLIC_* are embedded correctly at build time
 if [[ -f "$REPO_ROOT/infra/.env" ]]; then
   set -a

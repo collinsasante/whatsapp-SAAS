@@ -152,3 +152,4 @@ export class PublicService {
     return campaign?.trackingUrl ?? null;
   }
 }
+
