@@ -107,4 +107,10 @@ export class PlatformAdminController {
   forceSubscription(@Param('id') id: string, @Body('planSlug') planSlug: string) {
     return this.adminService.forceSubscription(id, planSlug);
   }
+
+  @Get('workspaces/:id/templates')
+  @UseGuards(PlatformAdminGuard)
+  workspaceTemplates(@Param('id') id: string) {
+    return this.adminService.getWorkspaceTemplates(id);
+  }
 }

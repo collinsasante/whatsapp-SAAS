@@ -205,6 +205,14 @@ export class PlatformAdminService {
     return this.prisma.plan.update({ where: { id }, data });
   }
 
+  async getWorkspaceTemplates(tenantId: string) {
+    return this.prisma.template.findMany({
+      where: { tenantId },
+      select: { id: true, name: true, language: true, category: true, status: true, components: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
   async forceSubscription(tenantId: string, planSlug: string) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException('Workspace not found');
