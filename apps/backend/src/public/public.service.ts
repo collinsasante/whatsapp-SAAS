@@ -20,8 +20,9 @@ export class PublicService {
     templateName: string,
     language: string,
     variables: Record<string, string> = {},
+    urlVariables?: Record<string, string>,
   ) {
-    console.log('[PublicAPI] sendTemplateMessage called', { to, templateName, language, variables });
+    console.log('[PublicAPI] sendTemplateMessage called', { to, templateName, language, variables, urlVariables });
 
     // Validate API key
     const keyRecord = await this.apiKeysService.validateKey(rawApiKey);
@@ -69,7 +70,7 @@ export class PublicService {
     console.log('[PublicAPI] Contact id:', contact.id);
 
     // Build template components and send
-    const components = buildTemplateComponents(template.components as never, variables);
+    const components = buildTemplateComponents(template.components as never, variables, urlVariables);
     console.log('[PublicAPI] Sending to WhatsApp API, components:', JSON.stringify(components));
 
     const response = await axios.post(

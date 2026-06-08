@@ -17,6 +17,10 @@ class SendTemplateDto {
   @IsOptional()
   @IsObject()
   variables?: Record<string, string>;
+
+  @IsOptional()
+  @IsObject()
+  urlVariables?: Record<string, string>;
 }
 
 @ApiTags('Public API')
@@ -38,6 +42,7 @@ export class PublicController {
       dto.templateName,
       dto.language,
       dto.variables,
+      dto.urlVariables,
     );
   }
 

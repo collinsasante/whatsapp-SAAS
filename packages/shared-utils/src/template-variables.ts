@@ -13,13 +13,20 @@ export function extractTemplateVariables(text: string): string[] {
 export function buildTemplateComponents(
   components: Array<{ type: string; text?: string; buttons?: Array<{ type: string; url?: string; text?: string }> }>,
   variables: Record<string, string>,
+  urlVariables?: Record<string, string>,
 ): Array<unknown> {
   // If caller passed named keys (e.g. { orderID: "..." }) instead of numeric ones
   // (e.g. { "1": "..." }), remap them positionally so {{1}} gets the first value, etc.
-  const hasNumericKeys = Object.keys(variables).some((k) => /^\d+$/.test(k));
-  const vars: Record<string, string> = hasNumericKeys
-    ? variables
-    : Object.fromEntries(Object.values(variables).map((v, i) => [(i + 1).toString(), v]));
+  const normalise = (v: Record<string, string>): Record<string, string> => {
+    const hasNumeric = Object.keys(v).some((k) => /^\d+$/.test(k));
+    return hasNumeric
+      ? v
+      : Object.fromEntries(Object.values(v).map((val, i) => [(i + 1).toString(), val]));
+  };
+
+  const vars = normalise(variables);
+  // urlVariables override the body vars for URL button parameters; fall back to body vars.
+  const urlVars = urlVariables ? normalise(urlVariables) : vars;
 
   const result: Array<unknown> = [];
 
@@ -41,7 +48,7 @@ export function buildTemplateComponents(
             index: idx,
             parameters: extractTemplateVariables(btn.url).map((varIndex) => ({
               type: 'text',
-              text: vars[varIndex] ?? '',
+              text: urlVars[varIndex] ?? '',
             })),
           });
         }
