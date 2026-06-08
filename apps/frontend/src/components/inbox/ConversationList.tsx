@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
-import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput } from 'lucide-react';
+import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn, formatMessageTime, getInitials } from '@/lib/utils';
 import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
@@ -469,6 +469,36 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     return name.toLowerCase().includes(contactSearch.toLowerCase()) || c.phone.includes(contactSearch);
   });
 
+  // Groups of INTERVENED conversations from other agents, shown below main list when in "All" tab
+  const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
+
+  const intervenedGroups = useMemo(() => {
+    if (statusFilter !== 'All' || memberFilter !== 'All' || !currentUserId) return [];
+    const now = Date.now();
+    const otherIntervened = sourceConversations.filter((c) => {
+      if (c.status !== 'INTERVENED') return false;
+      if (!c.assignedTo || c.assignedTo.id === currentUserId) return false;
+      if (!c.contact) return false;
+      if (c.lastInboundAt) {
+        const elapsed = now - new Date(c.lastInboundAt).getTime();
+        if (elapsed > TWENTY_FOUR_HOURS) return false;
+      }
+      if (search.trim()) {
+        const name = c.contact.name ?? c.contact.phone;
+        if (!name.toLowerCase().includes(search.toLowerCase()) && !c.contact.phone.includes(search)) return false;
+      }
+      return true;
+    });
+    const map = new Map<string, { agent: { id: string; name: string }; convs: Conversation[] }>();
+    for (const conv of otherIntervened) {
+      if (!conv.assignedTo) continue;
+      const { id, name } = conv.assignedTo;
+      if (!map.has(id)) map.set(id, { agent: { id, name }, convs: [] });
+      map.get(id)!.convs.push(conv);
+    }
+    return Array.from(map.values());
+  }, [sourceConversations, statusFilter, memberFilter, currentUserId, search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className={cn('w-full md:w-72 border-r border-gray-100 bg-white flex flex-col h-full flex-shrink-0', mobileHidden && 'hidden md:flex')}>
       {/* Header */}
@@ -657,7 +687,10 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           </div>
         ) : (() => {
           const displayList = search.trim() ? searchResults : filtered;
-          if (displayList.length === 0) return (
+          const hasMain = displayList.length > 0;
+          const hasGroups = intervenedGroups.length > 0;
+
+          if (!hasMain && !hasGroups) return (
             <div className="flex flex-col items-center justify-center h-32 gap-3 text-gray-400 text-sm">
               <p>{search.trim() && !searchLoading ? `No results for "${search}"` : 'No conversations found'}</p>
               {!search && (
@@ -667,12 +700,61 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
               )}
             </div>
           );
+
           return (
-            <AnimatePresence initial={false}>
-              {displayList.map((conv) => (
-                <ConvRow key={conv.id} conv={conv} isActive={conv.id === activeId} onSelect={onSelect} />
-              ))}
-            </AnimatePresence>
+            <>
+              <AnimatePresence initial={false}>
+                {displayList.map((conv) => (
+                  <ConvRow key={conv.id} conv={conv} isActive={conv.id === activeId} onSelect={onSelect} />
+                ))}
+              </AnimatePresence>
+
+              {/* Intervened by other agents — grouped sections */}
+              {hasGroups && (
+                <div className="mt-1">
+                  <div className="px-4 py-2 flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Handled by Team</span>
+                  </div>
+                  {intervenedGroups.map(({ agent, convs }) => {
+                    const isCollapsed = collapsedAgents.has(agent.id);
+                    const initials = getInitials(agent.name);
+                    return (
+                      <div key={agent.id}>
+                        <button
+                          onClick={() => setCollapsedAgents(prev => {
+                            const next = new Set(prev);
+                            if (next.has(agent.id)) next.delete(agent.id); else next.add(agent.id);
+                            return next;
+                          })}
+                          className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 text-[9px] font-bold flex-shrink-0">
+                              {initials}
+                            </div>
+                            <span className="text-xs font-semibold text-gray-600">{agent.name}</span>
+                            <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-bold leading-none">
+                              {convs.length}
+                            </span>
+                          </div>
+                          {isCollapsed
+                            ? <ChevronRight size={12} className="text-gray-400" />
+                            : <ChevronDown size={12} className="text-gray-400" />
+                          }
+                        </button>
+                        {!isCollapsed && (
+                          <AnimatePresence initial={false}>
+                            {convs.map((conv) => (
+                              <ConvRow key={conv.id} conv={conv} isActive={conv.id === activeId} onSelect={onSelect} />
+                            ))}
+                          </AnimatePresence>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           );
         })()}
       </div>
