@@ -48,7 +48,11 @@ export class PlatformAdminService {
   async getWorkspaces(page = 1, limit = 20, search?: string) {
     const skip = (page - 1) * limit;
     const where = search
-      ? { OR: [{ name: { contains: search, mode: 'insensitive' as const } }, { billingEmail: { contains: search, mode: 'insensitive' as const } }] }
+      ? { OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { billingEmail: { contains: search, mode: 'insensitive' as const } },
+          { users: { some: { email: { contains: search, mode: 'insensitive' as const } } } },
+        ] }
       : {};
 
     const [tenants, total] = await Promise.all([
