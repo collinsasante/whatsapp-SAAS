@@ -44,9 +44,9 @@ export class PublicService {
     }
     console.log('[PublicAPI] Tenant found, phoneNumberId:', tenant.phoneNumberId);
 
-    // Find the template
+    // Find the template — match by prefix so "en" matches "en_US", "en_GB", etc.
     const template = await this.prisma.template.findFirst({
-      where: { tenantId, name: templateName, language, status: 'APPROVED' },
+      where: { tenantId, name: templateName, language: { startsWith: language }, status: 'APPROVED' },
     });
     if (!template) {
       console.error('[PublicAPI] Template not found:', { tenantId, templateName, language });
