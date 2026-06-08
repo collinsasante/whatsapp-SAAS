@@ -129,4 +129,9 @@ export const adminApi = {
   plans: () => req<Plan[]>('GET', '/plans'),
 
   updatePlan: (id: string, data: Partial<Plan>) => req<Plan>('PATCH', `/plans/${id}`, data),
+
+  forceSubscription: (tenantId: string, planSlug: string) =>
+    req<{ success: boolean; tenantId: string; plan: string; periodEnd: string }>(
+      'PATCH', `/workspaces/${tenantId}/force-plan`, { planSlug },
+    ),
 };

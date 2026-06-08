@@ -200,4 +200,31 @@ export class PlatformAdminService {
   async updatePlan(id: string, data: UpdatePlanDto) {
     return this.prisma.plan.update({ where: { id }, data });
   }
+
+  async forceSubscription(tenantId: string, planSlug: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+
+    const plan = await this.prisma.plan.findUnique({ where: { slug: planSlug } });
+    if (!plan) throw new NotFoundException(`Plan "${planSlug}" not found`);
+
+    const now = new Date();
+    const periodEnd = new Date(now.getFullYear() + 10, now.getMonth(), now.getDate());
+
+    await this.prisma.subscription.upsert({
+      where: { tenantId },
+      create: {
+        tenantId, planId: plan.id,
+        status: 'ACTIVE', cycle: 'YEARLY',
+        currentPeriodStart: now, currentPeriodEnd: periodEnd,
+      },
+      update: {
+        planId: plan.id, status: 'ACTIVE', cycle: 'YEARLY',
+        currentPeriodStart: now, currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false, canceledAt: null,
+      },
+    });
+
+    return { success: true, tenantId, plan: plan.name, periodEnd };
+  }
 }

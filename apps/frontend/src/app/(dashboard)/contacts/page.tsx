@@ -693,6 +693,7 @@ export default function ContactsPage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterLifecycle, setFilterLifecycle] = useState<'' | 'active' | 'blocked' | 'optedOut'>('');
   const [filterLabel, setFilterLabel] = useState('');
+  const [filterConvStatus, setFilterConvStatus] = useState<'' | 'OPEN' | 'PENDING' | 'RESOLVED' | 'SNOOZED'>('');
   // Date filters
   const [dateField, setDateField] = useState<'createdAt' | 'lastMessage' | 'lastActive' | ''>('');
   const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom' | ''>('');
@@ -701,7 +702,7 @@ export default function ContactsPage() {
   // Available tags from central tag system
   const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color?: string }[]>([]);
 
-  const activeFiltersCount = [filterLifecycle, filterLabel, dateField].filter(Boolean).length;
+  const activeFiltersCount = [filterLifecycle, filterLabel, dateField, filterConvStatus].filter(Boolean).length;
 
   const load = useCallback(async (
     pg: number,
@@ -713,6 +714,7 @@ export default function ContactsPage() {
     dp?: string,
     dfrom?: string,
     dto?: string,
+    convStatus?: string,
   ) => {
     setLoading(true);
     try {
@@ -728,6 +730,7 @@ export default function ContactsPage() {
         datePreset: dp && dp !== 'custom' ? dp : undefined,
         dateFrom: dp === 'custom' && dfrom ? dfrom : undefined,
         dateTo: dp === 'custom' && dto ? dto : undefined,
+        conversationStatus: convStatus || undefined,
       });
       const data = res.data as { data: Contact[]; meta: { total: number } };
       setContacts(data.data);
@@ -739,10 +742,10 @@ export default function ContactsPage() {
   useEffect(() => {
     const t = setTimeout(() => {
       setPage(1); setSelectedIds(new Set());
-      void load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
+      void load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus);
     }, 300);
     return () => clearTimeout(t);
-  }, [search, activeSegmentId, load, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo]);
+  }, [search, activeSegmentId, load, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus]);
 
   // Load segments + available tags
   useEffect(() => {
@@ -808,7 +811,7 @@ export default function ContactsPage() {
         });
         toast.success('Contact created');
         setShowCreate(false);
-        await load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
+        await load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus);
       }
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -874,7 +877,7 @@ export default function ContactsPage() {
       await Promise.all([...selectedIds].map(id => contactsApi.delete(id)));
       toast.success(`Deleted ${selectedIds.size} contacts`);
       setSelectedIds(new Set());
-      await load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
+      await load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus);
     } catch { toast.error('Failed to delete some contacts'); }
     finally { setBulkProcessing(false); }
   };
@@ -892,7 +895,7 @@ export default function ContactsPage() {
       toast.success(`Tag "${tag}" added to ${selectedIds.size} contacts`);
       setShowBulkTag(false);
       setBulkTagInput('');
-      await load(page, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo);
+      await load(page, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus);
     } catch { toast.error('Failed to add tag'); }
     finally { setBulkProcessing(false); }
   };
@@ -1034,6 +1037,19 @@ export default function ContactsPage() {
                     </select>
                   </div>
 
+                  {/* Conversation status filter */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Conv. Status</label>
+                    <select value={filterConvStatus} onChange={e => setFilterConvStatus(e.target.value as typeof filterConvStatus)}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
+                      <option value="">All</option>
+                      <option value="OPEN">Open</option>
+                      <option value="PENDING">Pending</option>
+                      <option value="RESOLVED">Resolved</option>
+                      <option value="SNOOZED">Snoozed</option>
+                    </select>
+                  </div>
+
                   {/* Date field */}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Date Field</label>
@@ -1082,7 +1098,7 @@ export default function ContactsPage() {
 
                   {/* Clear filters */}
                   {activeFiltersCount > 0 && (
-                    <button onClick={() => { setFilterLifecycle(''); setFilterLabel(''); setDateField(''); setDatePreset(''); setDateFrom(''); setDateTo(''); }}
+                    <button onClick={() => { setFilterLifecycle(''); setFilterLabel(''); setFilterConvStatus(''); setDateField(''); setDatePreset(''); setDateFrom(''); setDateTo(''); }}
                       className="self-end text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 pb-1.5">
                       <X size={12} /> Clear all
                     </button>
@@ -1102,6 +1118,12 @@ export default function ContactsPage() {
                       <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
                         Tag: {filterLabel}
                         <button onClick={() => setFilterLabel('')} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
+                      </span>
+                    )}
+                    {filterConvStatus && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
+                        Conv: {filterConvStatus.charAt(0) + filterConvStatus.slice(1).toLowerCase()}
+                        <button onClick={() => setFilterConvStatus('')} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
                       </span>
                     )}
                     {dateField && (
@@ -1343,7 +1365,7 @@ export default function ContactsPage() {
                 <div className="flex items-center justify-between mt-4 px-1">
                   <p className="text-sm text-gray-500">Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}</p>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => { const p = Math.max(1, page - 1); setPage(p); void load(p, search, activeSegmentId, filterLifecycle, filterLabel); }} disabled={page === 1}
+                    <button onClick={() => { const p = Math.max(1, page - 1); setPage(p); void load(p, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus); }} disabled={page === 1}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition-colors">
                       <ChevronLeft size={14} />
                     </button>
@@ -1351,13 +1373,13 @@ export default function ContactsPage() {
                       const p = page <= 3 ? i + 1 : page + i - 2;
                       if (p < 1 || p > totalPages) return null;
                       return (
-                        <button key={p} onClick={() => { setPage(p); void load(p, search, activeSegmentId, filterLifecycle, filterLabel); }}
+                        <button key={p} onClick={() => { setPage(p); void load(p, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus); }}
                           className={cn('w-8 h-8 flex items-center justify-center rounded-lg text-sm transition-colors', p === page ? 'bg-teal-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50')}>
                           {p}
                         </button>
                       );
                     })}
-                    <button onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); void load(p, search, activeSegmentId, filterLifecycle, filterLabel); }} disabled={page === totalPages}
+                    <button onClick={() => { const p = Math.min(totalPages, page + 1); setPage(p); void load(p, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus); }} disabled={page === totalPages}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition-colors">
                       <ChevronRight size={14} />
                     </button>
@@ -1502,7 +1524,7 @@ export default function ContactsPage() {
       {showImport && (
         <CsvImportModal
           onClose={() => setShowImport(false)}
-          onDone={(count) => { toast.success(`Imported ${count} contacts`); void load(1, search, activeSegmentId, filterLifecycle, filterLabel); }}
+          onDone={(count) => { toast.success(`Imported ${count} contacts`); void load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus); }}
         />
       )}
 

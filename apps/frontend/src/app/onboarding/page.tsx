@@ -346,7 +346,7 @@ export default function OnboardingPage() {
                     fetched={fetched}
                   />
                 )}
-                {step === 2 && <StepAllSet name={user?.name?.split(' ')[0] ?? 'there'} />}
+                {step === 2 && <StepAllSet name={fetched?.displayName ?? tenant?.name ?? 'there'} />}
               </div>
 
               {/* Navigation */}

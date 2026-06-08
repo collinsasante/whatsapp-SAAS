@@ -101,4 +101,10 @@ export class PlatformAdminController {
   updatePlan(@Param('id') id: string, @Body() data: UpdatePlanDto) {
     return this.adminService.updatePlan(id, data);
   }
+
+  @Patch('workspaces/:id/force-plan')
+  @UseGuards(PlatformAdminGuard)
+  forceSubscription(@Param('id') id: string, @Body('planSlug') planSlug: string) {
+    return this.adminService.forceSubscription(id, planSlug);
+  }
 }

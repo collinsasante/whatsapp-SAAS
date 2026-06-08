@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Search, CheckCircle2, XCircle, Loader2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
-import { adminApi, type Workspace } from '@/lib/admin-api';
+import { Search, CheckCircle2, XCircle, Loader2, RefreshCw, ChevronLeft, ChevronRight, CreditCard } from 'lucide-react';
+import { adminApi, type Workspace, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -21,6 +21,10 @@ export default function WorkspacesPage() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [setPlanFor, setSetPlanFor] = useState<Workspace | null>(null);
+  const [selectedPlanSlug, setSelectedPlanSlug] = useState('');
+  const [settingPlan, setSettingPlan] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,8 +40,25 @@ export default function WorkspacesPage() {
   }, [page, query]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { adminApi.plans().then(setPlans).catch(() => {}); }, []);
 
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setPage(1); setQuery(search); };
+
+  const confirmSetPlan = async () => {
+    if (!setPlanFor || !selectedPlanSlug) return;
+    setSettingPlan(true);
+    try {
+      const res = await adminApi.forceSubscription(setPlanFor.id, selectedPlanSlug);
+      toast.success(`${setPlanFor.name} upgraded to ${res.plan}`);
+      setSetPlanFor(null);
+      setSelectedPlanSlug('');
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSettingPlan(false);
+    }
+  };
 
   const toggleActive = async (w: Workspace) => {
     setActing(w.id);
@@ -135,24 +156,32 @@ export default function WorkspacesPage() {
                 </td>
                 <td className="px-4 py-3 text-gray-400 text-xs">{new Date(w.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3">
-                  <button
-                    onClick={() => toggleActive(w)}
-                    disabled={acting === w.id}
-                    className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                      w.isActive
-                        ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                        : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                    } disabled:opacity-50`}
-                  >
-                    {acting === w.id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : w.isActive ? (
-                      <XCircle className="w-3 h-3" />
-                    ) : (
-                      <CheckCircle2 className="w-3 h-3" />
-                    )}
-                    {w.isActive ? 'Suspend' : 'Activate'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setSetPlanFor(w); setSelectedPlanSlug(w.subscription?.plan ? plans.find(p => p.name === w.subscription?.plan.name)?.slug ?? '' : ''); }}
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                    >
+                      <CreditCard className="w-3 h-3" /> Set Plan
+                    </button>
+                    <button
+                      onClick={() => toggleActive(w)}
+                      disabled={acting === w.id}
+                      className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                        w.isActive
+                          ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                          : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                      } disabled:opacity-50`}
+                    >
+                      {acting === w.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : w.isActive ? (
+                        <XCircle className="w-3 h-3" />
+                      ) : (
+                        <CheckCircle2 className="w-3 h-3" />
+                      )}
+                      {w.isActive ? 'Suspend' : 'Activate'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -176,6 +205,42 @@ export default function WorkspacesPage() {
           </div>
         )}
       </div>
+
+      {/* Set Plan Modal */}
+      {setPlanFor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Set Plan</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Workspace: <span className="font-medium text-gray-700">{setPlanFor.name}</span></p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Select Plan</label>
+              <select
+                value={selectedPlanSlug}
+                onChange={e => setSelectedPlanSlug(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              >
+                <option value="">— choose a plan —</option>
+                {plans.map(p => (
+                  <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => { setSetPlanFor(null); setSelectedPlanSlug(''); }}
+                className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={() => { void confirmSetPlan(); }} disabled={!selectedPlanSlug || settingPlan}
+                className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                {settingPlan && <Loader2 className="w-4 h-4 animate-spin" />}
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
