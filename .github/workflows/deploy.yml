@@ -34,6 +34,9 @@ jobs:
           pnpm --filter @whatsapp-platform/shared-types build
           pnpm --filter @whatsapp-platform/shared-utils build
 
+      - name: Generate Prisma client
+        run: pnpm --filter @whatsapp-platform/backend prisma:generate
+
       - name: Type-check backend
         run: pnpm --filter @whatsapp-platform/backend typecheck
 
