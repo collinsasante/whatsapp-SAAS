@@ -27,7 +27,9 @@ fi
 # Load production env vars so NEXT_PUBLIC_* are embedded correctly at build time
 if [[ -f "$REPO_ROOT/infra/.env" ]]; then
   set -a
+  set +e            # don't abort if .env has a stray non-assignment line
   source "$REPO_ROOT/infra/.env"
+  set -e
   set +a
 fi
 
