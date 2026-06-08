@@ -278,6 +278,10 @@ export default function CampaignsPage() {
     try { await campaignsApi.launch(id); await load(); toast.success('Campaign launched!'); }
     catch (err) { toast.error(getApiError(err, 'Failed to launch campaign')); }
   };
+  const resume = async (id: string) => {
+    try { await campaignsApi.resume(id); await load(); toast.success('Campaign resumed!'); }
+    catch (err) { toast.error(getApiError(err, 'Failed to resume campaign')); }
+  };
   const pause = async (id: string) => {
     if (pausingId) return;
     setPausingId(id);
@@ -452,7 +456,7 @@ export default function CampaignsPage() {
                               </button>
                             )}
                             {campaign.status === 'PAUSED' && (
-                              <button onClick={() => { void launch(campaign.id); }}
+                              <button onClick={() => { void resume(campaign.id); }}
                                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors">
                                 <Play size={11} />Resume
                               </button>

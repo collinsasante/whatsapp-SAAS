@@ -280,4 +280,13 @@ export class CampaignsService {
       data: { status: CampaignStatus.PAUSED },
     });
   }
+
+  async resume(tenantId: string, campaignId: string) {
+    const campaign = await this.findOne(tenantId, campaignId);
+    if (campaign.status !== CampaignStatus.PAUSED) {
+      throw new BadRequestException('Only paused campaigns can be resumed');
+    }
+    // Re-queue all remaining PENDING recipients — previously queued jobs were skipped
+    return this.startSending(tenantId, campaignId);
+  }
 }

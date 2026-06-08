@@ -62,6 +62,13 @@ export class CampaignsController {
     return this.campaignsService.pause(tenantId, id);
   }
 
+  @Post(':id/resume')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Resume a paused campaign' })
+  resume(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.campaignsService.resume(tenantId, id);
+  }
+
   @Get(':id/recipients')
   @ApiOperation({ summary: 'Get paginated recipient list with delivery status' })
   getRecipients(
