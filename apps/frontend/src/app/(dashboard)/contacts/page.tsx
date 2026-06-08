@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useInboxStore } from '@/store/inbox.store';
 import type { StatusCounts } from '@/store/inbox.store';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { formatRelativeTime, cn } from '@/lib/utils';
 import ChatWindow from '@/components/inbox/ChatWindow';
 import ConversationDetails from '@/components/inbox/ConversationDetails';
@@ -871,7 +872,7 @@ export default function ContactsPage() {
   };
 
   const bulkDelete = async () => {
-    if (!confirm(`Delete ${selectedIds.size} contact${selectedIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    if (!await showConfirm(`Delete ${selectedIds.size} contact${selectedIds.size !== 1 ? 's' : ''}?`, { subtext: 'This cannot be undone.' })) return;
     setBulkProcessing(true);
     try {
       await Promise.all([...selectedIds].map(id => contactsApi.delete(id)));

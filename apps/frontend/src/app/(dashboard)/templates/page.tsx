@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { templatesApi } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -766,7 +767,7 @@ export default function TemplatesPage() {
   };
 
   const handleDelete = async (template: Template) => {
-    if (!confirm(`Delete "${template.name}"? This will also remove it from Meta if approved.`)) return;
+    if (!await showConfirm(`Delete "${template.name}"?`, { subtext: "This will also remove it from Meta if approved." })) return;
     try {
       await templatesApi.deleteWithMeta(template.id);
       setTemplates(prev => prev.filter(t => t.id !== template.id));

@@ -2,9 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Search, X, Send, Download, Play, FileText, Music,
-  ChevronLeft, ChevronRight, ZoomIn, Images, Trash2, Upload, User, Users,
+  ChevronLeft, ChevronRight, ZoomIn, Images, Trash2, Upload, User, Users, Layers,
 } from 'lucide-react';
 import { mediaApi, conversationsApi, messagesApi } from '@/lib/api';
+import { showConfirm } from '@/store/confirm.store';
 import { useInboxStore } from '@/store/inbox.store';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -93,6 +94,7 @@ export default function LibraryPage() {
   const [agentLoading, setAgentLoading] = useState(true);
 
   const [uploading, setUploading] = useState(false);
+  const [deduplicating, setDeduplicating] = useState(false);
   const [tab, setTab] = useState<Tab>('ALL');
   const [search, setSearch] = useState('');
 
@@ -137,21 +139,55 @@ export default function LibraryPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Check for duplicate name locally before upload
+    const isDuplicate = agentAssets.some(
+      (a) => a.originalName.toLowerCase() === file.name.toLowerCase(),
+    );
+    if (isDuplicate) {
+      toast.error(`"${file.name}" already exists in your library`);
+      if (uploadRef.current) uploadRef.current.value = '';
+      return;
+    }
     setUploading(true);
     try {
       const res = await mediaApi.upload(file);
       const asset = res.data as AgentAsset & { fileUrl: string };
       setAgentAssets((prev) => [asset, ...prev]);
       toast.success('File uploaded to Agent Library');
-    } catch { toast.error('Upload failed'); }
-    finally {
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined;
+      toast.error(typeof msg === 'string' ? msg : 'Upload failed');
+    } finally {
       setUploading(false);
       if (uploadRef.current) uploadRef.current.value = '';
     }
   };
 
+  const handleDeduplicate = async () => {
+    const ok = await showConfirm('Remove duplicate files?', {
+      subtext: 'Keeps one copy (most recent) of each filename. Older duplicates will be permanently deleted.',
+      confirmLabel: 'Clean Up',
+      danger: false,
+    });
+    if (!ok) return;
+    setDeduplicating(true);
+    try {
+      const res = await mediaApi.deduplicate();
+      const { removed } = res.data as { removed: number };
+      if (removed === 0) {
+        toast.success('No duplicates found');
+      } else {
+        toast.success(`Removed ${removed} duplicate file${removed !== 1 ? 's' : ''}`);
+        void loadAgentAssets();
+      }
+    } catch { toast.error('Failed to clean duplicates'); }
+    finally { setDeduplicating(false); }
+  };
+
   const handleDelete = async (asset: AgentAsset) => {
-    if (!window.confirm('Remove this file from the library?')) return;
+    if (!await showConfirm(`Remove "${asset.originalName}" from the library?`)) return;
     try {
       await mediaApi.deleteAsset(asset.id);
       setAgentAssets((prev) => prev.filter((a) => a.id !== asset.id));
@@ -238,6 +274,15 @@ export default function LibraryPage() {
               />
             </div>
             <input ref={uploadRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" className="hidden" onChange={(e) => { void handleUpload(e); }} />
+            <button
+              onClick={() => { void handleDeduplicate(); }}
+              disabled={deduplicating}
+              title="Remove duplicate files"
+              className="flex items-center gap-2 px-3 py-2 text-gray-500 text-sm font-medium rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+            >
+              <Layers size={15} />
+              {deduplicating ? 'Cleaning…' : 'Clean Duplicates'}
+            </button>
             <button
               onClick={() => uploadRef.current?.click()}
               disabled={uploading}

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { billingApi, knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 
 interface Article {
   id: string;
@@ -167,7 +168,7 @@ export default function AiPage() {
   };
 
   const deleteArticle = async (id: string) => {
-    if (!confirm('Delete this article?')) return;
+    if (!await showConfirm('Delete this article?', { subtext: 'This cannot be undone.' })) return;
     try {
       await knowledgeBaseApi.delete(id);
       toast.success('Article deleted');

@@ -79,6 +79,12 @@ export class MediaController {
     stream.pipe(res);
   }
 
+  @Post('deduplicate')
+  @ApiOperation({ summary: 'Remove duplicate files (keep most recent per filename)' })
+  deduplicate(@CurrentTenant() tenantId: string) {
+    return this.mediaService.deduplicateAssets(tenantId);
+  }
+
   @Delete(':id')
   remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.mediaService.remove(tenantId, id);

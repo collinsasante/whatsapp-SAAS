@@ -14,6 +14,7 @@ import { ConfirmCallModal } from '@/components/shared/ConfirmCallModal';
 import OfflineBanner from '@/components/OfflineBanner';
 import { SyncProvider } from '@/components/shared/SyncProvider';
 import { WhatsNewModal } from '@/components/shared/WhatsNewModal';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -109,6 +110,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <OutboundDialModal />
       <OutboundCallBar />
       <ConfirmCallModal />
+      <ConfirmModal />
       <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
         <OfflineBanner />
         <div className="flex flex-1 overflow-hidden min-h-0">

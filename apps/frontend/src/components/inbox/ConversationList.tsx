@@ -461,11 +461,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           ? (statusFilter !== 'All' || !currentUserId || c.assignedTo === null || c.assignedTo?.id === currentUserId)
           : (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
         return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
-      })
-      .sort((a, b) => {
-        const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-        const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
-        return tb - ta;
       });
   }, [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
 

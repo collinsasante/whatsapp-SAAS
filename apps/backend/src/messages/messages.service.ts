@@ -530,7 +530,7 @@ export class MessagesService {
           try {
             const welcomeText = tenantSettings.welcomeMessage!;
             const draft = await this.prisma.message.create({
-              data: { tenantId, conversationId: conversation.id, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content: welcomeText },
+              data: { tenantId, conversationId: conversation.id, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content: welcomeText, metadata: { isAutoReply: true } as never },
             });
             const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, welcomeText).catch(() => null);
             const sent = await this.prisma.message.update({

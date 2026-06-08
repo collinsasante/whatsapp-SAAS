@@ -11,6 +11,7 @@ import {
 import { contactsApi, conversationsApi, activityLogApi, attributesApi } from '@/lib/api';
 import { cn, getInitials, formatMessageTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 
 const AVATAR_COLORS = [
   'bg-teal-100 text-teal-700', 'bg-blue-100 text-blue-700',
@@ -194,7 +195,7 @@ export default function ContactProfilePage() {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('Delete this contact? This cannot be undone.')) return;
+    if (!await showConfirm('Delete this contact?', { subtext: 'This cannot be undone.' })) return;
     try {
       await contactsApi.delete(id);
       toast.success('Contact deleted');

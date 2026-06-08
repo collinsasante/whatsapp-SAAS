@@ -139,12 +139,15 @@ export const useInboxStore = create<InboxState>((set) => ({
       const isInbound = message.direction === MessageDirection.INBOUND;
       const inboundUpdate = isInbound ? { lastInboundAt: message.createdAt as unknown as string } : {};
       const isActiveConv = conversationId === state.activeConversationId;
+      // Auto-replies (welcome messages, AI) should not clear the unread badge
+      const isAutoReply = !isInbound && !!(message as { metadata?: { isAutoReply?: boolean } }).metadata?.isAutoReply;
 
       const updatedConv = state.conversations.find((c) => c.id === conversationId);
-      // Zero badge for outbound or when agent is viewing this conversation; increment for unread inbound
-      const badgeUpdate = (!isInbound || isActiveConv)
-        ? { unreadCount: 0 }
-        : { unreadCount: (updatedConv?.unreadCount ?? 0) + 1 };
+      const badgeUpdate = isAutoReply
+        ? {} // automated outbound — don't touch the badge
+        : (!isInbound || isActiveConv)
+          ? { unreadCount: 0 }
+          : { unreadCount: (updatedConv?.unreadCount ?? 0) + 1 };
       const updatedConvData = updatedConv
         ? {
             ...updatedConv,

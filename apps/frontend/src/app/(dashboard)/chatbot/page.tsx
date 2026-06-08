@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { chatbotFlowsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -806,7 +807,7 @@ export default function ChatbotPage() {
   };
 
   const deleteFlow = async (id: string) => {
-    if (!confirm('Delete this flow?')) return;
+    if (!await showConfirm('Delete this flow?', { subtext: 'This cannot be undone.' })) return;
     try { await chatbotFlowsApi.delete(id); toast.success('Flow deleted'); void load(); }
     catch { toast.error('Failed to delete flow'); }
   };

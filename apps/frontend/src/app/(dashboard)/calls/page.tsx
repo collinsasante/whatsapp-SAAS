@@ -17,6 +17,7 @@ import { getSocket } from '@/lib/socket';
 import { useInboxStore } from '@/store/inbox.store';
 import { useCallsStore } from '@/store/calls.store';
 import { cn } from '@/lib/utils';
+import { showConfirm } from '@/store/confirm.store';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/modern-ui/table';
 import { BottomSheet } from '@/components/mobile';
 
@@ -346,7 +347,7 @@ function CallContextMenu({
 
   const handleDelete = async () => {
     onClose();
-    if (!confirm('Delete this call log permanently?')) return;
+    if (!await showConfirm('Delete this call log?', { subtext: 'This action cannot be undone.' })) return;
     try { await callsApi.delete(call.id); toast.success('Deleted'); onRefresh(); }
     catch { toast.error('Failed to delete'); }
   };
@@ -397,7 +398,7 @@ function CallDetail({
   };
 
   const handleDelete = async () => {
-    if (!confirm('Delete this call log?')) return;
+    if (!await showConfirm('Delete this call log?', { subtext: 'This action cannot be undone.' })) return;
     try { await callsApi.delete(call.id); toast.success('Call deleted'); onClose(); onRefresh(); }
     catch { toast.error('Failed to delete'); }
   };

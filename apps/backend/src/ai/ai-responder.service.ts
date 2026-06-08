@@ -131,17 +131,13 @@ export class AiResponderService {
       ? `Customer name: ${contactName}\nMessage: ${customerMessage}`
       : customerMessage;
 
-    // Merge history + current message, dedup the last message if it's already in history
-    const lastHistoryMsg = historyMessages[historyMessages.length - 1];
+    // Build chat messages: full history (excluding the current message which is already in DB)
+    // then append the current message with contact name hint for context
     const chatMessages = [
       { role: 'system', content: systemPrompt },
-      ...historyMessages.slice(0, -1), // history without the last (current) message
-      { role: 'user', content: lastHistoryMsg?.content === customerMessage ? userContent : userContent },
-    ].filter((m, i, arr) => {
-      // Avoid consecutive same-role duplicates from the merge
-      if (i === 0) return true;
-      return !(m.role === arr[i - 1].role && m.content === arr[i - 1].content);
-    });
+      ...historyMessages.slice(0, -1), // history without the last entry (which is the current message)
+      { role: 'user', content: userContent },
+    ];
 
     try {
       const response = await axios.post(

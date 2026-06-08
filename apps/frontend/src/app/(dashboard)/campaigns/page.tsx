@@ -8,6 +8,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { campaignsApi, templatesApi, segmentsApi, apiKeysApi } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { cn, formatRelativeTime, getApiError } from '@/lib/utils';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { offlineQueue } from '@/lib/offline-queue';
@@ -303,7 +304,7 @@ export default function CampaignsPage() {
   };
 
   const deleteCampaign = async (id: string, name: string) => {
-    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    if (!await showConfirm(`Delete "${name}"?`, { subtext: "This cannot be undone." })) return;
     setDeletingId(id);
     try { await campaignsApi.delete(id); await load(); toast.success('Campaign deleted'); }
     catch (err) { toast.error(getApiError(err, 'Failed to delete campaign')); }

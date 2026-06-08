@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
@@ -27,6 +27,13 @@ export class MediaService {
   ) {}
 
   async upload(tenantId: string, uploadedById: string, file: Express.Multer.File) {
+    const existing = await this.prisma.mediaAsset.findFirst({
+      where: { tenantId, originalName: file.originalname },
+    });
+    if (existing) {
+      throw new BadRequestException(`A file named "${file.originalname}" already exists in your library`);
+    }
+
     const { fileKey, fileUrl } = await this.storageService.upload(file, tenantId);
 
     const mediaType = MIME_TO_MEDIA_TYPE[file.mimetype] ?? 'DOCUMENT';
@@ -74,6 +81,29 @@ export class MediaService {
 
   async getStream(fileKey: string) {
     return this.storageService.getStream(fileKey);
+  }
+
+  async deduplicateAssets(tenantId: string): Promise<{ removed: number }> {
+    const all = await this.prisma.mediaAsset.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, originalName: true, fileKey: true },
+    });
+    const seen = new Map<string, boolean>();
+    const toDelete: { id: string; fileKey: string }[] = [];
+    for (const asset of all) {
+      if (seen.has(asset.originalName)) {
+        toDelete.push({ id: asset.id, fileKey: asset.fileKey });
+      } else {
+        seen.set(asset.originalName, true);
+      }
+    }
+    if (toDelete.length === 0) return { removed: 0 };
+    await Promise.all([
+      ...toDelete.map((a) => this.storageService.delete(a.fileKey).catch(() => {})),
+      this.prisma.mediaAsset.deleteMany({ where: { id: { in: toDelete.map((a) => a.id) } } }),
+    ]);
+    return { removed: toDelete.length };
   }
 
   async getStreamWithMime(fileKey: string): Promise<{ stream: NodeJS.ReadableStream | null; mimeType: string | null }> {

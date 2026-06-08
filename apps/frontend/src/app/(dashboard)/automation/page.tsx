@@ -588,7 +588,7 @@ export default function AutomationPage() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this automation rule? This cannot be undone.")) return;
+    if (!await showConfirm('Delete this automation rule?', { subtext: 'This cannot be undone.' })) return;
     try {
       await automationApi.delete(id);
       setRules((prev) => prev.filter((r) => r.id !== id));

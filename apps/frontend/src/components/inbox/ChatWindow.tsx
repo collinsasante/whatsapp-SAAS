@@ -18,6 +18,7 @@ import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
 import { LinkPreview, extractFirstUrl } from './LinkPreview';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useCallsStore } from '@/store/calls.store';
@@ -1034,7 +1035,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   const handleDeleteConversation = async () => {
     setShowHeaderMenu(false);
-    if (!window.confirm('Delete this conversation and all messages? This cannot be undone.')) return;
+    if (!await showConfirm('Delete this conversation?', { subtext: 'All messages will be permanently deleted. This cannot be undone.' })) return;
     try {
       await conversationsApi.delete(conversation.id);
       removeConversation(conversation.id);

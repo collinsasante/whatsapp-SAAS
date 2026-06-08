@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { tagsApi, attributesApi, webhooksApi, manageSettingsApi, teamsApi, cannedResponsesApi } from '@/lib/api';
 import { TeamManagement } from '@/components/shared/TeamManagement';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 
 // ─────────────────── types ───────────────────
 interface TagItem { id: string; name: string; color: string }
@@ -146,7 +147,7 @@ function CannedResponsesSection() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this canned response?')) return;
+    if (!await showConfirm('Delete this canned response?', { subtext: 'This cannot be undone.' })) return;
     try { await cannedResponsesApi.delete(id); void load(); toast.success('Deleted'); }
     catch { toast.error('Failed to delete'); }
   };
@@ -171,7 +172,7 @@ function CannedResponsesSection() {
   };
 
   const deleteCat = async (id: string) => {
-    if (!confirm('Delete this category? Responses will be uncategorized.')) return;
+    if (!await showConfirm('Delete this category?', { subtext: 'Responses will be uncategorized.' })) return;
     try { await cannedResponsesApi.deleteCategory(id); void load(); }
     catch { toast.error('Failed to delete category'); }
   };
@@ -441,7 +442,7 @@ function TeamsSection() {
   };
 
   const deleteTeam = async (id: string) => {
-    if (!confirm('Delete this team?')) return;
+    if (!await showConfirm('Delete this team?', { subtext: 'This cannot be undone.' })) return;
     try { await teamsApi.delete(id); toast.success('Team deleted'); void load(); }
     catch { toast.error('Failed to delete team'); }
   };

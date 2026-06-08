@@ -10,6 +10,7 @@ import { TeamManagement } from '@/components/shared/TeamManagement';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
+import { showConfirm } from '@/store/confirm.store';
 
 interface TenantData {
   id: string; name: string;
@@ -203,7 +204,7 @@ export default function SettingsPage() {
   };
 
   const deleteNumber = async (id: string, label: string) => {
-    if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
+    if (!await showConfirm(`Delete "${label}"?`, { subtext: 'This cannot be undone.' })) return;
     try {
       await whatsappNumbersApi.delete(id);
       toast.success('Number deleted');

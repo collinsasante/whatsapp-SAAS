@@ -8,6 +8,7 @@ import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn, getApiError } from '@/lib/utils';
 import { PaymentSummary } from '@/components/ui/payment';
+import { showConfirm } from '@/store/confirm.store';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -831,7 +832,7 @@ export default function BillingPage() {
               </p>
               <button
                 onClick={async () => {
-                  if (!confirm('Cancel subscription at period end?')) return;
+                  if (!await showConfirm('Cancel subscription?', { subtext: 'Your plan stays active until period end, then reverts to Free.', confirmLabel: 'Cancel Plan', danger: true })) return;
                   try {
                     await billingApi.cancelSubscription(false);
                     toast.success('Subscription will cancel at period end');
