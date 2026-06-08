@@ -70,6 +70,22 @@ interface CreditPack {
   label: string; description: string; currency: string;
 }
 
+// ─── Currency helpers ─────────────────────────────────────────────────────────
+
+const isGhana = typeof window !== 'undefined'
+  ? Intl.DateTimeFormat().resolvedOptions().timeZone === 'Africa/Accra'
+  : false;
+const GHS_RATE = 12.5;
+
+function currSymFor(currency?: string) {
+  return currency === 'GHS' || (isGhana && !currency) ? '₵' : '$';
+}
+
+function formatUsd(usd: number): string {
+  if (isGhana) return `₵${Math.round(usd * GHS_RATE)}`;
+  return `$${usd}`;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
@@ -183,7 +199,7 @@ function PaymentModal({ title, amount, currency, reference, paymentDetails, onCl
   onClose: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const currSym = '$';
+  const currSym = currSymFor(currency);
   const copy = (text: string) => {
     void navigator.clipboard.writeText(text);
     toast.success('Copied');
@@ -249,12 +265,16 @@ function PaymentModal({ title, amount, currency, reference, paymentDetails, onCl
           </div>
         </div>
 
-        <div className="px-5 pb-5 flex-shrink-0">
+        <div className="px-5 pb-5 flex-shrink-0 space-y-2">
           <button onClick={() => { void handleConfirm(); }} disabled={confirming}
             className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors text-sm flex items-center justify-center gap-2">
             {confirming
               ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Confirming…</>
               : <><Check size={15} /> I understand, I&apos;ll pay now</>}
+          </button>
+          <button onClick={onClose}
+            className="w-full py-3 bg-white rounded-xl border border-gray-100 overflow-hidden text-sm font-semibold text-gray-500 hover:bg-gray-50 transition-colors">
+            Decline
           </button>
         </div>
       </div>
@@ -274,8 +294,9 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
   const [email, setEmail] = useState(initialEmail ?? '');
   const [loading, setLoading] = useState(false);
 
-  const currSym = '$';
-  const amount = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+  const currSym = isGhana ? '₵' : '$';
+  const usdAmount = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+  const amount = isGhana ? Math.round(usdAmount * GHS_RATE) : usdAmount;
 
   const handleGenerate = async () => {
     setLoading(true);
@@ -311,7 +332,8 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
             <div className="grid grid-cols-2 gap-2">
               {(['MONTHLY', 'YEARLY'] as const).map((c) => {
-                const price = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+                const usdPrice = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+                const price = isGhana ? Math.round(usdPrice * GHS_RATE) : usdPrice;
                 return (
                   <button key={c} onClick={() => setCycle(c)}
                     className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
@@ -320,7 +342,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
                     <div className="text-xs text-gray-500 mt-0.5">{currSym}{price}{c === 'MONTHLY' ? '/mo' : '/yr'}</div>
                     {c === 'YEARLY' && plan.monthlyPrice > 0 && (
                       <div className="text-[10px] font-semibold text-teal-600 mt-1">
-                        Save {currSym}{(plan.monthlyPrice * 12) - plan.yearlyPrice}/yr
+                        Save {currSym}{isGhana ? Math.round((plan.monthlyPrice * 12 - plan.yearlyPrice) * GHS_RATE) : (plan.monthlyPrice * 12) - plan.yearlyPrice}/yr
                       </div>
                     )}
                   </button>
@@ -345,6 +367,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated }: {
               <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
               <span>{currSym}{amount}</span>
             </div>
+            {isGhana && <p className="text-xs text-gray-400 mt-1">Rate: 1 USD = {GHS_RATE} GHS</p>}
           </div>
         </div>
 
@@ -498,7 +521,7 @@ function ProPlanCard({ plan, isCurrent, onSelect }: {
           )}
         </div>
         <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-3xl font-bold text-gray-900">${plan.monthlyPrice}</span>
+          <span className="text-3xl font-bold text-gray-900">{formatUsd(plan.monthlyPrice)}</span>
           <span className="text-sm text-gray-400">/month</span>
         </div>
         {plan.description && <p className="text-sm text-gray-500 mb-4">{plan.description}</p>}
@@ -594,8 +617,7 @@ export default function BillingPage() {
 
   function formatPrice(plan: Plan) {
     if (plan.monthlyPrice === 0) return 'Free';
-    const sym = '$';
-    return `${sym}${plan.monthlyPrice}/mo`;
+    return `${formatUsd(plan.monthlyPrice)}/mo`;
   }
 
   return (

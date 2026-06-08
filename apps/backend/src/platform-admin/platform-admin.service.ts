@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { UpdatePlanDto } from './dto/platform-admin.dto';
+import { CreatePlanDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
 
 @Injectable()
 export class PlatformAdminService {
@@ -197,8 +197,22 @@ export class PlatformAdminService {
     return { activated: true, creditsAdded: purchase.credits, newBalance: updated?.aiCredits ?? 0 };
   }
 
+  async updateWorkspace(id: string, data: UpdateWorkspaceDto) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    return this.prisma.tenant.update({
+      where: { id },
+      data: { ...(data.name && { name: data.name }), ...(data.billingEmail !== undefined && { billingEmail: data.billingEmail }) },
+      select: { id: true, name: true, billingEmail: true },
+    });
+  }
+
   async getPlans() {
     return this.prisma.plan.findMany({ orderBy: { sortOrder: 'asc' } });
+  }
+
+  async createPlan(data: CreatePlanDto) {
+    return this.prisma.plan.create({ data: { ...data, features: data.features ?? [] } as never });
   }
 
   async updatePlan(id: string, data: UpdatePlanDto) {

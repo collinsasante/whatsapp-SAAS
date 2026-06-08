@@ -41,6 +41,7 @@ interface Props {
   statusCounts?: StatusCounts;
   onResolvedLoaded?: (convs: Conversation[]) => void;
   mobileHidden?: boolean;
+  currentUserId?: string;
 }
 
 const STATUS_FILTERS = [
@@ -328,7 +329,7 @@ const ConvRow = memo(function ConvRow({
   );
 });
 
-export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden }: Props) {
+export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
@@ -455,8 +456,10 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         const matchesStatus = statusFilter === 'All' ? c.status !== 'RESOLVED' : c.status === statusFilter;
         const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
+        // In "All" tab with no explicit member filter: show only own + unassigned
         const matchesMember = memberFilter === 'All'
-          || (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
+          ? (statusFilter !== 'All' || !currentUserId || c.assignedTo === null || c.assignedTo?.id === currentUserId)
+          : (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
         return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
       })
       .sort((a, b) => {
@@ -624,6 +627,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                       const elapsed = Date.now() - new Date(c.lastInboundAt).getTime();
                       if (elapsed > TWENTY_FOUR_HOURS) return false;
                     }
+                    if (currentUserId && c.assignedTo !== null && c.assignedTo?.id !== currentUserId) return false;
                     return true;
                   }).length
                 : f.key === 'RESOLVED'

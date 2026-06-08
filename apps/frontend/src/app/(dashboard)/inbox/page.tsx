@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { conversationsApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import type { StatusCounts } from '@/store/inbox.store';
+import { useAuthStore } from '@/store/auth.store';
 import ConversationList from '@/components/inbox/ConversationList';
 import ChatWindow from '@/components/inbox/ChatWindow';
 import ConversationDetails from '@/components/inbox/ConversationDetails';
@@ -12,6 +13,7 @@ export default function InboxPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { conversations, activeConversationId, setConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
+  const currentUser = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Parameters<typeof setConversations>[0]>([]);
@@ -122,6 +124,7 @@ export default function InboxPage() {
         statusCounts={statusCounts}
         onResolvedLoaded={(convs) => setResolvedConversations(convs as Parameters<typeof setConversations>[0])}
         mobileHidden={mobileView === 'chat'}
+        currentUserId={currentUser?.id}
       />
       {activeConversation ? (
         <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 min-h-0 overflow-hidden`}>

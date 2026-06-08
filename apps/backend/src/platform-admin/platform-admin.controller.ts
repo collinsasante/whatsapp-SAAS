@@ -4,7 +4,7 @@ import { Request } from 'express';
 import { PlatformAdminGuard } from './platform-admin.guard';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
-import { AdminLoginDto, AdminSetupDto, UpdatePlanDto } from './dto/platform-admin.dto';
+import { AdminLoginDto, AdminSetupDto, CreatePlanDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
 
 type AdminRequest = Request & { adminId: string };
 
@@ -54,6 +54,12 @@ export class PlatformAdminController {
     return this.adminService.getWorkspace(id);
   }
 
+  @Patch('workspaces/:id')
+  @UseGuards(PlatformAdminGuard)
+  updateWorkspace(@Param('id') id: string, @Body() data: UpdateWorkspaceDto) {
+    return this.adminService.updateWorkspace(id, data);
+  }
+
   @Patch('workspaces/:id/suspend')
   @UseGuards(PlatformAdminGuard)
   suspendWorkspace(@Param('id') id: string) {
@@ -94,6 +100,12 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   plans() {
     return this.adminService.getPlans();
+  }
+
+  @Post('plans')
+  @UseGuards(PlatformAdminGuard)
+  createPlan(@Body() data: CreatePlanDto) {
+    return this.adminService.createPlan(data);
   }
 
   @Patch('plans/:id')
