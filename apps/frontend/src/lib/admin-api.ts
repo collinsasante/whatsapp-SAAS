@@ -128,6 +128,7 @@ export const adminApi = {
 
   plans: () => req<Plan[]>('GET', '/plans'),
 
+  createPlan: (data: Omit<Plan, 'id'> & { description?: string }) => req<Plan>('POST', '/plans', data),
   updatePlan: (id: string, data: Partial<Plan>) => req<Plan>('PATCH', `/plans/${id}`, data),
 
   forceSubscription: (tenantId: string, planSlug: string) =>
