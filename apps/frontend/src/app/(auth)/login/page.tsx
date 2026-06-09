@@ -98,6 +98,7 @@ function LoginPage() {
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
 
   useEffect(() => {
+    if (!searchParams) return;
     const error = searchParams.get('error');
     if (error === 'google_not_configured') toast.error('Google login is not configured on this server.');
     else if (error === 'google_auth_failed') toast.error('Google sign-in failed. Please try again.');
