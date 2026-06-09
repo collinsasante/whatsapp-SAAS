@@ -68,6 +68,7 @@ export default function ContactProfilePage() {
   const [attributes, setAttributes] = useState<Attribute[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'overview' | 'conversations' | 'notes' | 'activity'>('overview');
+  const [convStatusFilter, setConvStatusFilter] = useState<'ALL' | 'OPEN' | 'REQUESTED' | 'RESOLVED'>('ALL');
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -240,6 +241,8 @@ export default function ContactProfilePage() {
   const totalConvs = conversations.length;
   const resolvedConvs = conversations.filter((c) => c.status === 'RESOLVED').length;
   const openConvs = conversations.filter((c) => c.status === 'OPEN').length;
+  const filteredConvs = convStatusFilter === 'ALL' ? conversations
+    : conversations.filter((c) => c.status === convStatusFilter);
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
@@ -498,13 +501,22 @@ export default function ContactProfilePage() {
                 <Plus size={12} />New
               </button>
             </div>
-            {conversations.length === 0 ? (
-              <div className="py-12 text-center text-gray-400 text-sm">No conversations yet</div>
+            <div className="flex border-b border-gray-100 px-3 pt-2 pb-0 gap-1">
+              {(['ALL', 'OPEN', 'REQUESTED', 'RESOLVED'] as const).map((s) => (
+                <button key={s} onClick={() => setConvStatusFilter(s)}
+                  className={cn('px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors border-b-2',
+                    convStatusFilter === s ? 'text-teal-600 border-teal-600 bg-teal-50' : 'text-gray-500 border-transparent hover:text-gray-700')}>
+                  {s.charAt(0) + s.slice(1).toLowerCase()}
+                </button>
+              ))}
+            </div>
+            {filteredConvs.length === 0 ? (
+              <div className="py-12 text-center text-gray-400 text-sm">No conversations{convStatusFilter !== 'ALL' ? ` with status ${convStatusFilter.toLowerCase()}` : ''}</div>
             ) : (
               <div className="divide-y divide-gray-50">
-                {conversations.map((conv) => (
+                {filteredConvs.map((conv) => (
                   <button key={conv.id}
-                    onClick={() => router.push(`/inbox?conversation=${conv.id}`)}
+                    onClick={() => router.push(`/inbox?c=${conv.id}`)}
                     className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50 transition-colors text-left">
                     <span className={cn('text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0', statusColor(conv.status))}>
                       {conv.status}

@@ -25,6 +25,7 @@ import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatMessageTime, getProxiedMediaUrl, getApiError } from '@/lib/utils';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useTheme } from 'next-themes';
 import { offlineQueue } from '@/lib/offline-queue';
 import { useOfflineStore } from '@/store/offline.store';
 
@@ -186,6 +187,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const { user } = useAuthStore();
   const { setConfirmDial, outboundSession } = useCallsStore();
   const isOnline = useNetworkStatus();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const { setQueuedCounts } = useOfflineStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -241,10 +244,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [inputMode, setInputMode] = useState<'message' | 'note'>('message');
   const [savingNote, setSavingNote] = useState(false);
 
-  // Add label
+  // Add label (contact-level)
   const [showAddLabel, setShowAddLabel] = useState(false);
   const [labelInput, setLabelInput] = useState('');
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
+  const [contactLabels, setContactLabels] = useState<string[]>([]);
 
   // Snooze
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
@@ -538,6 +542,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     if (showSnoozeMenu) document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showSnoozeMenu]);
+
+  useEffect(() => {
+    if (conversation.contact?.id) {
+      contactsApi.get(conversation.contact.id)
+        .then(r => setContactLabels((r.data as { labels?: string[] }).labels ?? []))
+        .catch(() => {});
+    }
+  }, [conversation.contact?.id]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -999,34 +1011,30 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   const handleAddLabel = async (label: string) => {
     const trimmed = label.trim();
-    if (!trimmed) return;
-    const existing = conversation.labels ?? [];
-    if (existing.includes(trimmed)) { toast.error('Label already added'); return; }
+    if (!trimmed || !conversation.contact?.id) return;
+    if (contactLabels.includes(trimmed)) { toast.error('Label already added'); return; }
+    const updated = [...contactLabels, trimmed];
     try {
-      const updated = [...existing, trimmed];
-      await conversationsApi.update(conversation.id, { labels: updated });
-      updateConversation(conversation.id, { labels: updated });
+      await contactsApi.update(conversation.contact.id, { labels: updated });
+      setContactLabels(updated);
       setLabelInput('');
       toast.success(`Label "${trimmed}" added`);
-
-      // Promote brand-new labels to managed Tags so they show up in /manage → Tags.
-      // Existing tag names (case-insensitive) are skipped; conflicts from a server-side
-      // race are swallowed since the tag already exists.
       const alreadySaved = savedTags.some(t => t.name.toLowerCase() === trimmed.toLowerCase());
       if (!alreadySaved) {
         try {
           const r = await tagsApi.create({ name: trimmed });
           setSavedTags(prev => [...prev, r.data as { id: string; name: string; color?: string }]);
-        } catch { /* tag may already exist server-side — non-fatal */ }
+        } catch { /* tag may already exist — non-fatal */ }
       }
     } catch (err) { toast.error(getApiError(err, 'Failed to add label')); }
   };
 
   const handleRemoveLabel = async (label: string) => {
-    const updated = (conversation.labels ?? []).filter(l => l !== label);
+    if (!conversation.contact?.id) return;
+    const updated = contactLabels.filter(l => l !== label);
     try {
-      await conversationsApi.update(conversation.id, { labels: updated });
-      updateConversation(conversation.id, { labels: updated });
+      await contactsApi.update(conversation.contact.id, { labels: updated });
+      setContactLabels(updated);
     } catch (err) { toast.error(getApiError(err, 'Failed to remove label')); }
   };
 
@@ -1099,7 +1107,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   return (
     <div
-      className="flex-1 flex flex-col bg-white min-h-0 relative"
+      className="flex-1 flex flex-col bg-white dark:bg-gray-900 min-h-0 relative"
       onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
       onDrop={(e) => {
@@ -1122,7 +1130,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       )}
 
       {/* Header */}
-      <div className="border-b border-gray-100 flex-shrink-0 bg-white">
+      <div className="border-b border-gray-100 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900">
         <div className="flex items-center gap-3 px-4 py-3">
             {/* Mobile back button */}
             {onMobileBack && (
@@ -1276,9 +1284,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     <p className="text-xs font-semibold text-gray-600 mb-2">Labels</p>
 
                     {/* Current labels with remove */}
-                    {(conversation.labels ?? []).length > 0 && (
+                    {contactLabels.length > 0 && (
                       <div className="flex flex-wrap gap-1 mb-2.5">
-                        {(conversation.labels ?? []).map((l) => (
+                        {contactLabels.map((l) => (
                           <span key={l} className="inline-flex items-center gap-1 text-xs bg-teal-50 text-teal-700 border border-teal-100 px-2 py-0.5 rounded-full">
                             {l}
                             <button onClick={() => { void handleRemoveLabel(l); }} className="text-teal-400 hover:text-teal-600 ml-0.5">
@@ -1290,11 +1298,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     )}
 
                     {/* Saved tag suggestions */}
-                    {savedTags.filter(t => !(conversation.labels ?? []).includes(t.name)).length > 0 && (
+                    {savedTags.filter(t => !contactLabels.includes(t.name)).length > 0 && (
                       <div className="mb-2.5">
                         <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">Saved Tags</p>
                         <div className="flex flex-wrap gap-1">
-                          {savedTags.filter(t => !(conversation.labels ?? []).includes(t.name)).map(tag => (
+                          {savedTags.filter(t => !contactLabels.includes(t.name)).map(tag => (
                             <button key={tag.id} onClick={() => { void handleAddLabel(tag.name); }}
                               className="text-xs px-2.5 py-1 rounded-full border transition-colors hover:opacity-80"
                               style={{ borderColor: tag.color ?? '#e5e7eb', color: tag.color ?? '#374151', backgroundColor: tag.color ? tag.color + '20' : '#f9fafb' }}>
@@ -1387,7 +1395,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
         {/* WhatsApp-style search panel — slides in below header */}
         {showSearch && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
+          <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 animate-in slide-in-from-top-1 duration-200">
             <Search size={14} className="text-gray-400 flex-shrink-0" />
             <input
               ref={searchInputRef}
@@ -1449,7 +1457,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             </div>
           )}
           <div className="flex-1 flex flex-col relative min-h-0">
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={isDark ? { backgroundColor: '#1a202c' } : { backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
             {loading ? (
               <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
             ) : timeline.length === 0 ? (
@@ -1471,7 +1479,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                     >
                       {entry.kind === 'date-header' ? (
                         <div className="flex items-center justify-center my-3">
-                          <span className="text-xs text-gray-500 bg-white/80 px-3 py-1 rounded-full shadow-sm">{entry.label}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-700/80 px-3 py-1 rounded-full shadow-sm">{entry.label}</span>
                         </div>
                       ) : entry.kind === 'note' ? (
                         <NoteBubble note={entry.item} currentUserId={user?.id} onDelete={handleDeleteNote} onEdit={handleEditNote} />
@@ -1496,10 +1504,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             {typing.filter((id) => id !== user?.id).length > 0 && (
               <div className="flex items-end gap-2 pl-1 mt-1">
                 <div className={cn('w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0', avatarColor)}>{getInitials(name)}</div>
-                <div className="bg-white rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm flex gap-1 items-center">
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="bg-white dark:bg-gray-700 rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm flex gap-1 items-center">
+                  <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               </div>
             )}
@@ -1520,7 +1528,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           </div>
 
           {/* Input area */}
-          <div className="border-t border-gray-100 px-4 pt-2 pb-3 flex-shrink-0 bg-white relative">
+          <div className="border-t border-gray-100 dark:border-gray-700 px-4 pt-2 pb-3 flex-shrink-0 bg-white dark:bg-gray-900 relative">
             {/* Resolved banner */}
             {isResolved && (
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200">
@@ -1793,7 +1801,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   'flex-1 px-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2 transition-colors border resize-none overflow-y-hidden leading-snug',
                   inputMode === 'note'
                     ? 'bg-yellow-50 border-yellow-200 focus:ring-yellow-400 focus:bg-yellow-50'
-                    : 'bg-gray-50 border-gray-100 focus:ring-teal-500 focus:bg-white focus:border-teal-300',
+                    : 'bg-gray-50 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-600 border-gray-100 focus:ring-teal-500 focus:bg-white dark:focus:bg-gray-700 focus:border-teal-300',
                   inputDisabled && 'opacity-60 cursor-not-allowed'
                 )}
                 disabled={inputDisabled}
@@ -2224,9 +2232,9 @@ const ActivityBubble = memo(function ActivityBubble({ entry }: { entry: Activity
 
   return (
     <div className="flex justify-center px-4 py-1.5">
-      <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3.5 py-1 shadow-sm max-w-lg">
+      <div className="flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full px-3.5 py-1 shadow-sm max-w-lg">
         <span className={cn('text-xs font-medium', color)}>{text}</span>
-        <span className="text-gray-200 text-xs">·</span>
+        <span className="text-gray-200 dark:text-gray-600 text-xs">·</span>
         <span className="text-xs text-gray-400 flex-shrink-0">{time}</span>
       </div>
     </div>
@@ -2584,7 +2592,7 @@ const MessageBubble = memo(function MessageBubble({
             <div
               className={cn(
                 'rounded-2xl px-3 py-2',
-                isOutbound ? 'bg-teal-700 text-white rounded-br-sm' : 'bg-white text-gray-900 rounded-bl-sm shadow-sm',
+                isOutbound ? 'bg-teal-700 text-white rounded-br-sm' : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-sm shadow-sm',
               )}
               onContextMenu={openMenu}
               onTouchStart={handleTouchStart}

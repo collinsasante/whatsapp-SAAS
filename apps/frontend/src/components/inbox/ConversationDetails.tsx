@@ -88,7 +88,7 @@ export default function ConversationDetails({ conversation }: Props) {
   const [activityLoaded, setActivityLoaded] = useState(false);
   const [journeyExpanded, setJourneyExpanded] = useState(false);
   const [infoExpanded, setInfoExpanded] = useState(true);
-  const [contactDetail, setContactDetail] = useState<{ optedOut: boolean; isBlocked: boolean } | null>(null);
+  const [contactDetail, setContactDetail] = useState<{ optedOut: boolean; isBlocked: boolean; labels: string[] } | null>(null);
 
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
@@ -108,8 +108,8 @@ export default function ConversationDetails({ conversation }: Props) {
     }).catch(() => { setActivityLoaded(true); });
     if (conversation.contact?.id) {
       void contactsApi.get(conversation.contact.id).then((res) => {
-        const c = res.data as { optedOut: boolean; isBlocked: boolean };
-        setContactDetail({ optedOut: c.optedOut, isBlocked: c.isBlocked });
+        const c = res.data as { optedOut: boolean; isBlocked: boolean; labels?: string[] };
+        setContactDetail({ optedOut: c.optedOut, isBlocked: c.isBlocked, labels: c.labels ?? [] });
       }).catch(() => {});
     }
     void conversationsApi.getNotes(conversation.id).then((res) => {
@@ -123,16 +123,17 @@ export default function ConversationDetails({ conversation }: Props) {
     try {
       const res = await contactsApi.block(contactId);
       const { isBlocked } = res.data as { isBlocked: boolean };
-      setContactDetail((prev) => prev ? { ...prev, isBlocked } : { optedOut: false, isBlocked });
+      setContactDetail((prev) => prev ? { ...prev, isBlocked } : { optedOut: false, isBlocked, labels: [] });
       toast.success(isBlocked ? 'Contact blocked' : 'Contact unblocked');
     } catch { toast.error('Failed to update block status'); }
   };
 
-  const removeLabel = async (label: string) => {
+  const removeContactLabel = async (label: string) => {
+    if (!conversation.contact?.id || !contactDetail) return;
+    const updated = contactDetail.labels.filter((l) => l !== label);
     try {
-      const updated = conversation.labels.filter((l) => l !== label);
-      await conversationsApi.update(conversation.id, { labels: updated });
-      updateConversation(conversation.id, { labels: updated });
+      await contactsApi.update(conversation.contact.id, { labels: updated });
+      setContactDetail({ ...contactDetail, labels: updated });
     } catch { toast.error('Failed to remove label'); }
   };
 
@@ -257,13 +258,13 @@ export default function ConversationDetails({ conversation }: Props) {
         )}
       </div>
 
-      {/* Labels display */}
-      {conversation.labels.length > 0 && (
+      {/* Contact labels display */}
+      {(contactDetail?.labels ?? []).length > 0 && (
         <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap gap-1.5">
-          {conversation.labels.map((label) => (
+          {(contactDetail?.labels ?? []).map((label) => (
             <span key={label} className="flex items-center gap-1 text-xs bg-teal-50 text-teal-700 px-2.5 py-1 rounded-full">
               {label}
-              <button onClick={() => { void removeLabel(label); }} className="hover:text-teal-900 ml-0.5">
+              <button onClick={() => { void removeContactLabel(label); }} className="hover:text-teal-900 ml-0.5">
                 <X size={10} />
               </button>
             </span>
