@@ -70,7 +70,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const startXRef = useRef(0);
   const deltaXRef = useRef(0);
 
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const router = useRouter();
   const { user, tenant, clearAuth } = useAuthStore();
 

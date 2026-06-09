@@ -13,7 +13,7 @@ const NAV = [
 
 export default function PlatformAdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [ready, setReady] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 

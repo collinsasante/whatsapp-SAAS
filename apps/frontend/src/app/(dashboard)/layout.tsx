@@ -18,7 +18,7 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const { isAuthenticated, _hasHydrated, accessToken, setAccessToken, clearAuth, user, tenant } = useAuthStore();
   const [restoring, setRestoring] = useState(false);
 
@@ -60,7 +60,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
-    if (user?.role && !canAccess(user.role, pathname)) {
+    if (user?.role && pathname && !canAccess(user.role, pathname)) {
       router.replace('/inbox');
     }
   }, [_hasHydrated, isAuthenticated, accessToken, restoreSession, router, tenant, user, pathname]);

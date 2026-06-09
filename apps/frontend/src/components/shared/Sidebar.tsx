@@ -62,7 +62,7 @@ function GroupFlyout({
   buttonRef: React.RefObject<HTMLButtonElement | null>;
   onClose: () => void;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top?: number; bottom?: number }>({});
 
@@ -130,7 +130,7 @@ function NavItemButton({ item, openGroup, setOpenGroup }: {
   openGroup: string | null;
   setOpenGroup: (g: string | null) => void;
 }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const btnRef = useRef<HTMLButtonElement>(null);
 
   if (item.type === 'link') {
@@ -313,7 +313,7 @@ export default function Sidebar() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
 
   const perms = getPermissions(user?.role);
 
@@ -461,7 +461,7 @@ const PRIMARY_TABS = [
 const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/settings', '/channels', '/library', '/manage', '/billing'];
 
 export function MobileBottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const totalUnread = useInboxStore((s) =>
