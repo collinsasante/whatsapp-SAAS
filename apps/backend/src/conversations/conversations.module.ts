@@ -5,6 +5,7 @@ import { ConversationsController } from './conversations.controller';
 import { ActivityLogModule } from '../activity-log/activity-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { AirtableService } from './airtable.service';
 import { QueueName } from '@whatsapp-platform/shared-types';
 
 @Module({
@@ -15,7 +16,7 @@ import { QueueName } from '@whatsapp-platform/shared-types';
     RealtimeModule,
   ],
   controllers: [ConversationsController],
-  providers: [ConversationsService],
+  providers: [ConversationsService, AirtableService],
   exports: [ConversationsService],
 })
 export class ConversationsModule {}

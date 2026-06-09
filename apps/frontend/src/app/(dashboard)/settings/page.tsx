@@ -21,6 +21,8 @@ interface TenantData {
     businessPhone: string | null; businessDescription: string | null;
     businessAddress: string | null; businessWebsite: string | null;
     timezone: string; autoReply: boolean; autoReplyMessage: string | null;
+    airtableEnabled: boolean; airtableApiKey: string | null;
+    airtableBaseId: string | null; airtableTableName: string | null;
   } | null;
 }
 
@@ -90,6 +92,8 @@ export default function SettingsPage() {
     businessDescription: '', businessAddress: '', businessWebsite: '',
   });
   const [autoForm, setAutoForm] = useState({ autoReply: false, autoReplyMessage: '', timezone: 'UTC' });
+  const [airtableForm, setAirtableForm] = useState({ airtableEnabled: false, airtableApiKey: '', airtableBaseId: '', airtableTableName: '' });
+  const [airtableSaving, setAirtableSaving] = useState(false);
 
   // API keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -127,6 +131,7 @@ export default function SettingsPage() {
             businessWebsite: data.settings.businessWebsite ?? '',
           });
           setAutoForm({ autoReply: data.settings.autoReply, autoReplyMessage: data.settings.autoReplyMessage ?? '', timezone: data.settings.timezone });
+          setAirtableForm({ airtableEnabled: data.settings.airtableEnabled ?? false, airtableApiKey: data.settings.airtableApiKey ?? '', airtableBaseId: data.settings.airtableBaseId ?? '', airtableTableName: data.settings.airtableTableName ?? '' });
         }
       } finally { setLoading(false); }
     };
@@ -250,6 +255,13 @@ export default function SettingsPage() {
     try { await tenantApi.updateSettings(autoForm); toast.success('Automation settings saved'); }
     catch { toast.error('Failed to save settings'); }
     finally { setSaving(false); }
+  };
+
+  const saveAirtable = async () => {
+    setAirtableSaving(true);
+    try { await tenantApi.updateSettings(airtableForm); toast.success('Airtable integration saved'); }
+    catch { toast.error('Failed to save Airtable settings'); }
+    finally { setAirtableSaving(false); }
   };
 
   const createApiKey = async () => {
@@ -611,6 +623,7 @@ export default function SettingsPage() {
 
             {/* ── Automation ── */}
             {activeTab === 'Automation' && (
+              <>
               <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
                 <h2 className="text-base font-semibold text-gray-900 mb-1">Auto-Reply</h2>
                 <p className="text-sm text-gray-500 mb-5">Automatically reply when a new conversation starts.</p>
@@ -636,6 +649,45 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </section>
+
+              {/* Airtable Integration */}
+              <section className="bg-white rounded-2xl border border-gray-100 p-6">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-yellow-50 flex items-center justify-center flex-shrink-0">
+                      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-yellow-500"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069z"/></svg>
+                    </div>
+                    <h3 className="text-sm font-semibold text-gray-900">Airtable Lead Integration</h3>
+                  </div>
+                  <button onClick={() => setAirtableForm(f => ({ ...f, airtableEnabled: !f.airtableEnabled }))}
+                    className={cn('relative w-10 h-5 rounded-full transition-colors cursor-pointer flex-shrink-0', airtableForm.airtableEnabled ? 'bg-teal-600' : 'bg-gray-200')}>
+                    <div className={cn('absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', airtableForm.airtableEnabled && 'translate-x-5')} />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-4 ml-9">Automatically push new VerzChat conversations to Airtable as leads.</p>
+                {airtableForm.airtableEnabled && (
+                  <div className="space-y-3 ml-9">
+                    <Field label="Airtable Personal Access Token">
+                      <input type="password" value={airtableForm.airtableApiKey} placeholder="patXXXXXXXXXXXXXX.XXXX…"
+                        onChange={(e) => setAirtableForm(f => ({ ...f, airtableApiKey: e.target.value }))} className={INPUT} />
+                    </Field>
+                    <Field label="Base ID">
+                      <input value={airtableForm.airtableBaseId} placeholder="appXXXXXXXXXXXXXX"
+                        onChange={(e) => setAirtableForm(f => ({ ...f, airtableBaseId: e.target.value }))} className={INPUT} />
+                    </Field>
+                    <Field label="Table Name">
+                      <input value={airtableForm.airtableTableName} placeholder="e.g. Leads"
+                        onChange={(e) => setAirtableForm(f => ({ ...f, airtableTableName: e.target.value }))} className={INPUT} />
+                    </Field>
+                  </div>
+                )}
+                <div className="mt-4">
+                  <button onClick={() => void saveAirtable()} disabled={airtableSaving} className={BTN_PRIMARY}>
+                    {airtableSaving ? 'Saving…' : 'Save Airtable Settings'}
+                  </button>
+                </div>
+              </section>
+              </>
             )}
 
           </div>

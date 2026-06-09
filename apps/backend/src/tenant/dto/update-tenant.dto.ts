@@ -68,4 +68,24 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   @IsString()
   autoReplyMessage?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  airtableEnabled?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  airtableApiKey?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  airtableBaseId?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  airtableTableName?: string;
 }

@@ -7,6 +7,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { AirtableService } from './airtable.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
 import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, SnoozeWakeJob } from '@whatsapp-platform/shared-types';
@@ -33,6 +34,7 @@ export class ConversationsService {
     private activityLogService: ActivityLogService,
     private notificationsService: NotificationsService,
     private realtimeService: RealtimeService,
+    private airtableService: AirtableService,
     private moduleRef: ModuleRef,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
   ) {}
@@ -95,6 +97,7 @@ export class ConversationsService {
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_REQUESTED, conversationId: newConv.id, contactId });
     this.realtimeService.emitConversationStateChanged(tenantId, newConv.id, newConv);
     void this.notifyAllAgents(tenantId, newConv.id, newConv as unknown as Record<string, unknown>, 'CONVERSATION_REQUESTED' as NotificationType);
+    void this.airtableService.pushNewLead(tenantId, { name: newConv.contact.name, phone: newConv.contact.phone });
     return newConv;
   }
 

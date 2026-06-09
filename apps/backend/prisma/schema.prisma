@@ -171,6 +171,10 @@ model TenantSettings {
   aiPersonality       String?  @map("ai_personality")
   aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
   aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
+  airtableEnabled     Boolean  @default(false) @map("airtable_enabled")
+  airtableApiKey      String?  @map("airtable_api_key")
+  airtableBaseId      String?  @map("airtable_base_id")
+  airtableTableName   String?  @map("airtable_table_name")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
