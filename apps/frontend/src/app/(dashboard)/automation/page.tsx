@@ -23,6 +23,7 @@ import {
 import { automationApi } from "@/lib/api";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
+import { showConfirm } from "@/store/confirm.store";
 
 interface Condition {
   field: string;
