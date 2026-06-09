@@ -76,11 +76,12 @@ const TABS = ['Business Information', 'WhatsApp Business API', 'API Keys', 'Auto
 type Tab = typeof TABS[number];
 
 export default function SettingsPage() {
-  const { tenant: authTenant } = useAuthStore();
+  const { tenant: authTenant, user: authUser, accessToken, setAuth } = useAuthStore();
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('Business Information');
+  const [workspaceName, setWorkspaceName] = useState('');
 
   // Forms
   const [waForm, setWaForm] = useState({ phoneNumberId: '', wabaId: '', accessToken: '' });
@@ -114,6 +115,7 @@ export default function SettingsPage() {
         const res = await tenantApi.get();
         const data = res.data as TenantData;
         setTenant(data);
+        setWorkspaceName(data.name ?? '');
         setWaForm({ phoneNumberId: data.phoneNumberId ?? '', wabaId: data.wabaId ?? '', accessToken: '' });
         if (data.settings) {
           setProfileForm({
@@ -229,6 +231,20 @@ export default function SettingsPage() {
     finally { setSaving(false); }
   };
 
+  const saveWorkspaceName = async () => {
+    if (!workspaceName.trim()) { toast.error('Workspace name cannot be empty'); return; }
+    setSaving(true);
+    try {
+      await tenantApi.update({ name: workspaceName.trim() });
+      if (authUser && authTenant && accessToken) {
+        setAuth(authUser, { ...authTenant, name: workspaceName.trim() }, accessToken);
+      }
+      toast.success('Workspace name updated');
+    }
+    catch { toast.error('Failed to update workspace name'); }
+    finally { setSaving(false); }
+  };
+
   const saveAuto = async () => {
     setSaving(true);
     try { await tenantApi.updateSettings(autoForm); toast.success('Automation settings saved'); }
@@ -302,6 +318,31 @@ export default function SettingsPage() {
         {/* Content */}
         <div className="flex-1 overflow-auto p-4 md:p-8">
           <div className="max-w-2xl space-y-6">
+
+            {/* ── Workspace Name ── */}
+            {activeTab === 'Business Information' && (
+              <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
+                <h2 className="text-base font-semibold text-gray-900 mb-1">Workspace Name</h2>
+                <p className="text-sm text-gray-500 mb-5">The name shown in the sidebar and across the platform.</p>
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <Field label="Name">
+                      <input
+                        type="text"
+                        value={workspaceName}
+                        onChange={(e) => setWorkspaceName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void saveWorkspaceName(); }}
+                        className={INPUT}
+                        placeholder="e.g. Pakkmax"
+                      />
+                    </Field>
+                  </div>
+                  <button onClick={() => void saveWorkspaceName()} disabled={saving} className={cn(BTN_PRIMARY, 'mb-0.5')}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </section>
+            )}
 
             {/* ── Business Profile ── */}
             {activeTab === 'Business Information' && (

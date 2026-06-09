@@ -10,7 +10,7 @@ async function main() {
     tenant = await prisma.tenant.create({
       data: {
         id: TENANT_ID,
-        name: "Benard's Workspace",
+        name: "Pakkmax",
         phoneNumberId: '1095571453639433',
         wabaId: '2446646179109530',
         accessToken: 'EAAihD8pZBPFwBRswhOkDW1ZBawg1SsdYWDK0AAaQXgZBccyTCT9GMtkY0vDWl7kkkM9gjlWc2NZA7NlZAVHoKrq9izNb7WgZBxJq0sSaKBOgJE4HDRPnXixaP8xFULs1WGuRR8k3bAU8jdQF3C7BCXhVQLuZBuqgggxoaZAGg3xbxfqMTdV3Thk0fqgZA4hfJPlMdPgZDZD',
@@ -21,9 +21,9 @@ async function main() {
         onboardingStep: 2,
       },
     });
-    console.log("✓ Tenant created: Benard's Workspace");
+    console.log("✓ Tenant created: Pakkmax");
   } else {
-    console.log("✓ Tenant already exists: Benard's Workspace");
+    console.log("✓ Tenant already exists: Pakkmax");
   }
 
   const users = [
