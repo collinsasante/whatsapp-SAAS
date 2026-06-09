@@ -22,7 +22,8 @@ const ROLE_LABELS: Record<string, string> = {
 const INPUT = 'w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 bg-gray-50 focus:bg-white transition-colors';
 
 export default function JoinPage() {
-  const { token } = useParams<{ token: string }>();
+  const params = useParams<{ token: string }>();
+  const token = params?.token ?? '';
   const router = useRouter();
   const { setAuth, user: currentUser } = useAuthStore();
 
