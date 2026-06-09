@@ -53,6 +53,7 @@ model Tenant {
   cannedResponseCategories CannedResponseCategory[]
   cannedResponseUsages     CannedResponseUsage[]
   apiKeys                  ApiKey[]
+  publicApiLogs            PublicApiLog[]
   chatbotFlows        ChatbotFlow[]
   tags                Tag[]
   contactAttributes   ContactAttribute[]
@@ -1008,11 +1009,31 @@ model ApiKey {
   isActive    Boolean   @default(true) @map("is_active")
   createdAt   DateTime  @default(now()) @map("created_at")
 
-  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdBy User   @relation(fields: [createdById], references: [id])
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User            @relation(fields: [createdById], references: [id])
+  logs      PublicApiLog[]
 
   @@index([tenantId])
   @@map("api_keys")
+}
+
+model PublicApiLog {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  apiKeyId     String   @map("api_key_id")
+  endpoint     String
+  phone        String?
+  templateName String?  @map("template_name")
+  status       String
+  errorMessage String?  @map("error_message")
+  ip           String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  apiKey ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("public_api_logs")
 }
 
 enum FlowTriggerType {

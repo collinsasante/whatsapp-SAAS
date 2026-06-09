@@ -362,6 +362,7 @@ export const apiKeysApi = {
   create: (data: { name: string; expiresAt?: string }) => api.post('/api-keys', data),
   revoke: (id: string) => api.post(`/api-keys/${id}/revoke`),
   delete: (id: string) => api.delete(`/api-keys/${id}`),
+  getLogs: () => api.get('/api-keys/logs'),
 };
 
 export const chatbotFlowsApi = {

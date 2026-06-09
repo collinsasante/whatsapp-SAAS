@@ -14,6 +14,10 @@ export class PublicService {
     private apiKeysService: ApiKeysService,
   ) {}
 
+  private async logCall(tenantId: string, apiKeyId: string, endpoint: string, opts: { phone?: string; templateName?: string; status: string; errorMessage?: string; ip?: string }) {
+    void this.prisma.publicApiLog.create({ data: { tenantId, apiKeyId, endpoint, ...opts } }).catch(() => {});
+  }
+
   async sendTemplateMessage(
     rawApiKey: string,
     to: string,
@@ -21,6 +25,7 @@ export class PublicService {
     language: string,
     variables: Record<string, string> = {},
     urlVariables?: Record<string, string>,
+    ip?: string,
   ) {
     console.log('[PublicAPI] sendTemplateMessage called', { to, templateName, language, variables, urlVariables });
 
@@ -95,6 +100,7 @@ export class PublicService {
     ).catch((err) => {
       const msg = err?.response?.data?.error?.message ?? err.message;
       console.error('[PublicAPI] WhatsApp Graph API error:', err?.response?.data ?? err.message);
+      this.logCall(tenantId, keyRecord.id, 'send-template', { phone: normalizedPhone, templateName, status: 'ERROR', errorMessage: msg, ip });
       throw new BadRequestException(`WhatsApp API error: ${msg}`);
     });
 
@@ -125,6 +131,7 @@ export class PublicService {
       },
     });
 
+    this.logCall(tenantId, keyRecord.id, 'send-template', { phone: normalizedPhone, templateName, status: 'OK', ip });
     return { success: true, messageId: whatsappMessageId, to: normalizedPhone };
   }
 

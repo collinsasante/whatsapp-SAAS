@@ -95,6 +95,11 @@ export default function SettingsPage() {
   const [airtableForm, setAirtableForm] = useState({ airtableEnabled: false, airtableApiKey: '', airtableBaseId: '', airtableTableName: '' });
   const [airtableSaving, setAirtableSaving] = useState(false);
 
+  // API call logs
+  interface ApiCallLog { id: string; endpoint: string; phone: string | null; templateName: string | null; status: string; errorMessage: string | null; ip: string | null; createdAt: string; apiKey: { name: string; keyPrefix: string } }
+  const [apiCallLogs, setApiCallLogs] = useState<ApiCallLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
   // API keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [apiKeysLoading, setApiKeysLoading] = useState(false);
@@ -140,10 +145,15 @@ export default function SettingsPage() {
 
   const loadApiKeys = useCallback(async () => {
     setApiKeysLoading(true);
+    setLogsLoading(true);
     try {
-      const res = await apiKeysApi.list();
-      setApiKeys(res.data as ApiKey[]);
-    } finally { setApiKeysLoading(false); }
+      const [keysRes, logsRes] = await Promise.all([apiKeysApi.list(), apiKeysApi.getLogs()]);
+      setApiKeys(keysRes.data as ApiKey[]);
+      setApiCallLogs(logsRes.data as ApiCallLog[]);
+    } finally {
+      setApiKeysLoading(false);
+      setLogsLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -617,6 +627,66 @@ export default function SettingsPage() {
                   <code className="block mt-2 text-xs bg-gray-100 text-gray-800 px-3 py-2 rounded-lg font-mono">
                     X-Api-Key: wap_xxxxxxxxxxxxxxxx
                   </code>
+                </div>
+
+                {/* API Call Log */}
+                <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-800">API Call Log</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Last 100 calls to your Public API</p>
+                    </div>
+                    <button onClick={() => { void loadApiKeys(); }} className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1">
+                      <RefreshCw size={11} />Refresh
+                    </button>
+                  </div>
+                  {logsLoading ? (
+                    <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-teal-600" /></div>
+                  ) : apiCallLogs.length === 0 ? (
+                    <div className="px-5 py-8 text-center">
+                      <p className="text-sm text-gray-400">No API calls recorded yet</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-gray-50 text-left">
+                            <th className="px-4 py-2.5 font-semibold text-gray-500">Time</th>
+                            <th className="px-4 py-2.5 font-semibold text-gray-500">Key</th>
+                            <th className="px-4 py-2.5 font-semibold text-gray-500">Phone</th>
+                            <th className="px-4 py-2.5 font-semibold text-gray-500">Template</th>
+                            <th className="px-4 py-2.5 font-semibold text-gray-500">Status</th>
+                            <th className="px-4 py-2.5 font-semibold text-gray-500">IP</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {apiCallLogs.map((log, i) => (
+                            <tr key={log.id} className={cn('hover:bg-gray-50', i > 0 && 'border-t border-gray-100')}>
+                              <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">
+                                {new Date(log.createdAt).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-2.5 font-mono text-gray-700 whitespace-nowrap">
+                                {log.apiKey.name} <span className="text-gray-400">({log.apiKey.keyPrefix}…)</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-gray-700">{log.phone ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-gray-700">{log.templateName ?? '—'}</td>
+                              <td className="px-4 py-2.5">
+                                <span className={cn('px-1.5 py-0.5 rounded-full font-semibold', log.status === 'OK' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600')}>
+                                  {log.status}
+                                </span>
+                                {log.errorMessage && (
+                                  <span className="ml-1 text-red-500 truncate max-w-[160px] inline-block align-middle" title={log.errorMessage}>
+                                    {log.errorMessage.length > 40 ? log.errorMessage.slice(0, 40) + '…' : log.errorMessage}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2.5 text-gray-400 font-mono">{log.ip ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

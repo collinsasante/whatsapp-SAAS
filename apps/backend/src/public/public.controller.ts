@@ -35,6 +35,7 @@ export class PublicController {
   async send(
     @Headers('x-api-key') apiKey: string,
     @Body() dto: SendTemplateDto,
+    @Req() req: Request,
   ) {
     return this.publicService.sendTemplateMessage(
       apiKey,
@@ -43,6 +44,7 @@ export class PublicController {
       dto.language,
       dto.variables,
       dto.urlVariables,
+      req.ip,
     );
   }
 

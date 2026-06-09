@@ -33,4 +33,9 @@ export class ApiKeysController {
   revoke(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.service.revoke(id, user.tenantId);
   }
+
+  @Get('logs')
+  getLogs(@CurrentUser() user: JwtPayload) {
+    return this.service.getLogs(user.tenantId);
+  }
 }

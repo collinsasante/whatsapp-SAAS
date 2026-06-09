@@ -42,6 +42,15 @@ export class ApiKeysService {
     return this.prisma.apiKey.delete({ where: { id } });
   }
 
+  getLogs(tenantId: string) {
+    return this.prisma.publicApiLog.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { apiKey: { select: { id: true, name: true, keyPrefix: true } } },
+    });
+  }
+
   async validateKey(raw: string): Promise<{ tenantId: string; id: string } | null> {
     const keyHash = this.hashKey(raw);
     const record = await this.prisma.apiKey.findUnique({
