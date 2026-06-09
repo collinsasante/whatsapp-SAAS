@@ -9,7 +9,7 @@ import { authApi } from '@/lib/api';
 function ResetPasswordPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get('token') ?? '';
+  const token = searchParams?.get('token') ?? '';
   const [form, setForm] = useState({ password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);

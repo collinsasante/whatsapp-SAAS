@@ -57,7 +57,8 @@ const ATTR_ICON: Record<string, React.ElementType> = {
 };
 
 export default function ContactProfilePage() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams<{ id: string }>();
+  const id = params?.id ?? '';
   const router = useRouter();
 
   const [contact, setContact] = useState<Contact | null>(null);

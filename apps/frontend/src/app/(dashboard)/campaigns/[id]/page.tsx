@@ -74,7 +74,7 @@ function avatarColor(name: string) {
 export default function CampaignDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const id = params['id'] as string;
+  const id = (params?.['id'] ?? '') as string;
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);

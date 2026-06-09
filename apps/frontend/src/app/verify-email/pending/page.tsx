@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 
 function VerifyEmailPendingPage() {
   const searchParams = useSearchParams();
-  const email = searchParams.get('email') ?? '';
+  const email = searchParams?.get('email') ?? '';
   const [resending, setResending] = useState(false);
   const [sent, setSent] = useState(false);
 

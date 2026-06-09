@@ -78,7 +78,7 @@ export default function InboxPage() {
   // If it's not in the active list (e.g. RESOLVED/REQUESTED), fetch it individually.
   useEffect(() => {
     if (loading) return;
-    const cId = searchParams.get('c');
+    const cId = searchParams?.get('c');
     if (!cId) return;
     const inStore = conversations.find((c) => c.id === cId);
     if (inStore) {

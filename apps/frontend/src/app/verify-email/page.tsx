@@ -10,7 +10,7 @@ type State = 'verifying' | 'success' | 'error';
 function VerifyEmailPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const token = searchParams.get('token') ?? '';
+  const token = searchParams?.get('token') ?? '';
   const [state, setState] = useState<State>('verifying');
   const [errorMsg, setErrorMsg] = useState('');
 

@@ -11,6 +11,7 @@ function AuthCallbackPage() {
   const { setAuth } = useAuthStore();
 
   useEffect(() => {
+    if (!searchParams) { router.replace('/login'); return; }
     const accessToken = searchParams.get('access_token');
     const userB64 = searchParams.get('user');
     const tenantB64 = searchParams.get('tenant');

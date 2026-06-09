@@ -1343,7 +1343,7 @@ function QrCodeSection() {
 // ─────────────────── Main Page ───────────────────
 export default function ManagePage() {
   const searchParams = useSearchParams();
-  const [active, setActive] = useState(() => searchParams.get('tab') ?? 'members');
+  const [active, setActive] = useState(() => searchParams?.get('tab') ?? 'members');
   const [settings, setSettings] = useState<ManageSettings>({});
 
   const loadSettings = useCallback(() => {

@@ -668,6 +668,7 @@ function ChannelsPageInner() {
   useEffect(() => { void loadConnected(); }, [loadConnected]);
 
   useEffect(() => {
+    if (!searchParams) return;
     const error = searchParams.get('error');
     const success = searchParams.get('success');
     const provider = searchParams.get('provider') ?? success ?? '';
