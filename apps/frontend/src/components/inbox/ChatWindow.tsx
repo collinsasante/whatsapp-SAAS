@@ -52,6 +52,10 @@ interface Conversation {
   lastInboundAt?: string | null;
   priority?: number;
   reopenedCount?: number;
+  adSourceId?: string | null;
+  adHeadline?: string | null;
+  adImageUrl?: string | null;
+  contactSource?: string | null;
 }
 
 interface Props {
@@ -1425,6 +1429,25 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       <div className="flex flex-1 min-h-0">
         {/* Messages area */}
         <div className="flex-1 flex flex-col min-h-0">
+          {/* Click-to-WhatsApp Ad banner */}
+          {conversation.adSourceId && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex-shrink-0">
+              {conversation.adImageUrl && (
+                <img
+                  src={conversation.adImageUrl}
+                  alt="Ad"
+                  className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-100"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wide">From WhatsApp Ad</p>
+                {conversation.adHeadline && (
+                  <p className="text-xs text-blue-800 font-medium truncate">{conversation.adHeadline}</p>
+                )}
+              </div>
+            </div>
+          )}
           <div className="flex-1 flex flex-col relative min-h-0">
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
             {loading ? (

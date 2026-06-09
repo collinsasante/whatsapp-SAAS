@@ -171,9 +171,15 @@ export default function CampaignsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Poll every 5 s while any campaign is RUNNING or PAUSED so progress stays live
+  // Poll every 5 s while any campaign is active or recently completed (catch delivery/read receipts)
   useEffect(() => {
-    const hasActive = campaigns.some(c => c.status === 'RUNNING' || c.status === 'PAUSED');
+    const hasActive = campaigns.some(c => {
+      if (c.status === 'RUNNING' || c.status === 'PAUSED') return true;
+      if (c.status === 'COMPLETED' && c.completedAt) {
+        return Date.now() - new Date(c.completedAt).getTime() < 30 * 60 * 1000;
+      }
+      return false;
+    });
     if (!hasActive) return;
     const id = setInterval(() => { void load(true); }, 5000);
     return () => clearInterval(id);

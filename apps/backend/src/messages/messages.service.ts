@@ -278,6 +278,7 @@ export class MessagesService {
     };
   }, profileName?: string, incomingPhoneNumberId?: string, referral?: {
     source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
+    image_url?: string; media_type?: string; ctwa_clid?: string;
   }) {
     // Handle call permission reply — intercept before anything else so it never gets stored
     // as a regular inbound message or reopens a conversation.
@@ -360,7 +361,12 @@ export class MessagesService {
 
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, referral
-      ? { contactSource: referral.source_type ?? 'ad', adSourceId: referral.source_id, adHeadline: referral.headline }
+      ? {
+          contactSource: referral.source_type ?? 'ad',
+          adSourceId: referral.source_id,
+          adHeadline: referral.headline,
+          adImageUrl: referral.image_url,
+        }
       : undefined,
     );
 
@@ -760,6 +766,29 @@ export class MessagesService {
     if (status === MessageStatus.FAILED) updateData['failedAt'] = new Date();
 
     await this.prisma.message.update({ where: { id: message.id }, data: updateData });
+
+    // Propagate delivery/read status back to campaign stats
+    if (status === MessageStatus.DELIVERED || status === MessageStatus.READ) {
+      const recipient = await this.prisma.campaignRecipient.findFirst({
+        where: { messageId: message.id },
+      });
+      if (recipient) {
+        if (status === MessageStatus.DELIVERED && recipient.status === 'SENT') {
+          await this.prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: 'DELIVERED' } });
+          await this.prisma.campaign.update({ where: { id: recipient.campaignId }, data: { deliveredCount: { increment: 1 } } });
+        } else if (status === MessageStatus.READ && (recipient.status === 'SENT' || recipient.status === 'DELIVERED')) {
+          const wasDelivered = recipient.status === 'DELIVERED';
+          await this.prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: 'READ' } });
+          await this.prisma.campaign.update({
+            where: { id: recipient.campaignId },
+            data: {
+              readCount: { increment: 1 },
+              ...(!wasDelivered ? { deliveredCount: { increment: 1 } } : {}),
+            },
+          });
+        }
+      }
+    }
 
     this.realtimeService.emitMessageStatus(tenantId, {
       messageId: message.id,

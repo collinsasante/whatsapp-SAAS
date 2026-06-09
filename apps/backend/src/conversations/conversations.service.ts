@@ -42,7 +42,7 @@ export class ConversationsService {
   async findOrCreate(
     tenantId: string,
     contactId: string,
-    source?: { contactSource?: string; adSourceId?: string; adHeadline?: string },
+    source?: { contactSource?: string; adSourceId?: string; adHeadline?: string; adImageUrl?: string },
   ) {
     // Prefer active (non-resolved) conversation
     const existing = await this.prisma.conversation.findFirst({
@@ -87,6 +87,7 @@ export class ConversationsService {
         ...(source?.contactSource && { contactSource: source.contactSource }),
         ...(source?.adSourceId && { adSourceId: source.adSourceId }),
         ...(source?.adHeadline && { adHeadline: source.adHeadline }),
+        ...(source?.adImageUrl && { adImageUrl: source.adImageUrl }),
       },
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });

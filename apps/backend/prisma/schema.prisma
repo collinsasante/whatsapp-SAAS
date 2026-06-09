@@ -292,6 +292,7 @@ model Conversation {
   contactSource  String             @default("organic") @map("contact_source")
   adSourceId     String?            @map("ad_source_id")
   adHeadline     String?            @map("ad_headline")
+  adImageUrl     String?            @map("ad_image_url")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 

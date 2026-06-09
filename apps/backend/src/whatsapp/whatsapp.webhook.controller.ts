@@ -63,6 +63,9 @@ interface WebhookEntry {
           source_id?: string;
           headline?: string;
           body?: string;
+          image_url?: string;
+          media_type?: string;  // 'image' | 'video'
+          ctwa_clid?: string;
         };
       }>;
       statuses?: Array<{
