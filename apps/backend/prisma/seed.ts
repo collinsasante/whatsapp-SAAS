@@ -75,6 +75,63 @@ async function main() {
   }
 }
 
+async function seedPlans() {
+  const plans = [
+    {
+      slug: 'starter',
+      name: 'Starter',
+      description: 'Everything you need to get started with WhatsApp',
+      monthlyPrice: 240,
+      yearlyPrice: 2400,
+      currency: 'GHS',
+      trialDays: 0,
+      limMaxAgents: 3,
+      limMaxChannels: 1,
+      limMaxContacts: 5000,
+      limMaxTemplates: 10,
+      limMessagesPerMonth: 5000,
+      limMaxCampaigns: 0,
+      limAiCreditsPerMonth: 0,
+      limStorageGb: 5,
+      features: ['1 WhatsApp Channel', '5,000 Contacts', '5,000 Messages/month', '3 Agents', '10 Templates', 'Automation'],
+      isActive: true,
+      isPublic: true,
+      sortOrder: 0,
+    },
+    {
+      slug: 'pro',
+      name: 'Pro',
+      description: 'Everything you need to grow with WhatsApp',
+      monthlyPrice: 313,
+      yearlyPrice: 3130,
+      currency: 'GHS',
+      trialDays: 7,
+      limMaxAgents: 20,
+      limMaxChannels: 5,
+      limMaxContacts: 20000,
+      limMaxTemplates: -1,
+      limMessagesPerMonth: -1,
+      limMaxCampaigns: -1,
+      limAiCreditsPerMonth: -1,
+      limStorageGb: 20,
+      features: ['5 WhatsApp Channels', '20,000 Contacts', 'Unlimited Messages', '20 Agents', 'Unlimited Templates', 'Campaigns', 'Automation', 'Verz AI Assistant', 'Knowledge Base', 'Analytics', '7-day Trial'],
+      isActive: true,
+      isPublic: true,
+      sortOrder: 1,
+    },
+  ];
+
+  for (const plan of plans) {
+    await (prisma.plan as any).upsert({
+      where: { slug: plan.slug },
+      update: { ...plan, features: plan.features as any },
+      create: { ...plan, features: plan.features as any },
+    });
+    console.log(`✓ Plan upserted: ${plan.name}`);
+  }
+}
+
 main()
+  .then(() => seedPlans())
   .catch(console.error)
   .finally(() => prisma.$disconnect());
