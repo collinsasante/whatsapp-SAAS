@@ -1,8 +1,10 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common'; // v2
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../common/email.service';
 import { AdminLoginDto, AdminSetupDto } from './dto/platform-admin.dto';
 
 @Injectable()
@@ -11,6 +13,7 @@ export class PlatformAdminAuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private config: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async setup(dto: AdminSetupDto) {
@@ -49,6 +52,48 @@ export class PlatformAdminAuthService {
     );
 
     return { token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } };
+  }
+
+  async requestPasswordReset(email: string) {
+    const admin = await this.prisma.platformAdmin.findUnique({ where: { email } });
+    if (!admin) return; // Silent — don't reveal if email exists
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await (this.prisma.platformAdmin as any).update({
+      where: { id: admin.id },
+      data: { resetToken: token, resetTokenExpiresAt: expiresAt },
+    });
+
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://verzchat.com');
+    const resetUrl = `${frontendUrl}/platform-admin/reset-password?token=${token}`;
+
+    await this.emailService.sendRaw({
+      to: email,
+      subject: 'Platform Admin — Password Reset',
+      html: `
+        <p>Hi ${admin.name},</p>
+        <p>Click the link below to reset your Platform Admin password. The link expires in 1 hour.</p>
+        <p><a href="${resetUrl}" style="color:#0d9488;font-weight:600">Reset Password</a></p>
+        <p>If you didn't request this, ignore this email.</p>
+      `,
+    });
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const admin = await (this.prisma.platformAdmin as any).findFirst({
+      where: { resetToken: token, resetTokenExpiresAt: { gt: new Date() } },
+    });
+    if (!admin) throw new BadRequestException('Invalid or expired reset link');
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await (this.prisma.platformAdmin as any).update({
+      where: { id: admin.id },
+      data: { passwordHash, resetToken: null, resetTokenExpiresAt: null },
+    });
+
+    return { message: 'Password updated successfully' };
   }
 
   async me(adminId: string) {

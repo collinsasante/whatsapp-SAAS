@@ -26,6 +26,16 @@ export class PlatformAdminController {
     return this.authService.login(dto, req.ip);
   }
 
+  @Post('auth/forgot-password')
+  forgotPassword(@Body() body: { email: string }) {
+    return this.authService.requestPasswordReset(body.email).then(() => ({ message: 'If that email exists, a reset link has been sent.' }));
+  }
+
+  @Post('auth/reset-password')
+  resetPassword(@Body() body: { token: string; password: string }) {
+    return this.authService.resetPassword(body.token, body.password);
+  }
+
   @Get('auth/me')
   @UseGuards(PlatformAdminGuard)
   me(@Req() req: AdminRequest) {

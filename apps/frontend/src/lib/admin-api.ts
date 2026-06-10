@@ -102,6 +102,12 @@ export const adminApi = {
       'GET', '/auth/me',
     ),
 
+  forgotPassword: (email: string) =>
+    req<{ message: string }>('POST', '/auth/forgot-password', { email }),
+
+  resetPassword: (token: string, password: string) =>
+    req<{ message: string }>('POST', '/auth/reset-password', { token, password }),
+
   dashboard: () => req<AdminStats>('GET', '/dashboard'),
 
   workspaces: (page = 1, search = '') =>
