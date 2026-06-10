@@ -2636,7 +2636,13 @@ const MessageBubble = memo(function MessageBubble({
                   })()}
                 </>
               ) : message.type === 'TEMPLATE' ? (
-                <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📋 Template message</p>
+                message.content ? (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    {searchQuery ? highlightText(message.content, searchQuery) : renderWithLinks(message.content, isOutbound)}
+                  </p>
+                ) : (
+                  <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📋 Template message</p>
+                )
               ) : null}
 
               {message.type === 'LOCATION' && (

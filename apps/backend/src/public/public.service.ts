@@ -1,8 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
-import { normalizePhone } from '@whatsapp-platform/shared-utils';
-import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
+import { normalizePhone, buildTemplateComponents, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import axios from 'axios';
 
 const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
@@ -115,6 +114,13 @@ export class PublicService {
       data: { tenantId, contactId: contact.id, status: 'OPEN' },
     })).id;
 
+    // Resolve template body so the message shows actual content in chat
+    const bodyComp = (template.components as Array<{ type: string; text?: string }>)
+      .find((c) => c.type === 'BODY');
+    const resolvedContent = bodyComp?.text
+      ? interpolateTemplate(bodyComp.text, variables)
+      : null;
+
     // Log the message
     await this.prisma.message.create({
       data: {
@@ -125,6 +131,7 @@ export class PublicService {
         direction: 'OUTBOUND',
         type: 'TEMPLATE',
         status: 'SENT',
+        content: resolvedContent,
         templateId: template.id,
         templateVariables: Object.keys(variables).length ? variables : undefined,
         sentAt: new Date(),
