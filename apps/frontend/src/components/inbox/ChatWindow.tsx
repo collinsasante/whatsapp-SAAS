@@ -1508,6 +1508,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                           contactName={name}
                           conversationId={conversation.id}
                           onReply={(m) => setReplyTo({ id: m.id, content: m.content ?? undefined, type: m.type, direction: m.direction, mediaCaption: m.mediaCaption ?? undefined })}
+                          onScrollToMessage={scrollToMessage}
                           searchQuery={showSearch ? searchQuery : ''}
                           isCurrentResult={showSearch && searchResultIds[searchCurrentIdx] === entry.item.id}
                         />
@@ -2419,6 +2420,7 @@ const MessageBubble = memo(function MessageBubble({
   contactName,
   conversationId,
   onReply,
+  onScrollToMessage,
   searchQuery,
   isCurrentResult,
 }: {
@@ -2427,6 +2429,7 @@ const MessageBubble = memo(function MessageBubble({
   contactName: string;
   conversationId: string;
   onReply?: (msg: Message) => void;
+  onScrollToMessage?: (msgId: string) => void;
   searchQuery?: string;
   isCurrentResult?: boolean;
 }) {
@@ -2585,7 +2588,7 @@ const MessageBubble = memo(function MessageBubble({
                   'rounded-xl px-3 py-1.5 mb-0.5 border-l-3 cursor-pointer hover:opacity-80 transition-opacity',
                   isOutbound ? 'bg-teal-600/80 border-teal-300' : 'bg-gray-200 border-teal-500',
                 )}
-                onClick={() => scrollToMessage(message.replyTo!.id)}
+                onClick={() => onScrollToMessage?.(message.replyTo!.id)}
               >
                 <p className={cn('text-xs font-semibold', isOutbound ? 'text-teal-200' : 'text-teal-600')}>
                   {message.replyTo.direction === 'INBOUND' ? contactName : 'You'}
