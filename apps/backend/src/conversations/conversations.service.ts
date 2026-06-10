@@ -70,6 +70,7 @@ export class ConversationsService {
           reopenedCount: { increment: 1 },
           resolvedAt: null,
           resolvedById: null,
+          assignedToId: null,
           unreadCount: 0,
         },
         include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },

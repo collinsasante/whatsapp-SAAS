@@ -1259,7 +1259,7 @@ export default function ContactsPage() {
                             <td className="px-4 py-3 text-gray-400 text-xs">
                               {conv?.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : '—'}
                             </td>
-                            <td className="px-4 py-3 text-gray-400 text-xs">{formatRelativeTime(contact.createdAt)}</td>
+                            <td className="px-4 py-3 text-gray-400 text-xs">{new Date(contact.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                             <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center gap-0.5">
                                 <button onClick={() => router.push(`/contacts/${contact.id}`)} title="View profile"

@@ -476,6 +476,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [searchCurrentIdx, searchResultIds, flatItems, virtualizer]);
 
+  const scrollToMessage = useCallback((msgId: string) => {
+    const idx = flatItems.findIndex((it) => it.kind === 'message' && it.item.id === msgId);
+    if (idx === -1) return;
+    virtualizer.scrollToIndex(idx, { align: 'center' });
+    setTimeout(() => {
+      virtualizer.scrollToIndex(idx, { align: 'center' });
+      const el = document.getElementById(`msg-${msgId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.style.transition = 'background-color 0.3s ease';
+        el.style.backgroundColor = '#ccfbf1';
+        setTimeout(() => { el.style.backgroundColor = ''; }, 1500);
+      }
+    }, 150);
+  }, [flatItems, virtualizer]);
+
   // Reset scroll tracking on conversation change
   useEffect(() => {
     isAtBottomRef.current = true;
@@ -2569,15 +2585,7 @@ const MessageBubble = memo(function MessageBubble({
                   'rounded-xl px-3 py-1.5 mb-0.5 border-l-3 cursor-pointer hover:opacity-80 transition-opacity',
                   isOutbound ? 'bg-teal-600/80 border-teal-300' : 'bg-gray-200 border-teal-500',
                 )}
-                onClick={() => {
-                  const el = document.getElementById(`msg-${message.replyTo!.id}`);
-                  if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    el.style.transition = 'background-color 0.3s ease';
-                    el.style.backgroundColor = '#ccfbf1';
-                    setTimeout(() => { el.style.backgroundColor = ''; }, 1500);
-                  }
-                }}
+                onClick={() => scrollToMessage(message.replyTo!.id)}
               >
                 <p className={cn('text-xs font-semibold', isOutbound ? 'text-teal-200' : 'text-teal-600')}>
                   {message.replyTo.direction === 'INBOUND' ? contactName : 'You'}
