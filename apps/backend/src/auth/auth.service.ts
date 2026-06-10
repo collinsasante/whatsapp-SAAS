@@ -387,6 +387,65 @@ export class AuthService {
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
 
+  async loginWithFirebase(idToken: string): Promise<AuthTokens & { user: object; tenant: object }> {
+    // Verify the Firebase ID token via Google's identity toolkit REST API
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyAIsxrezFn4O-XoSv4f9X-rQ_AMBG36cP8`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      },
+    );
+    if (!res.ok) throw new UnauthorizedException('Invalid Firebase token');
+    const data = await res.json() as { users?: Array<{ email: string; displayName?: string }> };
+    const firebaseUser = data.users?.[0];
+    if (!firebaseUser?.email) throw new UnauthorizedException('Could not retrieve user from Firebase token');
+
+    const email = firebaseUser.email;
+    const name = firebaseUser.displayName ?? email.split('@')[0];
+
+    let user = await this.prisma.user.findFirst({ where: { email, isActive: true } });
+    let tenant = user ? await this.prisma.tenant.findUnique({ where: { id: user.tenantId } }) : null;
+
+    if (!user || !tenant) {
+      const workspaceName = `${name.split(' ')[0]}'s Workspace`;
+      const result = await this.prisma.$transaction(async (tx) => {
+        const newTenant = await tx.tenant.create({
+          data: {
+            name: workspaceName,
+            webhookVerifyToken: uuidv4(),
+            settings: { create: { businessName: workspaceName, businessEmail: email } },
+          },
+        });
+        const newUser = await tx.user.create({
+          data: {
+            tenantId: newTenant.id,
+            email,
+            name,
+            role: 'ADMIN',
+            passwordHash: '',
+            emailVerified: true,
+          },
+          select: { id: true, email: true, name: true, role: true, tenantId: true },
+        });
+        await tx.workspaceMember.create({
+          data: { workspaceId: newTenant.id, userId: newUser.id, role: 'OWNER', status: 'ACTIVE', joinedAt: new Date() },
+        });
+        return { tenant: newTenant, user: newUser };
+      });
+      user = result.user as unknown as typeof user;
+      tenant = result.tenant;
+    }
+
+    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, user!.role);
+    await this.updateRefreshToken(user!.id, tokens.refreshToken);
+
+    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: user!.role, tenantId: user!.tenantId };
+    const safeTenant = { id: tenant!.id, name: tenant!.name, onboardingCompleted: tenant!.onboardingCompleted };
+    return { ...tokens, user: safeUser, tenant: safeTenant };
+  }
+
   async refreshTokens(refreshToken: string): Promise<AuthTokens> {
     let payload: JwtPayload;
     try {

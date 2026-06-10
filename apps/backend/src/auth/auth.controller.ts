@@ -220,6 +220,20 @@ export class AuthController {
     return this.authService.resetPassword(dto.token, dto.password);
   }
 
+  // ─── Firebase Google Auth ─────────────────────────────────────────────────────
+
+  @Post('firebase')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sign in with a Firebase ID token (Google)' })
+  async firebaseLogin(
+    @Body() body: { idToken: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.loginWithFirebase(body.idToken);
+    this.setRefreshCookie(res as unknown as import('express').Response, result.refreshToken);
+    return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user, tenant: result.tenant };
+  }
+
   // ─── Google OAuth ────────────────────────────────────────────────────────────
 
   @Get('google')

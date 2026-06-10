@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2, Building2, KeyRound } from 'lucide-react';
 import { authApi } from '@/lib/api';
+import { auth, googleProvider } from '@/lib/firebase';
+import { signInWithPopup } from 'firebase/auth';
 import { disconnectSocket } from '@/lib/socket';
 import { useAuthStore } from '@/store/auth.store';
 import { UserRole } from '@whatsapp-platform/shared-types';
@@ -221,7 +223,23 @@ function LoginPage() {
     }
   };
 
-  const handleGoogle = () => { window.location.href = authApi.googleUrl(); };
+  const handleGoogle = async () => {
+    setLoading(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const idToken = await result.user.getIdToken();
+      const res = await authApi.firebaseLogin(idToken);
+      const data = res.data as { accessToken: string; expiresIn: number; user: { id: string; name: string; email: string; role: string; tenantId: string; avatarUrl?: string }; tenant: { id: string; name: string; plan: string; logoUrl?: string } };
+      setAuth(data.user as Parameters<typeof setAuth>[0], data.tenant as Parameters<typeof setAuth>[1], data.accessToken);
+      disconnectSocket();
+      router.replace('/dashboard');
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg ?? 'Google sign-in failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // ── STEP: WORKSPACE PICKER ────────────────────────────────────────────────
   if (step === 'workspace-picker') {

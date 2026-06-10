@@ -117,6 +117,7 @@ export const authApi = {
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
   googleUrl: () => `${API_URL}/auth/google`,
+  firebaseLogin: (idToken: string) => api.post('/auth/firebase', { idToken }),
   getWorkspaces: () => api.get('/auth/workspaces'),
   switchWorkspace: (workspaceId: string) => api.post('/auth/switch-workspace', { workspaceId }),
   verifyInvite: (token: string) => api.get(`/auth/invite/verify/${token}`),
