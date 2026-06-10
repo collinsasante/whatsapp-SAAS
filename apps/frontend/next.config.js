@@ -1,12 +1,8 @@
-const path = require('path');
 const { withSentryConfig } = require('@sentry/nextjs');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  experimental: {
-    outputFileTracingRoot: path.join(__dirname, '../../'),
-  },
   reactStrictMode: true,
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL ?? 'https://verzchat.com';
