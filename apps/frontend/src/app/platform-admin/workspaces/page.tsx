@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Search, CheckCircle2, XCircle, Loader2, RefreshCw, ChevronLeft, ChevronRight, CreditCard } from 'lucide-react';
+import { Search, CheckCircle2, XCircle, Loader2, ChevronLeft, ChevronRight, CreditCard } from 'lucide-react';
 import { adminApi, type Workspace, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import { useAutoRefresh } from '../_hooks/useAutoRefresh';
+import { LiveBadge } from '../_components/LiveBadge';
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: 'bg-emerald-100 text-emerald-700',
@@ -20,6 +22,7 @@ export default function WorkspacesPage() {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [setPlanFor, setSetPlanFor] = useState<Workspace | null>(null);
@@ -27,7 +30,7 @@ export default function WorkspacesPage() {
   const [settingPlan, setSettingPlan] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setRefreshing(true);
     try {
       const res = await adminApi.workspaces(page, query);
       setWorkspaces(res.tenants);
@@ -36,10 +39,11 @@ export default function WorkspacesPage() {
       toast.error((e as Error).message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [page, query]);
 
-  useEffect(() => { load(); }, [load]);
+  const { secondsAgo, refresh } = useAutoRefresh(load);
   useEffect(() => { adminApi.plans().then(setPlans).catch(() => {}); }, []);
 
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setPage(1); setQuery(search); };
@@ -87,9 +91,7 @@ export default function WorkspacesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Workspaces</h1>
           <p className="text-gray-500 text-sm mt-1">{total} total</p>
         </div>
-        <button onClick={load} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
+        <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
       </div>
 
       <form onSubmit={handleSearch} className="flex gap-2 mb-5">

@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Search, RefreshCw, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Shield, User } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, CheckCircle2, XCircle, User } from 'lucide-react';
 import { adminApi, type AdminUser } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import { useAutoRefresh } from '../_hooks/useAutoRefresh';
+import { LiveBadge } from '../_components/LiveBadge';
 
 const ROLE_BADGE: Record<string, string> = {
   ADMIN: 'bg-purple-100 text-purple-700',
@@ -16,10 +18,11 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
 
-  const load = useCallback(async (pg: number, q: string) => {
-    setLoading(true);
+  const load = useCallback(async (pg = page, q = search) => {
+    setRefreshing(true);
     try {
       const res = await adminApi.users(pg, q);
       setUsers(res.users);
@@ -28,13 +31,16 @@ export default function UsersPage() {
       toast.error((e as Error).message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [page, search]);
+
+  const { secondsAgo, refresh } = useAutoRefresh(load);
 
   useEffect(() => {
     const t = setTimeout(() => { setPage(1); void load(1, search); }, 300);
     return () => clearTimeout(t);
-  }, [search, load]);
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalPages = Math.ceil(total / 30);
 
@@ -58,9 +64,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-gray-900">Users</h1>
           <p className="text-gray-500 text-sm mt-1">{total.toLocaleString()} users across all workspaces</p>
         </div>
-        <button onClick={() => load(page, search)} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
+        <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
       </div>
 
       <div className="relative mb-4">

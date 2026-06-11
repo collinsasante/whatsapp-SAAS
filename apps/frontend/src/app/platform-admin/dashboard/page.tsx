@@ -1,7 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Building2, Users, MessageSquare, DollarSign, TrendingUp, Clock, CreditCard, AlertCircle } from 'lucide-react';
 import { adminApi, type AdminStats } from '@/lib/admin-api';
+import { useAutoRefresh } from '../_hooks/useAutoRefresh';
+import { LiveBadge } from '../_components/LiveBadge';
 
 function StatCard({ icon: Icon, label, value, sub, color }: {
   icon: React.ElementType; label: string; value: string | number; sub?: string; color: string;
@@ -23,20 +25,33 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
 export default function AdminDashboard() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    adminApi.dashboard()
-      .then(setStats)
-      .catch(e => setError((e as Error).message))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await adminApi.dashboard();
+      setStats(data);
+      setError('');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
+
+  const { secondsAgo, refresh } = useAutoRefresh(load);
 
   return (
     <div className="p-4 sm:p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 text-sm mt-1">Platform overview</p>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-500 text-sm mt-1">Platform overview</p>
+        </div>
+        <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
       </div>
 
       {error && (

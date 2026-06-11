@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Save, RefreshCw, AlertCircle, Plus, X } from 'lucide-react';
+import { Loader2, Save, AlertCircle, Plus, X } from 'lucide-react';
 import { adminApi, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import { useAutoRefresh } from '../_hooks/useAutoRefresh';
+import { LiveBadge } from '../_components/LiveBadge';
 
 function Field({ label, value, onChange, type = 'text' }: {
   label: string; value: string | number; onChange: (v: string) => void; type?: string;
@@ -33,13 +35,14 @@ export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [edits, setEdits] = useState<Record<string, Partial<Plan>>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newPlan, setNewPlan] = useState({ ...BLANK_NEW_PLAN });
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setRefreshing(true);
     try {
       const data = await adminApi.plans();
       setPlans(data);
@@ -48,10 +51,11 @@ export default function PlansPage() {
       toast.error((e as Error).message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const { secondsAgo, refresh } = useAutoRefresh(load);
 
   const edit = (id: string, key: keyof Plan, val: string) => {
     const numFields = ['monthlyPrice', 'yearlyPrice', 'limMaxAgents', 'limMaxContacts', 'limMessagesPerMonth', 'limAiCreditsPerMonth', 'limMaxChannels', 'limMaxCampaigns', 'limStorageGb', 'sortOrder'];
@@ -108,9 +112,7 @@ export default function PlansPage() {
           <p className="text-gray-500 text-sm mt-1">Edit pricing and limits for each plan</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
+          <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-500 transition-colors font-medium"

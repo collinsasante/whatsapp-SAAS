@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, RefreshCw, AlertCircle, XCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, AlertCircle, XCircle } from 'lucide-react';
 import { adminApi, type Invoice, type CreditPurchase } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import { useAutoRefresh } from '../_hooks/useAutoRefresh';
+import { LiveBadge } from '../_components/LiveBadge';
 
 function fmt(amount: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
@@ -12,10 +14,11 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [credits, setCredits] = useState<CreditPurchase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setRefreshing(true);
     try {
       const res = await adminApi.pendingBilling();
       setInvoices(res.invoices);
@@ -24,10 +27,11 @@ export default function BillingPage() {
       toast.error((e as Error).message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const { secondsAgo, refresh } = useAutoRefresh(load);
 
   const activateSub = async (reference: string | null, workspaceName: string) => {
     if (!reference) return toast.error('No reference for this invoice');
@@ -98,9 +102,7 @@ export default function BillingPage() {
           <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
           <p className="text-gray-500 text-sm mt-1">Pending payments that need activation</p>
         </div>
-        <button onClick={load} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
+        <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
       </div>
 
       {!loading && !hasPending && (
