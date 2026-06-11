@@ -143,16 +143,17 @@ export default function WorkspacesPage() {
                 <td className="px-4 py-3 text-gray-700">{w._count.users}</td>
                 <td className="px-4 py-3 text-gray-700">{w.aiCredits}</td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${w.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      {w.isActive ? 'Active' : 'Suspended'}
-                    </span>
-                    {w.subscription && (
+                  {(() => {
+                    if (!w.isActive) return (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Suspended</span>
+                    );
+                    if (w.subscription) return (
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[w.subscription.status] ?? 'bg-gray-100 text-gray-500'}`}>
-                        {w.subscription.status}
+                        {w.subscription.status.charAt(0) + w.subscription.status.slice(1).toLowerCase().replace('_', ' ')}
                       </span>
-                    )}
-                  </div>
+                    );
+                    return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-400">No Plan</span>;
+                  })()}
                 </td>
                 <td className="px-4 py-3 text-gray-400 text-xs">{new Date(w.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3">
