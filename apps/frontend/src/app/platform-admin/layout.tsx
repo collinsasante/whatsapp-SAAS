@@ -18,7 +18,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (pathname === '/platform-admin/login') { setReady(true); return; }
+    if (pathname === '/platform-admin/login' || pathname === '/platform-admin/reset-password') { setReady(true); return; }
     const token = localStorage.getItem('admin_token');
     if (!token) { router.replace('/platform-admin/login'); return; }
     setReady(true);
@@ -33,7 +33,7 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
   };
 
   if (!ready) return null;
-  if (pathname === '/platform-admin/login') return <>{children}</>;
+  if (pathname === '/platform-admin/login' || pathname === '/platform-admin/reset-password') return <>{children}</>;
 
   const NavLinks = ({ onClick }: { onClick?: () => void }) => (
     <>
