@@ -78,6 +78,27 @@ async function main() {
 async function seedPlans() {
   const plans = [
     {
+      slug: 'free',
+      name: 'Free',
+      description: 'Get started with the basics, no credit card needed',
+      monthlyPrice: 0,
+      yearlyPrice: 0,
+      currency: 'GHS',
+      trialDays: 0,
+      limMaxAgents: 1,
+      limMaxChannels: 1,
+      limMaxContacts: 100,
+      limMaxTemplates: 5,
+      limMessagesPerMonth: 500,
+      limMaxCampaigns: 0,
+      limAiCreditsPerMonth: 0,
+      limStorageGb: 1,
+      features: ['1 WhatsApp Channel', '100 Contacts', '500 Messages/month', '1 Agent', '5 Templates'],
+      isActive: true,
+      isPublic: true,
+      sortOrder: -1,
+    },
+    {
       slug: 'starter',
       name: 'Starter',
       description: 'Everything you need to get started with WhatsApp',

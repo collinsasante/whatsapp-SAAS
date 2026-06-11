@@ -1,9 +1,18 @@
 'use client';
 import Link from 'next/link';
 
+const FREE_FEATURES = [
+  '1 WhatsApp channel',
+  '100 contacts',
+  '500 messages/month',
+  '1 agent',
+  '5 templates',
+];
+
 const STARTER_FEATURES = [
   'Up to 3 agents',
-  'Unlimited messages',
+  '5,000 contacts',
+  '5,000 messages/month',
   '1 WhatsApp channel',
   'Shared team inbox',
   'Broadcast campaigns',
@@ -13,16 +22,17 @@ const STARTER_FEATURES = [
 ];
 
 const PRO_FEATURES = [
-  'Unlimited agents',
+  'Up to 20 agents',
+  '20,000 contacts',
   'Unlimited messages',
-  'Up to 3 WhatsApp channels',
+  'Up to 5 WhatsApp channels',
   'Shared team inbox',
   'Broadcast campaigns',
   'Chatbot automation (no-code)',
   'AI reply suggestions',
   'Analytics & CSAT',
-  'Contact management (20k+ contacts)',
   'Priority support',
+  '7-day free trial',
 ];
 
 const GHS_RATE = 12.5;
@@ -51,8 +61,26 @@ export default function Pricing() {
           </div>
 
           <div className="row justify-content-center" data-aos="fade-up" data-aos-delay="100">
+            {/* Free plan */}
+            <div className="col-md-4 col-lg-3">
+              <div className="price_card" style={{ textAlign: 'center' }}>
+                <p className="plan_lbl">Free</p>
+                <div className="price_val">₵0</div>
+                <p className="price_sub">Forever free · No card needed</p>
+                <hr />
+                <ul className="pf_list" style={{ textAlign: 'left' }}>
+                  {FREE_FEATURES.map((f) => (
+                    <li key={f}><span className="ck">✓</span>{f}</li>
+                  ))}
+                </ul>
+                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 14, padding: '12px 20px', marginTop: 8 }}>
+                  Get Started Free
+                </Link>
+              </div>
+            </div>
+
             {/* Starter plan */}
-            <div className="col-md-5 col-lg-4">
+            <div className="col-md-4 col-lg-3">
               <div className="price_card" style={{ textAlign: 'center' }}>
                 <p className="plan_lbl">Starter</p>
                 <div className="price_val">{starterPrice}</div>
@@ -70,7 +98,7 @@ export default function Pricing() {
             </div>
 
             {/* Pro plan */}
-            <div className="col-md-5 col-lg-4">
+            <div className="col-md-4 col-lg-3">
               <div className="price_card popular" style={{ textAlign: 'center' }}>
                 <span className="pop_badge">Everything Included</span>
                 <p className="plan_lbl">VerzChat Pro</p>
