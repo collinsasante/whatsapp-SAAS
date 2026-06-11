@@ -4,6 +4,15 @@ const { withSentryConfig } = require('@sentry/nextjs');
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  async headers() {
+    return [
+      {
+        // Allow Firebase popup to check window.closed on the login page
+        source: '/(login|register)',
+        headers: [{ key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' }],
+      },
+    ];
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL ?? 'https://verzchat.com';
     return [
