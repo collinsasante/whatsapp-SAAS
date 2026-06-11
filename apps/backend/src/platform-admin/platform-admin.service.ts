@@ -263,7 +263,7 @@ export class PlatformAdminService {
     const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) throw new NotFoundException('Invoice not found');
     if (invoice.status !== 'OPEN') return { alreadyHandled: true };
-    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'CANCELLED' } });
+    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'VOID' } });
     return { declined: true };
   }
 
