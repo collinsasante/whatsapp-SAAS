@@ -2,11 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Building2, CreditCard, LogOut, Settings, Shield, ChevronRight, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Building2, CreditCard, LogOut, Settings, Shield, ChevronRight, Menu, X, Users } from 'lucide-react';
 
 const NAV = [
   { href: '/platform-admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/platform-admin/workspaces', label: 'Workspaces', icon: Building2 },
+  { href: '/platform-admin/users', label: 'Users', icon: Users },
   { href: '/platform-admin/billing', label: 'Billing', icon: CreditCard },
   { href: '/platform-admin/plans', label: 'Plans', icon: Settings },
 ];

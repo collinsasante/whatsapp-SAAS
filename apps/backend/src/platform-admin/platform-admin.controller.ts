@@ -106,6 +106,18 @@ export class PlatformAdminController {
     return this.adminService.activateCredits(reference);
   }
 
+  @Post('billing/decline')
+  @UseGuards(PlatformAdminGuard)
+  declineInvoice(@Body('invoiceId') invoiceId: string) {
+    return this.adminService.declineInvoice(invoiceId);
+  }
+
+  @Post('billing/decline-credits')
+  @UseGuards(PlatformAdminGuard)
+  declineCredits(@Body('purchaseId') purchaseId: string) {
+    return this.adminService.declineCredits(purchaseId);
+  }
+
   @Get('plans')
   @UseGuards(PlatformAdminGuard)
   plans() {
@@ -134,5 +146,17 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   workspaceTemplates(@Param('id') id: string) {
     return this.adminService.getWorkspaceTemplates(id);
+  }
+
+  @Get('users')
+  @UseGuards(PlatformAdminGuard)
+  users(@Query('page') page: string, @Query('limit') limit: string, @Query('search') search?: string) {
+    return this.adminService.getUsers(+page || 1, +limit || 30, search);
+  }
+
+  @Patch('users/:id/toggle-active')
+  @UseGuards(PlatformAdminGuard)
+  toggleUserActive(@Param('id') id: string) {
+    return this.adminService.toggleUserActive(id);
   }
 }

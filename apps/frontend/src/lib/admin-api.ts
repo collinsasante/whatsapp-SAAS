@@ -71,6 +71,18 @@ export interface CreditPurchase {
   tenant: { name: string; billingEmail: string | null };
 }
 
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  isActive: boolean;
+  emailVerified: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  tenant: { id: string; name: string };
+}
+
 export interface Plan {
   id: string;
   slug: string;
@@ -131,6 +143,20 @@ export const adminApi = {
 
   activateCredits: (reference: string) =>
     req<{ activated?: boolean; alreadyActivated?: boolean; creditsAdded?: number }>('POST', '/billing/activate-credits', { reference }),
+
+  declineInvoice: (invoiceId: string) =>
+    req<{ declined?: boolean; alreadyHandled?: boolean }>('POST', '/billing/decline', { invoiceId }),
+
+  declineCredits: (purchaseId: string) =>
+    req<{ declined?: boolean; alreadyHandled?: boolean }>('POST', '/billing/decline-credits', { purchaseId }),
+
+  users: (page = 1, search = '') =>
+    req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
+      'GET', `/users?page=${page}&limit=30&search=${encodeURIComponent(search)}`,
+    ),
+
+  toggleUserActive: (id: string) =>
+    req<{ id: string; isActive: boolean }>('PATCH', `/users/${id}/toggle-active`),
 
   plans: () => req<Plan[]>('GET', '/plans'),
 

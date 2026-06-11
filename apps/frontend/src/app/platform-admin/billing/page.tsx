@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Loader2, RefreshCw, AlertCircle, XCircle } from 'lucide-react';
 import { adminApi, type Invoice, type CreditPurchase } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 
@@ -36,6 +36,36 @@ export default function BillingPage() {
       const res = await adminApi.activateSubscription(reference);
       if (res.alreadyActivated) toast('Already activated', { icon: 'ℹ️' });
       else toast.success(`Subscription activated for ${workspaceName}`);
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const declineSub = async (invoiceId: string, workspaceName: string) => {
+    if (!confirm(`Decline payment from ${workspaceName}? This cannot be undone.`)) return;
+    setActing(invoiceId);
+    try {
+      const res = await adminApi.declineInvoice(invoiceId);
+      if (res.alreadyHandled) toast('Already handled', { icon: 'ℹ️' });
+      else toast.success(`Payment declined for ${workspaceName}`);
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const declineCreditPurchase = async (purchaseId: string, workspaceName: string) => {
+    if (!confirm(`Decline credit purchase from ${workspaceName}? This cannot be undone.`)) return;
+    setActing(purchaseId);
+    try {
+      const res = await adminApi.declineCredits(purchaseId);
+      if (res.alreadyHandled) toast('Already handled', { icon: 'ℹ️' });
+      else toast.success(`Credit purchase declined for ${workspaceName}`);
       await load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -119,14 +149,24 @@ export default function BillingPage() {
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{inv.gatewayInvoiceId ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-400">{new Date(inv.createdAt).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => activateSub(inv.gatewayInvoiceId, inv.tenant.name)}
-                        disabled={acting === inv.gatewayInvoiceId}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
-                      >
-                        {acting === inv.gatewayInvoiceId ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
-                        Activate
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => activateSub(inv.gatewayInvoiceId, inv.tenant.name)}
+                          disabled={!!acting}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
+                        >
+                          {acting === inv.gatewayInvoiceId ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                          Activate
+                        </button>
+                        <button
+                          onClick={() => declineSub(inv.id, inv.tenant.name)}
+                          disabled={!!acting}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white rounded-xl border border-gray-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors font-medium overflow-hidden"
+                        >
+                          {acting === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                          Decline
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -177,14 +217,24 @@ export default function BillingPage() {
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{cp.paystackRef ?? '—'}</td>
                     <td className="px-4 py-3 text-xs text-gray-400">{new Date(cp.createdAt).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => activateCredits(cp.paystackRef, cp.tenant.name, cp.credits)}
-                        disabled={acting === cp.paystackRef}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
-                      >
-                        {acting === cp.paystackRef ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
-                        Add Credits
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => activateCredits(cp.paystackRef, cp.tenant.name, cp.credits)}
+                          disabled={!!acting}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
+                        >
+                          {acting === cp.paystackRef ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                          Add Credits
+                        </button>
+                        <button
+                          onClick={() => declineCreditPurchase(cp.id, cp.tenant.name)}
+                          disabled={!!acting}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white rounded-xl border border-gray-100 text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors font-medium overflow-hidden"
+                        >
+                          {acting === cp.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                          Decline
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

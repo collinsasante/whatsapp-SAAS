@@ -106,7 +106,7 @@ export default function LibraryPage() {
   const loadAgentAssets = useCallback(async () => {
     setAgentLoading(true);
     try {
-      const res = await mediaApi.assets({ limit: 200 });
+      const res = await mediaApi.assets({ limit: 5000 });
       setAgentAssets((res.data as { data: AgentAsset[] }).data ?? []);
     } finally { setAgentLoading(false); }
   }, []);
@@ -144,7 +144,7 @@ export default function LibraryPage() {
       (a) => a.originalName.toLowerCase() === file.name.toLowerCase(),
     );
     if (isDuplicate) {
-      toast.error(`"${file.name}" already exists in your library`);
+      toast.error(`"${file.name}" already exists in the library. Rename the file or use the existing one.`);
       if (uploadRef.current) uploadRef.current.value = '';
       return;
     }

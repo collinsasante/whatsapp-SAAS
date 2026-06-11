@@ -887,6 +887,13 @@ export default function ContactsPage() {
     const tag = bulkTagInput.trim().toLowerCase();
     if (!tag) return;
     setBulkProcessing(true);
+    // Optimistic update — show immediately without waiting for server
+    setContacts(cs => cs.map(c => selectedIds.has(c.id)
+      ? { ...c, labels: [...new Set([...c.labels, tag])] }
+      : c,
+    ));
+    setShowBulkTag(false);
+    setBulkTagInput('');
     try {
       await Promise.all([...selectedIds].map(id => {
         const c = contacts.find(x => x.id === id);
@@ -894,11 +901,11 @@ export default function ContactsPage() {
         return contactsApi.update(id, { labels });
       }));
       toast.success(`Tag "${tag}" added to ${selectedIds.size} contacts`);
-      setShowBulkTag(false);
-      setBulkTagInput('');
+    } catch {
+      toast.error('Failed to add tag');
+      // Revert optimistic update on failure
       await load(page, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus);
-    } catch { toast.error('Failed to add tag'); }
-    finally { setBulkProcessing(false); }
+    } finally { setBulkProcessing(false); }
   };
 
   const exportCsv = () => {
@@ -1257,7 +1264,7 @@ export default function ContactsPage() {
                             </td>
                             <td className="px-4 py-3 text-gray-500 text-xs">{conv?.assignedTo?.name ?? '—'}</td>
                             <td className="px-4 py-3 text-gray-400 text-xs">
-                              {conv?.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : '—'}
+                              {conv?.lastMessageAt ? new Date(conv.lastMessageAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                             </td>
                             <td className="px-4 py-3 text-gray-400 text-xs">{new Date(contact.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                             <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -1546,12 +1553,37 @@ export default function ContactsPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900">Add Tag to {selectedIds.size} contacts</h3>
-                <p className="text-xs text-gray-500">Tag will be added to existing tags</p>
+                <p className="text-xs text-gray-500">Select an existing tag or type a new one</p>
               </div>
             </div>
+
+            {/* Existing tags dropdown */}
+            {availableTags.length > 0 && (
+              <div className="mb-3">
+                <p className="text-xs font-medium text-gray-500 mb-2">Existing tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableTags.map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setBulkTagInput(t.name)}
+                      className={cn(
+                        'text-xs px-2.5 py-1 rounded-full border transition-colors',
+                        bulkTagInput === t.name
+                          ? 'bg-teal-100 text-teal-700 border-teal-300 font-medium'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300 hover:text-teal-600',
+                      )}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <input
               type="text"
-              placeholder="e.g. vip, lead, customer"
+              placeholder="Or type a new tag…"
               value={bulkTagInput}
               onChange={e => setBulkTagInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { void bulkAddTag(); } }}

@@ -227,6 +227,54 @@ export class PlatformAdminService {
     });
   }
 
+  async getUsers(page = 1, limit = 30, search?: string) {
+    const skip = (page - 1) * limit;
+    const where = search
+      ? { OR: [
+          { email: { contains: search, mode: 'insensitive' as const } },
+          { name: { contains: search, mode: 'insensitive' as const } },
+        ] }
+      : {};
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where, skip, take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, email: true, name: true, role: true, isActive: true, emailVerified: true, createdAt: true, lastLoginAt: true,
+          tenant: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return { users, total, page, limit };
+  }
+
+  async toggleUserActive(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, isActive: true } });
+    if (!user) throw new NotFoundException('User not found');
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { isActive: !user.isActive },
+      select: { id: true, isActive: true },
+    });
+  }
+
+  async declineInvoice(invoiceId: string) {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (invoice.status !== 'OPEN') return { alreadyHandled: true };
+    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'CANCELLED' } });
+    return { declined: true };
+  }
+
+  async declineCredits(purchaseId: string) {
+    const purchase = await this.prisma.creditPurchase.findUnique({ where: { id: purchaseId } });
+    if (!purchase) throw new NotFoundException('Credit purchase not found');
+    if (purchase.status !== 'PENDING') return { alreadyHandled: true };
+    await this.prisma.creditPurchase.update({ where: { id: purchaseId }, data: { status: 'FAILED' } });
+    return { declined: true };
+  }
+
   async forceSubscription(tenantId: string, planSlug: string) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException('Workspace not found');
