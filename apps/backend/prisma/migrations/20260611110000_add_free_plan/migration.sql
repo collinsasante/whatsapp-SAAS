@@ -1,4 +1,4 @@
-INSERT INTO "plans" (
+INSERT INTO "billing_plans" (
   "id", "slug", "name", "description",
   "monthly_price", "yearly_price", "currency",
   "trial_days",
