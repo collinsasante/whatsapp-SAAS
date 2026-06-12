@@ -220,6 +220,8 @@ export default function DashboardPage() {
 
   // Real-time KPI updates via socket
   const refreshOverviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTeamTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const refreshOverview = useCallback(() => {
     if (refreshOverviewTimer.current) clearTimeout(refreshOverviewTimer.current);
     refreshOverviewTimer.current = setTimeout(() => {
@@ -227,16 +229,30 @@ export default function DashboardPage() {
     }, 500);
   }, []);
 
+  const refreshTeam = useCallback(() => {
+    if (refreshTeamTimer.current) clearTimeout(refreshTeamTimer.current);
+    refreshTeamTimer.current = setTimeout(() => {
+      void dashboardApi.teamStats().then((res) => setTeam(res.data as TeamMember[])).catch(() => null);
+    }, 800);
+  }, []);
+
   useEffect(() => {
     const socket = getSocket();
     socket.on(SocketEvent.NEW_MESSAGE, refreshOverview);
     socket.on(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
+    socket.on(SocketEvent.CONVERSATION_STATE_CHANGED, refreshOverview);
+    socket.on(SocketEvent.CONVERSATION_STATE_CHANGED, refreshTeam);
+    socket.on(SocketEvent.CONVERSATION_UPDATED, refreshTeam);
     return () => {
       socket.off(SocketEvent.NEW_MESSAGE, refreshOverview);
       socket.off(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
+      socket.off(SocketEvent.CONVERSATION_STATE_CHANGED, refreshOverview);
+      socket.off(SocketEvent.CONVERSATION_STATE_CHANGED, refreshTeam);
+      socket.off(SocketEvent.CONVERSATION_UPDATED, refreshTeam);
       if (refreshOverviewTimer.current) clearTimeout(refreshOverviewTimer.current);
+      if (refreshTeamTimer.current) clearTimeout(refreshTeamTimer.current);
     };
-  }, [refreshOverview]);
+  }, [refreshOverview, refreshTeam]);
 
   if (loading) {
     return (
