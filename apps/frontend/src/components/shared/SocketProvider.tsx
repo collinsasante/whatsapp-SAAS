@@ -89,6 +89,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
 
+  const fetchActiveConvMessages = useCallback(() => {
+    const convId = activeConversationIdRef.current;
+    if (!convId) return;
+    import('@/lib/api').then(({ messagesApi }) =>
+      messagesApi.list(convId, { limit: 30 })
+        .then((res) => {
+          const msgs = (res.data as { data: import('@whatsapp-platform/shared-types').Message[] }).data;
+          msgs.forEach((m) => addMessage(convId, m));
+        })
+        .catch(() => {}),
+    );
+  }, [addMessage]);
+
   const startPolling = useCallback(() => {
     // Conversation list poll — always runs every 30s regardless of socket state
     if (!pollIntervalRef.current) {
@@ -96,22 +109,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         window.dispatchEvent(new CustomEvent('socket:reconnect-poll'));
       }, 30_000);
     }
-    // Message poll for the active conversation — catches anything the socket missed
+    // Message poll for the active conversation — 15s to catch anything the socket missed
     if (!msgPollIntervalRef.current) {
-      msgPollIntervalRef.current = setInterval(() => {
-        const convId = activeConversationIdRef.current;
-        if (!convId) return;
-        import('@/lib/api').then(({ messagesApi }) =>
-          messagesApi.list(convId, { limit: 30 })
-            .then((res) => {
-              const msgs = (res.data as { data: import('@whatsapp-platform/shared-types').Message[] }).data;
-              msgs.forEach((m) => addMessage(convId, m));
-            })
-            .catch(() => {}),
-        );
-      }, 30_000);
+      msgPollIntervalRef.current = setInterval(fetchActiveConvMessages, 15_000);
     }
-  }, [addMessage]);
+  }, [fetchActiveConvMessages]);
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current) {
@@ -134,16 +136,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     return () => stopPolling();
   }, [startPolling, stopPolling]);
 
-  // Reconnect socket when tab comes back into focus — mobile browsers drop idle connections
+  // Reconnect socket + fetch latest messages when tab comes back into focus
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
       const sock = getSocket();
       if (!sock.connected) sock.connect();
+      // Immediately fetch latest messages — don't wait for the next poll tick
+      fetchActiveConvMessages();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [fetchActiveConvMessages]);
 
   useEffect(() => {
     setSocketAuthErrorHandler(() => {

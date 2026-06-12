@@ -171,7 +171,13 @@ export default function CampaignsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Poll every 5 s while any campaign is active or recently completed (catch delivery/read receipts)
+  // Always-on 30s poll so summary stats stay fresh even with no active campaigns
+  useEffect(() => {
+    const id = setInterval(() => { void load(true); }, 30_000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  // Fast 5s poll while any campaign is running/paused or recently completed (delivery receipts)
   useEffect(() => {
     const hasActive = campaigns.some(c => {
       if (c.status === 'RUNNING' || c.status === 'PAUSED') return true;
@@ -181,7 +187,7 @@ export default function CampaignsPage() {
       return false;
     });
     if (!hasActive) return;
-    const id = setInterval(() => { void load(true); }, 5000);
+    const id = setInterval(() => { void load(true); }, 5_000);
     return () => clearInterval(id);
   }, [campaigns, load]);
 
