@@ -70,6 +70,11 @@ fi
 if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   echo "==> Building frontend..."
   rm -rf apps/frontend/.next
+  # Next.js 14 standalone bug: tries to rename .next/export/500.html at the end of the build
+  # but App Router never creates it — pre-seed the file so the rename succeeds.
+  mkdir -p apps/frontend/.next/export apps/frontend/.next/server/pages
+  printf '<!DOCTYPE html><html><head><title>500</title></head><body></body></html>' \
+    > apps/frontend/.next/export/500.html
   # Always bake production URLs into the bundle regardless of what infra/.env has
   NEXT_PUBLIC_API_URL="https://verzchat.com/api/v1" \
   NEXT_PUBLIC_SOCKET_URL="https://verzchat.com" \
