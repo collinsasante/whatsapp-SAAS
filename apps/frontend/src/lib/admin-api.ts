@@ -15,6 +15,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  if (res.status === 401) {
+    localStorage.removeItem('admin_token');
+    window.location.href = '/platform-admin/login';
+    throw new Error('Session expired');
+  }
+
   const data = await res.json().catch(() => ({ message: 'Request failed' }));
   if (!res.ok) throw new Error((data as { message?: string }).message ?? 'Request failed');
   return data as T;

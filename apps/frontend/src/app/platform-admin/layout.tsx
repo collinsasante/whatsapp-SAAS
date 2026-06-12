@@ -22,7 +22,18 @@ export default function PlatformAdminLayout({ children }: { children: React.Reac
     if (pathname === '/platform-admin/login' || pathname === '/platform-admin/reset-password') { setReady(true); return; }
     const token = localStorage.getItem('admin_token');
     if (!token) { router.replace('/platform-admin/login'); return; }
-    setReady(true);
+    // Validate the token is still live (catches expiry after 12h or post-deploy invalidation)
+    const base = (process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001/api/v1') + '/platform-admin';
+    fetch(`${base}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (res.status === 401) {
+          localStorage.removeItem('admin_token');
+          router.replace('/platform-admin/login');
+        } else {
+          setReady(true);
+        }
+      })
+      .catch(() => setReady(true));
   }, [pathname, router]);
 
   // Close mobile nav on route change
