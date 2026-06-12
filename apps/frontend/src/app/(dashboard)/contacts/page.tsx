@@ -694,7 +694,7 @@ export default function ContactsPage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterLifecycle, setFilterLifecycle] = useState<'' | 'active' | 'blocked' | 'optedOut'>('');
   const [filterLabel, setFilterLabel] = useState('');
-  const [filterConvStatus, setFilterConvStatus] = useState<'' | 'OPEN' | 'PENDING' | 'RESOLVED' | 'SNOOZED'>('');
+  const [filterConvStatus, setFilterConvStatus] = useState<'' | 'OPEN' | 'REQUESTING' | 'RESOLVED'>('');
   // Date filters
   const [dateField, setDateField] = useState<'createdAt' | 'lastMessage' | 'lastActive' | ''>('');
   const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom' | ''>('');
@@ -1052,9 +1052,8 @@ export default function ContactsPage() {
                       className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
                       <option value="">All</option>
                       <option value="OPEN">Open</option>
-                      <option value="PENDING">Pending</option>
+                      <option value="REQUESTING">Requesting</option>
                       <option value="RESOLVED">Resolved</option>
-                      <option value="SNOOZED">Snoozed</option>
                     </select>
                   </div>
 
