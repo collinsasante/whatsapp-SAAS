@@ -10,25 +10,21 @@ const FREE_FEATURES = [
 ];
 
 const STARTER_FEATURES = [
-  'Up to 3 agents',
+  '3 agents',
   '5,000 contacts',
   '5,000 messages/month',
   '1 WhatsApp channel',
-  'Shared team inbox',
-  'Broadcast campaigns',
+  'Team inbox & campaigns',
   'Contact management',
   'Basic analytics',
-  'Email support',
 ];
 
 const PRO_FEATURES = [
-  'Up to 20 agents',
+  '20 agents',
   '20,000 contacts',
   'Unlimited messages',
-  'Up to 5 WhatsApp channels',
-  'Shared team inbox',
-  'Broadcast campaigns',
-  'Chatbot automation (no-code)',
+  '5 WhatsApp channels',
+  'Chatbot automation',
   'AI reply suggestions',
   'Analytics & CSAT',
   'Priority support',
@@ -73,7 +69,7 @@ export default function Pricing() {
                     <li key={f}><span className="ck">✓</span>{f}</li>
                   ))}
                 </ul>
-                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 14, padding: '12px 20px', marginTop: 8 }}>
+                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 13, padding: '10px 16px', marginTop: 4 }}>
                   Get Started Free
                 </Link>
               </div>
@@ -91,7 +87,7 @@ export default function Pricing() {
                     <li key={f}><span className="ck">✓</span>{f}</li>
                   ))}
                 </ul>
-                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 14, padding: '12px 20px', marginTop: 8 }}>
+                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 13, padding: '10px 16px', marginTop: 4 }}>
                   Get Started
                 </Link>
               </div>
@@ -110,7 +106,7 @@ export default function Pricing() {
                     <li key={f}><span className="ck">✓</span>{f}</li>
                   ))}
                 </ul>
-                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 14, padding: '12px 20px', marginTop: 8 }}>
+                <Link href="/auth/register" className="btn_dark" style={{ width: '100%', textAlign: 'center', display: 'block', fontSize: 13, padding: '10px 16px', marginTop: 4 }}>
                   Get Started
                 </Link>
               </div>
