@@ -128,6 +128,19 @@ export default function LibraryPage() {
     void loadAgentAssets();
   }, [loadAgentAssets]);
 
+  // Auto-deduplicate every 15 minutes silently
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const res = await mediaApi.deduplicate();
+        const { removed } = res.data as { removed: number };
+        if (removed > 0) void loadAgentAssets();
+      } catch { /* silent */ }
+    };
+    const id = setInterval(run, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [loadAgentAssets]);
+
   useEffect(() => {
     const t = setTimeout(() => { setPage(1); void load(1, tab, search); }, 300);
     return () => clearTimeout(t);
