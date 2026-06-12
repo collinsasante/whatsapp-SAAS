@@ -3,20 +3,18 @@ import Link from 'next/link';
 
 const FREE_FEATURES = [
   '1 WhatsApp channel',
-  '100 contacts',
-  '500 messages/month',
+  'Unlimited contacts',
+  'Unlimited messages/month',
   '1 agent',
-  '5 templates',
 ];
 
 const STARTER_FEATURES = [
-  '3 agents',
-  '5,000 contacts',
-  '5,000 messages/month',
   '1 WhatsApp channel',
-  'Team inbox & campaigns',
-  'Contact management',
-  'Basic analytics',
+  'Unlimited contacts',
+  'Unlimited messages/month',
+  '2 agents',
+  '3 templates',
+  '3 automations',
 ];
 
 const PRO_FEATURES = [

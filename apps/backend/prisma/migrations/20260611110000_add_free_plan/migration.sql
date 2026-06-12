@@ -12,10 +12,10 @@ VALUES (
   gen_random_uuid(), 'free', 'Free', 'Get started with the basics, no credit card needed',
   0, 0, 'GHS',
   0,
-  1, 1, 100,
-  5, 500,
+  1, 1, -1,
+  0, -1,
   0, 0, 1,
-  '["1 WhatsApp Channel","100 Contacts","500 Messages/month","1 Agent","5 Templates"]',
+  '["1 WhatsApp Channel","Unlimited Contacts","Unlimited Messages/month","1 Agent"]',
   true, true, -1,
   NOW(), NOW()
 )

@@ -453,7 +453,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         }
         const name = c.contact.name ?? c.contact.phone;
         const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
-        const matchesStatus = statusFilter === 'All' ? c.status !== 'RESOLVED' : c.status === statusFilter;
+        const matchesStatus = statusFilter === 'All'
+          ? (c.status !== 'RESOLVED' && c.status !== 'INTERVENED')
+          : c.status === statusFilter;
         const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
         // In "All" tab with no explicit member filter: show only own + unassigned
@@ -473,11 +475,11 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const [collapsedAgents, setCollapsedAgents] = useState<Set<string>>(new Set());
 
   const intervenedGroups = useMemo(() => {
-    if (statusFilter !== 'All' || memberFilter !== 'All' || !currentUserId) return [];
+    if (statusFilter !== 'All' || memberFilter !== 'All') return [];
     const now = Date.now();
-    const otherIntervened = sourceConversations.filter((c) => {
+    const allIntervened = sourceConversations.filter((c) => {
       if (c.status !== 'INTERVENED') return false;
-      if (!c.assignedTo || c.assignedTo.id === currentUserId) return false;
+      if (!c.assignedTo) return false;
       if (!c.contact) return false;
       if (c.lastInboundAt) {
         const elapsed = now - new Date(c.lastInboundAt).getTime();
@@ -490,14 +492,14 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       return true;
     });
     const map = new Map<string, { agent: { id: string; name: string }; convs: Conversation[] }>();
-    for (const conv of otherIntervened) {
+    for (const conv of allIntervened) {
       if (!conv.assignedTo) continue;
       const { id, name } = conv.assignedTo;
       if (!map.has(id)) map.set(id, { agent: { id, name }, convs: [] });
       map.get(id)!.convs.push(conv);
     }
     return Array.from(map.values());
-  }, [sourceConversations, statusFilter, memberFilter, currentUserId, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourceConversations, statusFilter, memberFilter, search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={cn('w-full md:w-72 border-r border-gray-100 bg-white flex flex-col h-full flex-shrink-0', mobileHidden && 'hidden md:flex')}>
@@ -647,7 +649,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             {STATUS_FILTERS.map((f) => {
               const count = f.key === 'All'
                 ? conversations.filter(c => {
-                    if (c.status === 'RESOLVED') return false;
+                    if (c.status === 'RESOLVED' || c.status === 'INTERVENED') return false;
                     if (c.lastInboundAt) {
                       const elapsed = Date.now() - new Date(c.lastInboundAt).getTime();
                       if (elapsed > TWENTY_FOUR_HOURS) return false;
