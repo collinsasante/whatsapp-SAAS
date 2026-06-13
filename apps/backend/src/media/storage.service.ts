@@ -168,10 +168,18 @@ export class StorageService {
 
   async getStream(fileKey: string): Promise<NodeJS.ReadableStream | null> {
     if (this.driver === 's3' && this.s3Client) {
-      const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: fileKey }));
-      return response.Body as Readable;
+      try {
+        const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: fileKey }));
+        return response.Body as Readable;
+      } catch {
+        return null;
+      }
     } else if (this.driver === 'minio' && this.minioClient) {
-      return this.minioClient.getObject(this.bucket, fileKey);
+      try {
+        return await this.minioClient.getObject(this.bucket, fileKey);
+      } catch {
+        return null;
+      }
     } else {
       const filePath = path.join(this.uploadPath, fileKey);
       if (!fs.existsSync(filePath)) return null;

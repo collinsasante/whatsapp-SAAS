@@ -1239,11 +1239,11 @@ export default function ContactsPage() {
                             </td>
                             <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{contact.email ?? '—'}</td>
                             <td className="px-4 py-3 text-gray-600 font-mono text-xs">{contact.phone}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-1 max-w-[120px]">
+                            <td className="px-4 py-3 max-w-[140px]">
+                              <div className="flex flex-wrap gap-1">
                                 {contact.labels.length > 0
                                   ? contact.labels.slice(0, 2).map((label) => (
-                                    <span key={label} className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full">{label}</span>
+                                    <span key={label} className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full max-w-[110px] truncate block" title={label}>{label}</span>
                                   ))
                                   : <span className="text-gray-400 text-xs">—</span>}
                                 {contact.labels.length > 2 && <span className="text-xs text-gray-400">+{contact.labels.length - 2}</span>}

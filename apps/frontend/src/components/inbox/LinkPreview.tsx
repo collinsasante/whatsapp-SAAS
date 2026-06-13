@@ -15,8 +15,10 @@ const cache = new Map<string, PreviewData | null>();
 async function fetchPreview(url: string): Promise<PreviewData | null> {
   if (cache.has(url)) return cache.get(url)!;
   try {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     const res = await fetch(`/api/v1/link-preview?url=${encodeURIComponent(url)}`, {
       credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) { cache.set(url, null); return null; }
     const data = await res.json() as PreviewData & { error?: string };

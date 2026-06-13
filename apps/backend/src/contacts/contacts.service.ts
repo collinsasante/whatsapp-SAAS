@@ -237,21 +237,28 @@ export class ContactsService {
 
   async bulkImport(tenantId: string, dto: ImportContactsDto) {
     const results = { created: 0, skipped: 0, errors: [] as string[] };
+    if (!Array.isArray(dto?.contacts) || dto.contacts.length === 0) return results;
     const BATCH = 50;
 
     for (let i = 0; i < dto.contacts.length; i += BATCH) {
       await Promise.all(
         dto.contacts.slice(i, i + BATCH).map(async (contactDto) => {
           try {
-            const phone = normalizePhone(contactDto.phone);
+            const rawPhone = String(contactDto.phone ?? '').trim();
+            if (!rawPhone) { results.skipped++; return; }
+            const phone = normalizePhone(rawPhone);
+            const email = contactDto.email?.trim() || null;
+            const customFields = contactDto.customFields && typeof contactDto.customFields === 'object'
+              ? contactDto.customFields as Record<string, string>
+              : undefined;
             await this.prisma.contact.upsert({
               where: { tenantId_phone: { tenantId, phone } },
-              create: { tenantId, phone, name: contactDto.name, email: contactDto.email, labels: contactDto.labels ?? [] },
-              update: { name: contactDto.name, email: contactDto.email },
+              create: { tenantId, phone, name: contactDto.name, email, labels: contactDto.labels ?? [], ...(customFields ? { customFields } : {}) },
+              update: { name: contactDto.name, email, ...(customFields ? { customFields } : {}) },
             });
             results.created++;
-          } catch {
-            results.errors.push(`Failed to import ${contactDto.phone}`);
+          } catch (err) {
+            results.errors.push(`Failed to import ${contactDto.phone}: ${err instanceof Error ? err.message : String(err)}`);
             results.skipped++;
           }
         }),

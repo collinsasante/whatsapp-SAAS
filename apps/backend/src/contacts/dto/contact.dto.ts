@@ -1,4 +1,4 @@
-import { IsString, IsEmail, IsOptional, IsArray, IsObject, IsBoolean } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsArray, IsObject, IsBoolean, IsDefined } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateContactDto {
@@ -63,6 +63,7 @@ export class UpdateContactDto {
 
 export class ImportContactsDto {
   @ApiProperty({ type: [CreateContactDto] })
+  @IsDefined()
   @IsArray()
   contacts: CreateContactDto[];
 }
