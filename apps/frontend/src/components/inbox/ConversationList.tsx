@@ -46,6 +46,7 @@ interface Props {
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
+  { key: 'UNREPLIED', label: 'Pending' },
   { key: 'REQUESTED', label: 'Requests' },
   { key: 'RESOLVED', label: 'Resolved' },
 ];
@@ -455,14 +456,19 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
         const matchesStatus = statusFilter === 'All'
           ? (c.status !== 'RESOLVED' && c.status !== 'INTERVENED')
-          : c.status === statusFilter;
+          : statusFilter === 'UNREPLIED'
+            ? c.status !== 'RESOLVED'
+            : c.status === statusFilter;
         const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
-        // In "All" tab with no explicit member filter: show only own + unassigned
-        const matchesMember = memberFilter === 'All'
-          ? (statusFilter !== 'All' || !currentUserId || c.assignedTo === null || c.assignedTo?.id === currentUserId)
-          : (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
-        return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember;
+        // Pending tab: show all agents' unreplied chats regardless of assignment
+        const matchesMember = statusFilter === 'UNREPLIED'
+          ? true
+          : memberFilter === 'All'
+            ? (statusFilter !== 'All' || !currentUserId || c.assignedTo === null || c.assignedTo?.id === currentUserId)
+            : (memberFilter === 'unassigned' ? c.assignedTo === null : c.assignedTo?.id === memberFilter);
+        const matchesUnreplied = statusFilter !== 'UNREPLIED' || c.messages?.[0]?.direction === 'INBOUND';
+        return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember && matchesUnreplied;
       });
   }, [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
 
@@ -657,6 +663,15 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                     if (currentUserId && c.assignedTo !== null && c.assignedTo?.id !== currentUserId) return false;
                     return true;
                   }).length
+                : f.key === 'UNREPLIED'
+                  ? conversations.filter(c => {
+                      if (c.status === 'RESOLVED') return false;
+                      if (c.lastInboundAt) {
+                        const elapsed = Date.now() - new Date(c.lastInboundAt).getTime();
+                        if (elapsed > TWENTY_FOUR_HOURS) return false;
+                      }
+                      return c.messages?.[0]?.direction === 'INBOUND';
+                    }).length
                 : f.key === 'RESOLVED'
                   ? (statusCounts?.RESOLVED ?? null)
                   : conversations.filter(c => c.status === f.key).length;

@@ -7,7 +7,7 @@ import { silentRefresh } from '@/lib/api';
 import Sidebar, { MobileBottomNav } from '@/components/shared/Sidebar';
 import { SocketProvider } from '@/components/shared/SocketProvider';
 import NotificationBell from '@/components/shared/NotificationBell';
-import UnrepliedChatsButton from '@/components/shared/UnrepliedChatsButton';
+import UnrepliedChatsStrip from '@/components/shared/UnrepliedChatsButton';
 import { IncomingCallModal } from '@/components/shared/IncomingCallModal';
 import { OutboundDialModal } from '@/components/shared/OutboundDialModal';
 import { OutboundCallBar } from '@/components/shared/OutboundCallBar';
@@ -126,11 +126,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   {workspaceName}
                 </span>
               </div>
-              <div className="hidden md:block" />
-              <div className="flex items-center gap-1">
-                <UnrepliedChatsButton />
-                <NotificationBell />
-              </div>
+              <UnrepliedChatsStrip />
+              <NotificationBell />
             </header>
             <main className="flex-1 overflow-hidden min-h-0">{children}</main>
           </div>
