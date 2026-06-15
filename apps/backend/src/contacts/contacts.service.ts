@@ -246,6 +246,8 @@ export class ContactsService {
           try {
             const rawPhone = String(contactDto.phone ?? '').trim();
             if (!rawPhone) { results.skipped++; return; }
+            const digits = rawPhone.replace(/\D/g, '');
+            if (!digits) { results.skipped++; return; } // e.g. "N/A", "#N/A"
             const phone = normalizePhone(rawPhone);
             const email = contactDto.email?.trim() || null;
             const customFields = contactDto.customFields && typeof contactDto.customFields === 'object'
