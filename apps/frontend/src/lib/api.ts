@@ -425,6 +425,10 @@ export const billingApi = {
     api.post('/billing/credits/initialize', { packSlug }),
   notifyPaymentConfirmed: (reference: string) =>
     api.post('/billing/payment-confirmed', { reference }),
+  initiateMomoCheckout: (data: { planSlug: string; cycle: string; momoPhone: string; billingEmail?: string }) =>
+    api.post('/billing/momo/request', data),
+  getMomoStatus: (referenceId: string) =>
+    api.get(`/billing/momo/status/${referenceId}`),
 };
 
 export const teamsApi = {

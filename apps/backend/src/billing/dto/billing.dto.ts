@@ -34,3 +34,18 @@ export class ApplyPromoCodeDto {
   @IsString()
   planSlug: string;
 }
+
+export class InitiateMomoCheckoutDto {
+  @IsString()
+  planSlug: string;
+
+  @IsEnum(BillingCycle)
+  cycle: BillingCycle;
+
+  @IsString()
+  momoPhone: string;
+
+  @IsEmail()
+  @IsOptional()
+  billingEmail?: string;
+}

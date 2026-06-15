@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Headers,
   HttpCode,
@@ -202,5 +203,32 @@ export class BillingWebhookController {
     }
 
     return { received: true };
+  }
+
+  @Post('momo')
+  @HttpCode(200)
+  async momoWebhook(
+    @Body() body: {
+      referenceId?: string;
+      externalId?: string;
+      status?: string;
+      financialTransactionId?: string;
+      reason?: { code?: string };
+    },
+  ) {
+    const referenceId = body.referenceId ?? body.externalId;
+    if (!referenceId) {
+      this.logger.warn('MoMo webhook missing referenceId');
+      return { received: true };
+    }
+
+    const status = body.status === 'SUCCESSFUL' ? 'SUCCESSFUL'
+      : body.status === 'FAILED' ? 'FAILED'
+      : null;
+
+    if (!status) return { received: true };
+
+    this.logger.log(`MoMo webhook: ${referenceId} → ${status}`);
+    return this.billingService.handleMomoWebhook(referenceId, status, body.financialTransactionId);
   }
 }

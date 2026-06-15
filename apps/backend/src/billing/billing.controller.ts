@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -6,7 +7,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { UserRole } from '@whatsapp-platform/shared-types';
-import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, UpdateBillingEmailDto } from './dto/billing.dto';
+import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, InitiateMomoCheckoutDto, UpdateBillingEmailDto } from './dto/billing.dto';
 
 @ApiTags('Billing')
 @ApiBearerAuth()
@@ -124,5 +125,24 @@ export class BillingController {
     @Query('secret') secret: string,
   ) {
     return this.billingService.adminActivateCredits(secret, ref);
+  }
+
+  // ─── MTN MoMo ────────────────────────────────────────────────────────────
+
+  @Post('momo/request')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Initiate MTN MoMo payment request — sends USSD push to payer' })
+  initiateMomoCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateMomoCheckoutDto) {
+    return this.billingService.initiateMomoCheckout(tenantId, dto);
+  }
+
+  @Get('momo/status/:referenceId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Poll MTN MoMo payment status' })
+  getMomoStatus(
+    @CurrentTenant() tenantId: string,
+    @Param('referenceId') referenceId: string,
+  ) {
+    return this.billingService.getMomoPaymentStatus(tenantId, referenceId);
   }
 }

@@ -1,13 +1,15 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { BillingCycle, PaymentGateway } from '@whatsapp-platform/shared-types';
+import { BillingCycle, PaymentGateway, PaymentStatus } from '@whatsapp-platform/shared-types';
 import { SubscriptionService } from './subscription.service';
 import { InvoiceService } from './invoice.service';
 import { UsageService } from './usage.service';
 import { EmailService } from '../common/email.service';
-import { InitiateCheckoutDto } from './dto/billing.dto';
+import { InitiateCheckoutDto, InitiateMomoCheckoutDto } from './dto/billing.dto';
+import { MomoService } from './momo.service';
 import { randomBytes } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 function genRef(prefix: string) {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`;
@@ -36,6 +38,7 @@ export class BillingService {
     private readonly invoiceService: InvoiceService,
     private readonly usageService: UsageService,
     private readonly emailService: EmailService,
+    private readonly momoService: MomoService,
   ) {}
 
   async getStatus(tenantId: string) {
@@ -352,5 +355,174 @@ export class BillingService {
     });
 
     return { ok: true };
+  }
+
+  // ─── MTN MoMo ──────────────────────────────────────────────────────────────
+
+  async initiateMomoCheckout(tenantId: string, dto: InitiateMomoCheckoutDto) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, billingEmail: true },
+    });
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    const plan = await this.prisma.plan.findUnique({ where: { slug: dto.planSlug } });
+    if (!plan) throw new NotFoundException(`Plan not found: ${dto.planSlug}`);
+
+    if (plan.monthlyPrice === 0) {
+      const sub = await this.subscriptionService.getOrCreateFreeTrial(tenantId);
+      return { free: true, subscription: sub };
+    }
+
+    const usdAmount = dto.cycle === BillingCycle.YEARLY ? plan.yearlyPrice : plan.monthlyPrice;
+    const { amount: momoAmount, currency: momoCurrency } =
+      this.momoService.resolveAmountAndCurrency(usdAmount);
+
+    const now = new Date();
+    const periodEnd = dto.cycle === BillingCycle.YEARLY
+      ? new Date(now.getFullYear() + 1, now.getMonth(), now.getDate())
+      : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+
+    const referenceId = uuidv4();
+
+    const invoice = await this.invoiceService.createInvoice({
+      tenantId,
+      planName: plan.name,
+      planSlug: dto.planSlug,
+      amount: usdAmount,
+      currency: plan.currency ?? 'USD',
+      billingEmail: dto.billingEmail ?? tenant.billingEmail ?? '',
+      billingName: tenant.name,
+      periodStart: now,
+      periodEnd,
+    });
+
+    await this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        gatewayInvoiceId: referenceId,
+        metadata: { planSlug: dto.planSlug, planId: plan.id, cycle: dto.cycle },
+      },
+    });
+
+    await this.prisma.payment.create({
+      data: {
+        tenantId,
+        invoiceId: invoice.id,
+        gateway: PaymentGateway.MOMO,
+        status: PaymentStatus.PENDING,
+        amount: momoAmount,
+        currency: momoCurrency,
+        gatewayReference: referenceId,
+        metadata: { phone: dto.momoPhone, planSlug: dto.planSlug, cycle: dto.cycle, invoiceNumber: invoice.invoiceNumber },
+      },
+    });
+
+    const phone = this.momoService.normalizeMsisdn(dto.momoPhone);
+    const apiUrl = this.config.get<string>('API_URL', 'https://verzchat.com/api/v1');
+
+    await this.momoService.requestToPay({
+      referenceId,
+      phone,
+      amount: momoAmount,
+      currency: momoCurrency,
+      externalId: invoice.invoiceNumber,
+      payerMessage: `VerzChat ${plan.name} ${dto.cycle === BillingCycle.YEARLY ? 'Yearly' : 'Monthly'}`,
+      payeeNote: `Invoice ${invoice.invoiceNumber}`,
+      callbackUrl: `${apiUrl}/billing/webhooks/momo`,
+    });
+
+    return { referenceId, amount: momoAmount, currency: momoCurrency };
+  }
+
+  async getMomoPaymentStatus(tenantId: string, referenceId: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { tenantId, gatewayReference: referenceId, gateway: PaymentGateway.MOMO },
+    });
+    if (!payment) throw new NotFoundException('Payment not found');
+
+    if (payment.status === PaymentStatus.SUCCEEDED) return { status: 'SUCCEEDED' };
+    if (payment.status === PaymentStatus.FAILED) return { status: 'FAILED', reason: payment.failReason };
+
+    try {
+      const momoStatus = await this.momoService.getPaymentStatus(referenceId);
+
+      if (momoStatus.status === 'SUCCESSFUL') {
+        await this.activateMomoPayment(payment.id, payment.tenantId, payment.invoiceId, momoStatus.financialTransactionId);
+        return { status: 'SUCCEEDED' };
+      }
+
+      if (momoStatus.status === 'FAILED') {
+        await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.FAILED, failReason: momoStatus.reason ?? 'Payment declined' },
+        });
+        return { status: 'FAILED', reason: momoStatus.reason ?? 'Payment declined' };
+      }
+
+      return { status: 'PENDING' };
+    } catch {
+      // MTN API error — keep polling
+      return { status: 'PENDING' };
+    }
+  }
+
+  async handleMomoWebhook(referenceId: string, momoStatus: 'SUCCESSFUL' | 'FAILED', financialTransactionId?: string) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { gatewayReference: referenceId, gateway: PaymentGateway.MOMO },
+    });
+    if (!payment || payment.status === PaymentStatus.SUCCEEDED) return { received: true };
+
+    if (momoStatus === 'SUCCESSFUL') {
+      await this.activateMomoPayment(payment.id, payment.tenantId, payment.invoiceId, financialTransactionId);
+    } else {
+      await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.FAILED, failReason: 'Payment declined' },
+      });
+    }
+
+    return { received: true };
+  }
+
+  private async activateMomoPayment(
+    paymentId: string,
+    tenantId: string,
+    invoiceId: string | null,
+    financialTransactionId?: string,
+  ) {
+    await this.prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: PaymentStatus.SUCCEEDED,
+        gatewayPaymentId: financialTransactionId,
+        verifiedAt: new Date(),
+      },
+    });
+
+    if (!invoiceId) return;
+
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice || invoice.status === 'PAID') return;
+
+    await this.invoiceService.markPaid(invoice.id);
+
+    const meta = invoice.metadata as { planId?: string; planSlug?: string; cycle?: BillingCycle } | null;
+    const plan = meta?.planId
+      ? await this.prisma.plan.findUnique({ where: { id: meta.planId } })
+      : meta?.planSlug
+        ? await this.prisma.plan.findUnique({ where: { slug: meta.planSlug } })
+        : null;
+
+    if (plan) {
+      await this.subscriptionService.activateFromPayment({
+        tenantId,
+        invoiceId: invoice.id,
+        planId: plan.id,
+        cycle: meta?.cycle ?? BillingCycle.MONTHLY,
+        gateway: PaymentGateway.MOMO,
+      });
+      this.logger.log(`MoMo payment activated for tenant ${tenantId}, plan ${plan.slug}`);
+    }
   }
 }
