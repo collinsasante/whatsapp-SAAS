@@ -126,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   {workspaceName}
                 </span>
               </div>
-              <UnrepliedChatsStrip />
+              {pathname?.startsWith('/inbox') && <UnrepliedChatsStrip />}
               <div className="ml-auto flex-shrink-0">
                 <NotificationBell />
               </div>
