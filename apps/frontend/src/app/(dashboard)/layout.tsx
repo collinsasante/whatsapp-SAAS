@@ -127,7 +127,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </span>
               </div>
               <UnrepliedChatsStrip />
-              <NotificationBell />
+              <div className="ml-auto flex-shrink-0">
+                <NotificationBell />
+              </div>
             </header>
             <main className="flex-1 overflow-hidden min-h-0">{children}</main>
           </div>
