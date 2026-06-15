@@ -46,7 +46,6 @@ interface Props {
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
-  { key: 'UNREPLIED', label: 'Pending' },
   { key: 'REQUESTED', label: 'Requests' },
   { key: 'RESOLVED', label: 'Resolved' },
 ];
