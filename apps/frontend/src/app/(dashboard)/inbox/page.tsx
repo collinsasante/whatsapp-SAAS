@@ -100,15 +100,37 @@ export default function InboxPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
-  // Open conversation from toast notification click
+  // Open conversation from toast notification or unreplied-strip click.
+  // If the conversation isn't already loaded, fetch it so the chat window can render.
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = async (e: Event) => {
       const { conversationId } = (e as CustomEvent<{ conversationId: string }>).detail;
-      if (conversationId) setActiveConversation(conversationId);
+      if (!conversationId) return;
+      const alreadyLoaded =
+        conversations.find((c) => c.id === conversationId) ||
+        resolvedConversations.find((c) => c.id === conversationId);
+      if (alreadyLoaded) {
+        setActiveConversation(conversationId);
+        setMobileView('chat');
+        return;
+      }
+      try {
+        const res = await conversationsApi.get(conversationId);
+        const conv = res.data as Parameters<typeof setConversations>[0][number];
+        setResolvedConversations((prev) =>
+          prev.find((c) => c.id === conversationId) ? prev : [conv, ...prev],
+        );
+        setActiveConversation(conversationId);
+        setMobileView('chat');
+      } catch {
+        setActiveConversation(conversationId);
+        setMobileView('chat');
+      }
     };
     window.addEventListener('inbox:open-conversation', handler);
     return () => window.removeEventListener('inbox:open-conversation', handler);
-  }, [setActiveConversation]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, resolvedConversations, setActiveConversation, setConversations]);
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId)
     ?? resolvedConversations.find((c) => c.id === activeConversationId)

@@ -34,43 +34,58 @@ function showBrowserNotification(title: string, body: string) {
   } catch { /* not supported */ }
 }
 
+// Shared AudioContext — created once, reused across all beeps.
+// Chrome suspends it until a user gesture; resume() re-activates it silently.
+let _audioCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (_audioCtx) return _audioCtx;
+  const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+  _audioCtx = new AudioCtx();
+  return _audioCtx;
+}
+
 function playNotificationSound() {
   try {
-    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtx();
-    const playBeep = (time: number, freq: number, dur: number) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.25, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
-      osc.start(time);
-      osc.stop(time + dur);
-    };
-    playBeep(ctx.currentTime, 784, 0.12);
-    playBeep(ctx.currentTime + 0.13, 1046, 0.18);
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    void ctx.resume().then(() => {
+      const playBeep = (time: number, freq: number, dur: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.25, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+        osc.start(time);
+        osc.stop(time + dur);
+      };
+      playBeep(ctx.currentTime, 784, 0.12);
+      playBeep(ctx.currentTime + 0.13, 1046, 0.18);
+    });
   } catch { /* audio not available */ }
 }
 
 function playRequestSound() {
   try {
-    const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtx();
-    // Urgent triple beep for support requests
-    [0, 0.15, 0.30].forEach((delay, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'triangle';
-      osc.frequency.value = 880 + i * 110;
-      gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.1);
-      osc.start(ctx.currentTime + delay);
-      osc.stop(ctx.currentTime + delay + 0.1);
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    void ctx.resume().then(() => {
+      [0, 0.15, 0.30].forEach((delay, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'triangle';
+        osc.frequency.value = 880 + i * 110;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.1);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.1);
+      });
     });
   } catch { /* audio not available */ }
 }
