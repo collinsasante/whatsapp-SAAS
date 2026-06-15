@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { cn, getInitials } from '@/lib/utils';
 import { useInboxStore, Conversation } from '@/store/inbox.store';
 import { conversationsApi } from '@/lib/api';
@@ -31,6 +31,7 @@ function avatarColor(name: string) {
 
 export default function UnrepliedChatsStrip() {
   const router = useRouter();
+  const pathname = usePathname();
   const [fetched, setFetched] = useState<Conversation[]>([]);
   const storeConversations = useInboxStore((s) => s.conversations);
 
@@ -68,7 +69,13 @@ export default function UnrepliedChatsStrip() {
           return (
             <button
               key={c.id}
-              onClick={() => router.push(`/inbox?c=${c.id}`)}
+              onClick={() => {
+                if (pathname?.startsWith('/inbox')) {
+                  window.dispatchEvent(new CustomEvent('inbox:open-conversation', { detail: { conversationId: c.id } }));
+                } else {
+                  router.push(`/inbox?c=${c.id}`);
+                }
+              }}
               title={`${name}: ${preview}`}
               className={cn(
                 'flex items-center gap-1.5 px-2 py-1 rounded-lg border border-gray-200 bg-white hover:border-teal-400 hover:bg-teal-50 transition-colors flex-shrink-0 group',
