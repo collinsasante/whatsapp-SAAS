@@ -649,49 +649,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             </Dropdown>
           )}
 
-          {/* Row 3: Status tabs */}
-          <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
-            {STATUS_FILTERS.map((f) => {
-              const count = f.key === 'All'
-                ? conversations.filter(c => {
-                    if (c.status === 'RESOLVED' || c.status === 'INTERVENED') return false;
-                    if (c.lastInboundAt) {
-                      const elapsed = Date.now() - new Date(c.lastInboundAt).getTime();
-                      if (elapsed > TWENTY_FOUR_HOURS) return false;
-                    }
-                    if (currentUserId && c.assignedTo !== null && c.assignedTo?.id !== currentUserId) return false;
-                    return true;
-                  }).length
-                : f.key === 'UNREPLIED'
-                  ? conversations.filter(c => {
-                      if (c.status === 'RESOLVED') return false;
-                      if (c.lastInboundAt) {
-                        const elapsed = Date.now() - new Date(c.lastInboundAt).getTime();
-                        if (elapsed > TWENTY_FOUR_HOURS) return false;
-                      }
-                      return c.messages?.[0]?.direction === 'INBOUND';
-                    }).length
-                : f.key === 'RESOLVED'
-                  ? (statusCounts?.RESOLVED ?? null)
-                  : conversations.filter(c => c.status === f.key).length;
-              const isActive = statusFilter === f.key;
-              const isUrgent = (f.key === 'REQUESTED' || f.key === 'INTERVENED') && (count ?? 0) > 0;
-              return (
-                <button key={f.key} onClick={() => { setStatusFilter(f.key); setMemberFilter('All'); }}
-                  className={cn(
-                    'flex-1 flex items-center justify-center gap-1 px-1.5 py-1.5 text-[10px] rounded-lg transition-colors font-semibold whitespace-nowrap',
-                    isActive ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
-                  )}>
-                  {f.label}
-                  {count !== null && count > 0 && (
-                    <span className={cn('min-w-[14px] h-[14px] rounded-full text-[9px] font-bold flex items-center justify-center px-0.5', isUrgent ? 'bg-orange-500 text-white' : isActive ? 'bg-teal-600 text-white' : 'bg-gray-300 text-gray-600')}>
-                      {count > 99 ? '99+' : count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </div>
 
