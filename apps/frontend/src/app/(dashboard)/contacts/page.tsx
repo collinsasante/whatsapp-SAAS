@@ -694,7 +694,7 @@ export default function ContactsPage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [filterLifecycle, setFilterLifecycle] = useState<'' | 'active' | 'blocked' | 'optedOut'>('');
   const [filterLabel, setFilterLabel] = useState('');
-  const [filterConvStatus, setFilterConvStatus] = useState<'' | 'OPEN' | 'REQUESTING' | 'RESOLVED'>('');
+  const [filterConvStatus, setFilterConvStatus] = useState<'' | 'OPEN' | 'REQUESTED' | 'RESOLVED'>('');
   // Date filters
   const [dateField, setDateField] = useState<'createdAt' | 'lastMessage' | 'lastActive' | ''>('');
   const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom' | ''>('');
@@ -1052,7 +1052,7 @@ export default function ContactsPage() {
                       className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
                       <option value="">All</option>
                       <option value="OPEN">Open</option>
-                      <option value="REQUESTING">Requesting</option>
+                      <option value="REQUESTED">Requesting</option>
                       <option value="RESOLVED">Resolved</option>
                     </select>
                   </div>
@@ -1228,7 +1228,7 @@ export default function ContactsPage() {
                                 <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0', color)}>
                                   {initials(displayName)}
                                 </div>
-                                <span className="font-medium text-gray-900 max-w-[140px] truncate">
+                                <span className="font-medium text-gray-900 max-w-[140px] whitespace-normal break-words">
                                   {contact.name ?? <span className="text-gray-400 italic text-xs">No name</span>}
                                 </span>
                               </div>

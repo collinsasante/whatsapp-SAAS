@@ -1,7 +1,8 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
+import { cn } from '@/lib/utils';
 import { canAccess } from '@/lib/permissions';
 import { silentRefresh } from '@/lib/api';
 import Sidebar, { MobileBottomNav } from '@/components/shared/Sidebar';
@@ -20,8 +21,13 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
   const { isAuthenticated, _hasHydrated, accessToken, setAccessToken, clearAuth, user, tenant } = useAuthStore();
   const [restoring, setRestoring] = useState(false);
+
+  // On mobile, an open inbox chat should take the full screen like WhatsApp —
+  // hide the app chrome (top header + bottom tab bar) instead of squeezing the chat into it.
+  const isMobileChatOpen = pathname?.startsWith('/inbox') && !!searchParams?.get('c');
 
   const restoreSession = useCallback(async () => {
     if (accessToken) return;
@@ -112,12 +118,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <OutboundCallBar />
       <ConfirmCallModal />
       <ConfirmModal />
-      <div className="flex flex-col h-screen overflow-hidden bg-gray-50">
+      <div className="flex flex-col h-dvh overflow-hidden bg-gray-50">
         <OfflineBanner />
         <div className="flex flex-1 overflow-hidden min-h-0">
           <Sidebar />
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <header className="h-12 flex items-center justify-between px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2">
+            <header className={cn(
+              'h-12 items-center justify-between px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2',
+              isMobileChatOpen ? 'hidden md:flex' : 'flex',
+            )}>
               <div className="flex items-center gap-2.5 md:hidden">
                 <div className="w-7 h-7 bg-teal-600 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                   {workspaceInitial}
@@ -134,7 +143,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <main className="flex-1 overflow-hidden min-h-0">{children}</main>
           </div>
         </div>
-        <MobileBottomNav />
+        <MobileBottomNav hidden={isMobileChatOpen} />
       </div>
     </SocketProvider>
   );

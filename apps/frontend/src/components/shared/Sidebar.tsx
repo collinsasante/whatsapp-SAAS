@@ -460,7 +460,7 @@ const PRIMARY_TABS = [
 // Paths covered by the "More" drawer tab (not in primary tabs)
 const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/settings', '/channels', '/library', '/manage', '/billing'];
 
-export function MobileBottomNav() {
+export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname() ?? "";
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -475,7 +475,10 @@ export function MobileBottomNav() {
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
       <nav
-        className="flex md:hidden flex-shrink-0 bg-white border-t border-gray-100 items-end justify-around px-1 z-40"
+        className={cn(
+          'md:hidden flex-shrink-0 bg-white border-t border-gray-100 items-end justify-around px-1 z-40',
+          hidden ? 'hidden' : 'flex',
+        )}
         style={{
           minHeight: '56px',
           paddingBottom: 'env(safe-area-inset-bottom, 8px)',

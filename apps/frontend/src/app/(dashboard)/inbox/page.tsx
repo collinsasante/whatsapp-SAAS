@@ -112,6 +112,7 @@ export default function InboxPage() {
       if (alreadyLoaded) {
         setActiveConversation(conversationId);
         setMobileView('chat');
+        router.replace(`/inbox?c=${conversationId}`, { scroll: false });
         return;
       }
       try {
@@ -122,9 +123,11 @@ export default function InboxPage() {
         );
         setActiveConversation(conversationId);
         setMobileView('chat');
+        router.replace(`/inbox?c=${conversationId}`, { scroll: false });
       } catch {
         setActiveConversation(conversationId);
         setMobileView('chat');
+        router.replace(`/inbox?c=${conversationId}`, { scroll: false });
       }
     };
     window.addEventListener('inbox:open-conversation', handler);
