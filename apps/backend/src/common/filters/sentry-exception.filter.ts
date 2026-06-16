@@ -16,10 +16,17 @@ export class SentryExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    // Non-HttpException errors raised by middleware (e.g. body-parser's
+    // PayloadTooLargeError) still carry a valid HTTP status — respect it
+    // instead of always reporting a generic 500.
+    const rawStatus = (exception as { status?: unknown; statusCode?: unknown })?.status
+      ?? (exception as { status?: unknown; statusCode?: unknown })?.statusCode;
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
+        : typeof rawStatus === 'number' && rawStatus >= 400 && rawStatus < 600
+          ? rawStatus
+          : HttpStatus.INTERNAL_SERVER_ERROR;
 
     // Log 5xx errors
     if (status >= 500) {
@@ -42,7 +49,9 @@ export class SentryExceptionFilter implements ExceptionFilter {
     const message =
       exception instanceof HttpException
         ? exception.getResponse()
-        : { statusCode: status, message: 'Internal server error' };
+        : status < 500 && exception instanceof Error
+          ? { statusCode: status, message: exception.message }
+          : { statusCode: status, message: 'Internal server error' };
 
     response.status(status).json(message);
   }

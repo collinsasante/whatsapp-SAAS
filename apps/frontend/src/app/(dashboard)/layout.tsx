@@ -127,20 +127,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               'h-12 items-center justify-between px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2',
               isMobileChatOpen ? 'hidden md:flex' : 'flex',
             )}>
-              <div className="flex items-center gap-2.5 md:hidden">
-                <div className="w-7 h-7 bg-teal-600 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {workspaceInitial}
+              {!pathname?.startsWith('/inbox') && (
+                <div className="flex items-center gap-2.5 md:hidden">
+                  <div className="w-7 h-7 bg-teal-600 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {workspaceInitial}
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900 truncate max-w-[160px]">
+                    {workspaceName}
+                  </span>
                 </div>
-                <span className="text-sm font-semibold text-gray-900 truncate max-w-[160px]">
-                  {workspaceName}
-                </span>
-              </div>
+              )}
               {pathname?.startsWith('/inbox') && <UnrepliedChatsStrip />}
               <div className="ml-auto flex-shrink-0">
                 <NotificationBell />
               </div>
             </header>
-            <main className="flex-1 overflow-hidden min-h-0">{children}</main>
+            <main className={cn(
+              'flex-1 overflow-hidden min-h-0',
+              !isMobileChatOpen && 'pb-[calc(56px+env(safe-area-inset-bottom,0px))] md:pb-0',
+            )}>{children}</main>
           </div>
         </div>
         <MobileBottomNav hidden={isMobileChatOpen} />

@@ -1184,8 +1184,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             </div>
 
-            {/* Action buttons */}
-            <div className="flex items-center gap-0.5">
+            {/* Action buttons — horizontally scrollable on narrow mobile screens so nothing gets clipped off-screen */}
+            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-hide">
               {/* Intervene button — shown only for AWAITING conversations */}
               {isRequested && !assignedToOther && (
                 <button

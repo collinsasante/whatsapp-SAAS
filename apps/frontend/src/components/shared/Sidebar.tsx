@@ -476,7 +476,7 @@ export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
 
       <nav
         className={cn(
-          'md:hidden flex-shrink-0 bg-white border-t border-gray-100 items-end justify-around px-1 z-40',
+          'md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 items-end justify-around px-1 z-40',
           hidden ? 'hidden' : 'flex',
         )}
         style={{

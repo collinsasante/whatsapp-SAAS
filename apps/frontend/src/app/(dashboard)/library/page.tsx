@@ -264,23 +264,23 @@ export default function LibraryPage() {
   return (
     <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-teal-50 rounded-xl flex items-center justify-center">
+      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex-shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 sm:mb-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-teal-50 rounded-xl flex items-center justify-center flex-shrink-0">
               <Images size={18} className="text-teal-600" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">File Library</h1>
-              <p className="text-sm text-gray-500 mt-0.5">{(agentAssets.length + total).toLocaleString()} media files</p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900 truncate">File Library</h1>
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5 truncate">{(agentAssets.length + total).toLocaleString()} media files</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="relative w-64">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="relative flex-1 sm:w-64">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by contact or caption…"
+                placeholder="Search…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 bg-gray-50"
@@ -291,30 +291,30 @@ export default function LibraryPage() {
               onClick={() => { void handleDeduplicate(); }}
               disabled={deduplicating}
               title="Remove duplicate files"
-              className="flex items-center gap-2 px-3 py-2 text-gray-500 text-sm font-medium rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 transition-colors"
+              className="flex items-center gap-2 px-2.5 sm:px-3 py-2 text-gray-500 text-sm font-medium rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 transition-colors flex-shrink-0"
             >
               <Layers size={15} />
-              {deduplicating ? 'Cleaning…' : 'Clean Duplicates'}
+              <span className="hidden sm:inline">{deduplicating ? 'Cleaning…' : 'Clean Duplicates'}</span>
             </button>
             <button
               onClick={() => uploadRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors"
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex-shrink-0"
             >
               <Upload size={15} />
-              {uploading ? 'Uploading…' : 'Upload'}
+              <span className="hidden sm:inline">{uploading ? 'Uploading…' : 'Upload'}</span>
             </button>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={cn(
-                'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                'px-3 sm:px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex-shrink-0',
                 tab === t.key ? 'bg-teal-600 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
               )}
             >
@@ -325,7 +325,7 @@ export default function LibraryPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
 
         {/* Agent Library */}
         <div className="mb-10">
@@ -428,11 +428,11 @@ export default function LibraryPage() {
                 />
               )}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-6 px-1">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mt-6 px-1">
                   <p className="text-sm text-gray-500">
                     Showing {((page - 1) * PAGE_SIZE) + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
                   </p>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
                     <button onClick={() => goPage(Math.max(1, page - 1))} disabled={page === 1}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40">
                       <ChevronLeft size={14} />

@@ -3,13 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
+import type { Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['log', 'error', 'warn'],
     rawBody: true,
   });
@@ -18,6 +20,11 @@ async function bootstrap() {
   const port = configService.get<number>('PORT', 3001);
   const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   const allowedOrigins = Array.from(new Set([frontendUrl, 'http://localhost:3000', 'http://localhost:3001']));
+
+  // Default body size limits are too small for bulk operations (e.g. CSV contact imports
+  // with hundreds of rows). Raise them while preserving the rawBody capture webhooks rely on.
+  app.useBodyParser('json', { limit: '20mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '20mb' });
 
   app.use(helmet());
   app.use(cookieParser());
@@ -55,7 +62,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
-  app.getHttpAdapter().get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
+  app.getHttpAdapter().get('/api/v1/health', (_req: Request, res: Response) => res.json({ status: 'ok' }));
 
   await app.listen(port);
   console.log(`Backend API running on port ${port}`);

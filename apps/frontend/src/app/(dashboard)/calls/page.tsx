@@ -538,13 +538,13 @@ function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4 px-1">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-3 mb-4 px-1">
       {items.map(item => (
-        <div key={item.label} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3">
+        <div key={item.label} className="bg-white border border-gray-200 rounded-lg sm:rounded-xl px-2.5 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 min-w-0">
           {item.icon}
-          <div>
-            <p className={cn('text-base font-bold leading-none', item.color)}>{item.value}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{item.label}</p>
+          <div className="min-w-0">
+            <p className={cn('text-sm sm:text-base font-bold leading-none truncate', item.color)}>{item.value}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5 truncate">{item.label}</p>
           </div>
         </div>
       ))}
@@ -660,18 +660,18 @@ function StatCard({ label, value, icon, sub, color, onClick, active }: { label: 
     <div
       onClick={onClick}
       className={cn(
-        'bg-white border rounded-2xl px-5 py-4 flex items-center gap-4 transition-all',
+        'bg-white border rounded-xl sm:rounded-2xl px-3 py-2.5 sm:px-5 sm:py-4 flex items-center gap-2.5 sm:gap-4 transition-all',
         onClick ? 'cursor-pointer hover:shadow-md active:scale-[0.98]' : 'hover:shadow-sm',
         active ? 'border-teal-400 ring-2 ring-teal-400/20 shadow-sm' : 'border-gray-200',
       )}
     >
-      <div className={cn('w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0', color)}>
+      <div className={cn('w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0', color)}>
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-2xl font-bold text-gray-900 leading-none">{value}</p>
-        <p className="text-xs text-gray-500 mt-0.5 truncate">{label}</p>
-        {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
+        <p className="text-base sm:text-2xl font-bold text-gray-900 leading-none">{value}</p>
+        <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5 truncate">{label}</p>
+        {sub && <p className="hidden sm:block text-[10px] text-gray-400 mt-0.5">{sub}</p>}
       </div>
     </div>
   );
@@ -853,7 +853,7 @@ export default function CallsPage() {
 
         {/* Stats cards */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 sm:gap-3 mb-4">
             <StatCard label="Total Calls" value={stats.total} icon={<Phone size={18} className="text-teal-600" />} sub={`${stats.todayTotal} today`} color="bg-teal-50" onClick={() => setNav('all')} active={nav === 'all'} />
             <StatCard label="Missed" value={stats.missed} icon={<PhoneMissed size={18} className="text-red-500" />} color="bg-red-50" onClick={() => setNav('missed')} active={nav === 'missed'} />
             <StatCard label="Inbound" value={stats.inbound} icon={<PhoneIncoming size={18} className="text-emerald-600" />} color="bg-emerald-50" onClick={() => setNav('incoming')} active={nav === 'incoming'} />
