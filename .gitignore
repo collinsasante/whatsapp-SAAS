@@ -11,3 +11,4 @@ coverage/
 uploads/
 prisma/migrations/dev/
 .claude/
+next-env.d.ts
