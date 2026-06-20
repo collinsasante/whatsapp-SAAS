@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConversationStatus } from '@prisma/client';
 import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/contact.dto';
 import { normalizePhone, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
@@ -150,7 +151,7 @@ export class ContactsService {
             take: 1,
             orderBy: { updatedAt: 'desc' },
             // When filtering by conversation status, prefer showing a conversation with that status
-            where: conversationStatus ? { status: conversationStatus } : undefined,
+            where: conversationStatus ? { status: conversationStatus as ConversationStatus } : undefined,
             include: {
               assignedTo: { select: { id: true, name: true, avatarUrl: true } },
               channel: { select: { id: true, name: true, type: true } },
@@ -166,7 +167,7 @@ export class ContactsService {
       this.prisma.contact.count({ where }),
     ]);
 
-    const data = contacts.map(({ conversations, ...contact }) => ({
+    const data = (contacts as (typeof contacts[number] & { conversations: unknown[] })[]).map(({ conversations, ...contact }) => ({
       ...contact,
       latestConversation: conversations[0] ?? null,
     }));
