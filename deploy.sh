@@ -10,4 +10,7 @@ git pull origin main
 echo "Rebuilding and restarting services..."
 docker compose -f infra/docker-compose.yml up -d --build
 
+echo "Reloading nginx to pick up new container IPs..."
+docker compose -f infra/docker-compose.yml restart nginx
+
 echo "Deployment complete!"
