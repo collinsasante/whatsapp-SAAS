@@ -937,44 +937,6 @@ export default function ContactsPage() {
         'flex overflow-hidden transition-all duration-200 flex-shrink-0',
         activeConversation ? 'hidden md:flex md:w-[560px]' : 'flex-1',
       )}>
-        {/* ── Segments Sidebar ── */}
-      <aside className="hidden md:flex w-52 bg-white border-r border-gray-200 flex-col flex-shrink-0 overflow-y-auto">
-        <div className="p-3 border-b border-gray-100">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Segments</p>
-        </div>
-        <nav className="flex-1">
-          <button
-            onClick={() => setActiveSegmentId(null)}
-            className={cn('w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors', !activeSegmentId ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-600 hover:bg-gray-50')}
-          >
-            <div className="flex items-center gap-2">
-              <Users className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>All Contacts</span>
-            </div>
-          </button>
-          {segments.map(seg => (
-            <button
-              key={seg.id}
-              onClick={() => setActiveSegmentId(seg.id)}
-              className={cn('w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors group', activeSegmentId === seg.id ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-600 hover:bg-gray-50')}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <Filter className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
-                <span className="truncate">{seg.name}</span>
-              </div>
-              <span className="text-[10px] text-gray-400 flex-shrink-0 ml-1">{seg.contactCount}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="p-2 border-t border-gray-100">
-          <button
-            onClick={() => setShowCreateSegment(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" /> New Segment
-          </button>
-        </div>
-      </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header */}
