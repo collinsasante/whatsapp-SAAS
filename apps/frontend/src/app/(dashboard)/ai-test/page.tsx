@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FlaskConical, Send, CheckCircle, XCircle, AlertTriangle, Sparkles, RotateCcw } from 'lucide-react';
+import { FlaskConical, Send, CheckCircle, XCircle, AlertTriangle, Sparkles, RotateCcw, Download } from 'lucide-react';
 import { aiLogsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
@@ -32,6 +32,26 @@ export default function AiTestPage() {
   const [message, setMessage] = useState('');
   const [testing, setTesting] = useState(false);
   const [history, setHistory] = useState<TestResult[]>([]);
+
+  const downloadHistory = () => {
+    const lines = [...history].reverse().map((r, i) => [
+      `## Test ${i + 1} — ${new Date(r.timestamp).toLocaleString()}`,
+      `**Customer:** ${r.message}`,
+      `**AI Response:** ${r.response || '(no response)'}`,
+      `**Confidence:** ${r.confidence !== null ? `${r.confidence}%` : '—'}`,
+      `**Response time:** ${(r.responseTimeMs / 1000).toFixed(2)}s`,
+      `**Safety:** ${r.safetyCheck.injectionAttempt ? '⚠️ Injection attempt detected' : '✅ Safe input'} | ${r.safetyCheck.blockedByGuardrail ? '🚫 Blocked by guardrail' : '✅ Guardrails passed'}`,
+    ].join('\n')).join('\n\n---\n\n');
+
+    const content = `# VerzAI Test Session\nExported: ${new Date().toLocaleString()}\nTotal tests: ${history.length}\n\n---\n\n${lines}`;
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `verz-ai-tests-${new Date().toISOString().split('T')[0]}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const runTest = async (msg: string) => {
     const text = msg.trim();
@@ -117,13 +137,21 @@ export default function AiTestPage() {
           {history.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-gray-900">Test History</p>
-                <button
-                  onClick={() => setHistory([])}
-                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-                >
-                  <RotateCcw size={11} /> Clear
-                </button>
+                <p className="text-sm font-bold text-gray-900">Test History <span className="text-gray-400 font-normal">({history.length})</span></p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={downloadHistory}
+                    className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-medium"
+                  >
+                    <Download size={11} /> Download
+                  </button>
+                  <button
+                    onClick={() => setHistory([])}
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    <RotateCcw size={11} /> Clear
+                  </button>
+                </div>
               </div>
 
               {history.map((r, i) => (
