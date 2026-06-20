@@ -942,7 +942,7 @@ export default function ContactsPage() {
         <div className="p-3 border-b border-gray-100">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Segments</p>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
+        <nav className="flex-1">
           <button
             onClick={() => setActiveSegmentId(null)}
             className={cn('w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors', !activeSegmentId ? 'bg-teal-50 text-teal-700 font-medium' : 'text-gray-600 hover:bg-gray-50')}
