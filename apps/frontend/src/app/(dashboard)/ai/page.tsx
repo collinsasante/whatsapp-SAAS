@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
-  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck,
+  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download,
 } from 'lucide-react';
 import { billingApi, knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -58,6 +58,7 @@ export default function AiPage() {
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [scrapingUrl, setScrapingUrl] = useState(false);
+  const [selectedLearnedIds, setSelectedLearnedIds] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -244,6 +245,20 @@ export default function AiPage() {
 
   const kbArticles = articles.filter(a => a.source !== 'learned');
   const learnedArticles = articles.filter(a => a.source === 'learned');
+
+  const downloadLearnedArticles = (ids: Set<string>) => {
+    const toExport = learnedArticles.filter(a => ids.has(a.id));
+    const text = toExport.map(a =>
+      `# ${a.title}\n\n${a.content}${a.sourceRef ? `\n\nSource: ${a.sourceRef}` : ''}`
+    ).join('\n\n---\n\n');
+    const blob = new Blob([text], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `verz-learned-articles-${new Date().toISOString().split('T')[0]}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   if (loading) {
     return (
@@ -626,19 +641,41 @@ export default function AiPage() {
             {/* ── AI-LEARNED TAB ── */}
             {activeTab === 'learned' && (
               <>
-                <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                  <p className="text-xs text-gray-500">Verz analyses your agent conversations and extracts recurring patterns</p>
-                  <button
-                    onClick={() => void learnFromConversations()}
-                    disabled={learning}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-teal-200 text-teal-700 hover:bg-teal-50 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
-                  >
-                    {learning
-                      ? <span className="w-3 h-3 border border-teal-500 border-t-transparent rounded-full animate-spin" />
-                      : <RefreshCw size={12} />
-                    }
-                    {learning ? 'Learning…' : 'Learn Now'}
-                  </button>
+                <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    {learnedArticles.length > 0 && (
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-teal-600 cursor-pointer"
+                        checked={selectedLearnedIds.size === learnedArticles.length && learnedArticles.length > 0}
+                        onChange={e => setSelectedLearnedIds(e.target.checked ? new Set(learnedArticles.map(a => a.id)) : new Set())}
+                        title="Select all"
+                      />
+                    )}
+                    <p className="text-xs text-gray-500">Verz analyses your agent conversations and extracts recurring patterns</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedLearnedIds.size > 0 && (
+                      <button
+                        onClick={() => downloadLearnedArticles(selectedLearnedIds)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white hover:bg-teal-700 text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        <Download size={12} />
+                        Download ({selectedLearnedIds.size})
+                      </button>
+                    )}
+                    <button
+                      onClick={() => void learnFromConversations()}
+                      disabled={learning}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-teal-200 text-teal-700 hover:bg-teal-50 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {learning
+                        ? <span className="w-3 h-3 border border-teal-500 border-t-transparent rounded-full animate-spin" />
+                        : <RefreshCw size={12} />
+                      }
+                      {learning ? 'Learning…' : 'Learn Now'}
+                    </button>
+                  </div>
                 </div>
 
                 {learnedArticles.length === 0 ? (
@@ -660,6 +697,12 @@ export default function AiPage() {
                         onToggle={() => void toggleArticle(a)}
                         onEdit={() => { setActiveTab('kb'); openEdit(a); }}
                         onDelete={() => void deleteArticle(a.id)}
+                        isSelected={selectedLearnedIds.has(a.id)}
+                        onSelect={() => setSelectedLearnedIds(prev => {
+                          const next = new Set(prev);
+                          next.has(a.id) ? next.delete(a.id) : next.add(a.id);
+                          return next;
+                        })}
                       />
                     ))}
                   </div>
@@ -751,15 +794,27 @@ function ArticleRow({
   onToggle,
   onEdit,
   onDelete,
+  isSelected,
+  onSelect,
 }: {
   article: Article;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }) {
   const src = SOURCE_LABELS[a.source] ?? SOURCE_LABELS.manual;
   return (
     <div className="flex items-start gap-3 px-5 py-4 hover:bg-gray-50 transition-colors">
+      {onSelect !== undefined && (
+        <input
+          type="checkbox"
+          checked={isSelected ?? false}
+          onChange={onSelect}
+          className="rounded border-gray-300 text-teal-600 cursor-pointer mt-1 flex-shrink-0"
+        />
+      )}
       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${a.isActive ? 'bg-teal-50' : 'bg-gray-100'}`}>
         {a.source === 'upload' ? (
           <FileText size={14} className={a.isActive ? 'text-teal-600' : 'text-gray-400'} />

@@ -149,6 +149,8 @@ export class ContactsService {
           conversations: {
             take: 1,
             orderBy: { updatedAt: 'desc' },
+            // When filtering by conversation status, prefer showing a conversation with that status
+            where: conversationStatus ? { status: conversationStatus } : undefined,
             include: {
               assignedTo: { select: { id: true, name: true, avatarUrl: true } },
               channel: { select: { id: true, name: true, type: true } },

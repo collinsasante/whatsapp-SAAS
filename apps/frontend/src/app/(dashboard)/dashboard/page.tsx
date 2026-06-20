@@ -58,7 +58,7 @@ interface MetaBusinessProfile {
 }
 
 interface ConvStats { opened: number; closed: number }
-interface TrendPoint { date: string; opened: number; closed: number }
+interface TrendPoint { date: string; opened: number; resolved: number }
 
 type DatePreset = 'today' | '7d' | '30d' | 'custom';
 
@@ -543,7 +543,7 @@ export default function DashboardPage() {
                 <Tooltip content={<CustomTooltip />} />
                 <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
                 <Area type="monotone" dataKey="opened" name="Opened" stroke="#0d9488" strokeWidth={2} fill="url(#gradOpened)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-                <Area type="monotone" dataKey="closed" name="Resolved" stroke="#22c55e" strokeWidth={2} fill="url(#gradClosed)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+                <Area type="monotone" dataKey="resolved" name="Resolved" stroke="#22c55e" strokeWidth={2} fill="url(#gradClosed)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
               </AreaChart>
             </ResponsiveContainer>
           )}

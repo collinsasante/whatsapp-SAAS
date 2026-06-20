@@ -114,6 +114,16 @@ export default function CampaignDetailPage() {
     void loadRecipients(1, statusTab, search);
   }, [statusTab, search, loadRecipients]);
 
+  // Auto-refresh every 15 s while campaign is running so the funnel stays live
+  useEffect(() => {
+    if (campaign?.status !== 'RUNNING') return;
+    const timer = setInterval(() => {
+      void loadCampaign();
+      void loadRecipients(page, statusTab, search);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [campaign?.status, loadCampaign, loadRecipients, page, statusTab, search]);
+
   const handleTabChange = (tab: string) => { setStatusTab(tab); };
 
   const handlePageChange = (p: number) => {

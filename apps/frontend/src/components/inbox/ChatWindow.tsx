@@ -1474,12 +1474,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           )}
           <div className="flex-1 flex flex-col relative min-h-0">
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={isDark ? { backgroundColor: '#1a202c' } : { backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
-            {loading ? (
-              <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
-            ) : timeline.length === 0 ? (
-              <div className="text-center text-gray-400 text-sm mt-12">
-                {outboundSession ? 'Call in progress…' : 'Send a message to start the conversation.'}
-              </div>
+            {timeline.length === 0 ? (
+              loading
+                ? <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
+                : <div className="text-center text-gray-400 text-sm mt-12">
+                    {outboundSession ? 'Call in progress…' : 'Send a message to start the conversation.'}
+                  </div>
             ) : (
               <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
                 {virtualizer.getVirtualItems().map((virtualItem) => {

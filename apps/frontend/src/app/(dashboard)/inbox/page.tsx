@@ -16,7 +16,7 @@ export default function InboxPage() {
 function InboxPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { conversations, activeConversationId, setConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
+  const { conversations, activeConversationId, setConversations, mergeConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
   const currentUser = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
@@ -51,7 +51,8 @@ function InboxPageInner() {
     return () => window.removeEventListener('conversation:state-changed', handler);
   }, [loadCounts]);
 
-  // Background polling fallback when socket is disconnected
+  // Background polling fallback when socket is disconnected.
+  // Uses mergeConversations so socket-added conversations not in the API response are preserved.
   useEffect(() => {
     const pollHandler = async () => {
       try {
@@ -59,13 +60,13 @@ function InboxPageInner() {
           conversationsApi.list({ limit: 50 }),
           conversationsApi.getCounts(),
         ]);
-        setConversations((convRes.data as { data: unknown[] }).data as Parameters<typeof setConversations>[0]);
+        mergeConversations((convRes.data as { data: unknown[] }).data as Parameters<typeof setConversations>[0]);
         setStatusCounts(countsRes.data as StatusCounts);
       } catch { /* silent */ }
     };
     window.addEventListener('socket:reconnect-poll', pollHandler);
     return () => window.removeEventListener('socket:reconnect-poll', pollHandler);
-  }, [setConversations, setStatusCounts]);
+  }, [mergeConversations, setConversations, setStatusCounts]);
 
   // Close details panel when switching conversations
   useEffect(() => { setShowDetails(false); }, [activeConversationId]);

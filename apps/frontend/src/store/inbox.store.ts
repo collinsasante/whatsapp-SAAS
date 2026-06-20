@@ -48,6 +48,8 @@ interface InboxState {
   activityLogs: Record<string, ActivityEntry[]>;
   statusCounts: StatusCounts;
   setConversations: (conversations: Conversation[]) => void;
+  // Merges fresh API list with existing, preserving socket-only conversations not in the API response
+  mergeConversations: (incoming: Conversation[]) => void;
   // Adds to top if new, updates IN-PLACE (no reorder) if already in the list
   prependConversation: (conversation: Partial<Conversation> & { id: string }) => void;
   // Moves conversation to top — only for new-message events
@@ -77,6 +79,14 @@ export const useInboxStore = create<InboxState>((set) => ({
   statusCounts: { OPEN: 0, REQUESTED: 0, INTERVENED: 0, RESOLVED: 0 },
 
   setConversations: (conversations) => set({ conversations }),
+
+  mergeConversations: (incoming) =>
+    set((state) => {
+      const incomingIds = new Set(incoming.map((c) => c.id));
+      // Keep any conversation that arrived via socket but isn't returned by the API poll
+      const socketOnly = state.conversations.filter((c) => !incomingIds.has(c.id));
+      return { conversations: [...incoming, ...socketOnly] };
+    }),
 
   // Merges partial data into an existing conversation IN-PLACE (no reorder).
   // If the conversation is not yet in the list, adds it to the top (brand new).
@@ -158,14 +168,20 @@ export const useInboxStore = create<InboxState>((set) => ({
           }
         : null;
 
+      // Template and auto-reply messages must not reorder the inbox list — they are
+      // campaign blasts or bot responses, not agent/customer interactions.
+      const isTemplate = (message.type as string)?.toUpperCase() === 'TEMPLATE';
+      const shouldBump = isInbound || (!isTemplate && !isAutoReply);
+
       return {
         messages: {
           ...state.messages,
           [conversationId]: [...withoutOptimistic, message],
         },
-        // New message always moves conversation to top (WhatsApp behaviour)
         conversations: updatedConvData
-          ? [updatedConvData, ...state.conversations.filter((c) => c.id !== conversationId)]
+          ? shouldBump
+            ? [updatedConvData, ...state.conversations.filter((c) => c.id !== conversationId)]
+            : state.conversations.map((c) => (c.id === conversationId ? updatedConvData : c))
           : state.conversations,
       };
     }),
