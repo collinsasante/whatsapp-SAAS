@@ -74,4 +74,15 @@ export enum SocketEvent {
   CALL_MUTE_CHANGED = 'call_mute_changed',
   CALL_HOLD_CHANGED = 'call_hold_changed',
   CALL_RECONNECTING = 'call_reconnecting',
+  // ── AI Suggestion ──────────────────────────────────────────────────────────
+  AI_SUGGESTION = 'ai_suggestion',
+}
+
+export interface SocketAiSuggestionEvent {
+  conversationId: string;
+  suggestion: {
+    logId: string;
+    response: string;
+    confidence: number | null;
+  };
 }

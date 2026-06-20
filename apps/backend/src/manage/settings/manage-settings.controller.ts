@@ -44,7 +44,7 @@ export class ManageSettingsController {
 
   @UseGuards(JwtAuthGuard)
   @Patch('ai')
-  updateAi(@CurrentUser() u: JwtPayload, @Body() body: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string }) {
+  updateAi(@CurrentUser() u: JwtPayload, @Body() body: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string; aiMode?: string; aiPilotGroup?: boolean }) {
     return this.service.updateAi(u.tenantId, body);
   }
 

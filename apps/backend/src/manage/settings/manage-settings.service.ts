@@ -73,6 +73,8 @@ export class ManageSettingsService {
     aiEnabled?: boolean;
     aiAlwaysOn?: boolean;
     aiPersonality?: string;
+    aiMode?: string;
+    aiPilotGroup?: boolean;
   }) {
     const existing = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },

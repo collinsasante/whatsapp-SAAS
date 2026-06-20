@@ -75,6 +75,7 @@ model Tenant {
   featureFlagRollouts  FeatureFlagRollout[]
   whatsappNumbers      WhatsAppNumber[]
   creditPurchases     CreditPurchase[]
+  aiInteractionLogs   AiInteractionLog[]
 
   @@map("tenants")
 }
@@ -170,6 +171,8 @@ model TenantSettings {
   aiEnabled           Boolean  @default(false) @map("ai_enabled")
   aiAlwaysOn          Boolean  @default(false) @map("ai_always_on")
   aiPersonality       String?  @map("ai_personality")
+  aiMode              String   @default("SUGGESTION") @map("ai_mode") // SUGGESTION | AUTO_REPLY
+  aiPilotGroup        Boolean  @default(false) @map("ai_pilot_group")
   aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
   aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
   airtableEnabled     Boolean  @default(false) @map("airtable_enabled")
@@ -1735,4 +1738,30 @@ model DeploymentLog {
   @@index([environment])
   @@index([startedAt])
   @@map("deployment_logs")
+}
+
+model AiInteractionLog {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  conversationId   String   @map("conversation_id")
+  contactId        String?  @map("contact_id")
+  customerMessage  String   @map("customer_message") @db.Text
+  aiResponse       String   @map("ai_response") @db.Text
+  finalSentMessage String?  @map("final_sent_message") @db.Text
+  editedByAgent    Boolean  @default(false) @map("edited_by_agent")
+  agentId          String?  @map("agent_id")
+  status           String   @default("SUGGESTED") @map("status")
+  confidenceScore  Float?   @map("confidence_score")
+  responseTimeMs   Int?     @map("response_time_ms")
+  feedbackRating   Int?     @map("feedback_rating")
+  feedbackLabel    String?  @map("feedback_label")
+  feedbackNote     String?  @map("feedback_note")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([conversationId])
+  @@index([tenantId, createdAt])
+  @@map("ai_interaction_logs")
 }

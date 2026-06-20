@@ -457,9 +457,22 @@ export const manageSettingsApi = {
   updateOffHours: (data: Record<string, unknown>) => api.patch('/manage/settings/off-hours', data),
   updateOptInOut: (data: Record<string, unknown>) => api.patch('/manage/settings/opt-in-out', data),
   updateWidget: (data: Record<string, unknown>) => api.patch('/manage/settings/widget', data),
-  updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string }) =>
+  updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string; aiMode?: string; aiPilotGroup?: boolean }) =>
     api.patch('/manage/settings/ai', data),
   approveAi: () => api.post('/manage/settings/ai/approve', {}),
+};
+
+export const aiLogsApi = {
+  analytics: (from?: string, to?: string) =>
+    api.get('/ai-logs/analytics', { params: { from, to } }),
+  byConversation: (conversationId: string) =>
+    api.get(`/ai-logs/${conversationId}`),
+  updateStatus: (id: string, status: string, finalSentMessage?: string) =>
+    api.patch(`/ai-logs/${id}/status`, { status, finalSentMessage }),
+  feedback: (id: string, rating: number, label?: string, note?: string) =>
+    api.patch(`/ai-logs/${id}/feedback`, { rating, label, note }),
+  test: (message: string) =>
+    api.post('/ai-logs/test', { message }),
 };
 
 export const publicApi = {

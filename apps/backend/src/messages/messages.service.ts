@@ -10,6 +10,7 @@ import { StorageService } from '../media/storage.service';
 import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.service';
 import { AiResponderService } from '../ai/ai-responder.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
+import { AiLogsService } from '../ai-logs/ai-logs.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
@@ -30,6 +31,7 @@ export class MessagesService {
     private activityLogService: ActivityLogService,
     private aiResponderService: AiResponderService,
     private knowledgeBaseService: KnowledgeBaseService,
+    private aiLogsService: AiLogsService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -564,52 +566,95 @@ export class MessagesService {
       }
     }
 
-    // AI responder: handle after-hours or always-on mode (only if no chatbot flow matched)
+    // AI responder: suggestion mode or auto-reply (only if no chatbot flow matched)
     // Skip if a human agent has taken over (assignedTo exists and is not an AI agent)
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     if (content && !flowMatched && !humanOwned) {
-      const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
-      if (shouldAi) {
+      const aiMode = await this.aiResponderService.getMode(tenantId).catch(() => null);
+
+      if (aiMode === 'SUGGESTION') {
+        // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
         void (async () => {
-          const [reply, verzAgent] = await Promise.all([
-            this.aiResponderService.respond(tenantId, conversation.id, content, contact.name ?? undefined),
-            this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
-          ]);
-          if (!reply) return;
-          // Deduct 1 AI credit from tenant wallet
-          await this.prisma.tenant.updateMany({
-            where: { id: tenantId, aiCredits: { gt: 0 } },
-            data: { aiCredits: { decrement: 1 } },
+          const startMs = Date.now();
+          const result = await this.aiResponderService.generateSuggestion(
+            tenantId, conversation.id, content, contact.name ?? undefined,
+          );
+          if (!result.response) return;
+
+          const log = await this.aiLogsService.create({
+            tenantId,
+            conversationId: conversation.id,
+            contactId: contact.id,
+            customerMessage: content,
+            aiResponse: result.response,
+            status: 'SUGGESTED',
+            confidenceScore: result.confidence,
+            responseTimeMs: Date.now() - startMs,
+          }) as { id: string };
+
+          this.realtimeService.emitAiSuggestion(tenantId, conversation.id, {
+            logId: log.id,
+            response: result.response,
+            confidence: result.confidence,
           });
-          await this.whatsappService.sendTextMessage(tenantId, contact.phone, reply).catch(() => null);
-          const aiMessage = await this.prisma.message.create({
-            data: {
+        })();
+      } else if (aiMode === 'AUTO_REPLY') {
+        const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
+        if (shouldAi) {
+          void (async () => {
+            const startMs = Date.now();
+            const [result, verzAgent] = await Promise.all([
+              this.aiResponderService.generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined),
+              this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
+            ]);
+            if (!result.response) return;
+
+            await this.prisma.tenant.updateMany({
+              where: { id: tenantId, aiCredits: { gt: 0 } },
+              data: { aiCredits: { decrement: 1 } },
+            });
+            await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
+
+            await this.aiLogsService.create({
               tenantId,
               conversationId: conversation.id,
               contactId: contact.id,
-              senderId: verzAgent?.id ?? null,
-              direction: 'OUTBOUND' as const,
-              type: 'TEXT' as const,
-              status: 'SENT' as const,
-              content: reply,
-              metadata: { aiGenerated: true },
-            },
-            include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
-          });
-          // Assign conversation to Verz so agents see the "Verz is handling this" banner
-          if (verzAgent && !assignedTo) {
-            await this.prisma.conversation.update({
-              where: { id: conversation.id },
-              data: { assignedToId: verzAgent.id, status: 'OPEN' },
+              customerMessage: content,
+              aiResponse: result.response,
+              status: 'AUTO_SENT',
+              confidenceScore: result.confidence,
+              responseTimeMs: Date.now() - startMs,
             });
-            this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
-              assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
-              status: 'OPEN',
+
+            const aiMessage = await this.prisma.message.create({
+              data: {
+                tenantId,
+                conversationId: conversation.id,
+                contactId: contact.id,
+                senderId: verzAgent?.id ?? null,
+                direction: 'OUTBOUND' as const,
+                type: 'TEXT' as const,
+                status: 'SENT' as const,
+                content: result.response,
+                metadata: { aiGenerated: true },
+              },
+              include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
             });
-          }
-          this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
-        })();
+
+            if (verzAgent && !assignedTo) {
+              await this.prisma.conversation.update({
+                where: { id: conversation.id },
+                data: { assignedToId: verzAgent.id, status: 'OPEN' },
+              });
+              this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+                assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
+                status: 'OPEN',
+              });
+            }
+            this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
+          })();
+        }
       }
     }
 

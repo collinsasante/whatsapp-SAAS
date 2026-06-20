@@ -5,9 +5,10 @@ import Link from 'next/link';
 import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
-  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download,
+  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield,
 } from 'lucide-react';
-import { billingApi, knowledgeBaseApi, manageSettingsApi } from '@/lib/api';
+import { billingApi, knowledgeBaseApi, manageSettingsApi, aiLogsApi } from '@/lib/api';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
 
@@ -28,6 +29,25 @@ interface AiSettings {
   offHoursEnabled: boolean;
   aiTrialStartedAt?: string | null;
   aiTrialApprovedAt?: string | null;
+  aiMode: 'SUGGESTION' | 'AUTO_REPLY';
+  aiPilotGroup: boolean;
+}
+
+interface AiAnalytics {
+  total: number;
+  sent: number;
+  approved: number;
+  edited: number;
+  rejected: number;
+  autoSent: number;
+  suggested: number;
+  approvalRate: number;
+  editRate: number;
+  rejectionRate: number;
+  avgRating: number | null;
+  avgResponseMs: number | null;
+  avgConfidence: number | null;
+  dailyUsage: { date: string; count: number }[];
 }
 
 const DEFAULT_PERSONALITY = 'You are helpful, friendly, and professional. Keep replies concise and conversational — this is WhatsApp, not email.';
@@ -39,11 +59,13 @@ const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   learned: { label: 'AI-Learned', color: 'bg-teal-50 text-teal-600' },
 };
 
-type KbTab = 'kb' | 'learned';
+type KbTab = 'kb' | 'learned' | 'analytics';
 
 export default function AiPage() {
   const [articles, setArticles] = useState<Article[]>([]);
-  const [settings, setSettings] = useState<AiSettings>({ aiEnabled: false, aiAlwaysOn: false, aiPersonality: '', offHoursEnabled: false });
+  const [settings, setSettings] = useState<AiSettings>({ aiEnabled: false, aiAlwaysOn: false, aiPersonality: '', offHoursEnabled: false, aiMode: 'SUGGESTION', aiPilotGroup: false });
+  const [analytics, setAnalytics] = useState<AiAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [aiCredits, setAiCredits] = useState(0);
   const [approvingAi, setApprovingAi] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -78,6 +100,8 @@ export default function AiPage() {
         offHoursEnabled: s.offHoursEnabled ?? false,
         aiTrialStartedAt: s.aiTrialStartedAt ?? null,
         aiTrialApprovedAt: s.aiTrialApprovedAt ?? null,
+        aiMode: (s.aiMode as 'SUGGESTION' | 'AUTO_REPLY') ?? 'SUGGESTION',
+        aiPilotGroup: s.aiPilotGroup ?? false,
       });
       setPersonality(s.aiPersonality ?? '');
       setAiCredits((creditsRes.data as { credits: number }).credits ?? 0);
@@ -90,6 +114,19 @@ export default function AiPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const loadAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const res = await aiLogsApi.analytics();
+      setAnalytics(res.data as AiAnalytics);
+    } catch { /* silently fail */ }
+    finally { setAnalyticsLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'analytics') void loadAnalytics();
+  }, [activeTab, loadAnalytics]);
+
   const saveSettings = async (patch: Partial<AiSettings>) => {
     const next = { ...settings, ...patch };
     setSettings(next);
@@ -99,6 +136,8 @@ export default function AiPage() {
         aiEnabled: next.aiEnabled,
         aiAlwaysOn: next.aiAlwaysOn,
         aiPersonality: next.aiPersonality,
+        aiMode: next.aiMode,
+        aiPilotGroup: next.aiPilotGroup,
       });
     } catch {
       toast.error('Failed to save settings');
@@ -435,6 +474,34 @@ export default function AiPage() {
                     </div>
                   </div>
 
+                  {/* Response Mode */}
+                  <div className="py-3 border-b border-gray-100">
+                    <p className="text-sm font-medium text-gray-900 mb-0.5">Response Mode</p>
+                    <p className="text-xs text-gray-500 mb-3">How Verz should handle AI responses</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        onClick={() => void saveSettings({ aiMode: 'SUGGESTION' })}
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${settings.aiMode === 'SUGGESTION' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Sparkles size={15} className={settings.aiMode === 'SUGGESTION' ? 'text-teal-600' : 'text-gray-400'} />
+                          <span className={`text-sm font-semibold ${settings.aiMode === 'SUGGESTION' ? 'text-teal-700' : 'text-gray-700'}`}>Suggestion Mode</span>
+                        </div>
+                        <p className="text-xs text-gray-500 leading-relaxed">AI suggests a reply — agents approve before sending</p>
+                      </button>
+                      <button
+                        onClick={() => void saveSettings({ aiMode: 'AUTO_REPLY' })}
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${settings.aiMode === 'AUTO_REPLY' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Zap size={15} className={settings.aiMode === 'AUTO_REPLY' ? 'text-teal-600' : 'text-gray-400'} />
+                          <span className={`text-sm font-semibold ${settings.aiMode === 'AUTO_REPLY' ? 'text-teal-700' : 'text-gray-700'}`}>Auto-Reply</span>
+                        </div>
+                        <p className="text-xs text-gray-500 leading-relaxed">AI sends replies automatically without agent review</p>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Personality */}
                   <div className="py-3">
                     <p className="text-sm font-medium text-gray-900 mb-1">AI Personality</p>
@@ -494,6 +561,17 @@ export default function AiPage() {
                 {learnedArticles.length > 0 && (
                   <span className="text-[11px] bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded-full">{learnedArticles.length}</span>
                 )}
+              </button>
+              <button
+                onClick={() => setActiveTab('analytics')}
+                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                  activeTab === 'analytics'
+                    ? 'border-teal-500 text-teal-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <BarChart2 size={14} />
+                Analytics
               </button>
             </div>
 
@@ -708,6 +786,60 @@ export default function AiPage() {
                   </div>
                 )}
               </>
+            )}
+
+            {/* ── ANALYTICS TAB ── */}
+            {activeTab === 'analytics' && (
+              <div className="p-5">
+                {analyticsLoading ? (
+                  <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
+                ) : !analytics || analytics.total === 0 ? (
+                  <div className="py-14 text-center">
+                    <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-3"><BarChart2 size={20} className="text-gray-300" /></div>
+                    <p className="text-sm font-medium text-gray-600 mb-1">No data yet</p>
+                    <p className="text-xs text-gray-400">AI analytics will appear here once Verz starts suggesting or sending replies.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {/* KPI cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {[
+                        { label: 'Total Suggestions', value: analytics.total, color: 'text-gray-900' },
+                        { label: 'Approval Rate', value: `${analytics.approvalRate}%`, color: 'text-green-600' },
+                        { label: 'Edit Rate', value: `${analytics.editRate}%`, color: 'text-blue-600' },
+                        { label: 'Rejection Rate', value: `${analytics.rejectionRate}%`, color: 'text-red-500' },
+                        { label: 'Avg Response Time', value: analytics.avgResponseMs !== null ? `${(analytics.avgResponseMs / 1000).toFixed(1)}s` : '—', color: 'text-gray-700' },
+                        { label: 'Avg Rating', value: analytics.avgRating !== null ? `${analytics.avgRating}/5` : '—', color: 'text-yellow-500' },
+                        { label: 'Avg Confidence', value: analytics.avgConfidence !== null ? `${analytics.avgConfidence}%` : '—', color: analytics.avgConfidence !== null && analytics.avgConfidence < 70 ? 'text-orange-500' : 'text-teal-600' },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} className="bg-gray-50 rounded-xl p-3">
+                          <p className="text-[11px] text-gray-500 mb-1">{label}</p>
+                          <p className={`text-xl font-bold ${color}`}>{String(value)}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Daily usage chart */}
+                    {analytics.dailyUsage.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-600 mb-3">Daily AI Suggestions (last 30 days)</p>
+                        <ResponsiveContainer width="100%" height={160}>
+                          <BarChart data={analytics.dailyUsage} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                            <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={d => d.slice(5)} />
+                            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <Tooltip
+                              labelFormatter={l => String(l)}
+                              formatter={(v: unknown) => [String(v), 'Suggestions']}
+                              contentStyle={{ fontSize: 12 }}
+                            />
+                            <Bar dataKey="count" fill="#0d9488" radius={[3,3,0,0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 

@@ -9,11 +9,11 @@ import {
   Reply, SmilePlus, Star, Search, UserPlus, Pin, Info, ArrowRightLeft, Forward,
   AlertCircle, MessageSquare, StickyNote as NoteIcon, Images, Tag, Download,
   ChevronUp, ChevronDown, ChevronLeft, LogIn, Brain, BellOff, ShieldOff, Shield, Pencil, Trash2,
-  Bold, Italic, Strikethrough, Underline,
+  Bold, Italic, Strikethrough, Underline, Sparkles, ThumbsUp,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
-import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi } from '@/lib/api';
+import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi, aiLogsApi } from '@/lib/api';
 import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
 import { LinkPreview, extractFirstUrl } from './LinkPreview';
@@ -243,6 +243,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   // Input mode: 'message' | 'note'
   const [inputMode, setInputMode] = useState<'message' | 'note'>('message');
   const [savingNote, setSavingNote] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<{ logId: string; response: string; confidence: number | null } | null>(null);
+  const [aiSuggestionSending, setAiSuggestionSending] = useState(false);
+  const [aiFeedbackLogId, setAiFeedbackLogId] = useState<string | null>(null);
 
   // Add label (contact-level)
   const [showAddLabel, setShowAddLabel] = useState(false);
@@ -412,6 +415,17 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     const socket = getSocket();
     socket.emit(SocketEvent.JOIN_CONVERSATION, conversation.id);
     return () => { socket.emit(SocketEvent.LEAVE_CONVERSATION, conversation.id); };
+  }, [conversation.id]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    const handler = (data: { conversationId: string; suggestion: { logId: string; response: string; confidence: number | null } }) => {
+      if (data.conversationId === conversation.id) {
+        setAiSuggestion(data.suggestion);
+      }
+    };
+    socket.on(SocketEvent.AI_SUGGESTION, handler);
+    return () => { socket.off(SocketEvent.AI_SUGGESTION, handler); };
   }, [conversation.id]);
 
   useEffect(() => {
@@ -1668,6 +1682,94 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 onSelect={handleCannedSelect}
                 onClose={() => setShowCanned(false)}
               />
+            )}
+
+            {/* AI Suggestion card */}
+            {aiSuggestion && inputMode === 'message' && (
+              <div className="mb-2 rounded-xl border border-teal-200 bg-teal-50 dark:bg-teal-900/20 dark:border-teal-700 p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-teal-600" />
+                    <span className="text-xs font-semibold text-teal-700 dark:text-teal-300">Verz AI Suggestion</span>
+                    {aiSuggestion.confidence !== null && (
+                      <span className={cn(
+                        'text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                        aiSuggestion.confidence >= 70
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-orange-100 text-orange-700'
+                      )}>
+                        {aiSuggestion.confidence}% confidence
+                        {aiSuggestion.confidence < 70 && ' · Human Review Recommended'}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      void aiLogsApi.updateStatus(aiSuggestion.logId, 'REJECTED').catch(() => null);
+                      setAiSuggestion(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  ><X size={14} /></button>
+                </div>
+                <p className="text-sm text-gray-700 dark:text-gray-200 mb-2 leading-snug">{aiSuggestion.response}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={aiSuggestionSending}
+                    onClick={async () => {
+                      setAiSuggestionSending(true);
+                      try {
+                        const logId = aiSuggestion.logId;
+                        const responseText = aiSuggestion.response;
+                        await aiLogsApi.updateStatus(logId, 'APPROVED', responseText).catch(() => null);
+                        setAiSuggestion(null);
+                        await messagesApi.send(conversation.id, { content: responseText, type: 'TEXT' });
+                        setAiFeedbackLogId(logId);
+                      } catch { toast.error('Failed to send'); }
+                      finally { setAiSuggestionSending(false); }
+                    }}
+                    className="flex items-center gap-1 text-xs font-medium bg-teal-600 text-white px-2.5 py-1 rounded-lg hover:bg-teal-700 disabled:opacity-50"
+                  >
+                    <Send size={11} /> Send as-is
+                  </button>
+                  <button
+                    onClick={() => {
+                      setText(aiSuggestion.response);
+                      setAiSuggestion(null);
+                      inputRef.current?.focus();
+                    }}
+                    className="flex items-center gap-1 text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 px-2.5 py-1 rounded-lg hover:bg-gray-50"
+                  >
+                    <Pencil size={11} /> Edit &amp; Send
+                  </button>
+                  <button
+                    onClick={() => { void navigator.clipboard.writeText(aiSuggestion.response).then(() => toast.success('Copied')).catch(() => null); }}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-1.5 py-1"
+                  >
+                    <Copy size={11} /> Copy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Post-send feedback prompt */}
+            {aiFeedbackLogId && (
+              <div className="mb-2 rounded-xl border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ThumbsUp size={13} className="text-yellow-600" />
+                  <span className="text-xs text-yellow-700 font-medium">Rate this AI suggestion:</span>
+                  {[1,2,3,4,5].map((r) => (
+                    <button key={r} onClick={() => {
+                      const id = aiFeedbackLogId!;
+                      setAiFeedbackLogId(null);
+                      void aiLogsApi.feedback(id, r).catch(() => null);
+                      toast.success('Thanks for the feedback!');
+                    }} className="text-yellow-500 hover:text-yellow-600">
+                      {'★'}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setAiFeedbackLogId(null)} className="text-gray-400 hover:text-gray-600"><X size={13} /></button>
+              </div>
             )}
 
             {/* Mode tabs + input row — hidden while another agent owns this active chat */}

@@ -90,4 +90,12 @@ export class RealtimeService {
   emitConversationUnsnooze(tenantId: string, conversationId: string, data: Record<string, unknown>) {
     void this.emit('conversation_unsnooze', { tenantId, conversationId, ...data });
   }
+
+  emitAiSuggestion(
+    tenantId: string,
+    conversationId: string,
+    suggestion: { logId: string; response: string; confidence: number | null },
+  ) {
+    void this.emit('ai_suggestion', { tenantId, conversationId, suggestion });
+  }
 }

@@ -36,7 +36,15 @@ const mainNav: NavItem[] = [
       { href: '/chatbot',    icon: Bot,       label: 'Chatbot Flows' },
     ],
   },
-  { type: 'link', href: '/ai',        icon: Brain,     label: 'Verz' },
+  {
+    type: 'group',
+    icon: Brain,
+    label: 'Verz AI',
+    children: [
+      { href: '/ai',      icon: Brain,  label: 'Verz AI Settings' },
+      { href: '/ai-test', icon: Bot,    label: 'Testing Center' },
+    ],
+  },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
   { type: 'link', href: '/calls',     icon: Phone,     label: 'Calls' },
 ];
@@ -458,7 +466,7 @@ const PRIMARY_TABS = [
 ] as const;
 
 // Paths covered by the "More" drawer tab (not in primary tabs)
-const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/settings', '/channels', '/library', '/manage', '/billing'];
+const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/settings', '/channels', '/library', '/manage', '/billing'];
 
 export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname() ?? "";
