@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
@@ -18,7 +18,21 @@ import { SyncProvider } from '@/components/shared/SyncProvider';
 import { WhatsNewModal } from '@/components/shared/WhatsNewModal';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
+const Spinner = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+  </div>
+);
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <DashboardLayoutInner>{children}</DashboardLayoutInner>
+    </Suspense>
+  );
+}
+
+function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();

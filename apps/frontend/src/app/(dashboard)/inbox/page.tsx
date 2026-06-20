@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { conversationsApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
@@ -10,6 +10,10 @@ import ChatWindow from '@/components/inbox/ChatWindow';
 import ConversationDetails from '@/components/inbox/ConversationDetails';
 
 export default function InboxPage() {
+  return <Suspense><InboxPageInner /></Suspense>;
+}
+
+function InboxPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { conversations, activeConversationId, setConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
