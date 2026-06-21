@@ -350,6 +350,8 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const [searchLoading, setSearchLoading] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Conversation[]>([]);
   const [resolvedLoading, setResolvedLoading] = useState(false);
+  const [requestedConversations, setRequestedConversations] = useState<Conversation[]>([]);
+  const [requestedLoading, setRequestedLoading] = useState(false);
   const { prependConversation } = useInboxStore();
 
   // Fetch resolved conversations on demand when that tab is selected
@@ -365,6 +367,31 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       .catch(() => {})
       .finally(() => setResolvedLoading(false));
   }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch ALL requested conversations on demand — the live list is capped at 25 so
+  // client-side filtering misses the rest.
+  useEffect(() => {
+    if (statusFilter !== 'REQUESTED') return;
+    setRequestedLoading(true);
+    conversationsApi.list({ status: 'REQUESTED', limit: 500 })
+      .then(res => {
+        const data = (res.data as { data: Conversation[] }).data ?? [];
+        setRequestedConversations(data);
+      })
+      .catch(() => {})
+      .finally(() => setRequestedLoading(false));
+  }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Merge real-time socket updates (new REQUESTED conversations) into the local list
+  // so they appear immediately without needing a refresh.
+  useEffect(() => {
+    if (statusFilter !== 'REQUESTED') return;
+    setRequestedConversations(prev => {
+      const existingIds = new Set(prev.map(c => c.id));
+      const incoming = conversations.filter(c => c.status === 'REQUESTED' && !existingIds.has(c.id));
+      return incoming.length > 0 ? [...incoming, ...prev] : prev;
+    });
+  }, [conversations, statusFilter]);
 
 
   useEffect(() => {
@@ -432,7 +459,11 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     }
   };
 
-  const sourceConversations = statusFilter === 'RESOLVED' ? resolvedConversations : conversations;
+  const sourceConversations = statusFilter === 'RESOLVED'
+    ? resolvedConversations
+    : statusFilter === 'REQUESTED'
+      ? requestedConversations
+      : conversations;
 
   const TWENTY_FOUR_HOURS = 24 * 3600 * 1000;
 
@@ -664,7 +695,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   }).length
                 : f.key === 'RESOLVED'
                   ? (statusCounts?.RESOLVED ?? null)
-                  : conversations.filter(c => c.status === f.key).length;
+                  : f.key === 'REQUESTED'
+                    ? (statusCounts?.REQUESTED ?? null)
+                    : conversations.filter(c => c.status === f.key).length;
               const isActive = statusFilter === f.key;
               const isUrgent = (f.key === 'REQUESTED' || f.key === 'INTERVENED') && (count ?? 0) > 0;
               return (
@@ -689,7 +722,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {(loading || resolvedLoading) ? (
+        {(loading || resolvedLoading || requestedLoading) ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
           </div>
