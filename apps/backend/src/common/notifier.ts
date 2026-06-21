@@ -41,26 +41,15 @@ function buildText(p: ErrorPayload): string {
   return lines.filter(Boolean).join('\n');
 }
 
-async function sendTelegram(text: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) return;
-  await axios.post(
-    `https://api.telegram.org/bot${token}/sendMessage`,
-    { chat_id: chatId, text, parse_mode: 'Markdown' },
-    { timeout: 5000 },
-  ).catch(() => { /* never throw — notifier must not break request handling */ });
-}
-
 async function sendSlack(text: string): Promise<void> {
   const url = process.env.SLACK_WEBHOOK_URL;
   if (!url) return;
   await axios.post(url, { text }, { timeout: 5000 })
-    .catch(() => { /* same */ });
+    .catch(() => { /* never throw — notifier must not break request handling */ });
 }
 
 export async function notify(payload: ErrorPayload): Promise<void> {
   if (throttled(payload)) return;
   const text = buildText(payload);
-  await Promise.all([sendTelegram(text), sendSlack(text)]);
+  await sendSlack(text);
 }
