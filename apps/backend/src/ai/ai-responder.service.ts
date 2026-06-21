@@ -153,6 +153,19 @@ export class AiResponderService {
     const businessName = settings?.businessName ?? 'our business';
     const personality = settings?.aiPersonality ?? 'You are helpful, friendly, and professional. Keep replies concise and conversational.';
 
+    // Menu state: if the last outbound message was a numbered list and the customer
+    // replied with a bare digit, expand it to the full option text so the LLM has context.
+    const lastOutbound = history.find(m => m.direction === 'OUTBOUND');
+    const bare = customerMessage.trim();
+    if (/^[123]$/.test(bare) && lastOutbound?.content) {
+      const optLine = lastOutbound.content
+        .split('\n')
+        .find(l => new RegExp(`^${bare}[.)\\s]`).test(l.trim()));
+      if (optLine) {
+        customerMessage = `I selected option ${bare}: ${optLine.replace(/^[123][.)]\s*/, '').trim()}`;
+      }
+    }
+
     let kbContext = '';
     if (articles.length > 0) {
       kbContext = '\n\nKNOWLEDGE BASE:\n' + articles
@@ -223,9 +236,17 @@ export class AiResponderService {
       try {
         const parsed = JSON.parse(raw) as { response?: string; confidence?: number };
         const response = (parsed.response ?? '').trim();
-        const confidence = typeof parsed.confidence === 'number'
+        let confidence = typeof parsed.confidence === 'number'
           ? Math.min(100, Math.max(0, Math.round(parsed.confidence)))
           : null;
+
+        // Fallback responses are knowledge gaps — cap confidence so they correctly
+        // surface as low-confidence and trigger human review.
+        const FALLBACK_SIGNALS = ['team will follow up', 'team member will assist', 'great question'];
+        if (confidence !== null && FALLBACK_SIGNALS.some(s => response.toLowerCase().includes(s))) {
+          confidence = Math.min(confidence, 40);
+        }
+
         return { response, confidence, blocked: false };
       } catch {
         return { response: raw, confidence: null, blocked: false };

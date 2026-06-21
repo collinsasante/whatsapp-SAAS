@@ -17,6 +17,7 @@ import OfflineBanner from '@/components/OfflineBanner';
 import { SyncProvider } from '@/components/shared/SyncProvider';
 import { WhatsNewModal } from '@/components/shared/WhatsNewModal';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { ErrorTracker } from '@/components/shared/ErrorTracker';
 
 const Spinner = () => (
   <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -125,6 +126,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <SocketProvider>
+      <ErrorTracker />
       <SyncProvider />
       <WhatsNewModal />
       <IncomingCallModal />

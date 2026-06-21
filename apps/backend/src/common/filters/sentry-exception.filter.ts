@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { notify } from '../notifier';
 
 let Sentry: { withScope?: (cb: (s: unknown) => void) => void; captureException?: (e: unknown) => void } | null = null;
 try {
@@ -43,6 +44,21 @@ export class SentryExceptionFilter implements ExceptionFilter {
         scope.setTag('method', request.method);
         scope.setExtra('tenantId', (request as Request & { tenantId?: string }).tenantId);
         Sentry?.captureException?.(exception);
+      });
+    }
+
+    // Forward 5xx errors to Telegram and Slack
+    if (status >= 500) {
+      const message = exception instanceof Error ? exception.message : String(exception);
+      const stack = exception instanceof Error ? exception.stack : undefined;
+      void notify({
+        source: 'backend',
+        method: request.method,
+        url: request.url,
+        status,
+        tenantId: (request as Request & { tenantId?: string }).tenantId,
+        message,
+        stack,
       });
     }
 

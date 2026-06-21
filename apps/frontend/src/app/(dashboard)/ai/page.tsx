@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
-  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield,
+  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield, Eraser,
 } from 'lucide-react';
 import { billingApi, knowledgeBaseApi, manageSettingsApi, aiLogsApi } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -81,6 +81,7 @@ export default function AiPage() {
   const [urlInput, setUrlInput] = useState('');
   const [scrapingUrl, setScrapingUrl] = useState(false);
   const [selectedLearnedIds, setSelectedLearnedIds] = useState<Set<string>>(new Set());
+  const [deduplicating, setDeduplicating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -284,6 +285,27 @@ export default function AiPage() {
 
   const kbArticles = articles.filter(a => a.source !== 'learned');
   const learnedArticles = articles.filter(a => a.source === 'learned');
+
+  const cleanDuplicates = async () => {
+    if (!await showConfirm('Clean duplicate AI-learned articles?', {
+      subtext: 'This keeps the most recent version of each article and deletes all older duplicates. Only AI-Learned articles are affected — your manual articles are safe.',
+    })) return;
+    setDeduplicating(true);
+    try {
+      const res = await knowledgeBaseApi.deduplicate();
+      const { deleted } = res.data as { deleted: number };
+      if (deleted > 0) {
+        toast.success(`Removed ${deleted} duplicate article${deleted !== 1 ? 's' : ''}`);
+        void load();
+      } else {
+        toast('No duplicates found');
+      }
+    } catch {
+      toast.error('Failed to clean duplicates');
+    } finally {
+      setDeduplicating(false);
+    }
+  };
 
   const downloadLearnedArticles = (ids: Set<string>) => {
     const toExport = learnedArticles.filter(a => ids.has(a.id));
@@ -740,6 +762,19 @@ export default function AiPage() {
                       >
                         <Download size={12} />
                         Download ({selectedLearnedIds.size})
+                      </button>
+                    )}
+                    {learnedArticles.length > 1 && (
+                      <button
+                        onClick={() => void cleanDuplicates()}
+                        disabled={deduplicating}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-orange-200 text-orange-700 hover:bg-orange-50 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {deduplicating
+                          ? <span className="w-3 h-3 border border-orange-500 border-t-transparent rounded-full animate-spin" />
+                          : <Eraser size={12} />
+                        }
+                        {deduplicating ? 'Cleaning…' : 'Clean Duplicates'}
                       </button>
                     )}
                     <button

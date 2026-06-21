@@ -93,9 +93,9 @@ export default function AccountPage() {
     setProfileAlert(null);
     try {
       const uploadRes = await mediaApi.upload(file);
-      const { url } = uploadRes.data as { url: string };
-      await authApi.updateMe({ avatarUrl: url });
-      updateUser({ avatarUrl: url });
+      const { fileUrl } = uploadRes.data as { fileUrl: string };
+      await authApi.updateMe({ avatarUrl: fileUrl });
+      updateUser({ avatarUrl: fileUrl });
       setProfileAlert({ type: 'success', message: 'Profile photo updated.' });
     } catch {
       setProfileAlert({ type: 'error', message: 'Failed to upload photo.' });

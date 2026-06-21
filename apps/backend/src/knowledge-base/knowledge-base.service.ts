@@ -171,6 +171,37 @@ export class KnowledgeBaseService {
     return chunks.filter(Boolean);
   }
 
+  async deduplicateArticles(tenantId: string): Promise<{ deleted: number }> {
+    const articles = await this.prisma.knowledgeBaseArticle.findMany({
+      where: { tenantId, source: 'learned' },
+      orderBy: { createdAt: 'desc' }, // most recent first — first seen wins
+      select: { id: true, title: true, content: true },
+    });
+
+    const seenTitles = new Set<string>();
+    const seenContent = new Set<string>();
+    const toDelete: string[] = [];
+
+    for (const a of articles) {
+      const titleKey = a.title.toLowerCase().trim();
+      const contentKey = a.content.slice(0, 300).toLowerCase().replace(/\s+/g, ' ').trim();
+      if (seenTitles.has(titleKey) || seenContent.has(contentKey)) {
+        toDelete.push(a.id);
+      } else {
+        seenTitles.add(titleKey);
+        seenContent.add(contentKey);
+      }
+    }
+
+    if (toDelete.length > 0) {
+      await this.prisma.knowledgeBaseArticle.deleteMany({
+        where: { tenantId, id: { in: toDelete } },
+      });
+    }
+
+    return { deleted: toDelete.length };
+  }
+
   async learnFromConversations(tenantId: string): Promise<{ created: number }> {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return { created: 0 };
@@ -243,10 +274,18 @@ export class KnowledgeBaseService {
       let created = 0;
       for (const art of articles) {
         if (art.title && art.content) {
-          await this.prisma.knowledgeBaseArticle.create({
-            data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
+          // Skip exact-title duplicates — learnFromConversations runs every 30 min
+          // and without this guard each run adds near-identical articles indefinitely.
+          const exists = await this.prisma.knowledgeBaseArticle.findFirst({
+            where: { tenantId, title: art.title },
+            select: { id: true },
           });
-          created++;
+          if (!exists) {
+            await this.prisma.knowledgeBaseArticle.create({
+              data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
+            });
+            created++;
+          }
         }
       }
       return { created };

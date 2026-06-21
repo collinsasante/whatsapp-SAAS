@@ -47,6 +47,7 @@ import { ReportsModule } from './reports/reports.module';
 import { InboundModule } from './inbound/inbound.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { AiLogsModule } from './ai-logs/ai-logs.module';
+import { ClientErrorsModule } from './client-errors/client-errors.module';
 import appConfig from './config/app.config';
 
 @Module({
@@ -119,6 +120,7 @@ import appConfig from './config/app.config';
     InboundModule,
     PlatformAdminModule,
     AiLogsModule,
+    ClientErrorsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

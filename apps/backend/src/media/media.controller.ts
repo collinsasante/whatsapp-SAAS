@@ -21,6 +21,8 @@ import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
 import { Public } from '../common/decorators/public.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { UserRole } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Media')
 @ApiBearerAuth()
@@ -29,6 +31,7 @@ import { Public } from '../common/decorators/public.decorator';
 export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
 
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -79,12 +82,14 @@ export class MediaController {
     stream.pipe(res);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @Post('deduplicate')
   @ApiOperation({ summary: 'Remove duplicate files (keep most recent per filename)' })
   deduplicate(@CurrentTenant() tenantId: string) {
     return this.mediaService.deduplicateAssets(tenantId);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.AGENT)
   @Delete(':id')
   remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
     return this.mediaService.remove(tenantId, id);

@@ -7,6 +7,9 @@ import {
 import { mediaApi, conversationsApi, messagesApi } from '@/lib/api';
 import { showConfirm } from '@/store/confirm.store';
 import { useInboxStore } from '@/store/inbox.store';
+import { useAuthStore } from '@/store/auth.store';
+import { getPermissions } from '@/lib/permissions';
+import { UserRole } from '@whatsapp-platform/shared-types';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { formatRelativeTime, cn } from '@/lib/utils';
@@ -82,6 +85,10 @@ function initials(s: string) { return s.split(' ').map(w => w[0]).join('').toUpp
 export default function LibraryPage() {
   const router = useRouter();
   const { setActiveConversation, prependConversation } = useInboxStore();
+
+  const { user } = useAuthStore();
+  const perms = getPermissions(user?.role as UserRole | undefined);
+  const canUpload = perms.isAdmin || user?.role === UserRole.AGENT;  // VIEWER cannot upload or delete
 
   // Customer files — media from conversations
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -287,6 +294,7 @@ export default function LibraryPage() {
               />
             </div>
             <input ref={uploadRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv" className="hidden" onChange={(e) => { void handleUpload(e); }} />
+            {canUpload && (
             <button
               onClick={() => { void handleDeduplicate(); }}
               disabled={deduplicating}
@@ -296,6 +304,8 @@ export default function LibraryPage() {
               <Layers size={15} />
               <span className="hidden sm:inline">{deduplicating ? 'Cleaning…' : 'Clean Duplicates'}</span>
             </button>
+            )}
+            {canUpload && (
             <button
               onClick={() => uploadRef.current?.click()}
               disabled={uploading}
@@ -304,6 +314,7 @@ export default function LibraryPage() {
               <Upload size={15} />
               <span className="hidden sm:inline">{uploading ? 'Uploading…' : 'Upload'}</span>
             </button>
+            )}
           </div>
         </div>
 
@@ -344,7 +355,7 @@ export default function LibraryPage() {
             <div className="flex flex-col items-center justify-center py-10 bg-white rounded-xl border border-dashed border-gray-200">
               <User size={24} className="text-gray-300 mb-2" />
               <p className="text-sm text-gray-400">No agent files{search ? ' matching your search' : ' yet'}</p>
-              {!search && (
+              {!search && canUpload && (
                 <button
                   onClick={() => uploadRef.current?.click()}
                   className="mt-3 text-sm text-teal-600 hover:text-teal-700 font-medium"
@@ -360,7 +371,7 @@ export default function LibraryPage() {
                   items={filteredAgentAssets.map(assetToMediaItem).filter(i => i.type === 'IMAGE' || i.type === 'VIDEO')}
                   onPreview={setLightbox}
                   onSend={setSendTarget}
-                  onDelete={handleDeleteAssetById}
+                  onDelete={canUpload ? handleDeleteAssetById : undefined}
                   showSection={tab === 'ALL'}
                 />
               )}
@@ -368,7 +379,7 @@ export default function LibraryPage() {
                 <MediaList
                   items={filteredAgentAssets.map(assetToMediaItem).filter(i => i.type === 'AUDIO')}
                   onSend={setSendTarget}
-                  onDelete={handleDeleteAssetById}
+                  onDelete={canUpload ? handleDeleteAssetById : undefined}
                   title={tab === 'ALL' ? 'Audio' : undefined}
                 />
               )}
@@ -376,7 +387,7 @@ export default function LibraryPage() {
                 <MediaList
                   items={filteredAgentAssets.map(assetToMediaItem).filter(i => i.type === 'DOCUMENT')}
                   onSend={setSendTarget}
-                  onDelete={handleDeleteAssetById}
+                  onDelete={canUpload ? handleDeleteAssetById : undefined}
                   title={tab === 'ALL' ? 'Documents' : undefined}
                 />
               )}

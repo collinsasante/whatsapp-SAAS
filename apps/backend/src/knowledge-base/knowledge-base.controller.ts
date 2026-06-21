@@ -35,6 +35,11 @@ export class KnowledgeBaseController {
     return this.service.learnFromConversations(u.tenantId);
   }
 
+  @Post('deduplicate')
+  deduplicate(@CurrentUser() u: JwtPayload) {
+    return this.service.deduplicateArticles(u.tenantId);
+  }
+
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   uploadFile(@CurrentUser() u: JwtPayload, @UploadedFile() file: Express.Multer.File) {

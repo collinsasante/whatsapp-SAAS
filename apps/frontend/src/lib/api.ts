@@ -499,6 +499,7 @@ export const knowledgeBaseApi = {
     api.patch(`/knowledge-base/${id}`, data),
   delete: (id: string) => api.delete(`/knowledge-base/${id}`),
   learn: () => api.post('/knowledge-base/learn'),
+  deduplicate: () => api.post('/knowledge-base/deduplicate'),
   upload: (file: File) => {
     const form = new FormData();
     form.append('file', file);
