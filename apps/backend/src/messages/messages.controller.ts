@@ -36,8 +36,9 @@ export class MessagesController {
     @Query('page') page = 1,
     @Query('limit') limit = 50,
     @Query('search') search?: string,
+    @Query('before') before?: string,
   ) {
-    return this.messagesService.findByConversation(tenantId, conversationId, +page, +limit, search);
+    return this.messagesService.findByConversation(tenantId, conversationId, +page, +limit, search, before);
   }
 
   @Post(':messageId/react')

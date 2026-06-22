@@ -231,30 +231,50 @@ export class MessagesService {
     }
   }
 
-  async findByConversation(tenantId: string, conversationId: string, page = 1, limit = 50, search?: string) {
+  async findByConversation(tenantId: string, conversationId: string, page = 1, limit = 50, search?: string, before?: string) {
     const conversation = await this.conversationsService.findOne(tenantId, conversationId);
-    const skip = getPaginationSkip(page, limit);
 
-    const where = search?.trim()
-      ? { conversationId: conversation.id, content: { contains: search.trim(), mode: 'insensitive' as const } }
-      : { conversationId: conversation.id };
+    const msgInclude = {
+      sender: { select: { id: true, name: true, avatarUrl: true } },
+      replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
+      reactions: { select: { id: true, emoji: true, userId: true } },
+    };
 
+    // Search mode — return flat ascending list
+    if (search?.trim()) {
+      const where = { conversationId: conversation.id, content: { contains: search.trim(), mode: 'insensitive' as const } };
+      const [data, total] = await Promise.all([
+        this.prisma.message.findMany({ where, orderBy: { createdAt: 'asc' }, take: 200, include: msgInclude }),
+        this.prisma.message.count({ where }),
+      ]);
+      return { data, hasMore: false, meta: buildPaginationMeta(total, page, limit) };
+    }
+
+    const baseWhere: Prisma.MessageWhereInput = { conversationId: conversation.id };
+
+    // Cursor load — messages strictly before the given ISO timestamp, newest-of-those first
+    if (before) {
+      const beforeDate = new Date(before);
+      const data = await this.prisma.message.findMany({
+        where: { ...baseWhere, createdAt: { lt: beforeDate } },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: msgInclude,
+      });
+      return { data: data.reverse(), hasMore: data.length === limit };
+    }
+
+    // Initial load — return the most recent `limit` messages in ascending order
     const [data, total] = await Promise.all([
       this.prisma.message.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-        skip,
-        take: search?.trim() ? 200 : limit,
-        include: {
-          sender: { select: { id: true, name: true, avatarUrl: true } },
-          replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
-          reactions: { select: { id: true, emoji: true, userId: true } },
-        },
+        where: baseWhere,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: msgInclude,
       }),
-      this.prisma.message.count({ where }),
+      this.prisma.message.count({ where: baseWhere }),
     ]);
-
-    return { data, meta: buildPaginationMeta(total, page, limit) };
+    return { data: data.reverse(), hasMore: total > limit, meta: buildPaginationMeta(total, 1, limit) };
   }
 
   async handleInbound(tenantId: string, waMessage: {

@@ -57,6 +57,7 @@ interface InboxState {
   setActiveConversation: (id: string | null) => void;
   addMessage: (conversationId: string, message: Message) => void;
   setMessages: (conversationId: string, messages: Message[]) => void;
+  prependMessages: (conversationId: string, messages: Message[]) => void;
   updateConversation: (id: string, data: Partial<Conversation>) => void;
   updateMessageStatus: (conversationId: string, messageId: string, status: string) => void;
   updateMessage: (conversationId: string, messageId: string, data: Partial<Message>) => void;
@@ -184,6 +185,14 @@ export const useInboxStore = create<InboxState>((set) => ({
             : state.conversations.map((c) => (c.id === conversationId ? updatedConvData : c))
           : state.conversations,
       };
+    }),
+
+  prependMessages: (conversationId, older) =>
+    set((state) => {
+      const existing = state.messages[conversationId] ?? [];
+      const existingIds = new Set(existing.map((m) => m.id));
+      const newOnes = older.filter((m) => !existingIds.has(m.id));
+      return { messages: { ...state.messages, [conversationId]: [...newOnes, ...existing] } };
     }),
 
   setMessages: (conversationId, messages) =>

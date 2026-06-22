@@ -183,7 +183,7 @@ function fmtTimestamp(d: Date | string | null | undefined) {
 const ACTIVITY_NOISE = new Set(['MESSAGE_SENT', 'MESSAGE_DELETED', 'MESSAGE_STARRED', 'MESSAGE_RECEIVED']);
 
 export default function ChatWindow({ conversation, showDetails, onToggleDetails, onClose, onMobileBack }: Props) {
-  const { messages, setMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, updateMessage, activityLogs, setActivityLogs } = useInboxStore();
+  const { messages, setMessages, prependMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, updateMessage, activityLogs, setActivityLogs } = useInboxStore();
   const { user } = useAuthStore();
   const { setConfirmDial, outboundSession } = useCallsStore();
   const isOnline = useNetworkStatus();
@@ -246,6 +246,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [aiSuggestion, setAiSuggestion] = useState<{ logId: string; response: string; confidence: number | null } | null>(null);
   const [aiSuggestionSending, setAiSuggestionSending] = useState(false);
   const [aiFeedbackLogId, setAiFeedbackLogId] = useState<string | null>(null);
+
+  // Older-message pagination
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   // Add label (contact-level)
   const [showAddLabel, setShowAddLabel] = useState(false);
@@ -431,6 +435,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setHasMoreOlder(false);
       try {
         const [msgsRes, notesRes, activityRes] = await Promise.allSettled([
           messagesApi.list(conversation.id, { limit: 100 }),
@@ -438,7 +443,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           activityLogApi.forConversation(conversation.id),
         ]);
         if (msgsRes.status === 'fulfilled') {
-          setMessages(conversation.id, (msgsRes.value.data as { data: Message[] }).data);
+          const payload = msgsRes.value.data as { data: Message[]; hasMore?: boolean };
+          setMessages(conversation.id, payload.data);
+          setHasMoreOlder(!!payload.hasMore);
           scrollToBottom(true);
           // Second scroll after virtualizer re-measures actual item heights
           requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true)));
@@ -526,6 +533,36 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     container.addEventListener('scroll', onScroll, { passive: true });
     return () => container.removeEventListener('scroll', onScroll);
   }, [conversation.id]);
+
+  // Load the next batch of older messages when user clicks the banner
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlder || !hasMoreOlder || convMessages.length === 0) return;
+    const oldest = convMessages[0];
+    setLoadingOlder(true);
+    try {
+      const res = await messagesApi.list(conversation.id, { limit: 100, before: oldest.createdAt });
+      const payload = res.data as { data: Message[]; hasMore?: boolean };
+      if (payload.data.length === 0) { setHasMoreOlder(false); return; }
+
+      // Save scroll height before prepend so we can restore position afterwards
+      const container = scrollContainerRef.current;
+      const prevHeight = container?.scrollHeight ?? 0;
+
+      prependMessages(conversation.id, payload.data);
+      setHasMoreOlder(!!payload.hasMore);
+
+      // Restore scroll position so the user stays at the same message
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop += container.scrollHeight - prevHeight;
+        }
+      });
+    } catch {
+      // silently ignore
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [conversation.id, convMessages, hasMoreOlder, loadingOlder, prependMessages]);
 
   // Auto-scroll when new messages arrive (only if already at bottom)
   useEffect(() => {
@@ -1488,6 +1525,19 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           )}
           <div className="flex-1 flex flex-col relative min-h-0">
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={isDark ? { backgroundColor: '#1a202c' } : { backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
+            {hasMoreOlder && (
+              <div className="flex justify-center py-2">
+                <button
+                  onClick={loadOlderMessages}
+                  disabled={loadingOlder}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-full hover:bg-teal-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingOlder
+                    ? <><span className="animate-spin rounded-full h-3 w-3 border-b border-teal-600 inline-block" /> Loading…</>
+                    : 'Load older messages'}
+                </button>
+              </div>
+            )}
             {timeline.length === 0 ? (
               loading
                 ? <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
