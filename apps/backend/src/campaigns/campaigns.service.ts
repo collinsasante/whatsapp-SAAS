@@ -115,19 +115,74 @@ export class CampaignsService {
       }),
       this.prisma.campaign.count({ where: { tenantId } }),
     ]);
-    return { data, meta: buildPaginationMeta(total, page, limit) };
+
+    // Compute real delivery counts from CampaignRecipient statuses (covers campaigns
+    // that ran before the counter columns were wired up).
+    const campaignIds = data.map((c) => c.id);
+    const recipientStats = campaignIds.length
+      ? await this.prisma.campaignRecipient.groupBy({
+          by: ['campaignId', 'status'],
+          where: { campaignId: { in: campaignIds } },
+          _count: { id: true },
+        })
+      : [];
+
+    const statsMap = new Map<string, Record<string, number>>();
+    for (const row of recipientStats) {
+      const m = statsMap.get(row.campaignId) ?? {};
+      m[row.status] = row._count.id;
+      statsMap.set(row.campaignId, m);
+    }
+
+    const dataWithCounts = data.map((c) => {
+      const s = statsMap.get(c.id) ?? {};
+      const sent      = (s['SENT'] ?? 0) + (s['DELIVERED'] ?? 0) + (s['READ'] ?? 0);
+      const delivered = (s['DELIVERED'] ?? 0) + (s['READ'] ?? 0);
+      const read      = s['READ'] ?? 0;
+      const failed    = s['FAILED'] ?? 0;
+      return {
+        ...c,
+        sentCount:      Math.max(c.sentCount, sent),
+        deliveredCount: Math.max(c.deliveredCount, delivered),
+        readCount:      Math.max(c.readCount, read),
+        failedCount:    Math.max(c.failedCount, failed),
+      };
+    });
+
+    return { data: dataWithCounts, meta: buildPaginationMeta(total, page, limit) };
   }
 
   async findOne(tenantId: string, id: string) {
-    const campaign = await this.prisma.campaign.findFirst({
-      where: { id, tenantId },
-      include: {
-        template: true,
-        _count: { select: { recipients: true } },
-      },
-    });
+    const [campaign, recipientStats] = await Promise.all([
+      this.prisma.campaign.findFirst({
+        where: { id, tenantId },
+        include: {
+          template: true,
+          _count: { select: { recipients: true } },
+        },
+      }),
+      this.prisma.campaignRecipient.groupBy({
+        by: ['status'],
+        where: { campaignId: id },
+        _count: { id: true },
+      }),
+    ]);
     if (!campaign) throw new NotFoundException('Campaign not found');
-    return campaign;
+
+    const s: Record<string, number> = {};
+    for (const row of recipientStats) s[row.status] = row._count.id;
+    const sent      = (s['SENT'] ?? 0) + (s['DELIVERED'] ?? 0) + (s['READ'] ?? 0);
+    const delivered = (s['DELIVERED'] ?? 0) + (s['READ'] ?? 0);
+    const read      = s['READ'] ?? 0;
+    const failed    = s['FAILED'] ?? 0;
+
+    return {
+      ...campaign,
+      sentCount:      Math.max(campaign.sentCount, sent),
+      deliveredCount: Math.max(campaign.deliveredCount, delivered),
+      readCount:      Math.max(campaign.readCount, read),
+      failedCount:    Math.max(campaign.failedCount, failed),
+    };
   }
 
   async update(tenantId: string, id: string, dto: UpdateCampaignDto) {

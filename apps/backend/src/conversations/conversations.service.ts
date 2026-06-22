@@ -150,7 +150,7 @@ export class ConversationsService {
         where,
         skip,
         take: limit,
-        orderBy: [{ priority: 'desc' }, { lastMessageAt: 'desc' }],
+        orderBy: [{ priority: 'desc' }, { lastMessageAt: { sort: 'desc', nulls: 'last' } }],
         include: {
           contact: true,
           assignedTo: ASSIGNED_SELECT,

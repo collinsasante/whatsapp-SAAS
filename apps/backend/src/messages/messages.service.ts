@@ -812,8 +812,8 @@ export class MessagesService {
 
     await this.prisma.message.update({ where: { id: message.id }, data: updateData });
 
-    // Propagate delivery/read status back to campaign stats
-    if (status === MessageStatus.DELIVERED || status === MessageStatus.READ) {
+    // Propagate delivery/read/failed status back to campaign stats
+    if (status === MessageStatus.DELIVERED || status === MessageStatus.READ || status === MessageStatus.FAILED) {
       const recipient = await this.prisma.campaignRecipient.findFirst({
         where: { messageId: message.id },
       });
@@ -831,6 +831,9 @@ export class MessagesService {
               ...(!wasDelivered ? { deliveredCount: { increment: 1 } } : {}),
             },
           });
+        } else if (status === MessageStatus.FAILED && recipient.status !== 'FAILED') {
+          await this.prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: 'FAILED' } });
+          await this.prisma.campaign.update({ where: { id: recipient.campaignId }, data: { failedCount: { increment: 1 } } });
         }
       }
     }
