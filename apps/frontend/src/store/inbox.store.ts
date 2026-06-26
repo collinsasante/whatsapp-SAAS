@@ -30,6 +30,7 @@ export interface Conversation {
   contactSource?: string;
   adSourceId?: string | null;
   adHeadline?: string | null;
+  adImageUrl?: string | null;
   snoozedUntil?: string | null;
 }
 

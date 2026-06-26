@@ -337,7 +337,13 @@ export class ConversationsService {
 
     const result = await this.prisma.conversation.update({
       where: { id },
-      data: { assignedToId: dto.toAgentId, status: ConversationStatus.REQUESTED },
+      data: {
+        assignedToId: dto.toAgentId,
+        // Keep INTERVENED so the chat appears under the receiving agent's section,
+        // not back in the Requests queue (which REQUESTED would do).
+        status: ConversationStatus.INTERVENED,
+        intervenedAt: new Date(),
+      },
       include: CONV_INCLUDE,
     });
 
