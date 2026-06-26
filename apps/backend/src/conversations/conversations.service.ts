@@ -694,10 +694,22 @@ export class ConversationsService {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
+        max_tokens: 600,
+        system: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, actionable summaries for support team managers. Be concise. Use plain text with the exact section headers shown. Never add extra commentary outside the structured format.`,
         messages: [{
           role: 'user',
-          content: `Summarize this customer support conversation in 3-5 bullet points. Focus on: the issue raised, actions taken, and resolution status.\n\n${transcript}`,
+          content: `Analyze this support conversation and produce a brief using exactly this structure (one line per field, bullet points where indicated):
+
+Topic: [1 sentence — what the customer needed]
+Key Points:
+• [what happened]
+• [decisions or information exchanged]
+• [any commitments made by the agent, if any]
+Next Steps: [what remains open or to be done — or "None" if resolved]
+Sentiment: [one of: Positive / Neutral / Frustrated / Resolved]
+
+Conversation:
+${transcript}`,
         }],
       }),
     });

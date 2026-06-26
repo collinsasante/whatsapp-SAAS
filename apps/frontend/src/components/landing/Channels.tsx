@@ -89,7 +89,7 @@ export default function Channels() {
             640:  { slidesPerView: 2 },
             1024: { slidesPerView: 3 },
           }}
-          style={{ paddingLeft: '60px', paddingRight: '60px' }}
+          className="feat_swiper"
         >
           {SLIDES.map((slide) => (
             <SwiperSlide key={slide.title}>

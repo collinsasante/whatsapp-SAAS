@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield } from 'lucide-react';
+import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { useInboxStore } from '@/store/inbox.store';
@@ -89,6 +89,9 @@ export default function ConversationDetails({ conversation }: Props) {
   const [journeyExpanded, setJourneyExpanded] = useState(false);
   const [infoExpanded, setInfoExpanded] = useState(true);
   const [contactDetail, setContactDetail] = useState<{ optedOut: boolean; isBlocked: boolean; labels: string[] } | null>(null);
+  const [briefExpanded, setBriefExpanded] = useState(false);
+  const [briefText, setBriefText] = useState<string | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
 
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
@@ -100,6 +103,11 @@ export default function ConversationDetails({ conversation }: Props) {
   const lastInbound = [...convMessages].reverse().find((m) => m.direction === MessageDirection.INBOUND);
   const waConvActive = lastInbound && (Date.now() - new Date(lastInbound.createdAt).getTime()) < 24 * 60 * 60 * 1000;
   const mauActive = convMessages.some((m) => (Date.now() - new Date(m.createdAt).getTime()) < 30 * 24 * 60 * 60 * 1000);
+
+  useEffect(() => {
+    setBriefText(null);
+    setBriefExpanded(false);
+  }, [conversation.id]);
 
   useEffect(() => {
     void activityLogApi.forConversation(conversation.id).then((res) => {
@@ -147,6 +155,20 @@ export default function ConversationDetails({ conversation }: Props) {
       toast.success('Note added');
     } catch { toast.error('Failed to add note'); }
     finally { setAddingNote(false); }
+  };
+
+  const generateBrief = async () => {
+    setBriefLoading(true);
+    try {
+      const res = await conversationsApi.summarize(conversation.id);
+      const data = res.data as { summary: string };
+      setBriefText(data.summary);
+      setBriefExpanded(true);
+    } catch {
+      toast.error('Could not generate brief');
+    } finally {
+      setBriefLoading(false);
+    }
   };
 
   const name = conversation.contact?.name ?? conversation.contact?.phone ?? 'Unknown';
@@ -212,6 +234,55 @@ export default function ConversationDetails({ conversation }: Props) {
                 <span className={cn('text-xs font-medium text-right', color ?? 'text-gray-800')}>{value}</span>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* AI Executive Brief */}
+      <div className="border-b border-gray-100">
+        <button
+          onClick={() => setBriefExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+        >
+          <span className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <Sparkles size={14} className="text-teal-500" /> AI Brief
+          </span>
+          {briefExpanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+        </button>
+        {briefExpanded && (
+          <div className="px-5 pb-4">
+            {briefText ? (
+              <div className="space-y-3">
+                <pre className="whitespace-pre-wrap text-xs text-gray-700 leading-relaxed font-sans bg-teal-50 border border-teal-100 rounded-xl p-3">
+                  {briefText}
+                </pre>
+                <button
+                  onClick={() => { void generateBrief(); }}
+                  disabled={briefLoading}
+                  className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50"
+                >
+                  <RefreshCw size={11} className={briefLoading ? 'animate-spin' : ''} />
+                  {briefLoading ? 'Regenerating…' : 'Regenerate'}
+                </button>
+              </div>
+            ) : (
+              <div className="text-center py-3">
+                <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+                  AI-generated summary of this conversation — topic, key points, next steps, and sentiment.
+                </p>
+                <button
+                  onClick={() => { void generateBrief(); }}
+                  disabled={briefLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+                >
+                  {briefLoading
+                    ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <Sparkles size={12} />
+                  }
+                  {briefLoading ? 'Generating…' : 'Generate Brief'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
