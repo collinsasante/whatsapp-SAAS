@@ -382,12 +382,33 @@ export class MessagesService {
     if (alreadyProcessed) return alreadyProcessed;
 
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
+
+    // Mirror the Facebook CDN ad-preview image to our own storage so the URL never expires.
+    let permanentAdImageUrl: string | undefined;
+    if (referral?.image_url) {
+      try {
+        const imgResp = await axios.get<Buffer>(referral.image_url, { responseType: 'arraybuffer', timeout: 10_000 });
+        const contentType = (imgResp.headers['content-type'] as string | undefined) ?? 'image/jpeg';
+        const ext = contentType.split('/')[1]?.split(';')[0] ?? 'jpg';
+        const { fileUrl } = await this.storageService.uploadRaw(
+          Buffer.from(imgResp.data),
+          contentType,
+          tenantId,
+          `ad-preview.${ext}`,
+        );
+        permanentAdImageUrl = fileUrl;
+      } catch (err) {
+        this.logger.warn(`Failed to mirror ad preview image: ${(err as Error).message}`);
+        permanentAdImageUrl = referral.image_url;
+      }
+    }
+
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, referral
       ? {
           contactSource: referral.source_type ?? 'ad',
           adSourceId: referral.source_id,
           adHeadline: referral.headline,
-          adImageUrl: referral.image_url,
+          adImageUrl: permanentAdImageUrl,
         }
       : undefined,
     );
