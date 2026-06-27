@@ -475,6 +475,15 @@ export class MessagesService {
 
     const msgType = waMessage.type.toUpperCase() as MessageType;
 
+    // WhatsApp sends type="unsupported" for polls, ephemeral messages, and
+    // other types not yet exposed via the Cloud API. Skip them silently
+    // (we already acknowledged the webhook — no need to crash).
+    const validMessageTypes = new Set<string>(Object.values(MessageType));
+    if (!validMessageTypes.has(msgType)) {
+      this.logger.debug(`[tenant:${tenantId}] Skipping unsupported WA message type "${waMessage.type}"`);
+      return null;
+    }
+
     if (waMessage.text) content = waMessage.text.body;
 
     if (waMessage.location) {
