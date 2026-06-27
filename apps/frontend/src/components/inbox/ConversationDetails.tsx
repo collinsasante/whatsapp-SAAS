@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw } from 'lucide-react';
+import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw, Copy, Check } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { useInboxStore } from '@/store/inbox.store';
@@ -93,6 +93,7 @@ export default function ConversationDetails({ conversation }: Props) {
   const [briefExpanded, setBriefExpanded] = useState(false);
   const [briefText, setBriefText] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
+  const [briefCopied, setBriefCopied] = useState(false);
 
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
@@ -281,14 +282,29 @@ export default function ConversationDetails({ conversation }: Props) {
                     {briefText}
                   </ReactMarkdown>
                 </div>
-                <button
-                  onClick={() => { void generateBrief(); }}
-                  disabled={briefLoading}
-                  className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50"
-                >
-                  <RefreshCw size={11} className={briefLoading ? 'animate-spin' : ''} />
-                  {briefLoading ? 'Regenerating…' : 'Regenerate'}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => { void generateBrief(); }}
+                    disabled={briefLoading}
+                    className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50"
+                  >
+                    <RefreshCw size={11} className={briefLoading ? 'animate-spin' : ''} />
+                    {briefLoading ? 'Regenerating…' : 'Regenerate'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!briefText) return;
+                      void navigator.clipboard.writeText(briefText).then(() => {
+                        setBriefCopied(true);
+                        setTimeout(() => setBriefCopied(false), 2000);
+                      });
+                    }}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 font-medium"
+                  >
+                    {briefCopied ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+                    {briefCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="text-center py-3">
