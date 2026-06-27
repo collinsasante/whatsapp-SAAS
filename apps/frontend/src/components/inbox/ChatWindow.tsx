@@ -619,16 +619,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, [conversation.contact?.id]);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (labelMenuRef.current && !labelMenuRef.current.contains(e.target as Node)) setShowAddLabel(false);
-    };
-    if (showAddLabel) {
-      document.addEventListener('mousedown', handler);
-      if (savedTags.length === 0) {
-        tagsApi.list().then(r => setSavedTags((r.data as { id: string; name: string; color?: string }[]) ?? [])).catch(() => {});
-      }
+    if (showAddLabel && savedTags.length === 0) {
+      tagsApi.list().then(r => setSavedTags((r.data as { id: string; name: string; color?: string }[]) ?? [])).catch(() => {});
     }
-    return () => document.removeEventListener('mousedown', handler);
   }, [showAddLabel, savedTags.length]);
 
   useEffect(() => {
@@ -1235,9 +1228,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             </div>
 
-            {/* Action buttons — horizontally scrollable on narrow mobile screens so nothing gets clipped off-screen */}
-            <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-hide">
-              {/* Intervene button — shown only for AWAITING conversations */}
+            {/* Action buttons */}
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              {/* Intervene — always visible */}
               {isRequested && !assignedToOther && (
                 <button
                   onClick={() => { void handleIntervene(); }}
@@ -1245,11 +1238,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   className="h-8 px-2.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                   <UserPlus size={13} />
-                  Intervene
+                  <span className="hidden sm:inline">Intervene</span>
                 </button>
               )}
 
-              {/* Take over button — shown in header when assigned to another agent */}
+              {/* Take over — always visible */}
               {assignedToOther && localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
                 <button
                   onClick={() => { void handleTakeover(); }}
@@ -1257,34 +1250,34 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   className="h-8 px-3 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
                 >
                   <UserPlus size={13} />
-                  Take Over
+                  <span className="hidden sm:inline">Take Over</span>
                 </button>
               )}
 
-              {/* Resolve / Reopen quick button — only for assignee or admin+ */}
+              {/* Resolve / Reopen — always visible */}
               {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && !assignedToOther ? (
                 <button
                   onClick={() => { void handleResolve(); }}
                   title="Resolve"
-                  className="h-8 px-3 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors flex items-center gap-1.5"
+                  className="h-8 px-2.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                   <CheckCircle size={13} />
-                  Resolve
+                  <span className="hidden sm:inline">Resolve</span>
                 </button>
               ) : isResolved ? (
                 <button
                   onClick={() => { void handleReopen(); }}
                   title="Reopen"
-                  className="h-8 px-3 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex items-center gap-1.5"
+                  className="h-8 px-2.5 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                   <RefreshCw size={13} />
-                  Reopen
+                  <span className="hidden sm:inline">Reopen</span>
                 </button>
               ) : null}
 
-              {/* Snooze */}
+              {/* Snooze — desktop only */}
               {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
-                <div className="relative" ref={snoozeMenuRef}>
+                <div className="relative hidden md:block" ref={snoozeMenuRef}>
                   <button
                     onClick={() => setShowSnoozeMenu((v) => !v)}
                     title="Snooze conversation"
@@ -1328,17 +1321,17 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </div>
               )}
 
-              {/* Transfer */}
+              {/* Transfer — desktop only */}
               <button
                 onClick={openTransfer}
                 title="Transfer to team member"
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                className="hidden md:flex w-8 h-8 items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
               >
                 <ArrowRightLeft size={15} />
               </button>
 
-              {/* Add Label */}
-              <div className="relative" ref={labelMenuRef}>
+              {/* Add Label — desktop only button; panel is portalled so works from mobile menu too */}
+              <div className="relative hidden md:block" ref={labelMenuRef}>
                 <button
                   onClick={() => setShowAddLabel((v) => !v)}
                   title="Add label"
@@ -1346,11 +1339,13 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 >
                   <Tag size={15} />
                 </button>
-                {showAddLabel && (
-                  <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-64 p-3">
+              </div>
+              {/* Label panel — rendered via portal so it works on mobile too */}
+              {showAddLabel && typeof document !== 'undefined' && createPortal(
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowAddLabel(false)} />
+                  <div className="fixed right-4 top-16 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-64 p-3">
                     <p className="text-xs font-semibold text-gray-600 mb-2">Labels</p>
-
-                    {/* Current labels with remove */}
                     {contactLabels.length > 0 && (
                       <div className="flex flex-wrap gap-1 mb-2.5">
                         {contactLabels.map((l) => (
@@ -1363,8 +1358,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                         ))}
                       </div>
                     )}
-
-                    {/* Saved tag suggestions */}
                     {savedTags.filter(t => !contactLabels.includes(t.name)).length > 0 && (
                       <div className="mb-2.5">
                         <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1.5">Saved Tags</p>
@@ -1379,8 +1372,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                         </div>
                       </div>
                     )}
-
-                    {/* Custom label input */}
                     <div className="flex gap-1.5">
                       <input type="text" value={labelInput}
                         onChange={(e) => setLabelInput(e.target.value)}
@@ -1395,57 +1386,111 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                       </button>
                     </div>
                   </div>
-                )}
-              </div>
+                </>,
+                document.body,
+              )}
 
-              {/* Customer Info toggle */}
+              {/* Customer Info toggle — desktop only */}
               {onToggleDetails && (
                 <button
                   onClick={onToggleDetails}
                   title={showDetails ? 'Hide customer info' : 'Show customer info'}
-                  className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', showDetails ? 'bg-teal-50 text-teal-600' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50')}
+                  className={cn('hidden md:flex w-8 h-8 items-center justify-center rounded-lg transition-colors', showDetails ? 'bg-teal-50 text-teal-600' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50')}
                 >
                   <Info size={15} />
                 </button>
               )}
 
-              {/* Search */}
+              {/* Search — desktop only */}
               <button
                 onClick={() => setShowSearch(true)}
                 title="Search messages"
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                className="hidden md:flex w-8 h-8 items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
               >
                 <Search size={15} />
               </button>
 
-              {/* Call */}
+              {/* Call — desktop only */}
               <button
                 onClick={() => {
                   if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone, contactId: conversation.contact.id });
                 }}
                 title="Call"
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                className="hidden md:flex w-8 h-8 items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
               >
                 <Phone size={15} />
               </button>
 
-              {/* Block contact */}
+              {/* Block contact — desktop only */}
               <button
                 onClick={() => { void handleToggleBlock(); }}
                 title={isBlocked ? 'Unblock contact' : 'Block contact'}
-                className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', isBlocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-red-500 hover:bg-red-50')}
+                className={cn('hidden md:flex w-8 h-8 items-center justify-center rounded-lg transition-colors', isBlocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-red-500 hover:bg-red-50')}
               >
                 {isBlocked ? <ShieldOff size={15} /> : <Shield size={15} />}
               </button>
 
-              {/* Download chat */}
+              {/* Download chat — desktop only */}
               <button
                 onClick={handleDownloadChat}
                 title="Download chat"
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                className="hidden md:flex w-8 h-8 items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
               >
                 <Download size={15} />
               </button>
+
+              {/* Mobile "more" menu — hidden on desktop */}
+              <div className="relative md:hidden" ref={headerMenuRef}>
+                <button
+                  onClick={() => setShowHeaderMenu((v) => !v)}
+                  title="More actions"
+                  className={cn('w-8 h-8 flex items-center justify-center rounded-lg transition-colors', showHeaderMenu ? 'bg-gray-100 text-gray-700' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50')}
+                >
+                  <ChevronDown size={16} />
+                </button>
+                {showHeaderMenu && (
+                  <div className="absolute right-0 top-10 bg-white border border-gray-200 rounded-xl shadow-xl z-50 w-56 py-1.5 max-h-[80vh] overflow-y-auto">
+                    <button onClick={() => { openTransfer(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                      <ArrowRightLeft size={14} className="text-gray-400" /> Transfer
+                    </button>
+                    {localStatus !== 'RESOLVED' && localStatus !== 'ARCHIVED' && (
+                      <>
+                        <p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold px-4 pt-2 pb-1">Snooze until</p>
+                        {snoozeOptions.map((opt) => (
+                          <button key={opt.label} onClick={() => { void handleSnooze(opt.until()); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-amber-50 hover:text-amber-700 text-left">
+                            <BellOff size={14} className="text-gray-400" /> {opt.label}
+                          </button>
+                        ))}
+                        <div className="border-t border-gray-100 mt-1" />
+                      </>
+                    )}
+                    <button onClick={() => { setShowAddLabel(true); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                      <Tag size={14} className="text-gray-400" /> Labels
+                    </button>
+                    {onToggleDetails && (
+                      <button onClick={() => { onToggleDetails(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                        <Info size={14} className="text-gray-400" /> {showDetails ? 'Hide Info' : 'Customer Info'}
+                      </button>
+                    )}
+                    <button onClick={() => { setShowSearch(true); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                      <Search size={14} className="text-gray-400" /> Search
+                    </button>
+                    <button onClick={() => {
+                      if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone, contactId: conversation.contact.id });
+                      setShowHeaderMenu(false);
+                    }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                      <Phone size={14} className="text-gray-400" /> Call
+                    </button>
+                    <button onClick={() => { void handleToggleBlock(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                      {isBlocked ? <ShieldOff size={14} className="text-red-400" /> : <Shield size={14} className="text-gray-400" />}
+                      {isBlocked ? 'Unblock Contact' : 'Block Contact'}
+                    </button>
+                    <button onClick={() => { handleDownloadChat(); setShowHeaderMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
+                      <Download size={14} className="text-gray-400" /> Download Chat
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Close inline chat — always last */}
               {onClose && (
@@ -1524,7 +1569,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             </div>
           )}
           <div className="flex-1 flex flex-col relative min-h-0">
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 min-h-0" style={isDark ? { backgroundColor: '#1a202c' } : { backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 min-h-0" style={isDark ? { backgroundColor: '#1a202c' } : { backgroundImage: 'linear-gradient(rgba(255,255,255,0.65), rgba(255,255,255,0.65)), url(/chat-bg.jpg)', backgroundSize: 'cover', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', backgroundColor: '#ece5dd' }}>
             {hasMoreOlder && (
               <div className="flex justify-center py-2">
                 <button
@@ -2721,7 +2766,7 @@ const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        <div className={cn('flex items-end gap-1 max-w-xs lg:max-w-md', isOutbound ? 'flex-row-reverse' : 'flex-row')}>
+        <div className={cn('flex items-end gap-1 max-w-[80vw] sm:max-w-xs lg:max-w-md', isOutbound ? 'flex-row-reverse' : 'flex-row')}>
           {/* Hover chevron button to open context menu */}
           <button
             onClick={openMenu}
@@ -2821,8 +2866,7 @@ const MessageBubble = memo(function MessageBubble({
                         <img
                           src={proxied}
                           alt={message.mediaCaption ?? 'Image'}
-                          className={cn('rounded-xl transition-opacity', isUploading ? 'opacity-60 cursor-default' : 'cursor-zoom-in hover:opacity-90')}
-                          style={{ width: '238px', height: '150px', display: 'block', objectFit: 'cover' }}
+                          className={cn('rounded-xl transition-opacity block w-full max-w-[238px] h-[150px] object-cover', isUploading ? 'opacity-60 cursor-default' : 'cursor-zoom-in hover:opacity-90')}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           onContextMenu={(e) => e.preventDefault()}
                         />
@@ -2834,8 +2878,8 @@ const MessageBubble = memo(function MessageBubble({
                       </button>
                     )}
                     {message.type === 'VIDEO' && (
-                      <div className="relative rounded-xl overflow-hidden" style={{ maxWidth: '320px' }}>
-                        <video controls={!isUploading} className="rounded-xl" preload="metadata" style={{ maxWidth: '320px', maxHeight: '260px' }}>
+                      <div className="relative rounded-xl overflow-hidden max-w-full" style={{ maxWidth: '320px' }}>
+                        <video controls={!isUploading} className="rounded-xl w-full" preload="metadata" style={{ maxWidth: '320px', maxHeight: '260px' }}>
                           <source src={proxied} />
                         </video>
                         {isUploading && (
@@ -2846,7 +2890,7 @@ const MessageBubble = memo(function MessageBubble({
                         )}
                       </div>
                     )}
-                    {message.type === 'AUDIO' && <audio controls className="w-56 mt-1"><source src={proxied} /></audio>}
+                    {message.type === 'AUDIO' && <audio controls className="w-full max-w-[224px] mt-1"><source src={proxied} /></audio>}
                     {message.type === 'DOCUMENT' && (
                       <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                         {isUploading

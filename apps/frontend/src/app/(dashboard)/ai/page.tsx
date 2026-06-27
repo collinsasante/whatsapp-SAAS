@@ -527,7 +527,28 @@ export default function AiPage() {
                   {/* Personality */}
                   <div className="py-3">
                     <p className="text-sm font-medium text-gray-900 mb-1">AI Personality</p>
-                    <p className="text-xs text-gray-500 mb-3">How Verz should communicate with customers</p>
+                    <p className="text-xs text-gray-500 mb-2">How Verz should communicate with customers</p>
+                    {/* Preset quick-select chips */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {[
+                        { label: '😊 Friendly', value: 'You are warm, friendly, and approachable. Use a conversational tone, feel free to use the customer\'s name, and keep replies short — this is WhatsApp, not email.' },
+                        { label: '💼 Professional', value: 'You are professional, courteous, and precise. Use formal language, avoid slang, and always ensure accuracy before responding.' },
+                        { label: '⚡ Concise', value: 'You are direct and to the point. Answer questions in 1-2 sentences maximum. Avoid filler words. Customers are busy.' },
+                        { label: '🤝 Empathetic', value: 'You lead with empathy. Acknowledge the customer\'s feelings first, then provide help. Never rush — make the customer feel heard.' },
+                      ].map(preset => (
+                        <button
+                          key={preset.label}
+                          onClick={() => setPersonality(preset.value)}
+                          className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                            personality === preset.value
+                              ? 'bg-teal-600 text-white border-teal-600'
+                              : 'border-gray-200 text-gray-600 hover:border-teal-400 hover:text-teal-700 bg-white'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
                     <textarea
                       value={personality}
                       onChange={e => setPersonality(e.target.value)}
@@ -536,7 +557,12 @@ export default function AiPage() {
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 resize-none transition-colors"
                     />
                     <div className="flex items-center justify-between mt-2">
-                      <p className="text-xs text-gray-400">Leave blank to use the default</p>
+                      <button
+                        onClick={() => setPersonality('')}
+                        className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Reset to default
+                      </button>
                       <button
                         onClick={savePersonality}
                         disabled={savingSettings || personality === settings.aiPersonality}
