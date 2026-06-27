@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
@@ -253,9 +254,33 @@ export default function ConversationDetails({ conversation }: Props) {
           <div className="px-5 pb-4">
             {briefText ? (
               <div className="space-y-3">
-                <pre className="whitespace-pre-wrap text-xs text-gray-700 leading-relaxed font-sans bg-teal-50 border border-teal-100 rounded-xl p-3">
-                  {briefText}
-                </pre>
+                <div className="bg-teal-50 border border-teal-100 rounded-xl p-3 text-xs text-gray-800 leading-relaxed brief-body">
+                  <ReactMarkdown
+                    components={{
+                      h2: ({ children }) => (
+                        <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mt-4 mb-1.5 first:mt-0">{children}</h2>
+                      ),
+                      p: ({ children }) => (
+                        <p className="text-xs text-gray-700 leading-relaxed mb-1">{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="space-y-2 mb-2 pl-0 list-none">{children}</ul>
+                      ),
+                      li: ({ children }) => (
+                        <li className="flex gap-2 text-xs text-gray-700 leading-relaxed">
+                          <span className="mt-0.5 flex-shrink-0 text-teal-500">•</span>
+                          <span>{children}</span>
+                        </li>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-gray-900">{children}</strong>
+                      ),
+                      hr: () => <hr className="border-gray-200 my-3" />,
+                    }}
+                  >
+                    {briefText}
+                  </ReactMarkdown>
+                </div>
                 <button
                   onClick={() => { void generateBrief(); }}
                   disabled={briefLoading}
