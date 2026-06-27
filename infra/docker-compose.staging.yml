@@ -1,0 +1,70 @@
+# Staging override — run alongside production on port 8080
+# Usage: docker compose -p staging -f infra/docker-compose.yml -f infra/docker-compose.staging.yml up -d --build
+#
+# Access at: http://YOUR_VPS_IP:8080
+# Uses a separate staging database (waplatform_staging) and separate containers.
+# Shares the same postgres/redis/minio infrastructure with different names/buckets.
+
+services:
+  postgres:
+    container_name: wa_staging_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-waplatform}_staging
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+
+  redis:
+    container_name: wa_staging_redis
+    volumes:
+      - redis_staging_data:/data
+
+  minio:
+    container_name: wa_staging_minio
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - minio_staging_data:/data
+
+  backend:
+    container_name: wa_staging_backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}_staging
+      MINIO_BUCKET: ${MINIO_BUCKET:-whatsapp-platform}-staging
+      FRONTEND_URL: http://${VPS_IP}:8080
+      PUBLIC_URL: http://${VPS_IP}:8080
+
+  realtime:
+    container_name: wa_staging_realtime
+    environment:
+      FRONTEND_URL: http://${VPS_IP}:8080
+      BACKEND_URL: http://backend:3001
+
+  worker:
+    container_name: wa_staging_worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}_staging
+
+  frontend:
+    container_name: wa_staging_frontend
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: http://${VPS_IP}:8080/api/v1
+        NEXT_PUBLIC_SOCKET_URL: http://${VPS_IP}:8080
+
+  nginx:
+    container_name: wa_staging_nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  postgres_staging_data:
+    driver: local
+  redis_staging_data:
+    driver: local
+  minio_staging_data:
+    driver: local
