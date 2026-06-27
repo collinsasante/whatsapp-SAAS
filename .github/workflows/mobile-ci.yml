@@ -1,0 +1,126 @@
+name: Mobile CI
+
+on:
+  push:
+    branches: [main, dev, staging, 'feature/**']
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+      - 'tooling/**'
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - 'apps/mobile/**'
+      - 'packages/**'
+
+concurrency:
+  group: mobile-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Type-check ─────────────────────────────────────────────────────────────
+  typecheck:
+    name: Type-check Mobile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check shared packages
+        run: |
+          pnpm --filter @whatsapp-platform/shared-types typecheck || true
+          pnpm --filter @whatsapp-platform/api typecheck
+          pnpm --filter @whatsapp-platform/auth typecheck
+          pnpm --filter @whatsapp-platform/validation typecheck
+          pnpm --filter @whatsapp-platform/theme typecheck
+          pnpm --filter @whatsapp-platform/socket typecheck
+
+      - name: Type-check mobile app
+        run: pnpm --filter @whatsapp-platform/mobile typecheck
+
+  # ── EAS Preview Build (on main + dev only) ─────────────────────────────────
+  eas-preview:
+    name: EAS Preview Build
+    runs-on: ubuntu-latest
+    needs: typecheck
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: EAS Build (preview)
+        run: |
+          cd apps/mobile
+          eas build --platform all --profile preview --non-interactive --no-wait
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+          API_URL: ${{ github.ref == 'refs/heads/main' && secrets.STAGING_API_URL || secrets.DEV_API_URL }}
+
+  # ── EAS Production Build (on release tags) ─────────────────────────────────
+  eas-production:
+    name: EAS Production Build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/mobile-v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: EAS Build (production)
+        run: |
+          cd apps/mobile
+          eas build --platform all --profile production --non-interactive
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+          API_URL: ${{ secrets.PROD_API_URL }}
+
+      - name: Submit to stores
+        run: |
+          cd apps/mobile
+          eas submit --platform all --latest --non-interactive
+        env:
+          EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}

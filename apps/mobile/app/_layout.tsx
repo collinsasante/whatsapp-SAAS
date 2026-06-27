@@ -5,6 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppProviders } from '../src/providers';
+import { ErrorBoundary } from '../src/components/ErrorBoundary';
+import { OfflineBanner } from '../src/components/OfflineBanner';
 import { useAuthStore } from '../src/store/auth.store';
 import { mobileTokenStorage } from '../src/lib/storage';
 import { apiClient } from '../src/lib/api';
@@ -40,11 +42,14 @@ export default function RootLayout() {
   }, [setAuth, setReady]);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <AppProviders>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }} />
-      </AppProviders>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <AppProviders>
+          <StatusBar style="light" />
+          <OfflineBanner />
+          <Stack screenOptions={{ headerShown: false }} />
+        </AppProviders>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
