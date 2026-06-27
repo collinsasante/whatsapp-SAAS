@@ -7,6 +7,7 @@ interface AuthState {
   tenant: AuthTenant | null;
   workspaces: WorkspaceEntry[];
   isAuthenticated: boolean;
+  isReady: boolean;
 
   setAuth: (user: AuthUser, tenant: AuthTenant, accessToken: string) => void;
   setAccessToken: (token: string) => void;
@@ -14,6 +15,7 @@ interface AuthState {
   switchTenant: (tenant: AuthTenant, accessToken: string) => void;
   updateUser: (patch: Partial<AuthUser>) => void;
   clearAuth: () => void;
+  setReady: () => void;
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
@@ -21,6 +23,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
   tenant: null,
   workspaces: [],
   isAuthenticated: false,
+  isReady: false,
 
   setAuth: (user, tenant, accessToken) => {
     mobileTokenStorage.setAccessToken(accessToken);
@@ -47,4 +50,6 @@ export const useAuthStore = create<AuthState>()((set) => ({
     mobileTokenStorage.clearAccessToken();
     set({ user: null, tenant: null, workspaces: [], isAuthenticated: false });
   },
+
+  setReady: () => set({ isReady: true }),
 }));

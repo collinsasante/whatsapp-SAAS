@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Tabs, router } from 'expo-router';
+import React from 'react';
+import { Tabs, Redirect } from 'expo-router';
 import { Text } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
 
@@ -11,12 +11,13 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 
 export default function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isReady = useAuthStore((s) => s.isReady);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace('/(auth)/login');
-    }
-  }, [isAuthenticated]);
+  if (!isReady) return null;
+
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/login" />;
+  }
 
   return (
     <Tabs

@@ -9,15 +9,18 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@whatsapp-platform/validation';
 import { apiClient } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth.store';
+import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
 
 export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(false);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isReady = useAuthStore((s) => s.isReady);
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const {
@@ -28,13 +31,51 @@ export default function LoginScreen() {
     resolver: zodResolver(loginSchema),
   });
 
+  if (isReady && isAuthenticated) {
+    return <Redirect href="/(app)" />;
+  }
+
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true);
     try {
       const res = await apiClient.auth.login(data.email, data.password);
-      const { user, tenant, accessToken } = res.data;
-      setAuth(user, tenant, accessToken);
-      router.replace('/(app)');
+      const result = res.data as {
+        requiresWorkspaceSelection?: boolean;
+        requiresPin?: boolean;
+        requiresPinSetup?: boolean;
+        tempToken?: string;
+        workspaces?: Array<{ id: string; name: string; role: string }>;
+        user?: AuthUser;
+        tenant?: AuthTenant;
+        accessToken?: string;
+      };
+
+      if (result.requiresWorkspaceSelection && result.tempToken && result.workspaces) {
+        router.push({
+          pathname: '/(auth)/workspace-select',
+          params: {
+            tempToken: result.tempToken,
+            workspaces: JSON.stringify(result.workspaces),
+          },
+        });
+        return;
+      }
+
+      if ((result.requiresPin || result.requiresPinSetup) && result.tempToken) {
+        router.push({
+          pathname: '/(auth)/verify-pin',
+          params: {
+            tempToken: result.tempToken,
+            mode: result.requiresPinSetup ? 'setup' : 'verify',
+          },
+        });
+        return;
+      }
+
+      if (result.user && result.tenant && result.accessToken) {
+        setAuth(result.user, result.tenant, result.accessToken);
+        router.replace('/(app)');
+      }
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??

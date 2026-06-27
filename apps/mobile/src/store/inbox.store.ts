@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message } from '@whatsapp-platform/shared-types';
+import type { Message, MessageStatus } from '@whatsapp-platform/shared-types';
 
 export interface MobileConversation {
   id: string;
@@ -34,6 +34,7 @@ interface InboxState {
   updateConversation: (id: string, data: Partial<MobileConversation>) => void;
   removeConversation: (id: string) => void;
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void;
+  updateMessageStatus: (messageId: string, whatsappMessageId: string | null, status: MessageStatus) => void;
   setLoading: (loading: boolean) => void;
 }
 
@@ -106,4 +107,19 @@ export const useInboxStore = create<InboxState>()((set) => ({
     }),
 
   setLoading: (isLoading) => set({ isLoading }),
+
+  updateMessageStatus: (messageId, whatsappMessageId, status) =>
+    set((state) => {
+      for (const [convId, msgs] of Object.entries(state.messages)) {
+        const idx = msgs.findIndex(
+          (m) => m.id === messageId || (whatsappMessageId && m.whatsappMessageId === whatsappMessageId),
+        );
+        if (idx >= 0) {
+          const updated = [...msgs];
+          updated[idx] = { ...updated[idx]!, status };
+          return { messages: { ...state.messages, [convId]: updated } };
+        }
+      }
+      return {};
+    }),
 }));
