@@ -387,6 +387,13 @@
 .lp .feat_nav:hover { background: rgba(255,255,255,.2); }
 .lp .feat_nav_prev { left: 8px; }
 .lp .feat_nav_next { right: 8px; }
+
+/* Responsive swiper padding so nav buttons don't overlap slides on mobile */
+.lp .feat_swiper { padding-left: 60px; padding-right: 60px; }
+@media (max-width: 640px) {
+  .lp .feat_swiper { padding-left: 40px; padding-right: 40px; }
+  .lp .feat_nav { width: 32px; height: 32px; font-size: 18px; }
+}
 .lp .feat_nav.swiper-button-disabled { opacity: .3; cursor: default; }
 
 /* ── Features showcase ───────────────────────────────────────────────────────── */

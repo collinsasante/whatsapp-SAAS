@@ -694,10 +694,46 @@ export class ConversationsService {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
+        max_tokens: 1200,
+        system: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
         messages: [{
           role: 'user',
-          content: `Summarize this customer support conversation in 3-5 bullet points. Focus on: the issue raised, actions taken, and resolution status.\n\n${transcript}`,
+          content: `Analyze this WhatsApp support conversation and produce an Executive Brief using EXACTLY this format and structure. Do not skip any section. Do not add extra sections.
+
+## EXECUTIVE SUMMARY
+
+* [One concise paragraph (3-5 sentences) covering: who the customer is, what they needed, what happened, and the current status.]
+
+---
+
+## 🔑 KEY DISCUSSION POINTS
+
+* **[Point Title]:** [Explanation of this discussion point — what was raised, what was said, what the outcome was.]
+
+* **[Point Title]:** [Explanation — add as many bullet points as needed, minimum 2.]
+
+---
+
+## 🎯 DECISIONS MADE
+
+* **Decision:** [What was decided.] (Context: [Who initiated it and why.])
+
+[If no decisions were made, write: * No formal decisions were recorded.]
+
+---
+
+## 📋 ACTION ITEMS & NEXT STEPS
+
+* [ ] **[Team/Person responsible]:** [Specific action required.]
+
+* [ ] **[Team/Person responsible]:** [Specific action required.]
+
+[If nothing is outstanding, write: * No open action items — conversation resolved.]
+
+---
+
+Conversation:
+${transcript}`,
         }],
       }),
     });
