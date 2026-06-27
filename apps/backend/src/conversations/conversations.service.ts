@@ -670,7 +670,7 @@ export class ConversationsService {
       .map((m) => `[${m.direction === 'INBOUND' ? contactName : 'Agent'}]: ${m.content}`)
       .join('\n');
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
       // Rule-based fallback when no API key is configured
       const inbound = messages.filter((m) => m.direction === 'INBOUND').length;
@@ -681,29 +681,69 @@ export class ConversationsService {
       const hours = Math.round(durationMs / 3600000);
       return {
         summary: `Conversation with ${contactName}: ${inbound + outbound} messages (${inbound} from customer, ${outbound} from agent) over ${hours > 0 ? hours + 'h' : 'less than 1h'}. Status: ${conversation.status}.`,
-        note: 'Add ANTHROPIC_API_KEY to .env for full AI summary.',
+        note: 'Add DEEPSEEK_API_KEY to .env for full AI summary.',
       };
     }
 
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${apiKey}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        messages: [{
-          role: 'user',
-          content: `Summarize this customer support conversation in 3-5 bullet points. Focus on: the issue raised, actions taken, and resolution status.\n\n${transcript}`,
-        }],
+        model: 'deepseek-chat',
+        max_tokens: 1200,
+        messages: [
+          {
+            role: 'system',
+            content: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
+          },
+          {
+            role: 'user',
+            content: `Analyze this WhatsApp support conversation and produce an Executive Brief using EXACTLY this format and structure. Do not skip any section. Do not add extra sections.
+
+## EXECUTIVE SUMMARY
+
+* [One concise paragraph (3-5 sentences) covering: who the customer is, what they needed, what happened, and the current status.]
+
+---
+
+## 🔑 KEY DISCUSSION POINTS
+
+* **[Point Title]:** [Explanation of this discussion point — what was raised, what was said, what the outcome was.]
+
+* **[Point Title]:** [Explanation — add as many bullet points as needed, minimum 2.]
+
+---
+
+## 🎯 DECISIONS MADE
+
+* **Decision:** [What was decided.] (Context: [Who initiated it and why.])
+
+[If no decisions were made, write: * No formal decisions were recorded.]
+
+---
+
+## 📋 ACTION ITEMS & NEXT STEPS
+
+* [ ] **[Team/Person responsible]:** [Specific action required.]
+
+* [ ] **[Team/Person responsible]:** [Specific action required.]
+
+[If nothing is outstanding, write: * No open action items — conversation resolved.]
+
+---
+
+Conversation:
+${transcript}`,
+          },
+        ],
       }),
     });
 
-    const json = await resp.json() as { content?: Array<{ text?: string }> };
-    const text = json.content?.[0]?.text ?? 'Could not generate summary.';
+    const json = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = json.choices?.[0]?.message?.content ?? 'Could not generate summary.';
     return { summary: text };
   }
 
