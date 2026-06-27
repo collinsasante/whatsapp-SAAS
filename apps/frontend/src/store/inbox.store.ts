@@ -30,6 +30,7 @@ export interface Conversation {
   contactSource?: string;
   adSourceId?: string | null;
   adHeadline?: string | null;
+  adImageUrl?: string | null;
   snoozedUntil?: string | null;
 }
 
@@ -139,11 +140,15 @@ export const useInboxStore = create<InboxState>((set) => ({
       // Skip exact duplicate
       if (existing.some((m) => m.id === message.id)) return state;
 
-      // Replace matching optimistic (temp-*) message with the real one
+      // Replace matching optimistic (temp-*) message with the real one.
+      // 2-second window only — the legitimate use case (socket fires before API
+      // response) happens within ~500ms. A 15s window causes false removals when
+      // another agent sends the same text or the background poll re-delivers an
+      // older message with matching content.
       const withoutOptimistic = existing.filter((m) => {
         if (!m.id.startsWith('temp-')) return true;
         const tempTime = parseInt(m.id.replace('temp-', ''), 10);
-        if (Date.now() - tempTime > 15_000) return true;
+        if (Date.now() - tempTime > 2_000) return true;
         return m.content !== message.content || m.direction !== message.direction;
       });
 
