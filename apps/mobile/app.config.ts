@@ -12,39 +12,58 @@ const apiUrl =
     ? 'https://staging-api.verzchat.com/api/v1'
     : 'http://localhost:3001/api/v1');
 
-const appIdentifier = IS_PRODUCTION
+const appName = IS_PRODUCTION
+  ? 'VerzChat'
+  : IS_STAGING
+  ? 'VerzChat Staging'
+  : 'VerzChat Dev';
+
+const bundleId = IS_PRODUCTION
   ? 'com.verzchat.mobile'
   : IS_STAGING
   ? 'com.verzchat.mobile.staging'
   : 'com.verzchat.mobile.dev';
 
-export default ({ config }: ConfigContext): ExpoConfig => ({
-  ...config,
-  name: IS_PRODUCTION ? 'VerzChat' : IS_STAGING ? 'VerzChat (Staging)' : 'VerzChat (Dev)',
-  slug: 'verzchat',
-  version: '1.0.0',
-  ios: {
-    ...config.ios,
-    bundleIdentifier: appIdentifier,
-  },
-  android: {
-    ...config.android,
-    package: appIdentifier,
-  },
-  extra: {
-    ...config.extra,
-    apiUrl,
-    appEnv: APP_ENV,
-    eas: {
-      projectId: process.env.EAS_PROJECT_ID ?? config.extra?.eas?.projectId ?? 'your-eas-project-id',
+const easProjectId =
+  process.env.EAS_PROJECT_ID ??
+  (process.env.EXPO_PUBLIC_PROJECT_ID as string | undefined) ??
+  '';
+
+export default ({ config }: ConfigContext): ExpoConfig => {
+  const base: ExpoConfig = {
+    ...config,
+    name: appName,
+    slug: 'verzchat',
+    version: '1.0.0',
+    orientation: 'portrait',
+    ios: {
+      ...config.ios,
+      bundleIdentifier: bundleId,
+      supportsTablet: false,
     },
-  },
-  updates: {
-    url: `https://u.expo.dev/${process.env.EAS_PROJECT_ID ?? 'your-eas-project-id'}`,
-    fallbackToCacheTimeout: 0,
-    checkAutomatically: IS_PRODUCTION ? 'ON_LOAD' : 'ON_ERROR_RECOVERY',
-  },
-  runtimeVersion: {
-    policy: 'appVersion',
-  },
-});
+    android: {
+      ...config.android,
+      package: bundleId,
+    },
+    extra: {
+      ...config.extra,
+      apiUrl,
+      appEnv: APP_ENV,
+      ...(easProjectId && {
+        eas: { projectId: easProjectId },
+      }),
+    },
+  };
+
+  // Only wire up OTA updates when a real EAS project ID exists
+  if (easProjectId) {
+    base.updates = {
+      url: `https://u.expo.dev/${easProjectId}`,
+      fallbackToCacheTimeout: 0,
+      checkAutomatically: IS_PRODUCTION ? 'ON_LOAD' : 'ON_ERROR_RECOVERY',
+    };
+    base.runtimeVersion = { policy: 'appVersion' };
+  }
+
+  return base;
+};
