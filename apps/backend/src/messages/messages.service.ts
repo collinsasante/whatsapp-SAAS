@@ -242,7 +242,7 @@ export class MessagesService {
 
     // Search mode — return flat ascending list
     if (search?.trim()) {
-      const where = { conversationId: conversation.id, content: { contains: search.trim(), mode: 'insensitive' as const } };
+      const where = { conversationId: conversation.id, deletedForEveryone: false, content: { contains: search.trim(), mode: 'insensitive' as const } };
       const [data, total] = await Promise.all([
         this.prisma.message.findMany({ where, orderBy: { createdAt: 'asc' }, take: 200, include: msgInclude }),
         this.prisma.message.count({ where }),
@@ -250,7 +250,10 @@ export class MessagesService {
       return { data, hasMore: false, meta: buildPaginationMeta(total, page, limit) };
     }
 
-    const baseWhere: Prisma.MessageWhereInput = { conversationId: conversation.id };
+    const baseWhere: Prisma.MessageWhereInput = {
+      conversationId: conversation.id,
+      deletedForEveryone: false,
+    };
 
     // Cursor load — messages strictly before the given ISO timestamp, newest-of-those first
     if (before) {

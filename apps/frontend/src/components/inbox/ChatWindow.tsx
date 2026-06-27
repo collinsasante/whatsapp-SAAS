@@ -2800,7 +2800,11 @@ const MessageBubble = memo(function MessageBubble({
             <div
               className={cn(
                 'rounded-2xl px-3 py-2',
-                isOutbound ? 'bg-teal-700 text-white rounded-br-sm' : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-sm shadow-sm',
+                message.type === 'STICKER'
+                  ? 'bg-transparent p-1'
+                  : isOutbound
+                  ? 'bg-teal-700 text-white rounded-br-sm'
+                  : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-sm shadow-sm',
               )}
               onContextMenu={openMenu}
               onTouchStart={handleTouchStart}
@@ -2833,13 +2837,9 @@ const MessageBubble = memo(function MessageBubble({
                   })()}
                 </>
               ) : message.type === 'TEMPLATE' ? (
-                message.content ? (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                    {searchQuery ? highlightText(message.content, searchQuery) : renderWithLinks(message.content, isOutbound)}
-                  </p>
-                ) : (
-                  <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📋 Template message</p>
-                )
+                <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📋 Template message</p>
+              ) : !message.mediaUrl ? (
+                <p className={cn('text-sm italic', isOutbound ? 'text-teal-200' : 'text-gray-400')}>📎 Unsupported message</p>
               ) : null}
 
               {message.type === 'LOCATION' && (
@@ -2899,7 +2899,15 @@ const MessageBubble = memo(function MessageBubble({
                         }
                       </div>
                     )}
-                    {message.mediaCaption && message.type !== 'DOCUMENT' && message.type !== 'VIDEO' && (
+                    {message.type === 'STICKER' && (
+                      <img
+                        src={proxied}
+                        alt="Sticker"
+                        className="w-24 h-24 object-contain"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                    {message.mediaCaption && message.type !== 'DOCUMENT' && message.type !== 'VIDEO' && message.type !== 'STICKER' && (
                       <p className={cn('text-xs mt-1', isOutbound ? 'text-teal-200' : 'text-gray-500')}>{message.mediaCaption}</p>
                     )}
                   </div>
