@@ -11,8 +11,10 @@ export interface MobileConversation {
   };
   assignedTo: { id: string; name: string } | null;
   status: string;
+  priority?: string | null;
   unreadCount: number;
   lastMessageAt: string | null;
+  lastMessage?: { content: string | null; type: string; direction: string } | null;
   labels: string[];
   channel?: { id: string; type: string; name: string };
   snoozedUntil?: string | null;
@@ -22,6 +24,8 @@ interface InboxState {
   conversations: MobileConversation[];
   activeConversationId: string | null;
   messages: Record<string, Message[]>;
+  messageCursors: Record<string, string | null>;
+  hasMoreMessages: Record<string, boolean>;
   typingUsers: Record<string, string[]>;
   isLoading: boolean;
 
@@ -29,8 +33,9 @@ interface InboxState {
   prependConversation: (conv: Partial<MobileConversation> & { id: string }) => void;
   setActiveConversation: (id: string | null) => void;
   addMessage: (conversationId: string, message: Message) => void;
-  setMessages: (conversationId: string, messages: Message[]) => void;
+  setMessages: (conversationId: string, messages: Message[], hasMore?: boolean) => void;
   prependMessages: (conversationId: string, messages: Message[]) => void;
+  setMessageCursor: (conversationId: string, cursor: string | null, hasMore: boolean) => void;
   updateConversation: (id: string, data: Partial<MobileConversation>) => void;
   removeConversation: (id: string) => void;
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void;
@@ -42,6 +47,8 @@ export const useInboxStore = create<InboxState>()((set) => ({
   conversations: [],
   activeConversationId: null,
   messages: {},
+  messageCursors: {},
+  hasMoreMessages: {},
   typingUsers: {},
   isLoading: false,
 
@@ -68,9 +75,22 @@ export const useInboxStore = create<InboxState>()((set) => ({
       },
     })),
 
-  setMessages: (conversationId, messages) =>
+  setMessages: (conversationId, messages, hasMore = false) =>
     set((state) => ({
       messages: { ...state.messages, [conversationId]: messages },
+      hasMoreMessages: { ...state.hasMoreMessages, [conversationId]: hasMore },
+      messageCursors: {
+        ...state.messageCursors,
+        [conversationId]: messages[0]
+          ? new Date(messages[0].createdAt).toISOString()
+          : null,
+      },
+    })),
+
+  setMessageCursor: (conversationId, cursor, hasMore) =>
+    set((state) => ({
+      messageCursors: { ...state.messageCursors, [conversationId]: cursor },
+      hasMoreMessages: { ...state.hasMoreMessages, [conversationId]: hasMore },
     })),
 
   prependMessages: (conversationId, messages) =>
