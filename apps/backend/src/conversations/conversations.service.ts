@@ -709,7 +709,7 @@ export class ConversationsService {
 
 ---
 
-## 🔑 KEY DISCUSSION POINTS
+## KEY DISCUSSION POINTS
 
 * **[Point Title]:** [Explanation of this discussion point — what was raised, what was said, what the outcome was.]
 
@@ -717,7 +717,7 @@ export class ConversationsService {
 
 ---
 
-## 🎯 DECISIONS MADE
+## DECISIONS MADE
 
 * **Decision:** [What was decided.] (Context: [Who initiated it and why.])
 
@@ -725,7 +725,7 @@ export class ConversationsService {
 
 ---
 
-## 📋 ACTION ITEMS & NEXT STEPS
+## ACTION ITEMS & NEXT STEPS
 
 * [ ] **[Team/Person responsible]:** [Specific action required.]
 
