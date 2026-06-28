@@ -242,7 +242,7 @@ export class MessagesService {
 
     // Search mode — return flat ascending list
     if (search?.trim()) {
-      const where = { conversationId: conversation.id, content: { contains: search.trim(), mode: 'insensitive' as const } };
+      const where = { conversationId: conversation.id, deletedForEveryone: false, content: { contains: search.trim(), mode: 'insensitive' as const } };
       const [data, total] = await Promise.all([
         this.prisma.message.findMany({ where, orderBy: { createdAt: 'asc' }, take: 200, include: msgInclude }),
         this.prisma.message.count({ where }),
@@ -250,7 +250,10 @@ export class MessagesService {
       return { data, hasMore: false, meta: buildPaginationMeta(total, page, limit) };
     }
 
-    const baseWhere: Prisma.MessageWhereInput = { conversationId: conversation.id };
+    const baseWhere: Prisma.MessageWhereInput = {
+      conversationId: conversation.id,
+      deletedForEveryone: false,
+    };
 
     // Cursor load — messages strictly before the given ISO timestamp, newest-of-those first
     if (before) {
@@ -382,12 +385,33 @@ export class MessagesService {
     if (alreadyProcessed) return alreadyProcessed;
 
     const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
+
+    // Mirror the Facebook CDN ad-preview image to our own storage so the URL never expires.
+    let permanentAdImageUrl: string | undefined;
+    if (referral?.image_url) {
+      try {
+        const imgResp = await axios.get<Buffer>(referral.image_url, { responseType: 'arraybuffer', timeout: 10_000 });
+        const contentType = (imgResp.headers['content-type'] as string | undefined) ?? 'image/jpeg';
+        const ext = contentType.split('/')[1]?.split(';')[0] ?? 'jpg';
+        const { fileUrl } = await this.storageService.uploadRaw(
+          Buffer.from(imgResp.data),
+          contentType,
+          tenantId,
+          `ad-preview.${ext}`,
+        );
+        permanentAdImageUrl = fileUrl;
+      } catch (err) {
+        this.logger.warn(`Failed to mirror ad preview image: ${(err as Error).message}`);
+        permanentAdImageUrl = referral.image_url;
+      }
+    }
+
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, referral
       ? {
           contactSource: referral.source_type ?? 'ad',
           adSourceId: referral.source_id,
           adHeadline: referral.headline,
-          adImageUrl: referral.image_url,
+          adImageUrl: permanentAdImageUrl,
         }
       : undefined,
     );
@@ -450,6 +474,15 @@ export class MessagesService {
     const messageMetadata: Record<string, unknown> = {};
 
     const msgType = waMessage.type.toUpperCase() as MessageType;
+
+    // WhatsApp sends type="unsupported" for polls, ephemeral messages, and
+    // other types not yet exposed via the Cloud API. Skip them silently
+    // (we already acknowledged the webhook — no need to crash).
+    const validMessageTypes = new Set<string>(Object.values(MessageType));
+    if (!validMessageTypes.has(msgType)) {
+      this.logger.debug(`[tenant:${tenantId}] Skipping unsupported WA message type "${waMessage.type}"`);
+      return null;
+    }
 
     if (waMessage.text) content = waMessage.text.body;
 

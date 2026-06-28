@@ -1,0 +1,202 @@
+# Standalone staging compose — run with a single -f flag (no merge with production).
+# Usage:
+#   docker compose -p staging --env-file .env.staging -f infra/docker-compose.staging.yml up -d --build
+# Access: http://VPS_IP:8080
+
+networks:
+  staging-network:
+    driver: bridge
+
+volumes:
+  postgres_staging_data:
+  redis_staging_data:
+  minio_staging_data:
+  uploads_staging_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wa_staging_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-waplatform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-waplatform}_staging
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    networks:
+      - staging-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-waplatform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wa_staging_redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_staging_data:/data
+    networks:
+      - staging-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: wa_staging_minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_staging_data:/data
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    networks:
+      - staging-network
+
+  backend:
+    build:
+      context: ..
+      dockerfile: apps/backend/Dockerfile
+    container_name: wa_staging_backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}_staging
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      FRONTEND_URL: http://${VPS_IP}:8080
+      API_URL: http://${VPS_IP}:8080/api/v1
+      REALTIME_URL: http://realtime:3002
+      PUBLIC_URL: http://${VPS_IP}:8080
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-minio}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-whatsapp-platform}-staging
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      THROTTLE_TTL: 60000
+      THROTTLE_LIMIT: 100
+      PLATFORM_ADMIN_SETUP_SECRET: ${PLATFORM_ADMIN_SETUP_SECRET:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SUPPORT_FORWARD_EMAIL: ${SUPPORT_FORWARD_EMAIL:-support@verzchat.com}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MOMO_COLLECTION_SUBSCRIPTION_KEY: ${MOMO_COLLECTION_SUBSCRIPTION_KEY:-}
+      MOMO_USER_ID: ${MOMO_USER_ID:-}
+      MOMO_API_KEY: ${MOMO_API_KEY:-}
+      MOMO_ENV: ${MOMO_ENV:-sandbox}
+      GHS_RATE: ${GHS_RATE:-12.5}
+      SUPPORT_TENANT_ID: ${SUPPORT_TENANT_ID:-}
+    volumes:
+      - uploads_staging_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - staging-network
+
+  realtime:
+    build:
+      context: ..
+      dockerfile: apps/realtime/Dockerfile
+    container_name: wa_staging_realtime
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      FRONTEND_URL: http://${VPS_IP}:8080
+      BACKEND_URL: http://backend:3001
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - staging-network
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    container_name: wa_staging_worker
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}_staging
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - staging-network
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://${VPS_IP}:8080/api/v1
+        NEXT_PUBLIC_SOCKET_URL: http://${VPS_IP}:8080
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+    container_name: wa_staging_frontend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    networks:
+      - staging-network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: wa_staging_nginx
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+      - realtime
+    networks:
+      - staging-network
