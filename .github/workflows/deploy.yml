@@ -43,6 +43,9 @@ jobs:
       - name: Type-check frontend
         run: pnpm --filter @whatsapp-platform/frontend typecheck
 
+      - name: Type-check mobile
+        run: pnpm --filter @whatsapp-platform/mobile typecheck
+
   # ── 2. Deploy ───────────────────────────────────────────────────────────────
   deploy:
     name: Deploy

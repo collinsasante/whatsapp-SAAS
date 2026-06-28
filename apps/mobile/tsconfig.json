@@ -1,0 +1,15 @@
+{
+  "extends": "@whatsapp-platform/tsconfig/react-native.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@whatsapp-platform/api": ["../../packages/api/src"],
+      "@whatsapp-platform/auth": ["../../packages/auth/src"],
+      "@whatsapp-platform/shared-types": ["../../packages/shared-types/src"],
+      "@whatsapp-platform/socket": ["../../packages/socket/src"],
+      "@whatsapp-platform/theme": ["../../packages/theme/src"],
+      "@whatsapp-platform/validation": ["../../packages/validation/src"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.d.ts", "expo-env.d.ts"]
+}
