@@ -51,7 +51,19 @@ export class ConversationsService {
       where: { tenantId, contactId, status: { not: 'RESOLVED' } },
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });
-    if (existing) return existing;
+    if (existing) {
+      // Backfill ad image URL if a new referral brought one and we don't have it yet.
+      if (source?.adImageUrl && !existing.adImageUrl) {
+        const updated = await this.prisma.conversation.update({
+          where: { id: existing.id },
+          data: { adImageUrl: source.adImageUrl },
+          include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
+        });
+        this.realtimeService.emitConversationStateChanged(tenantId, existing.id, updated);
+        return updated;
+      }
+      return existing;
+    }
 
     // Reopen most-recent resolved conversation
     const resolved = await this.prisma.conversation.findFirst({
@@ -72,6 +84,7 @@ export class ConversationsService {
           resolvedById: null,
           assignedToId: null,
           unreadCount: 0,
+          ...(source?.adImageUrl && !resolved.adImageUrl && { adImageUrl: source.adImageUrl }),
         },
         include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
       });
