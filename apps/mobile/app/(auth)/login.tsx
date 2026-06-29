@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,38 +8,39 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { router, Redirect } from 'expo-router';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { loginSchema, type LoginInput } from '@whatsapp-platform/validation';
 import { apiClient } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth.store';
 import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
 import { GoogleSignInButton } from '../../src/components/GoogleSignInButton';
 
 export default function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
+
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isReady = useAuthStore((s) => s.isReady);
   const setAuth = useAuthStore((s) => s.setAuth);
-
-  const {
-    control,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<LoginInput>({
-    resolver: zodResolver(loginSchema),
-  });
 
   if (isReady && isAuthenticated) {
     return <Redirect href="/(app)" />;
   }
 
-  const onSubmit = async (data: LoginInput) => {
+  const handleLogin = async () => {
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail) { Alert.alert('Login Failed', 'Please enter your email.'); return; }
+    if (!cleanPassword) { Alert.alert('Login Failed', 'Please enter your password.'); return; }
+    if (!/\S+@\S+\.\S+/.test(cleanEmail)) { Alert.alert('Login Failed', 'Please enter a valid email address.'); return; }
+
     setIsLoading(true);
     try {
-      const res = await apiClient.auth.login(data.email.toLowerCase().trim(), data.password.trim());
+      const res = await apiClient.auth.login(cleanEmail, cleanPassword);
       const result = res.data as {
         requiresWorkspaceSelection?: boolean;
         requiresPin?: boolean;
@@ -78,14 +79,13 @@ export default function LoginScreen() {
         router.replace('/(app)');
       }
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        'Login failed. Please check your credentials.';
+      const errData = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data;
+      const raw = errData?.message;
+      const msg = Array.isArray(raw)
+        ? raw[0] ?? 'Invalid credentials'
+        : raw ?? 'Invalid email or password. Please try again.';
       if (msg === 'Please sign in with Google') {
-        Alert.alert(
-          'Use Google Sign-In',
-          'This account was created with Google. Please use the "Continue with Google" button below.',
-        );
+        Alert.alert('Use Google Sign-In', 'This account was created with Google. Please use "Continue with Google" below.');
       } else {
         Alert.alert('Login Failed', msg);
       }
@@ -99,67 +99,60 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       className="flex-1 bg-surface"
     >
-      <View className="flex-1 justify-center px-6">
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View className="mb-10">
           <Text className="text-white text-4xl font-extrabold mb-2">VerzChat</Text>
           <Text className="text-white/60 text-base">Sign in to your workspace</Text>
         </View>
 
         <View className="gap-4">
+          {/* Email */}
           <View>
             <Text className="text-white/70 text-sm font-medium mb-2">Email</Text>
-            <Controller
-              control={control}
-              name="email"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
-                  placeholder="you@company.com"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                />
-              )}
+            <TextInput
+              className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
+              placeholder="you@company.com"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              value={email}
+              onChangeText={setEmail}
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              editable={!isLoading}
             />
-            {errors.email && (
-              <Text className="text-red-400 text-xs mt-1">{errors.email.message}</Text>
-            )}
           </View>
 
+          {/* Password */}
           <View>
             <Text className="text-white/70 text-sm font-medium mb-2">Password</Text>
-            <Controller
-              control={control}
-              name="password"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
-                  placeholder="••••••••"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  secureTextEntry
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="password"
-                  textContentType="password"
-                  importantForAutofill="noExcludeDescendants"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                />
-              )}
+            <TextInput
+              ref={passwordRef}
+              className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
+              placeholder="••••••••"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              returnKeyType="done"
+              value={password}
+              onChangeText={setPassword}
+              onSubmitEditing={handleLogin}
+              editable={!isLoading}
             />
-            {errors.password && (
-              <Text className="text-red-400 text-xs mt-1">{errors.password.message}</Text>
-            )}
           </View>
 
           <TouchableOpacity
             className="bg-green rounded-xl py-4 items-center mt-2"
-            onPress={handleSubmit(onSubmit)}
+            onPress={handleLogin}
             disabled={isLoading}
             activeOpacity={0.8}
           >
@@ -187,7 +180,7 @@ export default function LoginScreen() {
             onError={(msg) => Alert.alert('Google Sign-In', msg)}
           />
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
