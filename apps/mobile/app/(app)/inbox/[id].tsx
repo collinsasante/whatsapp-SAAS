@@ -273,7 +273,7 @@ export default function ChatScreen() {
     if (!perm.granted) { Alert.alert('Permission needed', 'Allow photo access to send images.'); return; }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ['images', 'videos'] as ImagePicker.MediaType[],
       quality: 0.8,
     });
     if (result.canceled || !result.assets[0]) return;

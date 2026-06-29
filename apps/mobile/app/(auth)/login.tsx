@@ -140,7 +140,7 @@ export default function LoginScreen() {
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
-              autoComplete="current-password"
+              autoComplete={Platform.OS === 'android' ? 'off' : 'current-password'}
               textContentType="password"
               returnKeyType="done"
               value={password}
