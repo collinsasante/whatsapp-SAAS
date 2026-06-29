@@ -20,7 +20,10 @@
         "NSCameraUsageDescription": "VerzChat needs camera access to send photos and videos.",
         "NSMicrophoneUsageDescription": "VerzChat needs microphone access for voice messages.",
         "NSPhotoLibraryUsageDescription": "VerzChat needs photo library access to send images.",
-        "UIBackgroundModes": ["remote-notification", "fetch"]
+        "UIBackgroundModes": [
+          "remote-notification",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -65,9 +68,13 @@
       "typedRoutes": true
     },
     "extra": {
+      "apiUrl": "http://localhost:3001/api/v1",
+      "appEnv": "development",
+      "router": {},
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "9425035f-c1bb-4abe-91ed-0e0b9e45cb02"
       }
-    }
+    },
+    "owner": "casante180"
   }
 }
