@@ -25,6 +25,7 @@
     "@whatsapp-platform/validation": "workspace:*",
     "axios": "^1.7.2",
     "expo": "~56.0.0",
+    "expo-dev-client": "*",
     "expo-auth-session": "~6.1.0",
     "expo-constants": "*",
     "expo-file-system": "*",
