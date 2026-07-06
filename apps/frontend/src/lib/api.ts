@@ -413,22 +413,20 @@ export const billingApi = {
   getUsage: () => api.get('/billing/usage'),
   getUsageHistory: () => api.get('/billing/usage/history'),
   getInvoices: () => api.get('/billing/invoices'),
-  initiateCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string }) =>
-    api.post('/billing/checkout', data),
+  initiateStripeCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
+    api.post('/billing/checkout/stripe', data),
+  initiatePaystackCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
+    api.post('/billing/checkout/paystack', data),
   applyPromoCode: (code: string, planSlug: string) => api.post('/billing/promo', { code, planSlug }),
   startTrial: (planSlug: string) => api.post(`/billing/trial/${planSlug}`),
   cancelSubscription: (immediately?: boolean) => api.delete('/billing/cancel', { data: { immediately } }),
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
   getCreditPacks: () => api.get('/billing/credits/packs'),
   getAiCredits: () => api.get('/billing/credits/balance'),
-  initializeCreditPurchase: (packSlug: string) =>
-    api.post('/billing/credits/initialize', { packSlug }),
-  notifyPaymentConfirmed: (reference: string) =>
-    api.post('/billing/payment-confirmed', { reference }),
-  initiateMomoCheckout: (data: { planSlug: string; cycle: string; momoPhone: string; billingEmail?: string }) =>
-    api.post('/billing/momo/request', data),
-  getMomoStatus: (referenceId: string) =>
-    api.get(`/billing/momo/status/${referenceId}`),
+  initiateStripeCreditCheckout: (packSlug: string) =>
+    api.post('/billing/credits/checkout/stripe', { packSlug }),
+  initiatePaystackCreditCheckout: (packSlug: string) =>
+    api.post('/billing/credits/checkout/paystack', { packSlug }),
 };
 
 export const teamsApi = {

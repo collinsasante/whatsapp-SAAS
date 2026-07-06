@@ -115,22 +115,6 @@ export class PlatformAdminService {
     });
   }
 
-  async getPendingBilling() {
-    const [invoices, creditPurchases] = await Promise.all([
-      this.prisma.invoice.findMany({
-        where: { status: 'OPEN' },
-        orderBy: { createdAt: 'desc' },
-        include: { tenant: { select: { name: true, billingEmail: true } } },
-      }),
-      this.prisma.creditPurchase.findMany({
-        where: { status: 'PENDING' },
-        orderBy: { createdAt: 'desc' },
-        include: { tenant: { select: { name: true, billingEmail: true } } },
-      }),
-    ]);
-    return { invoices, creditPurchases };
-  }
-
   async getAllInvoices(page = 1, limit = 20) {
     const skip = (page - 1) * limit;
     const [invoices, total] = await Promise.all([
@@ -142,59 +126,6 @@ export class PlatformAdminService {
       this.prisma.invoice.count(),
     ]);
     return { invoices, total, page, limit };
-  }
-
-  async activateSubscription(reference: string) {
-    const invoice = await this.prisma.invoice.findFirst({ where: { gatewayInvoiceId: reference } });
-    if (!invoice) throw new NotFoundException(`Invoice not found for reference ${reference}`);
-    if (invoice.status === 'PAID') return { alreadyActivated: true };
-
-    const meta = invoice.metadata as { planId?: string; planSlug?: string; cycle?: string } | null;
-    const plan = meta?.planId
-      ? await this.prisma.plan.findUnique({ where: { id: meta.planId } })
-      : meta?.planSlug
-        ? await this.prisma.plan.findUnique({ where: { slug: meta.planSlug } })
-        : null;
-    if (!plan) throw new NotFoundException('Cannot resolve plan from invoice');
-
-    const now = new Date();
-    const cycle = meta?.cycle ?? 'MONTHLY';
-    const periodEnd = cycle === 'YEARLY'
-      ? new Date(now.getFullYear() + 1, now.getMonth(), now.getDate())
-      : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-
-    await this.prisma.$transaction([
-      this.prisma.invoice.update({ where: { id: invoice.id }, data: { status: 'PAID', paidAt: now } }),
-      this.prisma.subscription.upsert({
-        where: { tenantId: invoice.tenantId },
-        create: {
-          tenantId: invoice.tenantId, planId: plan.id,
-          status: 'ACTIVE', cycle: cycle as 'MONTHLY' | 'YEARLY',
-          currentPeriodStart: now, currentPeriodEnd: periodEnd,
-        },
-        update: {
-          planId: plan.id, status: 'ACTIVE', cycle: cycle as 'MONTHLY' | 'YEARLY',
-          currentPeriodStart: now, currentPeriodEnd: periodEnd,
-          cancelAtPeriodEnd: false, canceledAt: null,
-        },
-      }),
-    ]);
-
-    return { activated: true, tenantId: invoice.tenantId, plan: plan.name };
-  }
-
-  async activateCredits(reference: string) {
-    const purchase = await this.prisma.creditPurchase.findUnique({ where: { paystackRef: reference } });
-    if (!purchase) throw new NotFoundException(`Credit purchase not found for reference ${reference}`);
-    if (purchase.status === 'SUCCEEDED') return { alreadyActivated: true };
-
-    await Promise.all([
-      this.prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: 'SUCCEEDED' } }),
-      this.prisma.tenant.update({ where: { id: purchase.tenantId }, data: { aiCredits: { increment: purchase.credits } } }),
-    ]);
-
-    const updated = await this.prisma.tenant.findUnique({ where: { id: purchase.tenantId }, select: { aiCredits: true } });
-    return { activated: true, creditsAdded: purchase.credits, newBalance: updated?.aiCredits ?? 0 };
   }
 
   async updateWorkspace(id: string, data: UpdateWorkspaceDto) {
@@ -257,22 +188,6 @@ export class PlatformAdminService {
       data: { isActive: !user.isActive },
       select: { id: true, isActive: true },
     });
-  }
-
-  async declineInvoice(invoiceId: string) {
-    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status !== 'OPEN') return { alreadyHandled: true };
-    await this.prisma.invoice.update({ where: { id: invoiceId }, data: { status: 'VOID' } });
-    return { declined: true };
-  }
-
-  async declineCredits(purchaseId: string) {
-    const purchase = await this.prisma.creditPurchase.findUnique({ where: { id: purchaseId } });
-    if (!purchase) throw new NotFoundException('Credit purchase not found');
-    if (purchase.status !== 'PENDING') return { alreadyHandled: true };
-    await this.prisma.creditPurchase.update({ where: { id: purchaseId }, data: { status: 'FAILED' } });
-    return { declined: true };
   }
 
   async forceSubscription(tenantId: string, planSlug: string) {

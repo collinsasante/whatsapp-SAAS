@@ -1,13 +1,13 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle, BarChart3, Bot, Check, CheckCircle2,
-  CreditCard, Copy, Download, Mail, RefreshCw, Sparkles, Users, X, Zap,
+  CreditCard, Download, Mail, RefreshCw, Sparkles, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn, getApiError } from '@/lib/utils';
-import { PaymentSummary } from '@/components/ui/payment';
+import { StripeCheckout, PaystackCheckoutButton } from '@/components/billing/GatewayCheckout';
 import { showConfirm } from '@/store/confirm.store';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -15,6 +15,7 @@ import { showConfirm } from '@/store/confirm.store';
 interface Plan {
   id: string; slug: string; name: string; description: string | null;
   monthlyPrice: number; yearlyPrice: number; currency: string;
+  ghsMonthlyPrice: number | null; ghsYearlyPrice: number | null;
   trialDays: number; isActive: boolean;
   limMaxAgents: number; limMaxChannels: number; limMaxContacts: number;
   limMaxTemplates: number; limMessagesPerMonth: number;
@@ -61,11 +62,6 @@ interface Invoice {
   items: { description: string; quantity: number; unitPrice: number; amount: number }[];
 }
 
-interface PaymentDetails {
-  mobileMoney: { network: string; number: string; name: string }[];
-  bank: { bankName: string; accountNumber: string; accountName: string; branch: string };
-}
-
 interface CreditPack {
   slug: string; credits: number; amount: number;
   label: string; description: string; currency: string;
@@ -77,10 +73,6 @@ const isGhana = typeof window !== 'undefined'
   ? Intl.DateTimeFormat().resolvedOptions().timeZone === 'Africa/Accra'
   : false;
 const GHS_RATE = 12.5;
-
-function currSymFor(currency?: string) {
-  return currency === 'GHS' || (isGhana && !currency) ? '₵' : '$';
-}
 
 function formatUsd(usd: number): string {
   if (isGhana) return `₵${Math.round(usd * GHS_RATE)}`;
@@ -128,268 +120,61 @@ function UsageBar({ label, used, limit, color }: { label: string; used: number; 
   );
 }
 
-// ─── PaymentDetailsCard ───────────────────────────────────────────────────────
+// ─── CheckoutModal ───────────────────────────────────────────────────────────
 
-function PaymentDetailsCard({ details }: { details: PaymentDetails }) {
-  const copy = (text: string) => {
-    void navigator.clipboard.writeText(text);
-    toast.success('Copied');
-  };
+type Gateway = 'stripe' | 'paystack';
+type CheckoutStep = 'form' | 'pay' | 'success';
 
-  return (
-    <div className="space-y-4">
-      {details.mobileMoney.map((m) => (
-        <div key={m.network} className="p-4 rounded-xl bg-yellow-50 border border-yellow-200">
-          <p className="text-xs font-bold text-yellow-800 uppercase tracking-wide mb-3">{m.network}</p>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-yellow-700">Number</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-semibold text-sm text-yellow-900">{m.number}</span>
-                <button onClick={() => copy(m.number)} className="text-yellow-600 hover:text-yellow-800">
-                  <Copy size={12} />
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-yellow-700">Name</span>
-              <span className="font-semibold text-sm text-yellow-900">{m.name}</span>
-            </div>
-          </div>
-        </div>
-      ))}
-
-      <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
-        <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-3">Bank Transfer</p>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-blue-700">Bank</span>
-            <span className="font-semibold text-sm text-blue-900">{details.bank.bankName}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-blue-700">Account Number</span>
-            <div className="flex items-center gap-2">
-              <span className="font-mono font-semibold text-sm text-blue-900">{details.bank.accountNumber}</span>
-              <button onClick={() => copy(details.bank.accountNumber)} className="text-blue-600 hover:text-blue-800">
-                <Copy size={12} />
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-blue-700">Account Name</span>
-            <span className="font-semibold text-sm text-blue-900">{details.bank.accountName}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-blue-700">Branch</span>
-            <span className="font-semibold text-sm text-blue-900">{details.bank.branch}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── PaymentModal ────────────────────────────────────────────────────────────
-
-function PaymentModal({ title, amount, currency, reference, paymentDetails, onClose }: {
-  title: string;
-  amount: number;
-  currency: string;
-  reference: string;
-  paymentDetails: PaymentDetails;
+function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
+  plan: Plan;
+  initialEmail?: string;
   onClose: () => void;
+  onActivated: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const currSym = currSymFor(currency);
-  const copy = (text: string) => {
-    void navigator.clipboard.writeText(text);
-    toast.success('Copied');
-  };
+  const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
+  const [email, setEmail] = useState(initialEmail ?? '');
+  const [gateway, setGateway] = useState<Gateway>('stripe');
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<CheckoutStep>('form');
+  const [error, setError] = useState<string | null>(null);
 
-  const handleConfirm = async () => {
-    setConfirming(true);
+  const [stripeSecret, setStripeSecret] = useState<{ clientSecret: string; publishableKey: string } | null>(null);
+  const [paystackAccessCode, setPaystackAccessCode] = useState<string | null>(null);
+
+  const usdAmount = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
+  const ghsAmount = cycle === 'YEARLY' ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
+
+  const handleContinue = async () => {
+    setError(null);
+    setLoading(true);
     try {
-      await billingApi.notifyPaymentConfirmed(reference);
-    } catch {
-      // non-fatal — don't block the user
+      if (gateway === 'stripe') {
+        const res = await billingApi.initiateStripeCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() || undefined });
+        const data = res.data as { free?: boolean; clientSecret?: string; publishableKey?: string };
+        if (data.free) { toast.success(`${plan.name} plan activated!`); onActivated(); onClose(); return; }
+        if (data.clientSecret && data.publishableKey) {
+          setStripeSecret({ clientSecret: data.clientSecret, publishableKey: data.publishableKey });
+          setStep('pay');
+        }
+      } else {
+        const res = await billingApi.initiatePaystackCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() || undefined });
+        const data = res.data as { free?: boolean; accessCode?: string };
+        if (data.free) { toast.success(`${plan.name} plan activated!`); onActivated(); onClose(); return; }
+        if (data.accessCode) {
+          setPaystackAccessCode(data.accessCode);
+          setStep('pay');
+        }
+      }
+    } catch (err: unknown) {
+      toast.error(getApiError(err, 'Failed to start checkout'));
     } finally {
-      setConfirming(false);
-      onClose();
+      setLoading(false);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
-          <h2 className="font-bold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="p-5 space-y-5 overflow-y-auto">
-          {/* Amount + reference summary */}
-          <PaymentSummary
-            title="Payment Summary"
-            paymentMethod={{ icon: <CreditCard size={16} className="text-teal-600" />, name: "Manual Transfer" }}
-            items={[
-              {
-                label: "Reference",
-                value: (
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{reference}</span>
-                    <button onClick={() => copy(reference)} className="text-teal-600 hover:text-teal-800"><Copy size={12} /></button>
-                  </div>
-                ),
-              },
-              { label: "Currency", value: currency },
-            ]}
-            total={{ label: "Amount Due", value: `${currSym}${amount}` }}
-            className="border-gray-200"
-          />
-
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
-            <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-            You <strong>must</strong> include the reference above when making your payment.
-          </p>
-
-          {/* Payment details */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Payment Details</p>
-            <PaymentDetailsCard details={paymentDetails} />
-          </div>
-
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 flex items-start gap-2">
-            <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-            After payment, your account will be upgraded within 24 hours once verified.
-          </div>
-        </div>
-
-        <div className="px-5 pb-5 flex-shrink-0 space-y-2">
-          <button onClick={() => { void handleConfirm(); }} disabled={confirming}
-            className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors text-sm flex items-center justify-center gap-2">
-            {confirming
-              ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Confirming…</>
-              : <><Check size={15} /> I understand, I&apos;ll pay now</>}
-          </button>
-          <button onClick={onClose}
-            className="w-full py-3 bg-white rounded-xl border border-gray-100 overflow-hidden text-sm font-semibold text-gray-500 hover:bg-gray-50 transition-colors">
-            Decline
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── CheckoutModal ───────────────────────────────────────────────────────────
-
-type PayMethod = 'momo' | 'manual';
-type MomoStep = 'form' | 'pending' | 'success' | 'failed';
-
-function CheckoutModal({ plan, initialEmail, onClose, onGenerated, onMomoPaid }: {
-  plan: Plan;
-  initialEmail?: string;
-  onClose: () => void;
-  onGenerated: (ref: string, amount: number, currency: string, details: PaymentDetails) => void;
-  onMomoPaid: () => void;
-}) {
-  const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const [email, setEmail] = useState(initialEmail ?? '');
-  const [loading, setLoading] = useState(false);
-  const [payMethod, setPayMethod] = useState<PayMethod>('momo');
-
-  // MoMo-specific state
-  const [momoPhone, setMomoPhone] = useState('');
-  const [momoStep, setMomoStep] = useState<MomoStep>('form');
-  const [momoRef, setMomoRef] = useState('');
-  const [momoAmount, setMomoAmount] = useState(0);
-  const [momoCurrency, setMomoCurrency] = useState('');
-  const [momoFailReason, setMomoFailReason] = useState('');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const currSym = isGhana ? '₵' : '$';
-  const usdAmount = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
-  const displayAmount = isGhana ? Math.round(usdAmount * GHS_RATE) : usdAmount;
-
-  // Poll for MoMo status every 3s
-  useEffect(() => {
-    if (momoStep !== 'pending' || !momoRef) return;
-    let attempts = 0;
-    const maxAttempts = 100; // ~5 minutes
-    pollRef.current = setInterval(async () => {
-      attempts++;
-      if (attempts > maxAttempts) {
-        clearInterval(pollRef.current!);
-        setMomoStep('failed');
-        setMomoFailReason('Payment request timed out. Please try again.');
-        return;
-      }
-      try {
-        const res = await billingApi.getMomoStatus(momoRef);
-        const data = res.data as { status: string; reason?: string };
-        if (data.status === 'SUCCEEDED') {
-          clearInterval(pollRef.current!);
-          setMomoStep('success');
-        } else if (data.status === 'FAILED') {
-          clearInterval(pollRef.current!);
-          setMomoStep('failed');
-          setMomoFailReason(data.reason ?? 'Payment declined. Please try again.');
-        }
-      } catch { /* keep polling */ }
-    }, 3000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [momoStep, momoRef]);
-
-  const handleMomoRequest = async () => {
-    if (!momoPhone.trim()) { toast.error('Enter your MoMo phone number'); return; }
-    setLoading(true);
-    try {
-      const res = await billingApi.initiateMomoCheckout({
-        planSlug: plan.slug,
-        cycle,
-        momoPhone: momoPhone.trim(),
-        billingEmail: email.trim() || undefined,
-      });
-      const data = res.data as { free?: boolean; referenceId?: string; amount?: number; currency?: string };
-      if (data.free) {
-        toast.success(`${plan.name} plan activated!`);
-        onClose();
-        return;
-      }
-      if (data.referenceId) {
-        setMomoRef(data.referenceId);
-        setMomoAmount(data.amount ?? displayAmount);
-        setMomoCurrency(data.currency ?? 'EUR');
-        setMomoStep('pending');
-      }
-    } catch (err: unknown) {
-      toast.error(getApiError(err, 'Failed to send MoMo request'));
-    } finally { setLoading(false); }
-  };
-
-  const handleManualGenerate = async () => {
-    setLoading(true);
-    try {
-      const res = await billingApi.initiateCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() || undefined });
-      const data = res.data as { free?: boolean; reference?: string; amount?: number; currency?: string; paymentDetails?: PaymentDetails };
-      if (data.free) { toast.success(`${plan.name} plan activated!`); onClose(); return; }
-      if (data.reference && data.paymentDetails) {
-        onGenerated(data.reference, data.amount ?? displayAmount, data.currency ?? 'USD', data.paymentDetails);
-      }
-    } catch (err: unknown) {
-      toast.error(getApiError(err, 'Failed to generate payment reference'));
-    } finally { setLoading(false); }
-  };
-
-  const handleSuccessClose = () => { onMomoPaid(); onClose(); };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="font-bold text-gray-900">Subscribe to {plan.name}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
@@ -397,170 +182,231 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated, onMomoPaid }:
           </button>
         </div>
 
-        {/* MoMo success state */}
-        {momoStep === 'success' && (
+        {step === 'success' && (
           <div className="p-8 flex flex-col items-center gap-4 text-center">
             <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center">
               <CheckCircle2 size={32} className="text-teal-600" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-lg">Payment Confirmed!</p>
-              <p className="text-sm text-gray-500 mt-1">Your {plan.name} plan is now active.</p>
+              <p className="font-bold text-gray-900 text-lg">Payment successful!</p>
+              <p className="text-sm text-gray-500 mt-1">Your {plan.name} plan will activate within a few seconds.</p>
             </div>
-            <button onClick={handleSuccessClose}
+            <button onClick={() => { onActivated(); onClose(); }}
               className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors text-sm">
               Continue
             </button>
           </div>
         )}
 
-        {/* MoMo failed state */}
-        {momoStep === 'failed' && (
-          <div className="p-8 flex flex-col items-center gap-4 text-center">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
-              <AlertCircle size={32} className="text-red-500" />
-            </div>
-            <div>
-              <p className="font-bold text-gray-900 text-lg">Payment Failed</p>
-              <p className="text-sm text-gray-500 mt-1">{momoFailReason}</p>
-            </div>
-            <button onClick={() => setMomoStep('form')}
-              className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors text-sm">
-              Try Again
+        {step === 'pay' && (
+          <div className="p-5 space-y-4">
+            {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            {gateway === 'stripe' && stripeSecret && (
+              <StripeCheckout
+                clientSecret={stripeSecret.clientSecret}
+                publishableKey={stripeSecret.publishableKey}
+                onSuccess={() => setStep('success')}
+                onError={(msg) => setError(msg)}
+              />
+            )}
+            {gateway === 'paystack' && paystackAccessCode && (
+              <PaystackCheckoutButton
+                accessCode={paystackAccessCode}
+                onSuccess={() => setStep('success')}
+                onError={(msg) => setError(msg)}
+              />
+            )}
+            <button onClick={() => setStep('form')} className="w-full text-xs text-gray-400 hover:text-gray-600 underline">
+              Back
             </button>
           </div>
         )}
 
-        {/* MoMo pending — waiting for USSD approval */}
-        {momoStep === 'pending' && (
-          <div className="p-8 flex flex-col items-center gap-5 text-center">
-            <div className="relative w-16 h-16">
-              <div className="absolute inset-0 rounded-full border-4 border-yellow-200" />
-              <div className="absolute inset-0 rounded-full border-4 border-t-yellow-500 animate-spin" />
-              <div className="absolute inset-0 flex items-center justify-center text-2xl">📱</div>
-            </div>
-            <div>
-              <p className="font-bold text-gray-900 text-lg">Check your phone</p>
-              <p className="text-sm text-gray-500 mt-1">
-                A payment prompt has been sent to <span className="font-semibold text-gray-700">{momoPhone}</span>.<br />
-                Enter your MoMo PIN to approve {momoCurrency === 'GHS' ? '₵' : ''}{momoAmount} {momoCurrency}.
-              </p>
-            </div>
-            <div className="w-full bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 text-xs text-yellow-800 text-left space-y-1">
-              <p className="font-semibold">What to do:</p>
-              <p>1. Check your phone for an MTN MoMo prompt</p>
-              <p>2. Enter your MoMo PIN to approve</p>
-              <p>3. This screen will update automatically</p>
-            </div>
-            <button onClick={() => { if (pollRef.current) clearInterval(pollRef.current); setMomoStep('form'); }}
-              className="text-xs text-gray-400 hover:text-gray-600 underline">
-              Cancel and go back
-            </button>
-          </div>
-        )}
-
-        {/* Main form */}
-        {momoStep === 'form' && (
+        {step === 'form' && (
           <>
             <div className="p-5 space-y-5">
-              {/* Payment method tabs */}
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setPayMethod('momo')}
+                  <button onClick={() => setGateway('stripe')}
                     className={cn('p-3 rounded-xl border-2 text-left transition-all',
-                      payMethod === 'momo' ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="text-sm font-semibold text-gray-900">📱 MTN MoMo</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Instant USSD approval</div>
+                      gateway === 'stripe' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <div className="text-sm font-semibold text-gray-900">💳 Card (Stripe)</div>
+                    <div className="text-xs text-gray-500 mt-0.5">Visa, Mastercard, etc.</div>
                   </button>
-                  <button onClick={() => setPayMethod('manual')}
+                  <button onClick={() => setGateway('paystack')}
                     className={cn('p-3 rounded-xl border-2 text-left transition-all',
-                      payMethod === 'manual' ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="text-sm font-semibold text-gray-900">🏦 Manual Transfer</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Bank or MoMo manual</div>
+                      gateway === 'paystack' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <div className="text-sm font-semibold text-gray-900">🏦 Paystack</div>
+                    <div className="text-xs text-gray-500 mt-0.5">Card, Mobile Money, bank</div>
                   </button>
                 </div>
               </div>
 
-              {/* Billing cycle */}
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(['MONTHLY', 'YEARLY'] as const).map((c) => {
                     const usdPrice = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
-                    const price = isGhana ? Math.round(usdPrice * GHS_RATE) : usdPrice;
+                    const ghsPrice = c === 'YEARLY' ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
+                    const price = gateway === 'paystack' && ghsPrice ? `₵${ghsPrice}` : `$${usdPrice}`;
                     return (
                       <button key={c} onClick={() => setCycle(c)}
                         className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
                           cycle === c ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
                         <div className="font-semibold text-gray-900">{c === 'MONTHLY' ? 'Monthly' : 'Yearly'}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{currSym}{price}{c === 'MONTHLY' ? '/mo' : '/yr'}</div>
-                        {c === 'YEARLY' && plan.monthlyPrice > 0 && (
-                          <div className="text-[10px] font-semibold text-teal-600 mt-1">
-                            Save {currSym}{isGhana ? Math.round((plan.monthlyPrice * 12 - plan.yearlyPrice) * GHS_RATE) : plan.monthlyPrice * 12 - plan.yearlyPrice}/yr
-                          </div>
-                        )}
+                        <div className="text-xs text-gray-500 mt-0.5">{price}{c === 'MONTHLY' ? '/mo' : '/yr'}</div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* MoMo phone input */}
-              {payMethod === 'momo' && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    MTN MoMo Number
-                  </p>
-                  <input
-                    type="tel"
-                    value={momoPhone}
-                    onChange={(e) => setMomoPhone(e.target.value)}
-                    placeholder="e.g. 0551234567 or +233551234567"
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
-                  />
-                  <p className="text-xs text-gray-400 mt-1.5">
-                    You will receive a USSD prompt to approve the payment.
-                  </p>
-                </div>
-              )}
-
-              {/* Email */}
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Billing Email <span className="text-gray-400 font-normal">(optional)</span>
+                  Billing Email
                 </p>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                   placeholder="billing@yourcompany.com"
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
               </div>
 
-              {/* Summary */}
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
                 <div className="flex justify-between font-bold text-gray-900">
                   <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
-                  <span>{currSym}{displayAmount}</span>
+                  <span>{gateway === 'paystack' && ghsAmount ? `₵${ghsAmount}` : `$${usdAmount}`}</span>
                 </div>
-                {isGhana && <p className="text-xs text-gray-400 mt-1">Rate: 1 USD = {GHS_RATE} GHS</p>}
               </div>
             </div>
 
             <div className="px-5 pb-5">
-              {payMethod === 'momo' ? (
-                <button onClick={() => { void handleMomoRequest(); }} disabled={loading || !momoPhone.trim()}
-                  className="w-full py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold rounded-xl disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
-                  {loading
-                    ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Sending request…</>
-                    : <>📱 Pay with MTN MoMo</>}
-                </button>
-              ) : (
-                <button onClick={() => { void handleManualGenerate(); }} disabled={loading}
-                  className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
-                  {loading
-                    ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Generating…</>
-                    : <>Generate Payment Reference</>}
-                </button>
-              )}
+              <button onClick={() => { void handleContinue(); }} disabled={loading || (gateway === 'paystack' && !email.trim())}
+                className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
+                {loading
+                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout…</>
+                  : 'Continue to Payment'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+// ─── CreditCheckoutModal ──────────────────────────────────────────────────────
+
+function CreditCheckoutModal({ pack, onClose, onPurchased }: {
+  pack: CreditPack;
+  onClose: () => void;
+  onPurchased: () => void;
+}) {
+  const [gateway, setGateway] = useState<Gateway>('stripe');
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<CheckoutStep>('form');
+  const [error, setError] = useState<string | null>(null);
+  const [stripeSecret, setStripeSecret] = useState<{ clientSecret: string; publishableKey: string } | null>(null);
+  const [paystackAccessCode, setPaystackAccessCode] = useState<string | null>(null);
+
+  const handleContinue = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      if (gateway === 'stripe') {
+        const res = await billingApi.initiateStripeCreditCheckout(pack.slug);
+        const data = res.data as { clientSecret: string; publishableKey: string };
+        setStripeSecret({ clientSecret: data.clientSecret, publishableKey: data.publishableKey });
+      } else {
+        const res = await billingApi.initiatePaystackCreditCheckout(pack.slug);
+        const data = res.data as { accessCode: string };
+        setPaystackAccessCode(data.accessCode);
+      }
+      setStep('pay');
+    } catch (err: unknown) {
+      toast.error(getApiError(err, 'Failed to start checkout'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900">Buy {pack.label}</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {step === 'success' && (
+          <div className="p-8 flex flex-col items-center gap-4 text-center">
+            <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center">
+              <CheckCircle2 size={32} className="text-teal-600" />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900 text-lg">Payment successful!</p>
+              <p className="text-sm text-gray-500 mt-1">Your credits will be added within a few seconds.</p>
+            </div>
+            <button onClick={() => { onPurchased(); onClose(); }}
+              className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors text-sm">
+              Continue
+            </button>
+          </div>
+        )}
+
+        {step === 'pay' && (
+          <div className="p-5 space-y-4">
+            {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            {gateway === 'stripe' && stripeSecret && (
+              <StripeCheckout
+                clientSecret={stripeSecret.clientSecret}
+                publishableKey={stripeSecret.publishableKey}
+                onSuccess={() => setStep('success')}
+                onError={(msg) => setError(msg)}
+              />
+            )}
+            {gateway === 'paystack' && paystackAccessCode && (
+              <PaystackCheckoutButton
+                accessCode={paystackAccessCode}
+                onSuccess={() => setStep('success')}
+                onError={(msg) => setError(msg)}
+              />
+            )}
+            <button onClick={() => setStep('form')} className="w-full text-xs text-gray-400 hover:text-gray-600 underline">
+              Back
+            </button>
+          </div>
+        )}
+
+        {step === 'form' && (
+          <>
+            <div className="p-5 space-y-5">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setGateway('stripe')}
+                    className={cn('p-3 rounded-xl border-2 text-left transition-all',
+                      gateway === 'stripe' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <div className="text-sm font-semibold text-gray-900">💳 Card (Stripe)</div>
+                  </button>
+                  <button onClick={() => setGateway('paystack')}
+                    className={cn('p-3 rounded-xl border-2 text-left transition-all',
+                      gateway === 'paystack' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
+                    <div className="text-sm font-semibold text-gray-900">🏦 Paystack</div>
+                  </button>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-4 text-sm flex justify-between font-bold text-gray-900">
+                <span>{pack.label}</span><span>${pack.amount}</span>
+              </div>
+            </div>
+            <div className="px-5 pb-5">
+              <button onClick={() => { void handleContinue(); }} disabled={loading}
+                className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
+                {loading
+                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout…</>
+                  : 'Continue to Payment'}
+              </button>
             </div>
           </>
         )}
@@ -574,10 +420,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onGenerated, onMomoPaid }:
 function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number) => void }) {
   const [packs, setPacks] = useState<CreditPack[]>([]);
   const [balance, setBalance] = useState<number>(0);
-  const [buying, setBuying] = useState<string | null>(null);
-  const [paymentModal, setPaymentModal] = useState<{
-    reference: string; amount: number; currency: string; details: PaymentDetails;
-  } | null>(null);
+  const [buyingPack, setBuyingPack] = useState<CreditPack | null>(null);
 
   useEffect(() => {
     void Promise.all([
@@ -586,27 +429,13 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
     ]);
   }, []);
 
-  const handleBuy = async (pack: CreditPack) => {
-    setBuying(pack.slug);
-    try {
-      const res = await billingApi.initializeCreditPurchase(pack.slug);
-      const data = res.data as { reference: string; amount: number; currency: string; paymentDetails: PaymentDetails };
-      setPaymentModal({ reference: data.reference, amount: data.amount, currency: data.currency ?? 'USD', details: data.paymentDetails });
-    } catch (err: unknown) {
-      toast.error(getApiError(err, 'Failed to initialize payment'));
-    } finally { setBuying(null); }
-  };
-
   return (
     <>
-      {paymentModal && (
-        <PaymentModal
-          title="Buy AI Credits"
-          amount={paymentModal.amount}
-          currency={paymentModal.currency}
-          reference={paymentModal.reference}
-          paymentDetails={paymentModal.details}
-          onClose={() => { setPaymentModal(null); onPurchased(balance); }}
+      {buyingPack && (
+        <CreditCheckoutModal
+          pack={buyingPack}
+          onClose={() => setBuyingPack(null)}
+          onPurchased={() => onPurchased(balance)}
         />
       )}
 
@@ -641,20 +470,14 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
               <p className="text-sm font-semibold text-gray-900">{pack.label}</p>
               <p className="text-xs text-gray-500 leading-relaxed">{pack.description}</p>
               <button
-                onClick={() => { void handleBuy(pack); }}
-                disabled={buying === pack.slug}
+                onClick={() => setBuyingPack(pack)}
                 className={cn(
                   'mt-auto py-2 px-4 rounded-lg text-sm font-semibold transition-colors',
                   pack.slug === 'growth-600'
                     ? 'bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60'
                     : 'bg-gray-100 text-gray-800 hover:bg-teal-600 hover:text-white disabled:opacity-60',
                 )}>
-                {buying === pack.slug ? (
-                  <span className="flex items-center justify-center gap-1.5">
-                    <span className="animate-spin h-3 w-3 border-2 border-current/30 border-t-current rounded-full" />
-                    Processing…
-                  </span>
-                ) : 'Buy Now'}
+                Buy Now
               </button>
             </div>
           ))}
@@ -760,9 +583,6 @@ export default function BillingPage() {
   const [billingEmail, setBillingEmail] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
-  const [paymentModal, setPaymentModal] = useState<{
-    title: string; reference: string; amount: number; currency: string; details: PaymentDetails;
-  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -826,22 +646,7 @@ export default function BillingPage() {
           plan={checkoutPlan}
           initialEmail={billingEmail}
           onClose={() => setCheckoutPlan(null)}
-          onGenerated={(ref, amount, currency, details) => {
-            setCheckoutPlan(null);
-            setPaymentModal({ title: `Upgrade to ${checkoutPlan.name}`, reference: ref, amount, currency, details });
-          }}
-          onMomoPaid={() => { void load(); }}
-        />
-      )}
-
-      {paymentModal && (
-        <PaymentModal
-          title={paymentModal.title}
-          amount={paymentModal.amount}
-          currency={paymentModal.currency}
-          reference={paymentModal.reference}
-          paymentDetails={paymentModal.details}
-          onClose={() => setPaymentModal(null)}
+          onActivated={() => { void load(); }}
         />
       )}
 

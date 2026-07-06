@@ -1284,8 +1284,6 @@ enum BillingCycle {
 enum PaymentGateway {
   STRIPE
   PAYSTACK
-  FLUTTERWAVE
-  MOMO
 }
 
 enum PaymentStatus {
@@ -1312,6 +1310,8 @@ model Plan {
   monthlyPrice Float  @map("monthly_price")
   yearlyPrice  Float  @map("yearly_price")
   currency     String @default("USD")
+  ghsMonthlyPrice Float? @map("ghs_monthly_price")
+  ghsYearlyPrice  Float? @map("ghs_yearly_price")
   isActive     Boolean @default(true) @map("is_active")
   isPublic     Boolean @default(true) @map("is_public")
   trialDays    Int     @default(0)    @map("trial_days")
@@ -1328,6 +1328,11 @@ model Plan {
   features  Json @default("[]")
   metadata  Json?
   sortOrder Int  @default(0) @map("sort_order")
+
+  stripePriceIdMonthly   String? @unique @map("stripe_price_id_monthly")
+  stripePriceIdYearly    String? @unique @map("stripe_price_id_yearly")
+  paystackPlanCodeMonthly String? @unique @map("paystack_plan_code_monthly")
+  paystackPlanCodeYearly  String? @unique @map("paystack_plan_code_yearly")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt      @map("updated_at")
@@ -1352,7 +1357,6 @@ model Subscription {
 
   stripeSubscriptionId      String? @unique @map("stripe_subscription_id")
   paystackSubscriptionCode  String? @unique @map("paystack_subscription_code")
-  flutterwaveSubscriptionId String? @unique @map("flutterwave_subscription_id")
   gatewayCustomerId         String? @map("gateway_customer_id")
 
   metadata  Json?
@@ -1548,6 +1552,7 @@ model CreditPurchase {
   packSlug    String        @map("pack_slug")
   amount      Float
   currency    String        @default("USD")
+  gateway     PaymentGateway? @map("gateway")
   paystackRef String?       @unique @map("paystack_ref")
   status      PaymentStatus @default(PENDING)
   createdAt   DateTime      @default(now()) @map("created_at")
