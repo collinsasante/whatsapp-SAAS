@@ -4,7 +4,7 @@ import {
   Search, Plus, X, ChevronDown, Loader2, Users, Filter,
   MessageSquare, Phone, Mail, Tag, SlidersHorizontal,
 } from 'lucide-react';
-import { contactsApi, conversationsApi, tagsApi } from '@/lib/api';
+import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatRelativeTime } from '@/lib/utils';
@@ -163,6 +163,7 @@ export default function ContactWorkspaceList({
   const [statusFilter, setStatusFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('');
+  const [agentFilter, setAgentFilter] = useState('all');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [page, setPage] = useState(1);
@@ -170,8 +171,10 @@ export default function ContactWorkspaceList({
   const [total, setTotal] = useState(0);
 
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [showChannelDropdown, setShowChannelDropdown] = useState(false);
+  const [showAgentDropdown, setShowAgentDropdown] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,11 +186,14 @@ export default function ContactWorkspaceList({
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [search]);
 
-  // Load tags once
+  // Load tags and team members once
   useEffect(() => {
     tagsApi.list().then((res) => {
       const tags = res.data as Array<{ name: string }>;
       setAvailableTags(tags.map((t) => t.name));
+    }).catch(() => {});
+    usersApi.list().then((res) => {
+      setTeamMembers((res.data as { id: string; name: string }[]) ?? []);
     }).catch(() => {});
   }, []);
 
@@ -337,6 +343,12 @@ export default function ContactWorkspaceList({
       list = list.filter((c) => c.latestConversation?.channel?.type === channelFilter);
     }
 
+    if (agentFilter !== 'all') {
+      list = list.filter((c) => agentFilter === 'unassigned'
+        ? !c.latestConversation?.assignedTo
+        : c.latestConversation?.assignedTo?.id === agentFilter);
+    }
+
     // Sort: contacts with recent activity first, then alphabetically
     return [...list].sort((a, b) => {
       const at = a.latestConversation?.lastMessageAt ? new Date(a.latestConversation.lastMessageAt).getTime() : 0;
@@ -344,10 +356,10 @@ export default function ContactWorkspaceList({
       if (bt !== at) return bt - at;
       return (a.name ?? a.phone).localeCompare(b.name ?? b.phone);
     });
-  }, [contacts, statusFilter, channelFilter]);
+  }, [contacts, statusFilter, channelFilter, agentFilter]);
 
   const activeChannels = ['all', 'WHATSAPP', 'MESSENGER', 'INSTAGRAM'];
-  const activeFiltersCount = [statusFilter !== 'all', channelFilter !== 'all', !!tagFilter].filter(Boolean).length;
+  const activeFiltersCount = [statusFilter !== 'all', channelFilter !== 'all', !!tagFilter, agentFilter !== 'all'].filter(Boolean).length;
 
   return (
     <div className="w-[320px] border-r border-gray-100 bg-white flex flex-col flex-shrink-0 overflow-hidden">
@@ -505,10 +517,63 @@ export default function ContactWorkspaceList({
               )}
             </div>
 
+            {/* Agent/Assignee filter */}
+            {teamMembers.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowAgentDropdown((v) => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 hover:bg-white transition-colors"
+                >
+                  <span className={cn('flex items-center gap-1.5', agentFilter !== 'all' ? 'text-teal-700' : 'text-gray-600')}>
+                    <Users size={11} />
+                    {agentFilter === 'all' ? 'All agents' :
+                     agentFilter === 'unassigned' ? 'Unassigned' :
+                     (teamMembers.find((m) => m.id === agentFilter)?.name ?? 'Agent')}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {agentFilter !== 'all' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setAgentFilter('all'); }}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                    <ChevronDown size={12} className="text-gray-400" />
+                  </div>
+                </button>
+                {showAgentDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 max-h-40 overflow-y-auto">
+                    <button
+                      onClick={() => { setAgentFilter('all'); setShowAgentDropdown(false); }}
+                      className={cn('w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50', agentFilter === 'all' && 'text-teal-600 font-medium')}
+                    >
+                      All agents
+                    </button>
+                    <button
+                      onClick={() => { setAgentFilter('unassigned'); setShowAgentDropdown(false); }}
+                      className={cn('w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50', agentFilter === 'unassigned' && 'text-teal-600 font-medium')}
+                    >
+                      Unassigned
+                    </button>
+                    {teamMembers.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => { setAgentFilter(m.id); setShowAgentDropdown(false); }}
+                        className={cn('w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50', agentFilter === m.id && 'text-teal-600 font-medium')}
+                      >
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Clear filters */}
             {activeFiltersCount > 0 && (
               <button
-                onClick={() => { setStatusFilter('all'); setChannelFilter('all'); setTagFilter(''); setShowAdvanced(false); }}
+                onClick={() => { setStatusFilter('all'); setChannelFilter('all'); setTagFilter(''); setAgentFilter('all'); setShowAdvanced(false); }}
                 className="w-full text-xs text-gray-500 hover:text-gray-700 py-1 text-center"
               >
                 Clear all filters
