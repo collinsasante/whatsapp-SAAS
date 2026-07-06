@@ -119,13 +119,20 @@ export class CampaignsService {
     // Compute real delivery counts from CampaignRecipient statuses (covers campaigns
     // that ran before the counter columns were wired up).
     const campaignIds = data.map((c) => c.id);
-    const recipientStats = campaignIds.length
-      ? await this.prisma.campaignRecipient.groupBy({
-          by: ['campaignId', 'status'],
-          where: { campaignId: { in: campaignIds } },
-          _count: { id: true },
-        })
-      : [];
+    const [recipientStats, replyStats] = campaignIds.length
+      ? await Promise.all([
+          this.prisma.campaignRecipient.groupBy({
+            by: ['campaignId', 'status'],
+            where: { campaignId: { in: campaignIds } },
+            _count: { id: true },
+          }),
+          this.prisma.campaignRecipient.groupBy({
+            by: ['campaignId'],
+            where: { campaignId: { in: campaignIds }, repliedAt: { not: null } },
+            _count: { id: true },
+          }),
+        ])
+      : [[], []];
 
     const statsMap = new Map<string, Record<string, number>>();
     for (const row of recipientStats) {
@@ -133,6 +140,8 @@ export class CampaignsService {
       m[row.status] = row._count.id;
       statsMap.set(row.campaignId, m);
     }
+    const repliedMap = new Map<string, number>();
+    for (const row of replyStats) repliedMap.set(row.campaignId, row._count.id);
 
     const dataWithCounts = data.map((c) => {
       const s = statsMap.get(c.id) ?? {};
@@ -140,12 +149,14 @@ export class CampaignsService {
       const delivered = (s['DELIVERED'] ?? 0) + (s['READ'] ?? 0);
       const read      = s['READ'] ?? 0;
       const failed    = s['FAILED'] ?? 0;
+      const replied   = repliedMap.get(c.id) ?? 0;
       return {
         ...c,
         sentCount:      Math.max(c.sentCount, sent),
         deliveredCount: Math.max(c.deliveredCount, delivered),
         readCount:      Math.max(c.readCount, read),
         failedCount:    Math.max(c.failedCount, failed),
+        repliedCount:   Math.max(c.repliedCount, replied),
       };
     });
 
@@ -153,7 +164,7 @@ export class CampaignsService {
   }
 
   async findOne(tenantId: string, id: string) {
-    const [campaign, recipientStats] = await Promise.all([
+    const [campaign, recipientStats, repliedCountReal] = await Promise.all([
       this.prisma.campaign.findFirst({
         where: { id, tenantId },
         include: {
@@ -166,6 +177,7 @@ export class CampaignsService {
         where: { campaignId: id },
         _count: { id: true },
       }),
+      this.prisma.campaignRecipient.count({ where: { campaignId: id, repliedAt: { not: null } } }),
     ]);
     if (!campaign) throw new NotFoundException('Campaign not found');
 
@@ -182,6 +194,7 @@ export class CampaignsService {
       deliveredCount: Math.max(campaign.deliveredCount, delivered),
       readCount:      Math.max(campaign.readCount, read),
       failedCount:    Math.max(campaign.failedCount, failed),
+      repliedCount:   Math.max(campaign.repliedCount, repliedCountReal),
     };
   }
 
