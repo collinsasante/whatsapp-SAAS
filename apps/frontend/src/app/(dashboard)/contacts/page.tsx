@@ -8,7 +8,7 @@ import {
   CheckCircle2, AlertTriangle, FolderOpen, Download, TagIcon,
   PanelRightClose,
 } from 'lucide-react';
-import { contactsApi, conversationsApi, segmentsApi, tagsApi, messagesApi } from '@/lib/api';
+import { contactsApi, conversationsApi, segmentsApi, tagsApi, messagesApi, usersApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useInboxStore } from '@/store/inbox.store';
 import type { StatusCounts } from '@/store/inbox.store';
@@ -695,6 +695,7 @@ export default function ContactsPage() {
   const [filterLifecycle, setFilterLifecycle] = useState<'' | 'active' | 'blocked' | 'optedOut'>('');
   const [filterLabel, setFilterLabel] = useState('');
   const [filterConvStatus, setFilterConvStatus] = useState<'' | 'OPEN' | 'REQUESTED' | 'RESOLVED'>('');
+  const [filterAssignee, setFilterAssignee] = useState('');
   // Date filters
   const [dateField, setDateField] = useState<'createdAt' | 'lastMessage' | 'lastActive' | ''>('');
   const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month' | 'custom' | ''>('');
@@ -702,8 +703,9 @@ export default function ContactsPage() {
   const [dateTo, setDateTo] = useState('');
   // Available tags from central tag system
   const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color?: string }[]>([]);
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
 
-  const activeFiltersCount = [filterLifecycle, filterLabel, dateField, filterConvStatus].filter(Boolean).length;
+  const activeFiltersCount = [filterLifecycle, filterLabel, dateField, filterConvStatus, filterAssignee].filter(Boolean).length;
 
   const load = useCallback(async (
     pg: number,
@@ -716,6 +718,7 @@ export default function ContactsPage() {
     dfrom?: string,
     dto?: string,
     convStatus?: string,
+    assigneeId?: string,
   ) => {
     setLoading(true);
     try {
@@ -732,6 +735,7 @@ export default function ContactsPage() {
         dateFrom: dp === 'custom' && dfrom ? dfrom : undefined,
         dateTo: dp === 'custom' && dto ? dto : undefined,
         conversationStatus: convStatus || undefined,
+        assignedAgentId: assigneeId || undefined,
       });
       const data = res.data as { data: Contact[]; meta: { total: number } };
       setContacts(data.data);
@@ -743,15 +747,16 @@ export default function ContactsPage() {
   useEffect(() => {
     const t = setTimeout(() => {
       setPage(1); setSelectedIds(new Set());
-      void load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus);
+      void load(1, search, activeSegmentId, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus, filterAssignee);
     }, 300);
     return () => clearTimeout(t);
-  }, [search, activeSegmentId, load, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus]);
+  }, [search, activeSegmentId, load, filterLifecycle, filterLabel, dateField, datePreset, dateFrom, dateTo, filterConvStatus, filterAssignee]);
 
-  // Load segments + available tags
+  // Load segments + available tags + team members
   useEffect(() => {
     segmentsApi.list().then(r => setSegments(r.data ?? [])).catch(() => {});
     tagsApi.list().then(r => setAvailableTags((r.data as { id: string; name: string; color?: string }[]) ?? [])).catch(() => {});
+    usersApi.list().then(r => setTeamMembers((r.data as { id: string; name: string }[]) ?? [])).catch(() => {});
   }, []);
 
   const openConversation = async (contact: Contact) => {
@@ -1019,6 +1024,18 @@ export default function ContactsPage() {
                     </select>
                   </div>
 
+                  {/* Assignee filter */}
+                  {teamMembers.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Assignee</label>
+                      <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}
+                        className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-teal-500 min-w-[130px]">
+                        <option value="">All agents</option>
+                        {teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+
                   {/* Date field */}
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-semibold text-teal-700 uppercase tracking-wide">Date Field</label>
@@ -1067,7 +1084,7 @@ export default function ContactsPage() {
 
                   {/* Clear filters */}
                   {activeFiltersCount > 0 && (
-                    <button onClick={() => { setFilterLifecycle(''); setFilterLabel(''); setFilterConvStatus(''); setDateField(''); setDatePreset(''); setDateFrom(''); setDateTo(''); }}
+                    <button onClick={() => { setFilterLifecycle(''); setFilterLabel(''); setFilterConvStatus(''); setFilterAssignee(''); setDateField(''); setDatePreset(''); setDateFrom(''); setDateTo(''); }}
                       className="self-end text-xs text-red-500 hover:text-red-700 font-medium flex items-center gap-1 pb-1.5">
                       <X size={12} /> Clear all
                     </button>
@@ -1093,6 +1110,12 @@ export default function ContactsPage() {
                       <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
                         Conv: {filterConvStatus.charAt(0) + filterConvStatus.slice(1).toLowerCase()}
                         <button onClick={() => setFilterConvStatus('')} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
+                      </span>
+                    )}
+                    {filterAssignee && (
+                      <span className="inline-flex items-center gap-1 text-xs bg-white border border-teal-200 text-teal-700 rounded-full px-2.5 py-0.5 font-medium">
+                        Assignee: {teamMembers.find(m => m.id === filterAssignee)?.name ?? 'Agent'}
+                        <button onClick={() => setFilterAssignee('')} className="ml-0.5 text-teal-400 hover:text-teal-700"><X size={10} /></button>
                       </span>
                     )}
                     {dateField && (
