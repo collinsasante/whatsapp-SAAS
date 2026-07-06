@@ -472,8 +472,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     return sourceConversations
       .filter((c) => {
         if (!c.contact) return false;
-        // Hide expired (24h session elapsed) conversations from the active list
-        if (c.lastInboundAt && c.status !== 'RESOLVED') {
+        // Hide expired (24h session elapsed) conversations from the default "All" view only —
+        // an explicit tab like Requests must still surface stale unactioned conversations.
+        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED') {
           const elapsed = now - new Date(c.lastInboundAt).getTime();
           if (elapsed > TWENTY_FOUR_HOURS) return false;
         }
@@ -485,7 +486,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         const name = c.contact.name ?? c.contact.phone;
         const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
         const matchesStatus = statusFilter === 'All'
-          ? (c.status !== 'RESOLVED' && c.status !== 'INTERVENED')
+          ? (c.status !== 'RESOLVED' && (c.status !== 'INTERVENED' || c.assignedTo?.id === currentUserId))
           : statusFilter === 'UNREPLIED'
             ? c.status !== 'RESOLVED'
             : c.status === statusFilter;
@@ -516,6 +517,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     const allIntervened = sourceConversations.filter((c) => {
       if (c.status !== 'INTERVENED') return false;
       if (!c.assignedTo) return false;
+      if (c.assignedTo.id === currentUserId) return false;
       if (!c.contact) return false;
       if (c.lastInboundAt) {
         const elapsed = now - new Date(c.lastInboundAt).getTime();
@@ -535,7 +537,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       map.get(id)!.convs.push(conv);
     }
     return Array.from(map.values());
-  }, [sourceConversations, statusFilter, memberFilter, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourceConversations, statusFilter, memberFilter, search, currentUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={cn('w-full md:w-72 border-r border-gray-100 bg-white flex flex-col h-full flex-shrink-0', mobileHidden && 'hidden md:flex')}>
