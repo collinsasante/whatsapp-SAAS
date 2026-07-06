@@ -52,11 +52,16 @@ export class ConversationsService {
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });
     if (existing) {
-      // Backfill ad image URL if a new referral brought one and we don't have it yet.
-      if (source?.adImageUrl && !existing.adImageUrl) {
+      // Backfill any ad fields a new referral brought that we don't have yet
+      // (e.g. a returning customer re-engaging via a different ad on an already-open conversation).
+      const adUpdates: Record<string, string> = {};
+      if (source?.adImageUrl && !existing.adImageUrl) adUpdates.adImageUrl = source.adImageUrl;
+      if (source?.adSourceId && !existing.adSourceId) adUpdates.adSourceId = source.adSourceId;
+      if (source?.adHeadline && !existing.adHeadline) adUpdates.adHeadline = source.adHeadline;
+      if (Object.keys(adUpdates).length > 0) {
         const updated = await this.prisma.conversation.update({
           where: { id: existing.id },
-          data: { adImageUrl: source.adImageUrl },
+          data: adUpdates,
           include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
         });
         this.realtimeService.emitConversationStateChanged(tenantId, existing.id, updated);
@@ -85,6 +90,8 @@ export class ConversationsService {
           assignedToId: null,
           unreadCount: 0,
           ...(source?.adImageUrl && !resolved.adImageUrl && { adImageUrl: source.adImageUrl }),
+          ...(source?.adSourceId && !resolved.adSourceId && { adSourceId: source.adSourceId }),
+          ...(source?.adHeadline && !resolved.adHeadline && { adHeadline: source.adHeadline }),
         },
         include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
       });
