@@ -76,6 +76,9 @@ model Tenant {
   whatsappNumbers      WhatsAppNumber[]
   creditPurchases     CreditPurchase[]
   aiInteractionLogs   AiInteractionLog[]
+  analyticsDailyMessageStats      AnalyticsDailyMessageStats[]
+  analyticsDailyConversationStats AnalyticsDailyConversationStats[]
+  analyticsDailyRevenueStats      AnalyticsDailyRevenueStats[]
 
   @@map("tenants")
 }
@@ -322,6 +325,9 @@ model Conversation {
   @@index([tenantId, lastMessageAt])
   @@index([tenantId, status, lastMessageAt])
   @@index([tenantId, slaDeadline])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, resolvedAt])
+  @@index([tenantId, assignedToId, resolvedAt])
   @@map("conversations")
 }
 
@@ -1448,7 +1454,79 @@ model Payment {
   @@index([tenantId])
   @@index([status])
   @@index([gateway])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, verifiedAt])
   @@map("payments")
+}
+
+// ─── Analytics daily rollups ──────────────────────────────────────────────
+// Populated by a scheduled worker job (one row per tenant per calendar day,
+// bucketed in the tenant's configured timezone) so the analytics endpoints
+// never scan the live messages/conversations/payments tables for anything
+// but the current (still-open) day. Count-based metrics only -- medians
+// (first response time, resolution time) don't combine additively across
+// day buckets, so those are computed via a live indexed query instead.
+
+model AnalyticsDailyMessageStats {
+  id       String   @id @default(uuid())
+  tenantId String   @map("tenant_id")
+  date     DateTime @db.Date
+
+  sentCount      Int @default(0) @map("sent_count")
+  deliveredCount Int @default(0) @map("delivered_count")
+  readCount      Int @default(0) @map("read_count")
+  failedCount    Int @default(0) @map("failed_count")
+  inboundCount   Int @default(0) @map("inbound_count")
+  outboundCount  Int @default(0) @map("outbound_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+  @@map("analytics_daily_message_stats")
+}
+
+model AnalyticsDailyConversationStats {
+  id       String   @id @default(uuid())
+  tenantId String   @map("tenant_id")
+  date     DateTime @db.Date
+
+  newConversations       Int @default(0) @map("new_conversations")
+  returningConversations Int @default(0) @map("returning_conversations")
+  openedCount            Int @default(0) @map("opened_count")
+  resolvedCount          Int @default(0) @map("resolved_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+  @@map("analytics_daily_conversation_stats")
+}
+
+model AnalyticsDailyRevenueStats {
+  id       String         @id @default(uuid())
+  tenantId String         @map("tenant_id")
+  date     DateTime       @db.Date
+  gateway  PaymentGateway
+
+  successCount  Int   @default(0) @map("success_count")
+  failedCount   Int   @default(0) @map("failed_count")
+  amount        Float @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, gateway])
+  @@index([tenantId, date])
+  @@map("analytics_daily_revenue_stats")
 }
 
 model WorkspaceUsage {

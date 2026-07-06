@@ -49,4 +49,5 @@ export enum QueueName {
   SNOOZE = 'snooze',
   AI_TRIAL = 'ai-trial',
   SLA_MONITOR = 'sla-monitor',
+  ANALYTICS_ROLLUP = 'analytics-rollup',
 }
