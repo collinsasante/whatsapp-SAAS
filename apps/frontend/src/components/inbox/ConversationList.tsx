@@ -472,8 +472,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     return sourceConversations
       .filter((c) => {
         if (!c.contact) return false;
-        // Hide expired (24h session elapsed) conversations from the active list
-        if (c.lastInboundAt && c.status !== 'RESOLVED') {
+        // Hide expired (24h session elapsed) conversations from the default "All" view only —
+        // an explicit tab like Requests must still surface stale unactioned conversations.
+        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED') {
           const elapsed = now - new Date(c.lastInboundAt).getTime();
           if (elapsed > TWENTY_FOUR_HOURS) return false;
         }
