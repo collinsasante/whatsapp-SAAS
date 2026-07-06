@@ -50,4 +50,5 @@ export enum QueueName {
   AI_TRIAL = 'ai-trial',
   SLA_MONITOR = 'sla-monitor',
   ANALYTICS_ROLLUP = 'analytics-rollup',
+  WHATSAPP_QUALITY_SYNC = 'whatsapp-quality-sync',
 }

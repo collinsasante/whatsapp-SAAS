@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { getTenantDateRangeBoundaries, getTenantDayBoundaries, enumerateTenantDates, toTenantDateString } from '../common/utils/timezone.util';
 import { resolveDateRange, previousPeriod, percentChange } from './analytics.util';
-import { DateRangeQueryDto, ConversationsQueryDto } from './dto/analytics.dto';
+import { DateRangeQueryDto, ConversationsQueryDto, CampaignsQueryDto } from './dto/analytics.dto';
+import { mapWhatsAppErrorCode, FAILURE_CATEGORY_LABELS } from '../common/utils/whatsapp-error.util';
 
 function isAdminRole(role: UserRole): boolean {
   return role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
@@ -251,6 +252,165 @@ export class AnalyticsService {
       currency: 'USD',
       successCount: (rolled?._sum.successCount ?? 0) + liveSuccess,
       failedCount: (rolled?._sum.failedCount ?? 0) + liveFailed,
+    };
+  }
+
+  private async getRevenueByGateway(tenantId: string, from: string, to: string, timezone: string) {
+    const today = toTenantDateString(new Date(), timezone);
+    const dates = enumerateTenantDates(from, to);
+    const historicalDates = dates.filter((d) => d !== today);
+
+    const byGateway = new Map<string, { successCount: number; failedCount: number; amount: number }>();
+
+    if (historicalDates.length > 0) {
+      const rows = await this.prisma.analyticsDailyRevenueStats.groupBy({
+        by: ['gateway'],
+        where: { tenantId, date: { in: historicalDates.map((d) => new Date(`${d}T00:00:00.000Z`)) } },
+        _sum: { amount: true, successCount: true, failedCount: true },
+      });
+      for (const row of rows) {
+        byGateway.set(row.gateway, {
+          successCount: row._sum.successCount ?? 0,
+          failedCount: row._sum.failedCount ?? 0,
+          amount: row._sum.amount ?? 0,
+        });
+      }
+    }
+
+    if (dates.includes(today)) {
+      const { start, end } = getTenantDayBoundaries(today, timezone);
+      const grouped = await this.prisma.payment.groupBy({
+        by: ['gateway', 'status'], where: { tenantId, createdAt: { gte: start, lt: end } },
+        _count: { id: true }, _sum: { amount: true },
+      });
+      for (const row of grouped) {
+        const entry = byGateway.get(row.gateway) ?? { successCount: 0, failedCount: 0, amount: 0 };
+        if (row.status === 'SUCCEEDED') { entry.successCount += row._count.id; entry.amount += row._sum.amount ?? 0; }
+        else if (row.status === 'FAILED') entry.failedCount += row._count.id;
+        byGateway.set(row.gateway, entry);
+      }
+    }
+
+    return Array.from(byGateway.entries()).map(([gateway, stats]) => ({
+      gateway, successCount: stats.successCount, failedCount: stats.failedCount, amount: round2(stats.amount),
+    }));
+  }
+
+  // ─── Campaigns ───────────────────────────────────────────────────────────
+
+  async getCampaignPerformance(tenantId: string, query: CampaignsQueryDto) {
+    const timezone = await this.getTenantTimezone(tenantId);
+    const { from, to } = resolveDateRange(query.from, query.to, timezone);
+    const { start, end } = getTenantDateRangeBoundaries(from, to, timezone);
+    const limit = Math.min(query.limit ?? 20, 100);
+    const offset = query.offset ?? 0;
+
+    const [campaigns, total] = await Promise.all([
+      this.prisma.campaign.findMany({
+        where: { tenantId, createdAt: { gte: start, lt: end } },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: { template: { select: { id: true, name: true, status: true } } },
+      }),
+      this.prisma.campaign.count({ where: { tenantId, createdAt: { gte: start, lt: end } } }),
+    ]);
+
+    const campaignsWithFailures = await Promise.all(campaigns.map(async (c) => {
+      const failures = await this.prisma.campaignRecipient.findMany({
+        where: { campaignId: c.id, status: 'FAILED' },
+        select: { errorCode: true },
+      });
+      const byCategory = new Map<string, number>();
+      for (const f of failures) {
+        const category = mapWhatsAppErrorCode(f.errorCode);
+        byCategory.set(category, (byCategory.get(category) ?? 0) + 1);
+      }
+      const failureBreakdown = Array.from(byCategory.entries()).map(([category, count]) => ({
+        category, label: FAILURE_CATEGORY_LABELS[category as keyof typeof FAILURE_CATEGORY_LABELS], count,
+      }));
+
+      return {
+        id: c.id, name: c.name, status: c.status, templateName: c.template.name,
+        totalRecipients: c.totalRecipients, sentCount: c.sentCount, deliveredCount: c.deliveredCount,
+        readCount: c.readCount, repliedCount: c.repliedCount, failedCount: c.failedCount, clickCount: c.clickCount,
+        failureBreakdown,
+      };
+    }));
+
+    // Per-template performance -- aggregated across all of the tenant's campaigns using that template
+    // (not just the ones in this page), since a template's quality is a tenant-wide property.
+    const templates = await this.prisma.template.findMany({
+      where: { tenantId },
+      select: {
+        id: true, name: true, status: true,
+        campaigns: { select: { sentCount: true, deliveredCount: true, readCount: true } },
+      },
+    });
+    const templatePerformance = templates
+      .filter((t) => t.campaigns.length > 0)
+      .map((t) => {
+        const sent = t.campaigns.reduce((s, c) => s + c.sentCount, 0);
+        const delivered = t.campaigns.reduce((s, c) => s + c.deliveredCount, 0);
+        const read = t.campaigns.reduce((s, c) => s + c.readCount, 0);
+        return {
+          templateId: t.id, name: t.name, approvalStatus: t.status,
+          sentCount: sent,
+          deliveryRate: sent > 0 ? round1(delivered / sent) : 0,
+          readRate: delivered > 0 ? round1(read / delivered) : 0,
+        };
+      });
+
+    return { from, to, campaigns: campaignsWithFailures, templatePerformance, meta: { total, limit, offset } };
+  }
+
+  // ─── WhatsApp account health ─────────────────────────────────────────────
+
+  async getHealth(tenantId: string) {
+    const numbers = await this.prisma.whatsAppNumber.findMany({
+      where: { tenantId, isActive: true },
+      select: { id: true, label: true, phoneNumberId: true, qualityRating: true, messagingLimitTier: true, qualitySyncedAt: true },
+    });
+
+    const now = new Date();
+    const last7Start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const prev7Start = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+    const [last7Blocked, prev7Blocked, last7OptedOut, prev7OptedOut] = await Promise.all([
+      this.prisma.contact.count({ where: { tenantId, blockedAt: { gte: last7Start, lt: now } } }),
+      this.prisma.contact.count({ where: { tenantId, blockedAt: { gte: prev7Start, lt: last7Start } } }),
+      this.prisma.contact.count({ where: { tenantId, optedOutAt: { gte: last7Start, lt: now } } }),
+      this.prisma.contact.count({ where: { tenantId, optedOutAt: { gte: prev7Start, lt: last7Start } } }),
+    ]);
+
+    const last7Total = last7Blocked + last7OptedOut;
+    const prev7Total = prev7Blocked + prev7OptedOut;
+    const spike = prev7Total > 0 ? last7Total > prev7Total * 2 : last7Total >= 3;
+
+    return {
+      numbers: numbers.length > 0 ? numbers : [],
+      numbersConfigured: numbers.length > 0,
+      optOuts: {
+        last7Days: last7Total, previous7Days: prev7Total, spike,
+        blocked: last7Blocked, optedOut: last7OptedOut,
+      },
+    };
+  }
+
+  // ─── Revenue (VerzChat's own subscription billing -- see PR description) ────
+
+  async getRevenue(tenantId: string, query: DateRangeQueryDto) {
+    const timezone = await this.getTenantTimezone(tenantId);
+    const { from, to } = resolveDateRange(query.from, query.to, timezone);
+    const byGateway = await this.getRevenueByGateway(tenantId, from, to, timezone);
+
+    return {
+      from, to,
+      note: 'This reflects your own VerzChat subscription billing -- VerzChat does not track sales/revenue from your customers.',
+      byGateway,
+      totalAmount: round2(byGateway.reduce((s, g) => s + g.amount, 0)),
+      totalSuccessCount: byGateway.reduce((s, g) => s + g.successCount, 0),
+      totalFailedCount: byGateway.reduce((s, g) => s + g.failedCount, 0),
     };
   }
 
