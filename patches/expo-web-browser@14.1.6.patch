@@ -1,0 +1,32 @@
+diff --git a/android/src/main/java/expo/modules/webbrowser/CustomTabsActivitiesHelper.kt b/android/src/main/java/expo/modules/webbrowser/CustomTabsActivitiesHelper.kt
+index 6a3056bfc387a762b41d53f499bb9c613d973264..b487b05f85ab37b16a0e09fb188ac69123eb4321 100644
+--- a/android/src/main/java/expo/modules/webbrowser/CustomTabsActivitiesHelper.kt
++++ b/android/src/main/java/expo/modules/webbrowser/CustomTabsActivitiesHelper.kt
+@@ -8,7 +8,6 @@ import androidx.browser.customtabs.CustomTabsClient
+ import androidx.browser.customtabs.CustomTabsIntent
+ import androidx.browser.customtabs.CustomTabsService
+ import androidx.core.net.toUri
+-import expo.modules.core.errors.CurrentActivityNotFoundException
+ import expo.modules.kotlin.AppContext
+ 
+ private const val DUMMY_URL = "https://expo.dev"
+diff --git a/android/src/main/java/expo/modules/webbrowser/WebBrowserModule.kt b/android/src/main/java/expo/modules/webbrowser/WebBrowserModule.kt
+index b0e105df3990086f2a27cc876ec4e5157c06f056..ecac7040e16049a1ae238bec9d6f174fcf3534fc 100644
+--- a/android/src/main/java/expo/modules/webbrowser/WebBrowserModule.kt
++++ b/android/src/main/java/expo/modules/webbrowser/WebBrowserModule.kt
+@@ -1,6 +1,5 @@
+ package expo.modules.webbrowser
+ 
+-import expo.modules.core.errors.CurrentActivityNotFoundException
+ import android.content.Intent
+ import android.net.Uri
+ import android.os.Bundle
+@@ -160,7 +159,7 @@ class WebBrowserModule : Module() {
+       packageName?.takeIf { it.isNotEmpty() }.ifNull {
+         customTabsResolver.getPreferredCustomTabsResolvingActivity(null)
+       }
+-    } catch (ex: CurrentActivityNotFoundException) {
++    } catch (ex: Exceptions.MissingActivity) {
+       throw NoPreferredPackageFound()
+     } catch (ex: PackageManagerNotFoundException) {
+       throw NoPreferredPackageFound()

@@ -234,6 +234,20 @@ export class AuthController {
     return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user, tenant: result.tenant };
   }
 
+  // ─── Google Mobile (expo-auth-session access token) ──────────────────────────
+
+  @Post('google/mobile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Sign in with a Google OAuth access token from mobile' })
+  async googleMobileLogin(
+    @Body() body: { accessToken: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.loginWithGoogleAccessToken(body.accessToken);
+    this.setRefreshCookie(res as unknown as import('express').Response, result.refreshToken);
+    return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user, tenant: result.tenant };
+  }
+
   // ─── Google OAuth ────────────────────────────────────────────────────────────
 
   @Get('google')

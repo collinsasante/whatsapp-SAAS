@@ -578,6 +578,31 @@ export class MessagesService {
       channel: (conversation as Record<string, unknown>)['channel'] ?? null,
     });
 
+    // Campaign reply tracking: if this contact's most recent campaign send hasn't been
+    // marked as replied yet, this inbound message counts as their reply to it.
+    void (async () => {
+      try {
+        const recipient = await this.prisma.campaignRecipient.findFirst({
+          where: { contactId: contact.id, sentAt: { not: null, lte: message.createdAt }, repliedAt: null },
+          orderBy: { sentAt: 'desc' },
+        });
+        if (!recipient) return;
+        // Atomic update — only one concurrent webhook delivery wins; prevents double-counting.
+        const updated = await this.prisma.campaignRecipient.updateMany({
+          where: { id: recipient.id, repliedAt: null },
+          data: { repliedAt: message.createdAt },
+        });
+        if (updated.count > 0) {
+          await this.prisma.campaign.update({
+            where: { id: recipient.campaignId },
+            data: { repliedCount: { increment: 1 } },
+          });
+        }
+      } catch (err) {
+        this.logger.warn(`Campaign reply tracking failed: ${(err as Error).message}`);
+      }
+    })();
+
     // Send welcome message on first inbound message from this contact today
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);

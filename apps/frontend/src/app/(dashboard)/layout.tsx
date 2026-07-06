@@ -53,11 +53,17 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Don't log out users who are simply offline — they can still use cached data.
+    // Retry silently once they reconnect (the 'online' listener below handles that).
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
     setRestoring(true);
     try {
       const newToken = await silentRefresh();
       setAccessToken(newToken);
     } catch {
+      // Only clear session for definitive auth failures, not network errors.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       clearAuth();
       router.replace('/login?_r=restore-fail');
     } finally {
@@ -86,6 +92,13 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       router.replace('/inbox');
     }
   }, [_hasHydrated, isAuthenticated, accessToken, restoreSession, router, tenant, user, pathname]);
+
+  // When the network comes back, retry session restore in case it was skipped while offline.
+  useEffect(() => {
+    const handler = () => { void restoreSession(); };
+    window.addEventListener('online', handler);
+    return () => window.removeEventListener('online', handler);
+  }, [restoreSession]);
 
   useEffect(() => {
     const handler = () => {

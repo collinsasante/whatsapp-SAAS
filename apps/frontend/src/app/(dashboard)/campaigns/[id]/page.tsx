@@ -18,6 +18,7 @@ interface Campaign {
   deliveredCount: number;
   readCount: number;
   failedCount: number;
+  repliedCount: number;
   scheduledAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -158,6 +159,7 @@ export default function CampaignDetailPage() {
     { label: 'Sent', value: campaign.sentCount, color: 'bg-blue-400', textColor: 'text-blue-700' },
     { label: 'Delivered', value: campaign.deliveredCount, color: 'bg-teal-400', textColor: 'text-teal-700' },
     { label: 'Read', value: campaign.readCount, color: 'bg-purple-400', textColor: 'text-purple-700' },
+    { label: 'Replied', value: campaign.repliedCount, color: 'bg-green-400', textColor: 'text-green-700' },
     { label: 'Failed', value: campaign.failedCount, color: 'bg-red-400', textColor: 'text-red-600' },
   ];
 
@@ -221,7 +223,7 @@ export default function CampaignDetailPage() {
         {/* Delivery funnel */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4">Delivery Funnel</h2>
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-6 gap-3">
             {funnelSteps.map(({ label, value, color, textColor }) => {
               const p = pct(value, campaign.totalRecipients || 1);
               return (
@@ -243,12 +245,14 @@ export default function CampaignDetailPage() {
           </div>
           {/* Progress bar */}
           <div className="mt-5 h-2 bg-gray-100 rounded-full overflow-hidden flex">
-            <div className="h-full bg-purple-400" style={{ width: `${pct(campaign.readCount, campaign.totalRecipients || 1)}%` }} />
+            <div className="h-full bg-green-400" style={{ width: `${pct(campaign.repliedCount, campaign.totalRecipients || 1)}%` }} />
+            <div className="h-full bg-purple-400" style={{ width: `${pct(Math.max(0, campaign.readCount - campaign.repliedCount), campaign.totalRecipients || 1)}%` }} />
             <div className="h-full bg-teal-400" style={{ width: `${pct(Math.max(0, campaign.deliveredCount - campaign.readCount), campaign.totalRecipients || 1)}%` }} />
             <div className="h-full bg-blue-400" style={{ width: `${pct(Math.max(0, campaign.sentCount - campaign.deliveredCount), campaign.totalRecipients || 1)}%` }} />
             <div className="h-full bg-red-400" style={{ width: `${pct(campaign.failedCount, campaign.totalRecipients || 1)}%` }} />
           </div>
           <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-400" />Replied</span>
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-400" />Read</span>
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-400" />Delivered</span>
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-400" />Sent</span>

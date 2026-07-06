@@ -42,6 +42,9 @@ interface Props {
   onResolvedLoaded?: (convs: Conversation[]) => void;
   mobileHidden?: boolean;
   currentUserId?: string;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 const STATUS_FILTERS = [
@@ -329,7 +332,7 @@ const ConvRow = memo(function ConvRow({
   );
 });
 
-export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId }: Props) {
+export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId, hasMore, loadingMore, onLoadMore }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
@@ -472,8 +475,9 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     return sourceConversations
       .filter((c) => {
         if (!c.contact) return false;
-        // Hide expired (24h session elapsed) conversations from the active list
-        if (c.lastInboundAt && c.status !== 'RESOLVED') {
+        // Hide expired (24h session elapsed) conversations from the default "All" view only —
+        // an explicit tab like Requests must still surface stale unactioned conversations.
+        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED') {
           const elapsed = now - new Date(c.lastInboundAt).getTime();
           if (elapsed > TWENTY_FOUR_HOURS) return false;
         }
@@ -485,7 +489,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         const name = c.contact.name ?? c.contact.phone;
         const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
         const matchesStatus = statusFilter === 'All'
-          ? (c.status !== 'RESOLVED' && c.status !== 'INTERVENED')
+          ? (c.status !== 'RESOLVED' && (c.status !== 'INTERVENED' || c.assignedTo?.id === currentUserId))
           : statusFilter === 'UNREPLIED'
             ? c.status !== 'RESOLVED'
             : c.status === statusFilter;
@@ -516,6 +520,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     const allIntervened = sourceConversations.filter((c) => {
       if (c.status !== 'INTERVENED') return false;
       if (!c.assignedTo) return false;
+      if (c.assignedTo.id === currentUserId) return false;
       if (!c.contact) return false;
       if (c.lastInboundAt) {
         const elapsed = now - new Date(c.lastInboundAt).getTime();
@@ -535,7 +540,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       map.get(id)!.convs.push(conv);
     }
     return Array.from(map.values());
-  }, [sourceConversations, statusFilter, memberFilter, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourceConversations, statusFilter, memberFilter, search, currentUserId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={cn('w-full md:w-72 border-r border-gray-100 bg-white flex flex-col h-full flex-shrink-0', mobileHidden && 'hidden md:flex')}>
@@ -721,7 +726,14 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        onScroll={(e) => {
+          if (statusFilter !== 'All' || search.trim() || !hasMore || loadingMore || !onLoadMore) return;
+          const el = e.currentTarget;
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) onLoadMore();
+        }}
+      >
         {(loading || resolvedLoading || requestedLoading) ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
@@ -749,6 +761,12 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   <ConvRow key={conv.id} conv={conv} isActive={conv.id === activeId} onSelect={onSelect} />
                 ))}
               </AnimatePresence>
+
+              {statusFilter === 'All' && !search.trim() && loadingMore && (
+                <div className="flex items-center justify-center py-3">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-teal-600" />
+                </div>
+              )}
 
               {/* Intervened by other agents — grouped sections */}
               {hasGroups && (
