@@ -16,12 +16,15 @@ export default function InboxPage() {
 function InboxPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { conversations, activeConversationId, setConversations, mergeConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
+  const { conversations, activeConversationId, setConversations, mergeConversations, appendConversations, setActiveConversation, markConversationRead, statusCounts, setStatusCounts } = useInboxStore();
   const currentUser = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Parameters<typeof setConversations>[0]>([]);
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -33,8 +36,11 @@ function InboxPageInner() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await conversationsApi.list({ limit: 50 });
-        setConversations((res.data as { data: unknown[] }).data as Parameters<typeof setConversations>[0]);
+        const res = await conversationsApi.list({ limit: 50, page: 1 });
+        const { data, meta } = res.data as { data: unknown[]; meta?: { hasNextPage: boolean } };
+        setConversations(data as Parameters<typeof setConversations>[0]);
+        setPage(1);
+        setHasMore(meta?.hasNextPage ?? false);
       } catch (err) {
       } finally {
         setLoading(false);
@@ -43,6 +49,23 @@ function InboxPageInner() {
     void load();
     void loadCounts();
   }, [setConversations, loadCounts]);
+
+  const loadMoreConversations = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const res = await conversationsApi.list({ limit: 50, page: nextPage });
+      const { data, meta } = res.data as { data: unknown[]; meta?: { hasNextPage: boolean } };
+      appendConversations(data as Parameters<typeof setConversations>[0]);
+      setPage(nextPage);
+      setHasMore(meta?.hasNextPage ?? false);
+    } catch {
+      /* silent — user can retry by scrolling again */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [page, hasMore, loadingMore, appendConversations]);
 
   // Refresh counts when conversation_state_changed socket events fire
   useEffect(() => {
@@ -155,6 +178,9 @@ function InboxPageInner() {
         onResolvedLoaded={(convs) => setResolvedConversations(convs as Parameters<typeof setConversations>[0])}
         mobileHidden={mobileView === 'chat'}
         currentUserId={currentUser?.id}
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={loadMoreConversations}
       />
       {activeConversation ? (
         <div className={`${mobileView === 'list' ? 'hidden md:flex' : 'flex'} flex-1 min-h-0 overflow-hidden`}>

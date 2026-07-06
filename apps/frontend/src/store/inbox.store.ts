@@ -51,6 +51,8 @@ interface InboxState {
   setConversations: (conversations: Conversation[]) => void;
   // Merges fresh API list with existing, preserving socket-only conversations not in the API response
   mergeConversations: (incoming: Conversation[]) => void;
+  // Appends an older page to the end of the list, skipping any already present
+  appendConversations: (incoming: Conversation[]) => void;
   // Adds to top if new, updates IN-PLACE (no reorder) if already in the list
   prependConversation: (conversation: Partial<Conversation> & { id: string }) => void;
   // Moves conversation to top — only for new-message events
@@ -88,6 +90,13 @@ export const useInboxStore = create<InboxState>((set) => ({
       // Keep any conversation that arrived via socket but isn't returned by the API poll
       const socketOnly = state.conversations.filter((c) => !incomingIds.has(c.id));
       return { conversations: [...incoming, ...socketOnly] };
+    }),
+
+  appendConversations: (incoming) =>
+    set((state) => {
+      const existingIds = new Set(state.conversations.map((c) => c.id));
+      const newOnes = incoming.filter((c) => !existingIds.has(c.id));
+      return { conversations: [...state.conversations, ...newOnes] };
     }),
 
   // Merges partial data into an existing conversation IN-PLACE (no reorder).

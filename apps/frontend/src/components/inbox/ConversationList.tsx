@@ -42,6 +42,9 @@ interface Props {
   onResolvedLoaded?: (convs: Conversation[]) => void;
   mobileHidden?: boolean;
   currentUserId?: string;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 const STATUS_FILTERS = [
@@ -329,7 +332,7 @@ const ConvRow = memo(function ConvRow({
   );
 });
 
-export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId }: Props) {
+export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId, hasMore, loadingMore, onLoadMore }: Props) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [channelFilter, setChannelFilter] = useState('All');
@@ -721,7 +724,14 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        onScroll={(e) => {
+          if (statusFilter !== 'All' || search.trim() || !hasMore || loadingMore || !onLoadMore) return;
+          const el = e.currentTarget;
+          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) onLoadMore();
+        }}
+      >
         {(loading || resolvedLoading || requestedLoading) ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
@@ -749,6 +759,12 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   <ConvRow key={conv.id} conv={conv} isActive={conv.id === activeId} onSelect={onSelect} />
                 ))}
               </AnimatePresence>
+
+              {statusFilter === 'All' && !search.trim() && loadingMore && (
+                <div className="flex items-center justify-center py-3">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-teal-600" />
+                </div>
+              )}
 
               {/* Intervened by other agents — grouped sections */}
               {hasGroups && (
