@@ -735,6 +735,7 @@ model Campaign {
   deliveredCount    Int            @default(0) @map("delivered_count")
   readCount         Int            @default(0) @map("read_count")
   failedCount       Int            @default(0) @map("failed_count")
+  repliedCount      Int            @default(0) @map("replied_count")
   createdById       String         @map("created_by_id")
   trackingUrl       String?        @map("tracking_url")
   clickCount        Int            @default(0) @map("click_count")
@@ -769,6 +770,7 @@ model CampaignRecipient {
   messageId    String?         @map("message_id")
   errorMessage String?         @map("error_message")
   sentAt       DateTime?       @map("sent_at")
+  repliedAt    DateTime?       @map("replied_at")
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact  Contact  @relation(fields: [contactId], references: [id])
