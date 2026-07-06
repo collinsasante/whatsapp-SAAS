@@ -301,6 +301,17 @@ export const dashboardApi = {
   businessProfile: () => api.get('/dashboard/business-profile'),
 };
 
+export const analyticsApi = {
+  overview: (from: string, to: string) => api.get('/analytics/overview', { params: { from, to } }),
+  conversations: (from: string, to: string, granularity: 'day' | 'hour' = 'day') =>
+    api.get('/analytics/conversations', { params: { from, to, granularity } }),
+  agents: (from: string, to: string) => api.get('/analytics/agents', { params: { from, to } }),
+  campaigns: (from: string, to: string, limit = 20, offset = 0) =>
+    api.get('/analytics/campaigns', { params: { from, to, limit, offset } }),
+  health: () => api.get('/analytics/health'),
+  revenue: (from: string, to: string) => api.get('/analytics/revenue', { params: { from, to } }),
+};
+
 export const channelsApi = {
   list: () => api.get('/channels'),
   get: (id: string) => api.get(`/channels/${id}`),
