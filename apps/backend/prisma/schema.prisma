@@ -79,6 +79,7 @@ model Tenant {
   analyticsDailyMessageStats      AnalyticsDailyMessageStats[]
   analyticsDailyConversationStats AnalyticsDailyConversationStats[]
   analyticsDailyRevenueStats      AnalyticsDailyRevenueStats[]
+  platformTenantMrrSnapshots      PlatformTenantMrrSnapshot[]
 
   @@map("tenants")
 }
@@ -1538,6 +1539,82 @@ model AnalyticsDailyRevenueStats {
   @@unique([tenantId, date, gateway])
   @@index([tenantId, date])
   @@map("analytics_daily_revenue_stats")
+}
+
+// ─── Platform admin: cross-tenant rollups ─────────────────────────────────
+// Platform-wide message/conversation/revenue totals and provider success
+// rates are NOT duplicated here -- they're derived live by aggregating the
+// existing tenant-scoped AnalyticsDaily*Stats tables above across all
+// tenants (see the `date` indexes added on those tables in this migration).
+// What genuinely can't be derived from existing tables lives here:
+// per-tenant-per-day MRR snapshots (for movement classification + tenant
+// drill-down), platform-wide tenant/subscription lifecycle counts, and a
+// daily FX rate so multi-currency revenue can be normalized to one
+// reporting currency (GHS) with the estimation clearly flagged.
+
+model CurrencyRate {
+  id          String   @id @default(uuid())
+  date        DateTime @db.Date
+  currency    String
+  rateToGhs   Float    @map("rate_to_ghs")
+  isEstimated Boolean  @default(true) @map("is_estimated")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([date, currency])
+  @@map("currency_rates")
+}
+
+enum MrrMovementCategory {
+  NEW
+  EXPANSION
+  CONTRACTION
+  CHURNED
+  RETAINED
+  NONE
+}
+
+// One row per tenant per calendar day -- the MRR the tenant contributed that day, normalized to GHS, and how it moved vs. the prior day's row.
+model PlatformTenantMrrSnapshot {
+  id       String              @id @default(uuid())
+  tenantId String              @map("tenant_id")
+  date     DateTime            @db.Date
+  mrrGhs   Float               @default(0) @map("mrr_ghs")
+  category MrrMovementCategory
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([date, category])
+  @@map("platform_tenant_mrr_snapshots")
+}
+
+// One row per calendar day -- platform-wide tenant/subscription lifecycle counts, MRR/ARR totals, and login-derived DAU/WAU/MAU.
+model PlatformDailyStats {
+  id   String   @id @default(uuid())
+  date DateTime @unique @db.Date
+
+  totalTenants         Int @default(0) @map("total_tenants")
+  activeTenants        Int @default(0) @map("active_tenants")
+  newTenants           Int @default(0) @map("new_tenants")
+  trialTenants         Int @default(0) @map("trial_tenants")
+  activeSubscriptions  Int @default(0) @map("active_subscriptions")
+  pastDueSubscriptions Int @default(0) @map("past_due_subscriptions")
+  trialsConverted      Int @default(0) @map("trials_converted")
+  churnedTenants       Int @default(0) @map("churned_tenants")
+
+  mrrGhs Float @default(0) @map("mrr_ghs")
+  arrGhs Float @default(0) @map("arr_ghs")
+
+  dau Int @default(0)
+  wau Int @default(0)
+  mau Int @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  @@map("platform_daily_stats")
 }
 
 model WorkspaceUsage {

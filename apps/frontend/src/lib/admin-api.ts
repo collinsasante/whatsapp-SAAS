@@ -53,6 +53,100 @@ export interface Workspace {
   } | null;
 }
 
+export interface TenantTableRow {
+  id: string;
+  name: string;
+  status: string;
+  isActive: boolean;
+  createdAt: string;
+  country: string | null;
+  billingEmail: string | null;
+  plan: string | null;
+  trialEndsAt: string | null;
+  mrrGhs: number;
+  teammateCount: number;
+  lastPayment: { status: string; gateway: string; createdAt: string } | null;
+  healthScore: number;
+  healthBreakdown: { loginActivity: number; messageActivity: number; broadcastActivity: number; teamSize: number; paymentStatus: number };
+  churnRisk: boolean;
+  usage: { conversationsThisMonth: number; messagesLast30Days: number; broadcastsThisMonth: number };
+}
+
+export interface WorkspaceDetail {
+  id: string; name: string; isActive: boolean; billingEmail: string | null; createdAt: string;
+  country: string | null; aiCredits: number;
+  _count: { users: number; conversations: number; messages: number; contacts: number };
+  subscription: {
+    status: string; cycle: string; trialEndsAt: string | null; currentPeriodEnd: string;
+    plan: { name: string; monthlyPrice: number; yearlyPrice: number; currency: string };
+  } | null;
+  whatsappNumbers: { id: string; label: string | null; phoneNumberId: string; qualityRating: string | null; messagingLimitTier: string | null; qualitySyncedAt: string | null }[];
+  users: { id: string; name: string; email: string; role: string; lastLoginAt: string | null }[];
+  invoices: Invoice[];
+  creditPurchases: CreditPurchase[];
+  payments: { id: string; gateway: string; status: string; amount: number; currency: string; createdAt: string; verifiedAt: string | null; failReason: string | null }[];
+  auditLog: { id: string; action: string; resourceType: string | null; resourceId: string | null; metadata: unknown; createdAt: string; admin: { name: string; email: string } | null }[];
+  usage: {
+    messageTrend: { date: string; sent: number; received: number }[];
+    conversationTrend: { date: string; opened: number; resolved: number }[];
+  };
+  recentCampaigns: { id: string; name: string; status: string; totalRecipients: number; sentCount: number; createdAt: string }[];
+  healthScore: number;
+  healthBreakdown: { loginActivity: number; messageActivity: number; broadcastActivity: number; teamSize: number; paymentStatus: number };
+  churnRisk: boolean;
+  lifecycleStage: string;
+}
+
+export interface RevenueData {
+  period: { from: string; to: string };
+  revenueByProviderDay: (Record<string, number> & { date: string })[];
+  successRateByProvider: { gateway: string; successCount: number; failedCount: number; amountGhs: number; successRatePct: number | null }[];
+  alerts: { gateway: string; successRatePct: number; sampleSize: number }[];
+  failureReasons: { gateway: string; reason: string; count: number }[];
+  pastDueWorklist: { tenantId: string; tenantName: string; billingEmail: string | null; planName: string; amount: number; currency: string; overdueSinceDate: string; daysOverdue: number }[];
+  upcomingRenewals: { in7Days: number; in30Days: number };
+  revenueByPlan: { plan: string; amount: number }[];
+}
+
+export interface FunnelData {
+  period: { from: string; to: string };
+  cohortSize: number;
+  stages: { stage: string; count: number; conversionFromPrevPct: number | null }[];
+}
+
+export interface UsageData {
+  period: { from: string; to: string };
+  totals: { messagesSent: number; messagesReceived: number; newConversations: number; resolvedConversations: number; broadcastsSent: number; templatesCreated: number };
+  dauWauMauTrend: { date: string; dau: number; wau: number; mau: number }[];
+  stickinessRatio: number | null;
+  featureAdoption: { feature: string; adoptionPct: number }[];
+  powerUserHistogram: { bucket: string; tenantCount: number }[];
+}
+
+export interface PlatformHealthData {
+  queueHealth: { name: string; waiting: number; active: number; completed: number; failed: number; delayed: number; reachable: boolean }[];
+  whatsappQuality: { total: number; GREEN: number; YELLOW: number; RED: number; UNKNOWN: number };
+  errorRateTrend: { date: string; sent: number; failed: number; errorRatePct: number }[];
+  costEstimatePerTenant: { tenantId: string; tenantName: string; conversations: number; estimatedCostUsd: number; revenue: number; estimatedGrossMargin: number }[];
+  notInstrumented: string[];
+}
+
+export interface OverviewData {
+  period: { from: string; to: string };
+  mrr: { amountGhs: number; changePct: number | null; trend: { date: string; amountGhs: number }[] };
+  arrGhs: number;
+  activePayingTenants: number;
+  trialsInProgress: number;
+  trialToPaidConversionRate: number | null;
+  netRevenueRetention: number | null;
+  logoChurnRate: number | null;
+  arpuGhs: number;
+  mrrMovement: Record<'NEW' | 'EXPANSION' | 'CONTRACTION' | 'CHURNED', {
+    count: number; amountGhs: number;
+    tenants: { tenantId: string; tenantName: string; mrrGhs: number; date: string }[];
+  }>;
+}
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -130,18 +224,72 @@ export const adminApi = {
 
   dashboard: () => req<AdminStats>('GET', '/dashboard'),
 
-  workspaces: (page = 1, search = '') =>
-    req<{ tenants: Workspace[]; total: number; page: number; limit: number }>(
-      'GET', `/workspaces?page=${page}&limit=20&search=${encodeURIComponent(search)}`,
-    ),
+  overview: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<OverviewData>('GET', `/overview${qs ? `?${qs}` : ''}`);
+  },
 
-  getWorkspace: (id: string) => req<Workspace & { _count: { users: number; conversations: number; messages: number; contacts: number }; invoices: Invoice[]; creditPurchases: CreditPurchase[] }>('GET', `/workspaces/${id}`),
+  workspaces: (opts: { search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.search) params.set('search', opts.search);
+    if (opts.filter) params.set('filter', opts.filter);
+    if (opts.sort) params.set('sort', opts.sort);
+    if (opts.order) params.set('order', opts.order);
+    params.set('limit', String(opts.limit ?? 20));
+    params.set('offset', String(opts.offset ?? 0));
+    return req<{ tenants: TenantTableRow[]; total: number; limit: number; offset: number }>('GET', `/workspaces?${params.toString()}`);
+  },
+
+  /** CSV export respects the same search/filter/sort as the table -- returns the blob for the caller to trigger a download. */
+  exportWorkspacesCsv: async (opts: { search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc' } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.search) params.set('search', opts.search);
+    if (opts.filter) params.set('filter', opts.filter);
+    if (opts.sort) params.set('sort', opts.sort);
+    if (opts.order) params.set('order', opts.order);
+    const res = await fetch(`${BASE}/workspaces/export?${params.toString()}`, {
+      headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    });
+    if (!res.ok) throw new Error('Export failed');
+    return res.blob();
+  },
+
+  getWorkspace: (id: string) => req<WorkspaceDetail>('GET', `/workspaces/${id}`),
 
   suspendWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/suspend`),
   activateWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/activate`),
 
   allInvoices: (page = 1) =>
     req<{ invoices: Invoice[]; total: number }>('GET', `/billing/invoices?page=${page}&limit=20`),
+
+  revenue: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<RevenueData>('GET', `/revenue${qs ? `?${qs}` : ''}`);
+  },
+
+  funnel: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<FunnelData>('GET', `/funnel${qs ? `?${qs}` : ''}`);
+  },
+
+  usage: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<UsageData>('GET', `/usage${qs ? `?${qs}` : ''}`);
+  },
+
+  platformHealth: () => req<PlatformHealthData>('GET', '/platform-health'),
 
   users: (page = 1, search = '') =>
     req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
