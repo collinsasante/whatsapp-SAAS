@@ -108,6 +108,21 @@ export interface RevenueData {
   revenueByPlan: { plan: string; amount: number }[];
 }
 
+export interface FunnelData {
+  period: { from: string; to: string };
+  cohortSize: number;
+  stages: { stage: string; count: number; conversionFromPrevPct: number | null }[];
+}
+
+export interface UsageData {
+  period: { from: string; to: string };
+  totals: { messagesSent: number; messagesReceived: number; newConversations: number; resolvedConversations: number; broadcastsSent: number; templatesCreated: number };
+  dauWauMauTrend: { date: string; dau: number; wau: number; mau: number }[];
+  stickinessRatio: number | null;
+  featureAdoption: { feature: string; adoptionPct: number }[];
+  powerUserHistogram: { bucket: string; tenantCount: number }[];
+}
+
 export interface OverviewData {
   period: { from: string; to: string };
   mrr: { amountGhs: number; changePct: number | null; trend: { date: string; amountGhs: number }[] };
@@ -234,6 +249,22 @@ export const adminApi = {
     if (to) params.set('to', to);
     const qs = params.toString();
     return req<RevenueData>('GET', `/revenue${qs ? `?${qs}` : ''}`);
+  },
+
+  funnel: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<FunnelData>('GET', `/funnel${qs ? `?${qs}` : ''}`);
+  },
+
+  usage: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<UsageData>('GET', `/usage${qs ? `?${qs}` : ''}`);
   },
 
   users: (page = 1, search = '') =>

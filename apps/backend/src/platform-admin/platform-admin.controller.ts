@@ -6,7 +6,7 @@ import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAuditService } from './platform-audit.service';
 import { RequirePlatformRole } from './decorators/require-platform-role.decorator';
-import { AdminLoginDto, AdminSetupDto, CreatePlanDto, OverviewQueryDto, RevenueQueryDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
+import { AdminLoginDto, AdminSetupDto, CreatePlanDto, FunnelQueryDto, OverviewQueryDto, RevenueQueryDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto, UsageQueryDto } from './dto/platform-admin.dto';
 
 @ApiTags('Platform Admin')
 @Controller('platform-admin')
@@ -63,6 +63,18 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   revenue(@Query() query: RevenueQueryDto) {
     return this.adminService.getRevenue(query.from, query.to);
+  }
+
+  @Get('funnel')
+  @UseGuards(PlatformAdminGuard)
+  funnel(@Query() query: FunnelQueryDto) {
+    return this.adminService.getFunnel(query.from, query.to);
+  }
+
+  @Get('usage')
+  @UseGuards(PlatformAdminGuard)
+  usage(@Query() query: UsageQueryDto) {
+    return this.adminService.getUsage(query.from, query.to);
   }
 
   @Get('workspaces')

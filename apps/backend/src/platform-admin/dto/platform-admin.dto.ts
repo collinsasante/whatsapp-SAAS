@@ -13,6 +13,16 @@ export class RevenueQueryDto {
   @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
 }
 
+export class FunnelQueryDto {
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
+}
+
+export class UsageQueryDto {
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
+}
+
 export const TENANT_TABLE_FILTERS = ['churn_risk', 'trial_ending_7d', 'high_value', 'signed_up_this_month', 'past_due'] as const;
 export type TenantTableFilter = (typeof TENANT_TABLE_FILTERS)[number];
 
