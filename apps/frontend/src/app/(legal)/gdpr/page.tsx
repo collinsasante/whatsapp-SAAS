@@ -1,14 +1,28 @@
-import type { Metadata } from 'next';
+import { buildMetadata, breadcrumbSchema, webPageSchema } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'GDPR — VerzChat',
+export const metadata = buildMetadata({
+  title: 'GDPR & Data Rights',
   description: 'VerzChat GDPR compliance information for EU/EEA users.',
-  alternates: { canonical: '/gdpr' },
-};
+  path: '/gdpr',
+});
+
+const pageBreadcrumb = breadcrumbSchema('/gdpr', [
+  { name: 'Home', path: '/' },
+  { name: 'GDPR & Data Rights', path: '/gdpr' },
+]);
+
+const pageSchema = webPageSchema({
+  path: '/gdpr',
+  name: 'GDPR & Data Rights — VerzChat',
+  description: 'VerzChat GDPR compliance information for EU/EEA users.',
+  hasBreadcrumb: true,
+});
 
 export default function GdprPage() {
   return (
     <div className="max-w-3xl mx-auto px-5 sm:px-8 py-16">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageBreadcrumb) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageSchema) }} />
       <div className="mb-10">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Last updated: 19 May 2026</p>
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">GDPR & Data Rights</h1>

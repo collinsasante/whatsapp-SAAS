@@ -23,8 +23,14 @@ export default function Hero() {
     <section className="hero_sec">
       <div className="container">
         <div className="row align-items-center g-5">
-          {/* Left */}
-          <div className="col-lg-6" data-aos="fade-right">
+          {/* Left -- deliberately NOT using data-aos: this is above-the-fold content,
+              visible on first paint with no scrolling required. AOS ships CSS that
+              sets opacity:0 on any [data-aos] element until its JS runs (on mount,
+              client-side only) -- gating the LCP element behind that add 20s+ of
+              "element render delay" under throttled mobile conditions (confirmed via
+              Lighthouse). Scroll-reveal only makes sense for content the user scrolls
+              to see. */}
+          <div className="col-lg-6">
             <div className="hero_badge">
               <span className="dot" />
               Official Meta API Partner
@@ -56,8 +62,9 @@ export default function Hero() {
             </div>
           </div>
 
-          {/* Right — inline inbox mockup (hidden on mobile, shows at lg+) */}
-          <div className="col-lg-6 d-none d-lg-block" data-aos="fade-left" data-aos-delay="150">
+          {/* Right — inline inbox mockup (hidden on mobile, shows at lg+). Also
+              above-the-fold on desktop -- same reasoning as the left column, no data-aos. */}
+          <div className="col-lg-6 d-none d-lg-block">
             <div className="hero_img_wrap">
               <div className="hero_star_tl">✦</div>
               <div className="hero_star_br">✦</div>

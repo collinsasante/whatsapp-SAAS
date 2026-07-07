@@ -10,7 +10,12 @@ import BottomCTA from '@/components/landing/BottomCTA';
 import Footer from '@/components/landing/Footer';
 
 export const metadata: Metadata = {
-  title: 'VerzChat — WhatsApp Business Inbox for Teams',
+  // `absolute` explicitly bypasses the root layout's title.template ('%s | VerzChat')
+  // -- this is the home page's own brand identity, not a "<page> | VerzChat" pattern.
+  // Every other page's title should be the page-specific part ONLY (see lib/seo.ts);
+  // this was previously a plain string here, which got the template applied on top
+  // and rendered as "VerzChat — WhatsApp Business Inbox for Teams | VerzChat" live.
+  title: { absolute: 'VerzChat — WhatsApp Business Inbox for Teams' },
   description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API. Teams live in under 20 minutes.',
   openGraph: {
     url: 'https://verzchat.com',
@@ -24,13 +29,18 @@ export const metadata: Metadata = {
   },
 };
 
+// @id-tagged so other pages (faq/layout.tsx, contact-us) can reference these same
+// entities via isPartOf/publisher/about instead of duplicating them -- previously
+// these had no @id at all, so those cross-page references were dangling (pointed
+// at fragment IDs nothing ever emitted).
 const organizationSchema = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
+  '@id': 'https://verzchat.com/#organization',
   name: 'VerzChat',
   url: 'https://verzchat.com',
   logo: 'https://verzchat.com/logo.png',
-  sameAs: [],
+  sameAs: ['https://twitter.com/verzchat'],
   contactPoint: {
     '@type': 'ContactPoint',
     contactType: 'sales',
@@ -38,41 +48,32 @@ const organizationSchema = {
   },
 };
 
+// Pricing here matches Pricing.tsx exactly (Free / Starter $16 / Pro $25, GHS via
+// GHS_RATE=12.5 for Ghana-detected visitors) -- do not restate these numbers anywhere
+// without checking that component first, they're the single source of truth.
 const softwareApplicationSchema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
+  '@id': 'https://verzchat.com/#software',
   name: 'VerzChat',
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'Web',
-  offers: {
-    '@type': 'Offer',
-    price: '0',
-    priceCurrency: 'USD',
-    description: 'Free trial available',
-  },
   description:
     'Multi-channel business messaging platform. Handle every customer WhatsApp message from one shared inbox.',
+  offers: [
+    { '@type': 'Offer', name: 'Free', price: '0', priceCurrency: 'GHS', description: 'Forever free, no card needed' },
+    { '@type': 'Offer', name: 'Starter', price: '200', priceCurrency: 'GHS', description: 'Billed monthly' },
+    { '@type': 'Offer', name: 'Pro', price: '313', priceCurrency: 'GHS', description: 'Billed monthly' },
+  ],
 };
 
 const webSiteSchema = {
   '@context': 'https://schema.org',
   '@type': 'WebSite',
+  '@id': 'https://verzchat.com/#website',
   name: 'VerzChat',
   url: 'https://verzchat.com',
-};
-
-const faqSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'FAQPage',
-  mainEntity: [
-    { '@type': 'Question', name: 'How much does VerzChat cost?', acceptedAnswer: { '@type': 'Answer', text: 'VerzChat is $25 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' } },
-    { '@type': 'Question', name: 'Can I use my existing WhatsApp Business number?', acceptedAnswer: { '@type': 'Answer', text: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through every step.' } },
-    { '@type': 'Question', name: 'Is there a per-message fee?', acceptedAnswer: { '@type': 'Answer', text: 'No. VerzChat charges a flat monthly fee of $25. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' } },
-    { '@type': 'Question', name: 'How many team members can I add?', acceptedAnswer: { '@type': 'Answer', text: 'Your $25 plan supports unlimited agents. Invite your entire team — support staff, sales reps, managers — all from the same workspace.' } },
-    { '@type': 'Question', name: 'Can I cancel at any time?', acceptedAnswer: { '@type': 'Answer', text: 'Yes — cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes.' } },
-    { '@type': 'Question', name: 'Is my customer data secure?', acceptedAnswer: { '@type': 'Answer', text: 'All data is encrypted at rest and in transit using AES-256 and TLS 1.3. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' } },
-    { '@type': 'Question', name: 'How quickly can my team get started?', acceptedAnswer: { '@type': 'Answer', text: 'Most teams are live in under 20 minutes. Connect your WhatsApp number, invite your agents, and you\'re handling conversations immediately.' } },
-  ],
+  publisher: { '@id': 'https://verzchat.com/#organization' },
 };
 
 export default function LandingPage() {
@@ -89,10 +90,6 @@ export default function LandingPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(webSiteSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
       />
       <Navbar />
       <Hero />

@@ -1,10 +1,22 @@
-import type { Metadata } from 'next';
+import { buildMetadata, breadcrumbSchema, webPageSchema } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Changelog — VerzChat',
+export const metadata = buildMetadata({
+  title: 'Changelog',
   description: 'VerzChat product changelog — see what\'s new, improved, and fixed in each release.',
-  alternates: { canonical: '/changelog' },
-};
+  path: '/changelog',
+});
+
+const pageBreadcrumb = breadcrumbSchema('/changelog', [
+  { name: 'Home', path: '/' },
+  { name: 'Changelog', path: '/changelog' },
+]);
+
+const pageSchema = webPageSchema({
+  path: '/changelog',
+  name: 'Changelog — VerzChat',
+  description: 'VerzChat product changelog — see what\'s new, improved, and fixed in each release.',
+  hasBreadcrumb: true,
+});
 
 const entries = [
   {
@@ -69,6 +81,8 @@ const typeStyle: Record<string, string> = {
 export default function ChangelogPage() {
   return (
     <div className="max-w-3xl mx-auto px-5 sm:px-8 py-16">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageBreadcrumb) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageSchema) }} />
       <div className="mb-12">
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">Changelog</h1>
         <p className="text-lg text-gray-500">

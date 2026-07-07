@@ -37,6 +37,12 @@ export const metadata: Metadata = {
   alternates: {
     canonical: '/',
   },
+  // Set GOOGLE_SITE_VERIFICATION in the environment once a property is verified in
+  // Search Console (Settings > Ownership verification > HTML tag > copy the content
+  // value only). Omitted entirely when unset so no empty tag ships to production.
+  ...(process.env.GOOGLE_SITE_VERIFICATION
+    ? { verification: { google: process.env.GOOGLE_SITE_VERIFICATION } }
+    : {}),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,5 +1,4 @@
 'use client';
-import type { Metadata } from 'next';
 import { CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
 

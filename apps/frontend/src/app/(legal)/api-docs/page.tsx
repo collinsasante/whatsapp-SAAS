@@ -1,10 +1,22 @@
-import type { Metadata } from 'next';
+import { buildMetadata, breadcrumbSchema, webPageSchema } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'API Docs — VerzChat',
+export const metadata = buildMetadata({
+  title: 'API Docs',
   description: 'VerzChat API documentation — webhooks, REST endpoints, and integration guides for developers.',
-  alternates: { canonical: '/api-docs' },
-};
+  path: '/api-docs',
+});
+
+const pageBreadcrumb = breadcrumbSchema('/api-docs', [
+  { name: 'Home', path: '/' },
+  { name: 'API Docs', path: '/api-docs' },
+]);
+
+const pageSchema = webPageSchema({
+  path: '/api-docs',
+  name: 'API Docs — VerzChat',
+  description: 'VerzChat API documentation — webhooks, REST endpoints, and integration guides for developers.',
+  hasBreadcrumb: true,
+});
 
 function CodeBlock({ code, lang = 'bash' }: { code: string; lang?: string }) {
   return (
@@ -25,6 +37,8 @@ function CodeBlock({ code, lang = 'bash' }: { code: string; lang?: string }) {
 export default function ApiDocsPage() {
   return (
     <div className="max-w-3xl mx-auto px-5 sm:px-8 py-16">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageBreadcrumb) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageSchema) }} />
       <div className="mb-10">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">API v1</p>
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">API Docs</h1>

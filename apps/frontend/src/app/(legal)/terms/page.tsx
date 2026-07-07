@@ -1,14 +1,28 @@
-import type { Metadata } from 'next';
+import { buildMetadata, breadcrumbSchema, webPageSchema } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Terms of Service — VerzChat',
+export const metadata = buildMetadata({
+  title: 'Terms of Service',
   description: 'VerzChat terms of service — understand your rights and responsibilities when using our platform.',
-  alternates: { canonical: '/terms' },
-};
+  path: '/terms',
+});
+
+const pageBreadcrumb = breadcrumbSchema('/terms', [
+  { name: 'Home', path: '/' },
+  { name: 'Terms of Service', path: '/terms' },
+]);
+
+const pageSchema = webPageSchema({
+  path: '/terms',
+  name: 'Terms of Service — VerzChat',
+  description: 'VerzChat terms of service — understand your rights and responsibilities when using our platform.',
+  hasBreadcrumb: true,
+});
 
 export default function TermsPage() {
   return (
     <div className="max-w-3xl mx-auto px-5 sm:px-8 py-16">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageBreadcrumb) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(pageSchema) }} />
       <div className="mb-10">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Last updated: 19 May 2026</p>
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">Terms of Service</h1>
