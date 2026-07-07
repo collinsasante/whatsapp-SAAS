@@ -4,7 +4,7 @@ import { CreatePlanDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } fro
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
 import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
-import { deriveLifecycleStage } from './utils/lifecycle.util';
+import { deriveLifecycleStage, LIFECYCLE_STAGES, LifecycleStage } from './utils/lifecycle.util';
 
 const MRR_MOVEMENT_CATEGORIES = ['NEW', 'EXPANSION', 'CONTRACTION', 'CHURNED'] as const;
 
@@ -277,6 +277,148 @@ export class PlatformAdminService {
       pastDueWorklist,
       upcomingRenewals: { in7Days: renewals7, in30Days: renewals30 },
       revenueByPlan: Array.from(revenueByPlan.entries()).map(([plan, amount]) => ({ plan, amount })),
+    };
+  }
+
+  /**
+   * Tenant lifecycle funnel -- "where do I lose people?" Cohort = tenants
+   * created within [from, to]. Stages are cumulative (see lifecycle.util.ts),
+   * so a tenant reaching a later stage counts toward every earlier stage too;
+   * conversion rate between consecutive stages = count(stage N+1) / count(stage N).
+   */
+  async getFunnel(fromStr?: string, toStr?: string) {
+    const { from, to } = resolveDateRange(fromStr, toStr, 'UTC');
+    const fromDate = new Date(`${from}T00:00:00.000Z`);
+    const toDate = new Date(`${to}T23:59:59.999Z`);
+
+    const cohort = await this.prisma.tenant.findMany({
+      where: { createdAt: { gte: fromDate, lte: toDate } },
+      select: {
+        id: true,
+        whatsappNumbers: { where: { isActive: true }, select: { id: true }, take: 1 },
+        users: { where: { isActive: true }, select: { id: true, lastLoginAt: true } },
+      },
+    });
+    const tenantIds = cohort.map((t) => t.id);
+    if (tenantIds.length === 0) {
+      return { period: { from, to }, cohortSize: 0, stages: LIFECYCLE_STAGES.map((stage) => ({ stage, count: 0, conversionFromPrevPct: null })) };
+    }
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [approvedTemplateTenants, campaignTenants, resolvedConvoTenants, paidTenants] = await Promise.all([
+      this.prisma.template.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, status: 'APPROVED' } }),
+      this.prisma.campaign.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds } } }),
+      this.prisma.conversation.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, resolvedAt: { not: null } } }),
+      this.prisma.payment.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, status: 'SUCCEEDED' } }),
+    ]);
+    const hasApprovedTemplate = new Set(approvedTemplateTenants.map((r) => r.tenantId));
+    const hasCampaign = new Set(campaignTenants.map((r) => r.tenantId));
+    const hasResolvedConvo = new Set(resolvedConvoTenants.map((r) => r.tenantId));
+    const everPaid = new Set(paidTenants.map((r) => r.tenantId));
+
+    const stageCounts = new Map<LifecycleStage, number>(LIFECYCLE_STAGES.map((s) => [s, 0]));
+    for (const tenant of cohort) {
+      const lastLoginAt = tenant.users.reduce<Date | null>((latest, u) => (!u.lastLoginAt ? latest : !latest || u.lastLoginAt > latest ? u.lastLoginAt : latest), null);
+      const stage = deriveLifecycleStage({
+        hasWhatsappNumber: tenant.whatsappNumbers.length > 0,
+        hasApprovedTemplate: hasApprovedTemplate.has(tenant.id),
+        hasFirstEngagement: hasCampaign.has(tenant.id) || hasResolvedConvo.has(tenant.id),
+        hasInvitedTeammate: tenant.users.length > 1,
+        everConvertedToPaid: everPaid.has(tenant.id),
+        activeLast7Days: !!lastLoginAt && lastLoginAt >= sevenDaysAgo,
+      });
+      // Cumulative: a tenant "at" stage N has also reached every stage before it.
+      const reachedIndex = LIFECYCLE_STAGES.indexOf(stage);
+      for (let i = 0; i <= reachedIndex; i++) {
+        const s = LIFECYCLE_STAGES[i]!;
+        stageCounts.set(s, (stageCounts.get(s) ?? 0) + 1);
+      }
+    }
+
+    const stages = LIFECYCLE_STAGES.map((stage, i) => {
+      const count = stageCounts.get(stage) ?? 0;
+      const prevCount = i === 0 ? cohort.length : stageCounts.get(LIFECYCLE_STAGES[i - 1]!) ?? 0;
+      return { stage, count, conversionFromPrevPct: prevCount > 0 ? Math.round((count / prevCount) * 1000) / 10 : null };
+    });
+
+    return { period: { from, to }, cohortSize: cohort.length, stages };
+  }
+
+  /**
+   * Product usage & feature adoption -- "what should I build next?" Platform
+   * totals reuse the existing tenant-scoped analytics rollups (cross-tenant
+   * sum); DAU/WAU/MAU reuse PlatformDailyStats (Phase 2). Feature adoption
+   * and the power-user histogram are live queries scoped to the period --
+   * there's no rollup for "did tenant X use feature Y this month" yet, and at
+   * current scale a live query is fast enough not to need one.
+   */
+  async getUsage(fromStr?: string, toStr?: string) {
+    const { from, to } = resolveDateRange(fromStr, toStr, 'UTC');
+    const fromDate = new Date(`${from}T00:00:00.000Z`);
+    const toDate = new Date(`${to}T23:59:59.999Z`);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      activeTenants, messageRollup, conversationRollup, broadcastCount, templateCount,
+      dauWauMauTrend, broadcastTenants, templateTenants, tagTenants, assignmentTenants,
+      automationTenants, paymentTenants, messagesPerTenantLast7Days,
+    ] = await Promise.all([
+      this.prisma.tenant.findMany({ where: { isActive: true }, select: { id: true } }),
+      this.prisma.analyticsDailyMessageStats.aggregate({ where: { date: { gte: fromDate, lte: toDate } }, _sum: { sentCount: true, inboundCount: true } }),
+      this.prisma.analyticsDailyConversationStats.aggregate({ where: { date: { gte: fromDate, lte: toDate } }, _sum: { newConversations: true, resolvedCount: true } }),
+      this.prisma.campaign.count({ where: { createdAt: { gte: fromDate, lte: toDate } } }),
+      this.prisma.template.count({ where: { createdAt: { gte: fromDate, lte: toDate } } }),
+      this.prisma.platformDailyStats.findMany({ where: { date: { gte: fromDate, lte: toDate } }, orderBy: { date: 'asc' }, select: { date: true, dau: true, wau: true, mau: true } }),
+      this.prisma.campaign.groupBy({ by: ['tenantId'], where: { createdAt: { gte: fromDate, lte: toDate } } }),
+      this.prisma.template.groupBy({ by: ['tenantId'], where: { createdAt: { gte: fromDate, lte: toDate } } }),
+      this.prisma.tag.groupBy({ by: ['tenantId'], where: { createdAt: { gte: fromDate, lte: toDate } } }),
+      this.prisma.conversation.groupBy({ by: ['tenantId'], where: { createdAt: { gte: fromDate, lte: toDate }, assignedToId: { not: null } } }),
+      this.prisma.automationRule.groupBy({ by: ['tenantId'], where: { createdAt: { lte: toDate } } }),
+      this.prisma.payment.groupBy({ by: ['tenantId'], where: { status: 'SUCCEEDED', createdAt: { gte: fromDate, lte: toDate } } }),
+      this.prisma.message.groupBy({ by: ['tenantId'], where: { createdAt: { gte: sevenDaysAgo } }, _count: { id: true } }),
+    ]);
+
+    const activeTenantCount = activeTenants.length;
+    const adoptionPct = (tenantIds: Set<string>) => activeTenantCount > 0 ? Math.round((tenantIds.size / activeTenantCount) * 1000) / 10 : 0;
+
+    const featureAdoption = [
+      { feature: 'broadcasts', adoptionPct: adoptionPct(new Set(broadcastTenants.map((r) => r.tenantId))) },
+      { feature: 'templates', adoptionPct: adoptionPct(new Set(templateTenants.map((r) => r.tenantId))) },
+      { feature: 'tags', adoptionPct: adoptionPct(new Set(tagTenants.map((r) => r.tenantId))) },
+      { feature: 'assignments', adoptionPct: adoptionPct(new Set(assignmentTenants.map((r) => r.tenantId))) },
+      { feature: 'automations', adoptionPct: adoptionPct(new Set(automationTenants.map((r) => r.tenantId))) },
+      { feature: 'payments', adoptionPct: adoptionPct(new Set(paymentTenants.map((r) => r.tenantId))) },
+    ];
+
+    const BUCKET_EDGES = [0, 1, 51, 201, 1001] as const;
+    const BUCKET_LABELS = ['0', '1-50', '51-200', '201-1000', '1000+'];
+    const histogram = BUCKET_LABELS.map((label) => ({ bucket: label, tenantCount: 0 }));
+    for (const row of messagesPerTenantLast7Days) {
+      const count = row._count.id;
+      let bucketIndex = BUCKET_EDGES.length - 1;
+      for (let i = 0; i < BUCKET_EDGES.length; i++) {
+        if (count < (BUCKET_EDGES[i + 1] ?? Infinity)) { bucketIndex = i; break; }
+      }
+      histogram[bucketIndex]!.tenantCount++;
+    }
+
+    const latestDauWauMau = dauWauMauTrend[dauWauMauTrend.length - 1];
+    const stickinessRatio = latestDauWauMau && latestDauWauMau.mau > 0 ? Math.round((latestDauWauMau.dau / latestDauWauMau.mau) * 1000) / 10 : null;
+
+    return {
+      period: { from, to },
+      totals: {
+        messagesSent: messageRollup._sum.sentCount ?? 0,
+        messagesReceived: messageRollup._sum.inboundCount ?? 0,
+        newConversations: conversationRollup._sum.newConversations ?? 0,
+        resolvedConversations: conversationRollup._sum.resolvedCount ?? 0,
+        broadcastsSent: broadcastCount,
+        templatesCreated: templateCount,
+      },
+      dauWauMauTrend: dauWauMauTrend.map((r) => ({ date: r.date.toISOString().slice(0, 10), dau: r.dau, wau: r.wau, mau: r.mau })),
+      stickinessRatio,
+      featureAdoption,
+      powerUserHistogram: histogram,
     };
   }
 
