@@ -44,7 +44,7 @@ export default function TermsPage() {
         </Section>
 
         <Section title="Billing">
-          <p>The Pro plan is $25/month. Annual billing is $250/year.</p>
+          <p>VerzChat offers a free plan and two paid plans: Starter at $16/month and Pro at $25/month (shown in Ghanaian cedis for Ghana-based accounts). Annual billing is available at a discount on paid plans. See our <a href="/#pricing" className="text-teal-700 underline">pricing page</a> for current plan details and limits.</p>
           <p>Your subscription renews automatically at the start of each billing period. You can cancel anytime from your billing settings and you&apos;ll keep access until the end of the period you paid for. We don&apos;t offer refunds for partial months, but if something went wrong on our end we&apos;ll make it right.</p>
           <p>If a payment fails, we&apos;ll email you and give you 7 days to sort it out before suspending the account.</p>
         </Section>
