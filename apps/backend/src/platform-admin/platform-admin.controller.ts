@@ -1,12 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
-import { PlatformAdminGuard } from './platform-admin.guard';
+import { PlatformAdminGuard, AdminRequest } from './platform-admin.guard';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
+import { PlatformAuditService } from './platform-audit.service';
+import { RequirePlatformRole } from './decorators/require-platform-role.decorator';
 import { AdminLoginDto, AdminSetupDto, CreatePlanDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
-
-type AdminRequest = Request & { adminId: string };
 
 @ApiTags('Platform Admin')
 @Controller('platform-admin')
@@ -14,7 +14,12 @@ export class PlatformAdminController {
   constructor(
     private authService: PlatformAdminAuthService,
     private adminService: PlatformAdminService,
+    private auditService: PlatformAuditService,
   ) {}
+
+  private auditMeta(req: AdminRequest) {
+    return { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
+  }
 
   @Post('auth/setup')
   setup(@Body() dto: AdminSetupDto) {
@@ -66,20 +71,29 @@ export class PlatformAdminController {
 
   @Patch('workspaces/:id')
   @UseGuards(PlatformAdminGuard)
-  updateWorkspace(@Param('id') id: string, @Body() data: UpdateWorkspaceDto) {
-    return this.adminService.updateWorkspace(id, data);
+  @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
+  async updateWorkspace(@Param('id') id: string, @Body() data: UpdateWorkspaceDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.updateWorkspace(id, data);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.update', resourceType: 'Tenant', resourceId: id, metadata: data, ...this.auditMeta(req) });
+    return result;
   }
 
   @Patch('workspaces/:id/suspend')
   @UseGuards(PlatformAdminGuard)
-  suspendWorkspace(@Param('id') id: string) {
-    return this.adminService.suspendWorkspace(id);
+  @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
+  async suspendWorkspace(@Param('id') id: string, @Req() req: AdminRequest) {
+    const result = await this.adminService.suspendWorkspace(id);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.suspend', resourceType: 'Tenant', resourceId: id, ...this.auditMeta(req) });
+    return result;
   }
 
   @Patch('workspaces/:id/activate')
   @UseGuards(PlatformAdminGuard)
-  activateWorkspace(@Param('id') id: string) {
-    return this.adminService.activateWorkspace(id);
+  @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
+  async activateWorkspace(@Param('id') id: string, @Req() req: AdminRequest) {
+    const result = await this.adminService.activateWorkspace(id);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.activate', resourceType: 'Tenant', resourceId: id, ...this.auditMeta(req) });
+    return result;
   }
 
   @Get('billing/invoices')
@@ -96,20 +110,29 @@ export class PlatformAdminController {
 
   @Post('plans')
   @UseGuards(PlatformAdminGuard)
-  createPlan(@Body() data: CreatePlanDto) {
-    return this.adminService.createPlan(data);
+  @RequirePlatformRole('SUPER_ADMIN')
+  async createPlan(@Body() data: CreatePlanDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.createPlan(data);
+    await this.auditService.log({ adminId: req.adminId, action: 'plan.create', resourceType: 'Plan', resourceId: result.id, metadata: data, ...this.auditMeta(req) });
+    return result;
   }
 
   @Patch('plans/:id')
   @UseGuards(PlatformAdminGuard)
-  updatePlan(@Param('id') id: string, @Body() data: UpdatePlanDto) {
-    return this.adminService.updatePlan(id, data);
+  @RequirePlatformRole('SUPER_ADMIN')
+  async updatePlan(@Param('id') id: string, @Body() data: UpdatePlanDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.updatePlan(id, data);
+    await this.auditService.log({ adminId: req.adminId, action: 'plan.update', resourceType: 'Plan', resourceId: id, metadata: data, ...this.auditMeta(req) });
+    return result;
   }
 
   @Patch('workspaces/:id/force-plan')
   @UseGuards(PlatformAdminGuard)
-  forceSubscription(@Param('id') id: string, @Body('planSlug') planSlug: string) {
-    return this.adminService.forceSubscription(id, planSlug);
+  @RequirePlatformRole('SUPER_ADMIN')
+  async forceSubscription(@Param('id') id: string, @Body('planSlug') planSlug: string, @Req() req: AdminRequest) {
+    const result = await this.adminService.forceSubscription(id, planSlug);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.force_plan', resourceType: 'Tenant', resourceId: id, metadata: { planSlug }, ...this.auditMeta(req) });
+    return result;
   }
 
   @Get('workspaces/:id/templates')
@@ -126,7 +149,10 @@ export class PlatformAdminController {
 
   @Patch('users/:id/toggle-active')
   @UseGuards(PlatformAdminGuard)
-  toggleUserActive(@Param('id') id: string) {
-    return this.adminService.toggleUserActive(id);
+  @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
+  async toggleUserActive(@Param('id') id: string, @Req() req: AdminRequest) {
+    const result = await this.adminService.toggleUserActive(id);
+    await this.auditService.log({ adminId: req.adminId, action: 'user.toggle_active', resourceType: 'User', resourceId: id, metadata: { isActive: result.isActive }, ...this.auditMeta(req) });
+    return result;
   }
 }

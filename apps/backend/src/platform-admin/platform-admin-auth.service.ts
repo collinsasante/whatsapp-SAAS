@@ -47,7 +47,7 @@ export class PlatformAdminAuthService {
     });
 
     const token = this.jwtService.sign(
-      { sub: admin.id, role: 'platform_admin', email: admin.email },
+      { sub: admin.id, role: 'platform_admin', adminRole: admin.role, email: admin.email },
       { secret: this.config.get<string>('JWT_SECRET'), expiresIn: '12h' },
     );
 
@@ -61,7 +61,7 @@ export class PlatformAdminAuthService {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    await (this.prisma.platformAdmin as any).update({
+    await this.prisma.platformAdmin.update({
       where: { id: admin.id },
       data: { resetToken: token, resetTokenExpiresAt: expiresAt },
     });
@@ -82,13 +82,13 @@ export class PlatformAdminAuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const admin = await (this.prisma.platformAdmin as any).findFirst({
+    const admin = await this.prisma.platformAdmin.findFirst({
       where: { resetToken: token, resetTokenExpiresAt: { gt: new Date() } },
     });
     if (!admin) throw new BadRequestException('Invalid or expired reset link');
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await (this.prisma.platformAdmin as any).update({
+    await this.prisma.platformAdmin.update({
       where: { id: admin.id },
       data: { passwordHash, resetToken: null, resetTokenExpiresAt: null },
     });

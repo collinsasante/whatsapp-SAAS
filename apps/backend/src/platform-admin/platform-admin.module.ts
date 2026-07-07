@@ -6,10 +6,11 @@ import { PlatformAdminController } from './platform-admin.controller';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAdminGuard } from './platform-admin.guard';
+import { PlatformAuditService } from './platform-audit.service';
 
 @Module({
   imports: [PrismaModule, JwtModule.register({})],
   controllers: [PlatformAdminController],
-  providers: [PlatformAdminAuthService, PlatformAdminService, PlatformAdminGuard, EmailService],
+  providers: [PlatformAdminAuthService, PlatformAdminService, PlatformAdminGuard, PlatformAuditService, EmailService],
 })
 export class PlatformAdminModule {}
