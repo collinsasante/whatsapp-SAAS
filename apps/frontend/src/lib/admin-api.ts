@@ -61,6 +61,7 @@ export interface Invoice {
   currency: string;
   createdAt: string;
   paidAt: string | null;
+  gateway: string | null;
   gatewayInvoiceId: string | null;
   tenant: { name: string; billingEmail: string | null };
 }
@@ -71,6 +72,7 @@ export interface CreditPurchase {
   packSlug: string;
   amount: number;
   currency: string;
+  gateway: string | null;
   paystackRef: string | null;
   status: string;
   createdAt: string;
@@ -138,23 +140,8 @@ export const adminApi = {
   suspendWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/suspend`),
   activateWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/activate`),
 
-  pendingBilling: () =>
-    req<{ invoices: Invoice[]; creditPurchases: CreditPurchase[] }>('GET', '/billing/pending'),
-
   allInvoices: (page = 1) =>
     req<{ invoices: Invoice[]; total: number }>('GET', `/billing/invoices?page=${page}&limit=20`),
-
-  activateSubscription: (reference: string) =>
-    req<{ activated?: boolean; alreadyActivated?: boolean }>('POST', '/billing/activate', { reference }),
-
-  activateCredits: (reference: string) =>
-    req<{ activated?: boolean; alreadyActivated?: boolean; creditsAdded?: number }>('POST', '/billing/activate-credits', { reference }),
-
-  declineInvoice: (invoiceId: string) =>
-    req<{ declined?: boolean; alreadyHandled?: boolean }>('POST', '/billing/decline', { invoiceId }),
-
-  declineCredits: (purchaseId: string) =>
-    req<{ declined?: boolean; alreadyHandled?: boolean }>('POST', '/billing/decline-credits', { purchaseId }),
 
   users: (page = 1, search = '') =>
     req<{ users: AdminUser[]; total: number; page: number; limit: number }>(

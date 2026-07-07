@@ -205,8 +205,6 @@ export enum BillingCycle {
 export enum PaymentGateway {
   STRIPE       = 'STRIPE',
   PAYSTACK     = 'PAYSTACK',
-  FLUTTERWAVE  = 'FLUTTERWAVE',
-  MOMO         = 'MOMO',
 }
 
 export enum PaymentStatus {

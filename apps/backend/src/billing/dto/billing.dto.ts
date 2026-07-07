@@ -35,15 +35,9 @@ export class ApplyPromoCodeDto {
   planSlug: string;
 }
 
-export class InitiateMomoCheckoutDto {
+export class InitiateCreditCheckoutDto {
   @IsString()
-  planSlug: string;
-
-  @IsEnum(BillingCycle)
-  cycle: BillingCycle;
-
-  @IsString()
-  momoPhone: string;
+  packSlug: string;
 
   @IsEmail()
   @IsOptional()
