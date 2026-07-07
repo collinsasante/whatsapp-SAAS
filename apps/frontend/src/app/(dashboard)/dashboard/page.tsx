@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Users, MessageSquare, CheckCircle, RefreshCw, AlertTriangle,
   TrendingUp, TrendingDown, Clock, Phone, Megaphone, ChevronRight,
-  Plus, UserPlus, Radio, Inbox as InboxIcon, DollarSign, Timer,
+  Plus, UserPlus, Radio, Inbox as InboxIcon, DollarSign, Timer, Building2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { dashboardApi } from '@/lib/api';
@@ -28,6 +28,24 @@ interface RecentCampaign {
   totalRecipients: number; sentCount: number; deliveredCount: number; readCount: number;
 }
 interface ChecklistItem { key: string; label: string; done: boolean; href: string }
+
+interface MetaBusinessProfile {
+  phone?: {
+    verified_name?: string;
+    display_phone_number?: string;
+    quality_rating?: string;
+    messaging_limit_tier?: string;
+    code_verification_status?: string;
+  };
+  profile?: {
+    about?: string;
+    address?: string;
+    description?: string;
+    email?: string;
+    websites?: string[];
+    vertical?: string;
+  };
+}
 
 interface DashboardData {
   scope: 'tenant' | 'agent';
@@ -141,6 +159,17 @@ function EmptyRow({ text }: { text: string }) {
   return <p className="text-xs text-gray-400 text-center py-6">{text}</p>;
 }
 
+function InfoRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2 border-b border-gray-100 last:border-0">
+      <span className="text-xs text-gray-500 flex-shrink-0">{label}</span>
+      <span className="text-xs font-medium text-gray-800 text-right truncate max-w-56">
+        {value || <span className="text-gray-400 italic">Not set</span>}
+      </span>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -148,6 +177,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
+  const [businessProfile, setBusinessProfile] = useState<MetaBusinessProfile | null>(null);
+  const [businessProfileLoading, setBusinessProfileLoading] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -169,6 +200,17 @@ export default function DashboardPage() {
     const interval = setInterval(() => { void load(true); }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [load]);
+
+  // Live Meta Graph API data -- fetched once, separately from the main poll loop,
+  // since it's a slow external call and shouldn't block or repeat with "today" stats.
+  useEffect(() => {
+    if (data?.scope !== 'tenant' || businessProfile || businessProfileLoading) return;
+    setBusinessProfileLoading(true);
+    dashboardApi.businessProfile()
+      .then((res) => setBusinessProfile((res.data as MetaBusinessProfile | null) ?? null))
+      .catch(() => setBusinessProfile(null))
+      .finally(() => setBusinessProfileLoading(false));
+  }, [data?.scope, businessProfile, businessProfileLoading]);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const debouncedRefresh = useCallback(() => {
@@ -383,6 +425,40 @@ export default function DashboardPage() {
             </div>
           )}
         </Panel>
+
+        {/* Business profile (live Meta Graph API data, admin only) */}
+        {isAdmin && (
+          <Panel title="Business profile" icon={Building2}>
+            <p className="text-[10px] text-gray-400 mb-2">Live data from Meta Business API</p>
+            {businessProfileLoading ? (
+              <div className="animate-pulse space-y-2">
+                <div className="h-4 bg-gray-100 rounded w-3/4" />
+                <div className="h-4 bg-gray-100 rounded w-1/2" />
+                <div className="h-4 bg-gray-100 rounded w-2/3" />
+              </div>
+            ) : !businessProfile ? (
+              <EmptyRow text="Couldn't load Meta business profile" />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+                <div>
+                  <InfoRow label="Business name" value={businessProfile.phone?.verified_name} />
+                  <InfoRow label="Phone number" value={businessProfile.phone?.display_phone_number} />
+                  <InfoRow label="Quality rating" value={businessProfile.phone?.quality_rating} />
+                  <InfoRow label="Messaging limit" value={businessProfile.phone?.messaging_limit_tier} />
+                  <InfoRow label="Verification" value={businessProfile.phone?.code_verification_status} />
+                </div>
+                <div>
+                  <InfoRow label="About" value={businessProfile.profile?.about} />
+                  <InfoRow label="Description" value={businessProfile.profile?.description} />
+                  <InfoRow label="Industry" value={businessProfile.profile?.vertical} />
+                  <InfoRow label="Address" value={businessProfile.profile?.address} />
+                  <InfoRow label="Email" value={businessProfile.profile?.email} />
+                  <InfoRow label="Website" value={businessProfile.profile?.websites?.[0]} />
+                </div>
+              </div>
+            )}
+          </Panel>
+        )}
 
         {/* Two-column: activity feed | recent campaigns + quick actions */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

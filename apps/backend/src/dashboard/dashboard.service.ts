@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CampaignStatus, ConversationStatus, JwtPayload, TemplateStatus, UserRole } from '@whatsapp-platform/shared-types';
 import { getTenantDayBoundaries, toTenantDateString } from '../common/utils/timezone.util';
 import { isWindowClosingSoon, hoursRemainingInWindow } from './dashboard.util';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 const STAT_CACHE_TTL_MS = 30_000;
 const CONTACT_SELECT = { select: { id: true, name: true, phone: true } } as const;
@@ -18,7 +19,19 @@ interface CachedToday { data: unknown; expiresAt: number }
 export class DashboardService {
   private readonly todayCache = new Map<string, CachedToday>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly whatsappService: WhatsAppService,
+  ) {}
+
+  /**
+   * Live Meta Graph API call (business name, about, address, email, website, quality rating).
+   * Deliberately kept out of getDashboard()'s batched payload -- it's a slow, unreliable
+   * external call and must never block the fast in-app "today" metrics from loading.
+   */
+  async getBusinessProfile(tenantId: string) {
+    return this.whatsappService.getBusinessProfile(tenantId);
+  }
 
   private async getTenantTimezone(tenantId: string): Promise<string> {
     const settings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { timezone: true } });
