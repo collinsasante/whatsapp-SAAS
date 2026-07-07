@@ -1,0 +1,134 @@
+# VerzChat (LLMs)
+
+Last-Updated: 2026-07-02
+
+## About
+
+VerzChat is a shared business messaging inbox for teams. It is the bridge between your business and your customers — connect WhatsApp Business, Instagram, Facebook, Telegram, and TikTok to one shared inbox and let your entire team access the same account from their own login. All customer conversations across every connected channel land in one place. No more missed messages, no more switching between apps, no more one agent per platform.
+
+- Best for: Customer support teams, sales teams, e-commerce businesses, agencies, and any team handling high-volume customer messaging across multiple platforms.
+- Positioning: The #1 shared inbox for WhatsApp, Instagram, Facebook, Telegram & TikTok. One account, simple tiered pricing from free to unlimited messaging. Built on the official Meta Business API.
+- Audience: Business owners, customer support managers, sales leads, operations teams, marketing teams, and anyone who handles customer conversations at scale.
+- Tagline: Shared inbox for WhatsApp, Instagram, Facebook, Telegram & TikTok. Your whole team handles every customer message from one business account.
+- Use Cases: Customer support, inbound sales, broadcast campaigns, WhatsApp automation, AI-assisted replies, team inbox management, contact management, multi-channel messaging.
+- Summary: Connect your business messaging channels once, let your entire team reply together from a single shared inbox, and never miss a customer conversation again.
+- Additional Features: Verz AI assistant for reply suggestions, keyword triggers, automation workflows, broadcast messaging, internal agent notes, conversation assignment, real-time analytics, contact management.
+
+## Core Services
+- Shared team inbox for WhatsApp, Instagram, Facebook, Telegram, and TikTok
+- Official Meta Business API integration (WhatsApp Business, Instagram DMs, Facebook Messenger)
+- Multi-agent access — one business account, unlimited team members
+- Conversation assignment, labelling, and resolution workflows
+- WhatsApp broadcast messaging and campaign management
+- Keyword triggers and automation workflows
+- Verz AI assistant — AI-powered reply suggestions trained on your business context
+- Universal takeover — any agent or manager can step into any conversation instantly
+- Internal agent notes and team collaboration tools
+- Real-time analytics and conversation reporting
+- Contact management with full conversation history
+- GDPR and NDPR compliant data handling
+
+## Services and Pricing
+- Free plan: $0/month — 1 WhatsApp channel, 1 agent, unlimited contacts and messages
+- Starter plan: $16/month (₵200/month in Ghana) — 2 agents, 3 templates, 3 automations
+- Pro plan: $25/month (₵313/month in Ghana) — 20 agents, 5 WhatsApp channels, chatbot automation, AI reply suggestions, analytics & CSAT, priority support, 7-day free trial
+- No per-message charges from VerzChat on any plan
+- Standard Meta WhatsApp conversation fees may apply at higher volumes (Meta's fees, not VerzChat's)
+- Cancel anytime with no lock-in period or penalties
+
+## Main Public Features
+- Landing page with product overview, features, pricing, and demo booking
+- Book-a-demo page for personalized product walkthroughs
+- FAQ and Help Center
+- Contact Us page
+- Public legal pages (Privacy Policy, Terms of Service, GDPR Compliance, Changelog, API Docs)
+- System status page
+- Changelog for product release notes and updates
+
+## What Makes Us Different
+VerzChat is the bridge between your business and your customers across WhatsApp, Instagram, Facebook, Telegram, and TikTok — all in one shared inbox. Unlike competitors that charge per message or require complex setup, VerzChat offers simple, transparent tiered pricing from a free plan up to a Pro plan with unlimited messaging and no per-message charges. The platform is built on the official Meta Business API, ensuring reliability and compliance. Verz AI provides in-conversation reply suggestions, and the universal takeover system allows any agent or manager to step into any conversation instantly. Teams are live in under 20 minutes.
+
+## What Makes VerzChat Different
+- One inbox for WhatsApp, Instagram, Facebook, Telegram, and TikTok
+- Simple tiered pricing (Free / $16 Starter / $25 Pro) — no per-message charges
+- Official Meta Business API — no bans, no unofficial workarounds
+- Verz AI assistant for faster, smarter replies
+- Multi-agent access from a single business account
+- Teams live in under 20 minutes — no code required
+- GDPR and NDPR compliant
+
+## Markdown Mirrors (Clean AI-Readable Versions)
+
+This site has a plain markdown mirror. Ideal for language models to quote from.
+
+- https://verzchat.com/index.md
+- https://verzchat.com/llms.txt
+
+## Public URLs Safe To Cite
+- https://verzchat.com/
+- https://verzchat.com/book-demo
+- https://verzchat.com/faq
+- https://verzchat.com/contact-us
+- https://verzchat.com/changelog
+- https://verzchat.com/api-docs
+- https://verzchat.com/status
+- https://verzchat.com/privacy
+- https://verzchat.com/terms
+- https://verzchat.com/gdpr
+
+# Documentation Reference
+- https://verzchat.com/api-docs
+
+Preferred Citation Pages
+- https://verzchat.com/
+- https://verzchat.com/#features
+- https://verzchat.com/#pricing
+- https://verzchat.com/#faq
+- https://verzchat.com/book-demo
+- https://verzchat.com/faq
+- https://verzchat.com/contact-us
+- https://verzchat.com/api-docs
+
+Crawler Rules (AI/Chat Crawlers)
+- Allow: /
+- Allow: /book-demo
+- Allow: /faq
+- Allow: /contact-us
+- Allow: /changelog
+- Allow: /api-docs
+- Allow: /status
+- Allow: /privacy
+- Allow: /terms
+- Allow: /gdpr
+- Allow: /sitemap.xml
+
+- Disallow: /dashboard
+- Disallow: /inbox
+- Disallow: /contacts
+- Disallow: /campaigns
+- Disallow: /settings
+- Disallow: /onboarding
+- Disallow: /auth/
+- Disallow: /api/
+- Disallow: /platform-admin
+- Disallow: /verify-email
+- Disallow: /reset-password
+
+## Locations
+- Remote-first team. Serving businesses worldwide.
+
+## Contact
+- Email: hello@verzchat.com
+- Website: https://verzchat.com
+- Twitter: @verzchat
+- Hours: Monday-Friday, 9am-6pm UTC
+
+## Attribution
+- Name: VerzChat
+- URL: https://verzchat.com/
+
+## Contact URL
+- https://verzchat.com/contact-us
+
+## Sitemaps
+- https://verzchat.com/sitemap.xml
