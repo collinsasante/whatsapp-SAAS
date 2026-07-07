@@ -18,4 +18,10 @@ export class DashboardController {
   getDashboard(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload) {
     return this.dashboardService.getDashboard(tenantId, user);
   }
+
+  @Get('business-profile')
+  @ApiOperation({ summary: 'Live Meta Business Profile data (name, about, address, email, website, quality rating) -- fetched separately from the main dashboard payload since it depends on an external API call' })
+  getBusinessProfile(@CurrentTenant() tenantId: string) {
+    return this.dashboardService.getBusinessProfile(tenantId);
+  }
 }

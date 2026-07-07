@@ -294,6 +294,7 @@ export const usersApi = {
 
 export const dashboardApi = {
   get: () => api.get('/dashboard'),
+  businessProfile: () => api.get('/dashboard/business-profile'),
 };
 
 export const analyticsApi = {
