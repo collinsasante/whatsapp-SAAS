@@ -92,6 +92,9 @@ model WhatsAppNumber {
   accessToken   String   @map("access_token")
   isDefault     Boolean  @default(false) @map("is_default")
   isActive      Boolean  @default(true)  @map("is_active")
+  qualityRating       String?   @map("quality_rating")
+  messagingLimitTier  String?   @map("messaging_limit_tier")
+  qualitySyncedAt     DateTime? @map("quality_synced_at")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt      @map("updated_at")
 
@@ -260,6 +263,8 @@ model Contact {
   customFields Json     @default("{}") @map("custom_fields")
   isBlocked    Boolean  @default(false) @map("is_blocked")
   optedOut     Boolean  @default(false) @map("opted_out")
+  blockedAt    DateTime? @map("blocked_at")
+  optedOutAt   DateTime? @map("opted_out_at")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -418,6 +423,7 @@ model Message {
   readAt            DateTime?        @map("read_at")
   failedAt          DateTime?        @map("failed_at")
   failureReason     String?          @map("failure_reason")
+  errorCode         Int?             @map("error_code")
   createdAt         DateTime         @default(now()) @map("created_at")
 
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -775,6 +781,7 @@ model CampaignRecipient {
   status       RecipientStatus @default(PENDING)
   messageId    String?         @map("message_id")
   errorMessage String?         @map("error_message")
+  errorCode    Int?            @map("error_code")
   sentAt       DateTime?       @map("sent_at")
   repliedAt    DateTime?       @map("replied_at")
 
