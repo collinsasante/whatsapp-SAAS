@@ -3,9 +3,11 @@ import Link from 'next/link';
 const PRODUCT = [
   { label: 'Features', href: '#features' },
   { label: 'Pricing', href: '#pricing' },
-  { label: 'FAQ', href: '#faq' },
+  { label: 'Shared Inbox', href: '/shared-inbox' },
+  { label: 'WhatsApp Broadcasts', href: '/whatsapp-broadcasts' },
+  { label: 'WhatsApp CRM', href: '/whatsapp-crm' },
+  { label: 'WhatsApp Chatbot', href: '/whatsapp-chatbot' },
   { label: 'Book a Demo', href: '/book-demo' },
-  { label: 'Changelog', href: '/changelog' },
 ];
 
 const COMPANY = [
@@ -16,10 +18,13 @@ const COMPANY = [
 ];
 
 const RESOURCES = [
+  { label: 'Blog', href: '/blog' },
+  { label: 'FAQ', href: '/faq' },
   { label: 'API Docs', href: '/api-docs' },
   { label: 'Status', href: '/status' },
   { label: 'GDPR', href: '/gdpr' },
-  { label: 'Contact Us', href: 'mailto:support@verzchat.com' },
+  { label: 'Changelog', href: '/changelog' },
+  { label: 'Contact Us', href: '/contact-us' },
 ];
 
 export default function Footer() {
