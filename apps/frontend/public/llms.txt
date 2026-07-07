@@ -71,6 +71,7 @@ This site has a plain markdown mirror. Ideal for language models to quote from.
 - https://verzchat.com/whatsapp-broadcasts
 - https://verzchat.com/whatsapp-crm
 - https://verzchat.com/whatsapp-chatbot
+- https://verzchat.com/blog
 - https://verzchat.com/faq
 - https://verzchat.com/contact-us
 - https://verzchat.com/changelog
@@ -104,6 +105,7 @@ Crawler Rules (AI/Chat Crawlers)
 - Allow: /whatsapp-broadcasts
 - Allow: /whatsapp-crm
 - Allow: /whatsapp-chatbot
+- Allow: /blog
 - Allow: /faq
 - Allow: /contact-us
 - Allow: /changelog

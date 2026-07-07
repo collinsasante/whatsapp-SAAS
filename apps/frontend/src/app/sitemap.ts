@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next';
+import { BLOG_POSTS } from '@/lib/blog-posts';
 
 const base = 'https://verzchat.com';
 
@@ -25,9 +26,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/changelog`, lastModified, changeFrequency: 'weekly', priority: 0.5 },
     { url: `${base}/api-docs`, lastModified, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${base}/status`, lastModified, changeFrequency: 'daily', priority: 0.5 },
-    // Phase 3 adds feature landing pages and blog posts here (blog posts pulled
-    // dynamically from their own source of truth with real publish dates, not
-    // this file's static `lastModified` -- see docs/seo-checklist.md once that
-    // lands for the exact requirement).
+    { url: `${base}/blog`, lastModified, changeFrequency: 'weekly', priority: 0.7 },
+    ...BLOG_POSTS.map((post) => ({
+      url: `${base}/blog/${post.slug}`,
+      lastModified: new Date(post.updatedDate ?? post.publishedDate),
+      changeFrequency: 'yearly' as const,
+      priority: 0.6,
+    })),
   ];
 }
