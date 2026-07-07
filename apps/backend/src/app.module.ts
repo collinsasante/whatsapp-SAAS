@@ -35,6 +35,7 @@ import { SegmentsModule } from './segments/segments.module';
 import { BillingModule } from './billing/billing.module';
 import { TeamsModule } from './teams/teams.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 import { FeedbackModule } from './feedback/feedback.module';
 import { KnowledgeBaseModule } from './knowledge-base/knowledge-base.module';
@@ -108,6 +109,7 @@ import appConfig from './config/app.config';
     BillingModule,
     TeamsModule,
     WorkspaceModule,
+    AnalyticsModule,
 
     FeedbackModule,
     KnowledgeBaseModule,
