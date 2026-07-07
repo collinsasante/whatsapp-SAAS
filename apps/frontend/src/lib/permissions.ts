@@ -1,6 +1,6 @@
 import { UserRole } from '@whatsapp-platform/shared-types';
 
-const AGENT_ROUTES = ['/inbox', '/contacts', '/calls', '/library', '/account', '/analytics', '/dashboard'];
+const AGENT_ROUTES = ['/inbox', '/contacts', '/calls', '/library', '/account', '/analytics'];
 
 // Routes each role can access. '*' means all routes allowed.
 const ALLOWED: Record<UserRole, string[] | '*'> = {
@@ -25,7 +25,7 @@ export function getPermissions(role: UserRole | undefined) {
 
   return {
     // Nav visibility
-    showDashboard:   true, // agents get a scoped (own-assignments-only) view; the API enforces the actual scoping
+    showDashboard:   isAdmin,
     showCampaigns:   isAdmin,
     showTemplates:   isAdmin,
     showAutomation:  isAdmin,
