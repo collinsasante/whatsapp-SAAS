@@ -21,6 +21,10 @@ COPY --from=deps /app/packages/shared-utils/node_modules ./packages/shared-utils
 COPY . .
 RUN pnpm --filter @whatsapp-platform/shared-types build
 RUN pnpm --filter @whatsapp-platform/shared-utils build
+# Must run before the worker's own build -- worker.tsc typechecks against the
+# generated PrismaClient, so a stale/ungenerated client fails the build the
+# moment worker code references a model or field added by a recent migration.
+RUN pnpm --filter @whatsapp-platform/backend prisma:generate
 RUN pnpm --filter @whatsapp-platform/worker build
 RUN pnpm --filter @whatsapp-platform/worker deploy --prod /prod/worker
 # Generate into the flat deploy dir so .prisma/client lands in a real (non-symlinked) path
