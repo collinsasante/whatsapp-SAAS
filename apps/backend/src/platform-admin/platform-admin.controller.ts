@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { PlatformAdminGuard, AdminRequest } from './platform-admin.guard';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
@@ -89,6 +89,17 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   workspaces(@Query() query: TenantsQueryDto) {
     return this.adminService.getTenantsTable(query);
+  }
+
+  // Must be registered before 'workspaces/:id' -- otherwise Nest matches
+  // "export" as the :id param and this route is never reached.
+  @Get('workspaces/export')
+  @UseGuards(PlatformAdminGuard)
+  async exportWorkspacesCsv(@Query() query: TenantsQueryDto, @Res() res: Response) {
+    const csv = await this.adminService.exportTenantsCsv(query);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="tenants-${Date.now()}.csv"`);
+    res.send(csv);
   }
 
   @Get('workspaces/:id')

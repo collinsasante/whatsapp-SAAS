@@ -243,6 +243,20 @@ export const adminApi = {
     return req<{ tenants: TenantTableRow[]; total: number; limit: number; offset: number }>('GET', `/workspaces?${params.toString()}`);
   },
 
+  /** CSV export respects the same search/filter/sort as the table -- returns the blob for the caller to trigger a download. */
+  exportWorkspacesCsv: async (opts: { search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc' } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.search) params.set('search', opts.search);
+    if (opts.filter) params.set('filter', opts.filter);
+    if (opts.sort) params.set('sort', opts.sort);
+    if (opts.order) params.set('order', opts.order);
+    const res = await fetch(`${BASE}/workspaces/export?${params.toString()}`, {
+      headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+    });
+    if (!res.ok) throw new Error('Export failed');
+    return res.blob();
+  },
+
   getWorkspace: (id: string) => req<WorkspaceDetail>('GET', `/workspaces/${id}`),
 
   suspendWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/suspend`),
