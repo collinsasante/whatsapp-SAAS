@@ -5,6 +5,7 @@ import { PlatformAdminGuard, AdminRequest } from './platform-admin.guard';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAuditService } from './platform-audit.service';
+import { PlatformHealthService } from './platform-health.service';
 import { RequirePlatformRole } from './decorators/require-platform-role.decorator';
 import { AdminLoginDto, AdminSetupDto, CreatePlanDto, FunnelQueryDto, OverviewQueryDto, RevenueQueryDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto, UsageQueryDto } from './dto/platform-admin.dto';
 
@@ -15,6 +16,7 @@ export class PlatformAdminController {
     private authService: PlatformAdminAuthService,
     private adminService: PlatformAdminService,
     private auditService: PlatformAuditService,
+    private healthService: PlatformHealthService,
   ) {}
 
   private auditMeta(req: AdminRequest) {
@@ -75,6 +77,12 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   usage(@Query() query: UsageQueryDto) {
     return this.adminService.getUsage(query.from, query.to);
+  }
+
+  @Get('platform-health')
+  @UseGuards(PlatformAdminGuard)
+  platformHealth() {
+    return this.healthService.getPlatformHealth();
   }
 
   @Get('workspaces')

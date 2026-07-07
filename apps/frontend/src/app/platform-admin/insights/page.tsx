@@ -1,8 +1,9 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { Filter, Users, Layers, BarChart3 } from 'lucide-react';
+import Link from 'next/link';
+import { Filter, Users, Layers, BarChart3, Activity, Radio, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { adminApi, type FunnelData, type UsageData } from '@/lib/admin-api';
+import { adminApi, type FunnelData, type UsageData, type PlatformHealthData } from '@/lib/admin-api';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
 import { LiveBadge } from '../_components/LiveBadge';
 
@@ -45,15 +46,17 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 export default function InsightsPage() {
   const [funnel, setFunnel] = useState<FunnelData | null>(null);
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [health, setHealth] = useState<PlatformHealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [funnelRes, usageRes] = await Promise.all([adminApi.funnel(), adminApi.usage()]);
+      const [funnelRes, usageRes, healthRes] = await Promise.all([adminApi.funnel(), adminApi.usage(), adminApi.platformHealth()]);
       setFunnel(funnelRes);
       setUsage(usageRes);
+      setHealth(healthRes);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -167,6 +170,102 @@ export default function InsightsPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              </Panel>
+            </>
+          )}
+
+          {health && (
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <Panel title="WhatsApp quality across tenants" icon={Radio}>
+                  {health.whatsappQuality.total === 0 ? (
+                    <p className="text-xs text-gray-400 py-6 text-center">No active WhatsApp numbers</p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                        <div className="text-xl font-bold text-emerald-700">{health.whatsappQuality.GREEN}</div>
+                        <div className="text-[11px] text-emerald-600">Green</div>
+                      </div>
+                      <div className="bg-amber-50 rounded-lg p-3 text-center">
+                        <div className="text-xl font-bold text-amber-700">{health.whatsappQuality.YELLOW}</div>
+                        <div className="text-[11px] text-amber-600">Yellow (at risk)</div>
+                      </div>
+                      <div className="bg-red-50 rounded-lg p-3 text-center">
+                        <div className="text-xl font-bold text-red-700">{health.whatsappQuality.RED}</div>
+                        <div className="text-[11px] text-red-600">Red (at risk)</div>
+                      </div>
+                    </div>
+                  )}
+                  {(health.whatsappQuality.YELLOW > 0 || health.whatsappQuality.RED > 0) && (
+                    <p className="text-xs text-amber-600 mt-3 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      {health.whatsappQuality.YELLOW + health.whatsappQuality.RED} number{health.whatsappQuality.YELLOW + health.whatsappQuality.RED !== 1 ? 's' : ''} degraded -- both a churn risk and a platform risk
+                    </p>
+                  )}
+                </Panel>
+
+                <Panel title="Message error rate (30 days)" icon={Activity}>
+                  {health.errorRateTrend.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-10 text-center">No message data in this period</p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={health.errorRateTrend}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} unit="%" />
+                        <Tooltip contentStyle={{ fontSize: 11 }} formatter={(v) => [`${v}%`, 'Error rate']} />
+                        <Line type="monotone" dataKey="errorRatePct" stroke="#ef4444" strokeWidth={1.5} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </Panel>
+              </div>
+
+              <Panel title="Queue health" icon={Activity}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[560px]">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left py-2 font-medium text-gray-500">Queue</th>
+                        <th className="text-right py-2 font-medium text-gray-500">Waiting</th>
+                        <th className="text-right py-2 font-medium text-gray-500">Active</th>
+                        <th className="text-right py-2 font-medium text-gray-500">Failed</th>
+                        <th className="text-right py-2 font-medium text-gray-500">Delayed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {health.queueHealth.map((q) => (
+                        <tr key={q.name}>
+                          <td className="py-2 font-medium text-gray-700">{q.name}{!q.reachable && <span className="text-red-500 ml-1.5">(unreachable)</span>}</td>
+                          <td className="text-right py-2 text-gray-600">{q.waiting}</td>
+                          <td className="text-right py-2 text-gray-600">{q.active}</td>
+                          <td className={`text-right py-2 font-medium ${q.failed > 0 ? 'text-red-600' : 'text-gray-600'}`}>{q.failed}</td>
+                          <td className="text-right py-2 text-gray-600">{q.delayed}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Panel>
+
+              <Panel title="Estimated gross margin per tenant (30 days, lowest first)" icon={BarChart3}>
+                <p className="text-xs text-gray-400 mb-3">
+                  Rough estimate only: assumes a flat $0.02/conversation Meta cost. Not real cost accounting -- directional signal for which tenants may be unprofitable.
+                </p>
+                {health.costEstimatePerTenant.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-4 text-center">No conversation/revenue data in this period</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                    {health.costEstimatePerTenant.map((t) => (
+                      <Link key={t.tenantId} href={`/platform-admin/workspaces/${t.tenantId}`} className="flex items-center justify-between text-xs bg-gray-50 hover:bg-gray-100 rounded-lg px-3 py-2 transition-colors">
+                        <span className="font-medium text-gray-700 hover:text-teal-600">{t.tenantName}</span>
+                        <span className={t.estimatedGrossMargin < 0 ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                          {t.conversations} conv. · est. cost ${t.estimatedCostUsd} · revenue ${t.revenue.toFixed(2)} · margin ${t.estimatedGrossMargin.toFixed(2)}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </Panel>
             </>
           )}
