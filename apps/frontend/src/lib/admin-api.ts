@@ -123,6 +123,14 @@ export interface UsageData {
   powerUserHistogram: { bucket: string; tenantCount: number }[];
 }
 
+export interface PlatformHealthData {
+  queueHealth: { name: string; waiting: number; active: number; completed: number; failed: number; delayed: number; reachable: boolean }[];
+  whatsappQuality: { total: number; GREEN: number; YELLOW: number; RED: number; UNKNOWN: number };
+  errorRateTrend: { date: string; sent: number; failed: number; errorRatePct: number }[];
+  costEstimatePerTenant: { tenantId: string; tenantName: string; conversations: number; estimatedCostUsd: number; revenue: number; estimatedGrossMargin: number }[];
+  notInstrumented: string[];
+}
+
 export interface OverviewData {
   period: { from: string; to: string };
   mrr: { amountGhs: number; changePct: number | null; trend: { date: string; amountGhs: number }[] };
@@ -266,6 +274,8 @@ export const adminApi = {
     const qs = params.toString();
     return req<UsageData>('GET', `/usage${qs ? `?${qs}` : ''}`);
   },
+
+  platformHealth: () => req<PlatformHealthData>('GET', '/platform-health'),
 
   users: (page = 1, search = '') =>
     req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
