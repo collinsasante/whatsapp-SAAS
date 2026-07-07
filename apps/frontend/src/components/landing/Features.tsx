@@ -11,7 +11,7 @@ const SECTIONS = [
       'Conversation labels and custom tags',
       'Full message history with every contact',
     ],
-    href: '/book-demo',
+    href: '/shared-inbox',
     cta: 'See the inbox',
     mockup: (
       <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden' }}>
@@ -56,7 +56,7 @@ const SECTIONS = [
       'Click-through tracking per campaign',
       'Schedule sends for optimal open times',
     ],
-    href: '/book-demo',
+    href: '/whatsapp-broadcasts',
     cta: 'See campaigns',
     mockup: (
       <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden' }}>
@@ -93,7 +93,7 @@ const SECTIONS = [
       'Instant live agent handoff with context',
       'Works 24/7 even when your team is offline',
     ],
-    href: '/book-demo',
+    href: '/whatsapp-chatbot',
     cta: 'See automation',
     mockup: (
       <div style={{ background: '#0d1117', borderRadius: 14, overflow: 'hidden', padding: 16 }}>
