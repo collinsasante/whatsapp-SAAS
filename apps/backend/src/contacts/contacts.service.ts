@@ -275,9 +275,10 @@ export class ContactsService {
 
   async toggleBlock(tenantId: string, id: string) {
     const contact = await this.prisma.contact.findFirstOrThrow({ where: { id, tenantId }, select: { id: true, isBlocked: true } });
+    const isBlocked = !contact.isBlocked;
     return this.prisma.contact.update({
       where: { id },
-      data: { isBlocked: !contact.isBlocked },
+      data: { isBlocked, blockedAt: isBlocked ? new Date() : null },
       select: { id: true, isBlocked: true },
     });
   }

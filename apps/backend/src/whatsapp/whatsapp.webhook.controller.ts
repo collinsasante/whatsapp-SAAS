@@ -215,7 +215,7 @@ export class WhatsAppWebhookController {
             const status = STATUS_MAP[statusUpdate.status];
             if (status) {
               try {
-                await this.messagesService.updateStatus(statusUpdate.id, status, tenantId);
+                await this.messagesService.updateStatus(statusUpdate.id, status, tenantId, statusUpdate.errors);
               } catch (error) {
                 this.logger.warn(
                   `[tenant:${tenantId}] Failed to update message status ${statusUpdate.id}: ${error instanceof Error ? error.message : String(error)}`,

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
@@ -7,7 +7,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { UserRole } from '@whatsapp-platform/shared-types';
-import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, InitiateMomoCheckoutDto, UpdateBillingEmailDto } from './dto/billing.dto';
+import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, InitiateCreditCheckoutDto, UpdateBillingEmailDto } from './dto/billing.dto';
 
 @ApiTags('Billing')
 @ApiBearerAuth()
@@ -46,11 +46,18 @@ export class BillingController {
     return this.billingService.getInvoices(tenantId);
   }
 
-  @Post('checkout')
+  @Post('checkout/stripe')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Initiate an offline payment request — returns reference and payment details' })
-  initiateCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto) {
-    return this.billingService.initiateCheckout(tenantId, dto);
+  @ApiOperation({ summary: 'Start a Stripe subscription checkout — returns a client secret for Stripe Elements' })
+  initiateStripeCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto) {
+    return this.billingService.initiateStripeCheckout(tenantId, dto);
+  }
+
+  @Post('checkout/paystack')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Start a Paystack subscription checkout — returns an access code for Paystack Inline' })
+  initiatePaystackCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto) {
+    return this.billingService.initiatePaystackCheckout(tenantId, dto);
   }
 
   @Post('promo')
@@ -81,13 +88,6 @@ export class BillingController {
     return this.billingService.updateBillingEmail(tenantId, dto.billingEmail);
   }
 
-  @Post('payment-confirmed')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Notify support that a business has confirmed payment intent' })
-  notifyPaymentConfirmed(@CurrentTenant() tenantId: string, @Body() dto: { reference: string }) {
-    return this.billingService.notifyPaymentConfirmed(tenantId, dto.reference);
-  }
-
   @Get('credits/packs')
   @ApiOperation({ summary: 'Get available AI credit packs' })
   getCreditPacks() {
@@ -100,49 +100,17 @@ export class BillingController {
     return this.billingService.getAiCredits(tenantId);
   }
 
-  @Post('credits/initialize')
+  @Post('credits/checkout/stripe')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Request AI credits — returns reference and payment details' })
-  initiateCreditPurchase(
-    @CurrentTenant() tenantId: string,
-    @Body() body: { packSlug: string },
-  ) {
-    return this.billingService.initiateCreditPurchase(tenantId, body.packSlug);
+  @ApiOperation({ summary: 'Buy AI credits via Stripe — returns a client secret for Stripe Elements' })
+  initiateStripeCreditCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCreditCheckoutDto) {
+    return this.billingService.initiateStripeCreditCheckout(tenantId, dto);
   }
 
-  // Admin-only activation endpoints — called via link in notification email
-  @Get('admin/activate')
-  adminActivateSubscription(
-    @Query('ref') ref: string,
-    @Query('secret') secret: string,
-  ) {
-    return this.billingService.adminActivateSubscription(secret, ref);
-  }
-
-  @Get('admin/activate-credits')
-  adminActivateCredits(
-    @Query('ref') ref: string,
-    @Query('secret') secret: string,
-  ) {
-    return this.billingService.adminActivateCredits(secret, ref);
-  }
-
-  // ─── MTN MoMo ────────────────────────────────────────────────────────────
-
-  @Post('momo/request')
+  @Post('credits/checkout/paystack')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Initiate MTN MoMo payment request — sends USSD push to payer' })
-  initiateMomoCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateMomoCheckoutDto) {
-    return this.billingService.initiateMomoCheckout(tenantId, dto);
-  }
-
-  @Get('momo/status/:referenceId')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Poll MTN MoMo payment status' })
-  getMomoStatus(
-    @CurrentTenant() tenantId: string,
-    @Param('referenceId') referenceId: string,
-  ) {
-    return this.billingService.getMomoPaymentStatus(tenantId, referenceId);
+  @ApiOperation({ summary: 'Buy AI credits via Paystack — returns an access code for Paystack Inline' })
+  initiatePaystackCreditCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCreditCheckoutDto) {
+    return this.billingService.initiatePaystackCreditCheckout(tenantId, dto);
   }
 }

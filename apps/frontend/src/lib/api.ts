@@ -293,12 +293,18 @@ export const usersApi = {
 };
 
 export const dashboardApi = {
-  overview: () => api.get('/dashboard/overview'),
-  teamStats: () => api.get('/dashboard/team'),
-  conversationTrend: (days = 30) => api.get('/dashboard/conversation-trend', { params: { days } }),
-  conversationStats: (from: string, to: string) => api.get('/dashboard/conversation-stats', { params: { from, to } }),
-  whatsappStatus: () => api.get('/dashboard/whatsapp-status'),
-  businessProfile: () => api.get('/dashboard/business-profile'),
+  get: () => api.get('/dashboard'),
+};
+
+export const analyticsApi = {
+  overview: (from: string, to: string) => api.get('/analytics/overview', { params: { from, to } }),
+  conversations: (from: string, to: string, granularity: 'day' | 'hour' = 'day') =>
+    api.get('/analytics/conversations', { params: { from, to, granularity } }),
+  agents: (from: string, to: string) => api.get('/analytics/agents', { params: { from, to } }),
+  campaigns: (from: string, to: string, limit = 20, offset = 0) =>
+    api.get('/analytics/campaigns', { params: { from, to, limit, offset } }),
+  health: () => api.get('/analytics/health'),
+  revenue: (from: string, to: string) => api.get('/analytics/revenue', { params: { from, to } }),
 };
 
 export const channelsApi = {
@@ -413,22 +419,20 @@ export const billingApi = {
   getUsage: () => api.get('/billing/usage'),
   getUsageHistory: () => api.get('/billing/usage/history'),
   getInvoices: () => api.get('/billing/invoices'),
-  initiateCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string }) =>
-    api.post('/billing/checkout', data),
+  initiateStripeCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
+    api.post('/billing/checkout/stripe', data),
+  initiatePaystackCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
+    api.post('/billing/checkout/paystack', data),
   applyPromoCode: (code: string, planSlug: string) => api.post('/billing/promo', { code, planSlug }),
   startTrial: (planSlug: string) => api.post(`/billing/trial/${planSlug}`),
   cancelSubscription: (immediately?: boolean) => api.delete('/billing/cancel', { data: { immediately } }),
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
   getCreditPacks: () => api.get('/billing/credits/packs'),
   getAiCredits: () => api.get('/billing/credits/balance'),
-  initializeCreditPurchase: (packSlug: string) =>
-    api.post('/billing/credits/initialize', { packSlug }),
-  notifyPaymentConfirmed: (reference: string) =>
-    api.post('/billing/payment-confirmed', { reference }),
-  initiateMomoCheckout: (data: { planSlug: string; cycle: string; momoPhone: string; billingEmail?: string }) =>
-    api.post('/billing/momo/request', data),
-  getMomoStatus: (referenceId: string) =>
-    api.get(`/billing/momo/status/${referenceId}`),
+  initiateStripeCreditCheckout: (packSlug: string) =>
+    api.post('/billing/credits/checkout/stripe', { packSlug }),
+  initiatePaystackCreditCheckout: (packSlug: string) =>
+    api.post('/billing/credits/checkout/paystack', { packSlug }),
 };
 
 export const teamsApi = {

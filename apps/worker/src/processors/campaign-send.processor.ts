@@ -151,10 +151,14 @@ export class CampaignSendWorker {
         await this.sleep(RATE_LIMIT_DELAY_MS);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        // Meta's Graph API error shape: { error: { message, type, code, error_subcode, fbtrace_id } }
+        const errorCode = axios.isAxiosError(error)
+          ? (error.response?.data as { error?: { code?: number } } | undefined)?.error?.code ?? null
+          : null;
 
         await this.prisma.campaignRecipient.update({
           where: { id: recipient.id },
-          data: { status: 'FAILED', errorMessage: errorMsg },
+          data: { status: 'FAILED', errorMessage: errorMsg, errorCode },
         });
 
         await this.prisma.campaign.update({

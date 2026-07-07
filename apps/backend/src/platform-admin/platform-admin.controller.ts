@@ -82,40 +82,10 @@ export class PlatformAdminController {
     return this.adminService.activateWorkspace(id);
   }
 
-  @Get('billing/pending')
-  @UseGuards(PlatformAdminGuard)
-  pendingBilling() {
-    return this.adminService.getPendingBilling();
-  }
-
   @Get('billing/invoices')
   @UseGuards(PlatformAdminGuard)
   allInvoices(@Query('page') page: string, @Query('limit') limit: string) {
     return this.adminService.getAllInvoices(+page || 1, +limit || 20);
-  }
-
-  @Post('billing/activate')
-  @UseGuards(PlatformAdminGuard)
-  activateSubscription(@Body('reference') reference: string) {
-    return this.adminService.activateSubscription(reference);
-  }
-
-  @Post('billing/activate-credits')
-  @UseGuards(PlatformAdminGuard)
-  activateCredits(@Body('reference') reference: string) {
-    return this.adminService.activateCredits(reference);
-  }
-
-  @Post('billing/decline')
-  @UseGuards(PlatformAdminGuard)
-  declineInvoice(@Body('invoiceId') invoiceId: string) {
-    return this.adminService.declineInvoice(invoiceId);
-  }
-
-  @Post('billing/decline-credits')
-  @UseGuards(PlatformAdminGuard)
-  declineCredits(@Body('purchaseId') purchaseId: string) {
-    return this.adminService.declineCredits(purchaseId);
   }
 
   @Get('plans')

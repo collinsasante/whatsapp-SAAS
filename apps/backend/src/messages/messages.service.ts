@@ -877,7 +877,12 @@ export class MessagesService {
     return { pinned: true };
   }
 
-  async updateStatus(whatsappMessageId: string, status: MessageStatus, tenantId: string) {
+  async updateStatus(
+    whatsappMessageId: string,
+    status: MessageStatus,
+    tenantId: string,
+    errors?: Array<{ code: number; title: string }>,
+  ) {
     const message = await this.prisma.message.findFirst({
       where: { whatsappMessageId, tenantId },
     });
@@ -886,7 +891,13 @@ export class MessagesService {
     const updateData: Record<string, unknown> = { status };
     if (status === MessageStatus.DELIVERED) updateData['deliveredAt'] = new Date();
     if (status === MessageStatus.READ) updateData['readAt'] = new Date();
-    if (status === MessageStatus.FAILED) updateData['failedAt'] = new Date();
+    if (status === MessageStatus.FAILED) {
+      updateData['failedAt'] = new Date();
+      if (errors?.[0]) {
+        updateData['errorCode'] = errors[0].code;
+        updateData['failureReason'] = errors[0].title;
+      }
+    }
 
     await this.prisma.message.update({ where: { id: message.id }, data: updateData });
 
@@ -910,7 +921,13 @@ export class MessagesService {
             },
           });
         } else if (status === MessageStatus.FAILED && recipient.status !== 'FAILED') {
-          await this.prisma.campaignRecipient.update({ where: { id: recipient.id }, data: { status: 'FAILED' } });
+          await this.prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: {
+              status: 'FAILED',
+              ...(errors?.[0] && { errorCode: errors[0].code, errorMessage: errors[0].title }),
+            },
+          });
           await this.prisma.campaign.update({ where: { id: recipient.campaignId }, data: { failedCount: { increment: 1 } } });
         }
       }

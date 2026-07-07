@@ -76,6 +76,9 @@ model Tenant {
   whatsappNumbers      WhatsAppNumber[]
   creditPurchases     CreditPurchase[]
   aiInteractionLogs   AiInteractionLog[]
+  analyticsDailyMessageStats      AnalyticsDailyMessageStats[]
+  analyticsDailyConversationStats AnalyticsDailyConversationStats[]
+  analyticsDailyRevenueStats      AnalyticsDailyRevenueStats[]
 
   @@map("tenants")
 }
@@ -89,6 +92,9 @@ model WhatsAppNumber {
   accessToken   String   @map("access_token")
   isDefault     Boolean  @default(false) @map("is_default")
   isActive      Boolean  @default(true)  @map("is_active")
+  qualityRating       String?   @map("quality_rating")
+  messagingLimitTier  String?   @map("messaging_limit_tier")
+  qualitySyncedAt     DateTime? @map("quality_synced_at")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt      @map("updated_at")
 
@@ -257,6 +263,8 @@ model Contact {
   customFields Json     @default("{}") @map("custom_fields")
   isBlocked    Boolean  @default(false) @map("is_blocked")
   optedOut     Boolean  @default(false) @map("opted_out")
+  blockedAt    DateTime? @map("blocked_at")
+  optedOutAt   DateTime? @map("opted_out_at")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -322,6 +330,9 @@ model Conversation {
   @@index([tenantId, lastMessageAt])
   @@index([tenantId, status, lastMessageAt])
   @@index([tenantId, slaDeadline])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, resolvedAt])
+  @@index([tenantId, assignedToId, resolvedAt])
   @@map("conversations")
 }
 
@@ -412,6 +423,7 @@ model Message {
   readAt            DateTime?        @map("read_at")
   failedAt          DateTime?        @map("failed_at")
   failureReason     String?          @map("failure_reason")
+  errorCode         Int?             @map("error_code")
   createdAt         DateTime         @default(now()) @map("created_at")
 
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -769,6 +781,7 @@ model CampaignRecipient {
   status       RecipientStatus @default(PENDING)
   messageId    String?         @map("message_id")
   errorMessage String?         @map("error_message")
+  errorCode    Int?            @map("error_code")
   sentAt       DateTime?       @map("sent_at")
   repliedAt    DateTime?       @map("replied_at")
 
@@ -1284,8 +1297,6 @@ enum BillingCycle {
 enum PaymentGateway {
   STRIPE
   PAYSTACK
-  FLUTTERWAVE
-  MOMO
 }
 
 enum PaymentStatus {
@@ -1312,6 +1323,8 @@ model Plan {
   monthlyPrice Float  @map("monthly_price")
   yearlyPrice  Float  @map("yearly_price")
   currency     String @default("USD")
+  ghsMonthlyPrice Float? @map("ghs_monthly_price")
+  ghsYearlyPrice  Float? @map("ghs_yearly_price")
   isActive     Boolean @default(true) @map("is_active")
   isPublic     Boolean @default(true) @map("is_public")
   trialDays    Int     @default(0)    @map("trial_days")
@@ -1328,6 +1341,11 @@ model Plan {
   features  Json @default("[]")
   metadata  Json?
   sortOrder Int  @default(0) @map("sort_order")
+
+  stripePriceIdMonthly   String? @unique @map("stripe_price_id_monthly")
+  stripePriceIdYearly    String? @unique @map("stripe_price_id_yearly")
+  paystackPlanCodeMonthly String? @unique @map("paystack_plan_code_monthly")
+  paystackPlanCodeYearly  String? @unique @map("paystack_plan_code_yearly")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt      @map("updated_at")
@@ -1352,7 +1370,6 @@ model Subscription {
 
   stripeSubscriptionId      String? @unique @map("stripe_subscription_id")
   paystackSubscriptionCode  String? @unique @map("paystack_subscription_code")
-  flutterwaveSubscriptionId String? @unique @map("flutterwave_subscription_id")
   gatewayCustomerId         String? @map("gateway_customer_id")
 
   metadata  Json?
@@ -1448,7 +1465,79 @@ model Payment {
   @@index([tenantId])
   @@index([status])
   @@index([gateway])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, verifiedAt])
   @@map("payments")
+}
+
+// ─── Analytics daily rollups ──────────────────────────────────────────────
+// Populated by a scheduled worker job (one row per tenant per calendar day,
+// bucketed in the tenant's configured timezone) so the analytics endpoints
+// never scan the live messages/conversations/payments tables for anything
+// but the current (still-open) day. Count-based metrics only -- medians
+// (first response time, resolution time) don't combine additively across
+// day buckets, so those are computed via a live indexed query instead.
+
+model AnalyticsDailyMessageStats {
+  id       String   @id @default(uuid())
+  tenantId String   @map("tenant_id")
+  date     DateTime @db.Date
+
+  sentCount      Int @default(0) @map("sent_count")
+  deliveredCount Int @default(0) @map("delivered_count")
+  readCount      Int @default(0) @map("read_count")
+  failedCount    Int @default(0) @map("failed_count")
+  inboundCount   Int @default(0) @map("inbound_count")
+  outboundCount  Int @default(0) @map("outbound_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+  @@map("analytics_daily_message_stats")
+}
+
+model AnalyticsDailyConversationStats {
+  id       String   @id @default(uuid())
+  tenantId String   @map("tenant_id")
+  date     DateTime @db.Date
+
+  newConversations       Int @default(0) @map("new_conversations")
+  returningConversations Int @default(0) @map("returning_conversations")
+  openedCount            Int @default(0) @map("opened_count")
+  resolvedCount          Int @default(0) @map("resolved_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date])
+  @@index([tenantId, date])
+  @@map("analytics_daily_conversation_stats")
+}
+
+model AnalyticsDailyRevenueStats {
+  id       String         @id @default(uuid())
+  tenantId String         @map("tenant_id")
+  date     DateTime       @db.Date
+  gateway  PaymentGateway
+
+  successCount  Int   @default(0) @map("success_count")
+  failedCount   Int   @default(0) @map("failed_count")
+  amount        Float @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, gateway])
+  @@index([tenantId, date])
+  @@map("analytics_daily_revenue_stats")
 }
 
 model WorkspaceUsage {
@@ -1548,6 +1637,7 @@ model CreditPurchase {
   packSlug    String        @map("pack_slug")
   amount      Float
   currency    String        @default("USD")
+  gateway     PaymentGateway? @map("gateway")
   paystackRef String?       @unique @map("paystack_ref")
   status      PaymentStatus @default(PENDING)
   createdAt   DateTime      @default(now()) @map("created_at")
