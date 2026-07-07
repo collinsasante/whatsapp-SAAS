@@ -97,6 +97,17 @@ export interface WorkspaceDetail {
   lifecycleStage: string;
 }
 
+export interface RevenueData {
+  period: { from: string; to: string };
+  revenueByProviderDay: (Record<string, number> & { date: string })[];
+  successRateByProvider: { gateway: string; successCount: number; failedCount: number; amountGhs: number; successRatePct: number | null }[];
+  alerts: { gateway: string; successRatePct: number; sampleSize: number }[];
+  failureReasons: { gateway: string; reason: string; count: number }[];
+  pastDueWorklist: { tenantId: string; tenantName: string; billingEmail: string | null; planName: string; amount: number; currency: string; overdueSinceDate: string; daysOverdue: number }[];
+  upcomingRenewals: { in7Days: number; in30Days: number };
+  revenueByPlan: { plan: string; amount: number }[];
+}
+
 export interface OverviewData {
   period: { from: string; to: string };
   mrr: { amountGhs: number; changePct: number | null; trend: { date: string; amountGhs: number }[] };
@@ -216,6 +227,14 @@ export const adminApi = {
 
   allInvoices: (page = 1) =>
     req<{ invoices: Invoice[]; total: number }>('GET', `/billing/invoices?page=${page}&limit=20`),
+
+  revenue: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<RevenueData>('GET', `/revenue${qs ? `?${qs}` : ''}`);
+  },
 
   users: (page = 1, search = '') =>
     req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
