@@ -72,6 +72,31 @@ export interface TenantTableRow {
   usage: { conversationsThisMonth: number; messagesLast30Days: number; broadcastsThisMonth: number };
 }
 
+export interface WorkspaceDetail {
+  id: string; name: string; isActive: boolean; billingEmail: string | null; createdAt: string;
+  country: string | null; aiCredits: number;
+  _count: { users: number; conversations: number; messages: number; contacts: number };
+  subscription: {
+    status: string; cycle: string; trialEndsAt: string | null; currentPeriodEnd: string;
+    plan: { name: string; monthlyPrice: number; yearlyPrice: number; currency: string };
+  } | null;
+  whatsappNumbers: { id: string; label: string | null; phoneNumberId: string; qualityRating: string | null; messagingLimitTier: string | null; qualitySyncedAt: string | null }[];
+  users: { id: string; name: string; email: string; role: string; lastLoginAt: string | null }[];
+  invoices: Invoice[];
+  creditPurchases: CreditPurchase[];
+  payments: { id: string; gateway: string; status: string; amount: number; currency: string; createdAt: string; verifiedAt: string | null; failReason: string | null }[];
+  auditLog: { id: string; action: string; resourceType: string | null; resourceId: string | null; metadata: unknown; createdAt: string; admin: { name: string; email: string } | null }[];
+  usage: {
+    messageTrend: { date: string; sent: number; received: number }[];
+    conversationTrend: { date: string; opened: number; resolved: number }[];
+  };
+  recentCampaigns: { id: string; name: string; status: string; totalRecipients: number; sentCount: number; createdAt: string }[];
+  healthScore: number;
+  healthBreakdown: { loginActivity: number; messageActivity: number; broadcastActivity: number; teamSize: number; paymentStatus: number };
+  churnRisk: boolean;
+  lifecycleStage: string;
+}
+
 export interface OverviewData {
   period: { from: string; to: string };
   mrr: { amountGhs: number; changePct: number | null; trend: { date: string; amountGhs: number }[] };
@@ -184,7 +209,7 @@ export const adminApi = {
     return req<{ tenants: TenantTableRow[]; total: number; limit: number; offset: number }>('GET', `/workspaces?${params.toString()}`);
   },
 
-  getWorkspace: (id: string) => req<Workspace & { _count: { users: number; conversations: number; messages: number; contacts: number }; invoices: Invoice[]; creditPurchases: CreditPurchase[] }>('GET', `/workspaces/${id}`),
+  getWorkspace: (id: string) => req<WorkspaceDetail>('GET', `/workspaces/${id}`),
 
   suspendWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/suspend`),
   activateWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/activate`),

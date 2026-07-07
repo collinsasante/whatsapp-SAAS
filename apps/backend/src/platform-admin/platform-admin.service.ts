@@ -4,6 +4,7 @@ import { CreatePlanDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } fro
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
 import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
+import { deriveLifecycleStage } from './utils/lifecycle.util';
 
 const MRR_MOVEMENT_CATEGORIES = ['NEW', 'EXPANSION', 'CONTRACTION', 'CHURNED'] as const;
 
@@ -302,12 +303,24 @@ export class PlatformAdminService {
     return paying[cutoffIndex]!;
   }
 
+  /**
+   * The tenant detail drill-down -- the platform owner's prep screen before a
+   * customer call. Health score / churn-risk are computed live (current
+   * snapshot only); there's no per-tenant daily history table for those yet,
+   * so rather than fake a trend, the message/conversation volume charts stand
+   * in as the closest real proxy for "how has this tenant's health moved."
+   */
   async getWorkspace(id: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
       include: {
         _count: { select: { users: true, conversations: true, messages: true, contacts: true } },
         subscription: { include: { plan: true } },
+        whatsappNumbers: {
+          where: { isActive: true },
+          select: { id: true, label: true, phoneNumberId: true, qualityRating: true, messagingLimitTier: true, qualitySyncedAt: true },
+        },
+        users: { where: { isActive: true }, select: { id: true, name: true, email: true, role: true, lastLoginAt: true } },
         invoices: {
           orderBy: { createdAt: 'desc' }, take: 10,
           select: { id: true, invoiceNumber: true, status: true, total: true, currency: true, createdAt: true, paidAt: true },
@@ -316,7 +329,75 @@ export class PlatformAdminService {
       },
     });
     if (!tenant) throw new NotFoundException('Workspace not found');
-    return tenant;
+
+    const now = new Date();
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      payments, auditLog, messageTrend, conversationTrend, recentCampaigns,
+      approvedTemplateCount, everSucceededPayment, resolvedConversationCount,
+      messagesLast30, messagesPrior30,
+    ] = await Promise.all([
+      this.prisma.payment.findMany({ where: { tenantId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      this.prisma.platformAuditLog.findMany({
+        where: { resourceType: 'Tenant', resourceId: id },
+        orderBy: { createdAt: 'desc' }, take: 20,
+        include: { admin: { select: { name: true, email: true } } },
+      }),
+      this.prisma.analyticsDailyMessageStats.findMany({ where: { tenantId: id, date: { gte: ninetyDaysAgo } }, orderBy: { date: 'asc' } }),
+      this.prisma.analyticsDailyConversationStats.findMany({ where: { tenantId: id, date: { gte: ninetyDaysAgo } }, orderBy: { date: 'asc' } }),
+      this.prisma.campaign.findMany({ where: { tenantId: id }, orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, name: true, status: true, totalRecipients: true, sentCount: true, createdAt: true } }),
+      this.prisma.template.count({ where: { tenantId: id, status: 'APPROVED' } }),
+      this.prisma.payment.count({ where: { tenantId: id, status: 'SUCCEEDED' } }),
+      this.prisma.conversation.count({ where: { tenantId: id, resolvedAt: { not: null } } }),
+      this.prisma.message.count({ where: { tenantId: id, createdAt: { gte: thirtyDaysAgo } } }),
+      this.prisma.message.count({ where: { tenantId: id, createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+    ]);
+
+    const lastLoginAt = tenant.users.reduce<Date | null>((latest, u) => {
+      if (!u.lastLoginAt) return latest;
+      return !latest || u.lastLoginAt > latest ? u.lastLoginAt : latest;
+    }, null);
+
+    const { score: healthScore, breakdown: healthBreakdown } = computeHealthScore({
+      loggedInLast7Days: !!lastLoginAt && lastLoginAt >= sevenDaysAgo,
+      messagesLast30Days: messagesLast30,
+      sentBroadcastLast30Days: recentCampaigns.some((c) => c.createdAt >= thirtyDaysAgo),
+      teammateCount: tenant.users.length,
+      subscriptionStatus: tenant.subscription?.status ?? null,
+    });
+
+    const activityDropPct = messagesPrior30 > 0 ? Math.round(((messagesPrior30 - messagesLast30) / messagesPrior30) * 1000) / 10 : null;
+    const churnRisk = isChurnRisk({
+      pastDue: tenant.subscription?.status === 'PAST_DUE',
+      activityDropPct,
+      zeroActivityLast14Days: messagesLast30 === 0 && (!lastLoginAt || lastLoginAt < fourteenDaysAgo),
+    });
+
+    const lifecycleStage = deriveLifecycleStage({
+      hasWhatsappNumber: tenant.whatsappNumbers.length > 0,
+      hasApprovedTemplate: approvedTemplateCount > 0,
+      hasFirstEngagement: recentCampaigns.length > 0 || resolvedConversationCount > 0,
+      hasInvitedTeammate: tenant.users.length > 1,
+      everConvertedToPaid: everSucceededPayment > 0,
+      activeLast7Days: !!lastLoginAt && lastLoginAt >= sevenDaysAgo,
+    });
+
+    return {
+      ...tenant,
+      payments,
+      auditLog,
+      usage: {
+        messageTrend: messageTrend.map((r) => ({ date: r.date.toISOString().slice(0, 10), sent: r.sentCount, received: r.inboundCount })),
+        conversationTrend: conversationTrend.map((r) => ({ date: r.date.toISOString().slice(0, 10), opened: r.openedCount, resolved: r.resolvedCount })),
+      },
+      recentCampaigns,
+      healthScore, healthBreakdown, churnRisk, lifecycleStage,
+    };
   }
 
   async suspendWorkspace(id: string) {
