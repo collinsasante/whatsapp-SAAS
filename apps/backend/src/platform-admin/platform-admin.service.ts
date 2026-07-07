@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreatePlanDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
+import { CreatePlanDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
+import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
+import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
+import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
+
+const MRR_MOVEMENT_CATEGORIES = ['NEW', 'EXPANSION', 'CONTRACTION', 'CHURNED'] as const;
 
 @Injectable()
 export class PlatformAdminService {
@@ -45,8 +50,122 @@ export class PlatformAdminService {
     };
   }
 
-  async getWorkspaces(page = 1, limit = 20, search?: string) {
-    const skip = (page - 1) * limit;
+  /**
+   * "Am I growing?" overview strip. `from`/`to` default to the trailing 30 days
+   * (UTC calendar days -- this is a platform-wide view, no single tenant
+   * timezone applies). MRR/ARR/active-paying/trials-in-progress are read from
+   * the most recent PlatformDailyStats row at or before `to` (the rollup runs
+   * hourly, so "today" may not have a row yet -- falls back to 0 rather than
+   * erroring if the platform-rollup worker has never run).
+   */
+  async getOverview(fromStr?: string, toStr?: string) {
+    const { from, to } = resolveDateRange(fromStr, toStr, 'UTC');
+    const fromDate = new Date(`${from}T00:00:00.000Z`);
+    const toDate = new Date(`${to}T00:00:00.000Z`);
+    const { from: prevFrom, to: prevTo } = previousPeriod(from, to);
+    const prevToDate = new Date(`${prevTo}T00:00:00.000Z`);
+
+    const [latestStats, previousStats, trendRows, movementRows, startSnapshots] = await Promise.all([
+      this.prisma.platformDailyStats.findFirst({ where: { date: { lte: toDate } }, orderBy: { date: 'desc' } }),
+      this.prisma.platformDailyStats.findFirst({ where: { date: { lte: prevToDate } }, orderBy: { date: 'desc' } }),
+      this.prisma.platformDailyStats.findMany({
+        where: { date: { gte: new Date(toDate.getTime() - 365 * 24 * 60 * 60 * 1000), lte: toDate } },
+        orderBy: { date: 'asc' },
+        select: { date: true, mrrGhs: true },
+      }),
+      this.prisma.platformTenantMrrSnapshot.groupBy({
+        by: ['category'],
+        where: { date: { gte: fromDate, lte: toDate } },
+        _count: { tenantId: true },
+        _sum: { mrrGhs: true },
+      }),
+      this.prisma.platformTenantMrrSnapshot.findMany({
+        where: { date: fromDate, mrrGhs: { gt: 0 } },
+        select: { tenantId: true, mrrGhs: true },
+      }),
+    ]);
+
+    const mrr = latestStats?.mrrGhs ?? 0;
+    const activePayingTenants = latestStats?.activeSubscriptions ?? 0;
+    const trialsInProgress = latestStats?.trialTenants ?? 0;
+
+    type MovementBucket = { count: number; amountGhs: number; tenants: { tenantId: string; tenantName: string; mrrGhs: number; date: string }[] };
+    const mrrMovement = Object.fromEntries(
+      MRR_MOVEMENT_CATEGORIES.map((cat) => [cat, { count: 0, amountGhs: 0, tenants: [] as MovementBucket['tenants'] }]),
+    ) as unknown as Record<(typeof MRR_MOVEMENT_CATEGORIES)[number], MovementBucket>;
+    for (const row of movementRows) {
+      if ((MRR_MOVEMENT_CATEGORIES as readonly string[]).includes(row.category)) {
+        const cat = row.category as (typeof MRR_MOVEMENT_CATEGORIES)[number];
+        mrrMovement[cat].count = row._count.tenantId;
+        mrrMovement[cat].amountGhs = row._sum.mrrGhs ?? 0;
+      }
+    }
+
+    const periodStatsForConversion = await this.prisma.platformDailyStats.aggregate({
+      where: { date: { gte: fromDate, lte: toDate } },
+      _sum: { trialsConverted: true },
+    });
+
+    const cohortTenantIds = startSnapshots.map((s) => s.tenantId);
+    const startCohortMrr = startSnapshots.reduce((sum, s) => sum + s.mrrGhs, 0);
+    const endSnapshotsForCohort = cohortTenantIds.length
+      ? await this.prisma.platformTenantMrrSnapshot.findMany({
+          where: { date: toDate, tenantId: { in: cohortTenantIds } },
+          select: { mrrGhs: true },
+        })
+      : [];
+    const endCohortMrr = endSnapshotsForCohort.reduce((sum, s) => sum + s.mrrGhs, 0);
+
+    // Sample of the tenants behind each movement number, so nothing is a dead-end in the UI --
+    // capped at 10 per category, most-recent movement first.
+    const movementSamples = await Promise.all(
+      MRR_MOVEMENT_CATEGORIES.map(async (category) => {
+        const snapshots = await this.prisma.platformTenantMrrSnapshot.findMany({
+          where: { category, date: { gte: fromDate, lte: toDate } },
+          orderBy: { date: 'desc' },
+          take: 10,
+          select: { tenantId: true, mrrGhs: true, date: true, tenant: { select: { name: true } } },
+        });
+        return [category, snapshots.map((s) => ({ tenantId: s.tenantId, tenantName: s.tenant.name, mrrGhs: s.mrrGhs, date: s.date.toISOString().slice(0, 10) }))] as const;
+      }),
+    );
+    for (const [category, sample] of movementSamples) {
+      mrrMovement[category].tenants = sample;
+    }
+
+    return {
+      period: { from, to },
+      mrr: {
+        amountGhs: mrr,
+        changePct: percentChange(mrr, previousStats?.mrrGhs ?? 0),
+        trend: trendRows.map((r) => ({ date: r.date.toISOString().slice(0, 10), amountGhs: r.mrrGhs })),
+      },
+      arrGhs: latestStats?.arrGhs ?? 0,
+      activePayingTenants,
+      trialsInProgress,
+      trialToPaidConversionRate: computeTrialConversionRate(periodStatsForConversion._sum.trialsConverted ?? 0, trialsInProgress),
+      netRevenueRetention: computeNetRevenueRetention(startCohortMrr, endCohortMrr),
+      logoChurnRate: computeLogoChurnRate(mrrMovement.CHURNED.count, cohortTenantIds.length),
+      arpuGhs: computeArpu(mrr, activePayingTenants),
+      mrrMovement,
+    };
+  }
+
+  /**
+   * The tenant table. Health score, churn-risk, and the "high value" filter are
+   * all computed values (not stored columns), so -- given the expected scale of
+   * a small/medium multi-tenant SaaS (tens to low hundreds of tenants, not
+   * millions) -- this fetches the full search-matched candidate set once,
+   * computes everything in application code, then filters/sorts/paginates in
+   * memory. That's the right tradeoff at this scale; if the tenant count ever
+   * grows enough to make that fetch itself slow, the computed fields would need
+   * to move into the daily rollup instead.
+   */
+  async getTenantsTable(query: TenantsQueryDto) {
+    const limit = query.limit ?? 20;
+    const offset = query.offset ?? 0;
+    const search = query.search;
+
     const where = search
       ? { OR: [
           { name: { contains: search, mode: 'insensitive' as const } },
@@ -55,27 +174,132 @@ export class PlatformAdminService {
         ] }
       : {};
 
-    const [tenants, total] = await Promise.all([
-      this.prisma.tenant.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true, name: true, isActive: true, billingEmail: true, createdAt: true, aiCredits: true,
-          _count: { select: { users: true, conversations: true } },
-          subscription: {
-            select: {
-              status: true, cycle: true, currentPeriodEnd: true,
-              plan: { select: { name: true, monthlyPrice: true } },
-            },
+    const tenants = await this.prisma.tenant.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, name: true, isActive: true, billingEmail: true, createdAt: true, country: true,
+        subscription: {
+          select: {
+            status: true, cycle: true, trialEndsAt: true,
+            plan: { select: { name: true, monthlyPrice: true, yearlyPrice: true, currency: true } },
           },
         },
-      }),
-      this.prisma.tenant.count({ where }),
+        users: { where: { isActive: true }, select: { id: true, lastLoginAt: true } },
+      },
+    });
+
+    const tenantIds = tenants.map((t) => t.id);
+    const now = new Date();
+    const startOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+    const [messagesLast30, messagesPrior30, broadcastsThisMonth, conversationsThisMonth, latestPayments, latestRate] = await Promise.all([
+      this.prisma.message.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, createdAt: { gte: thirtyDaysAgo } }, _count: { id: true } }),
+      this.prisma.message.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } }, _count: { id: true } }),
+      this.prisma.campaign.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, createdAt: { gte: startOfThisMonth } }, _count: { id: true } }),
+      this.prisma.conversation.groupBy({ by: ['tenantId'], where: { tenantId: { in: tenantIds }, createdAt: { gte: startOfThisMonth } }, _count: { id: true } }),
+      this.prisma.payment.findMany({ where: { tenantId: { in: tenantIds } }, orderBy: { createdAt: 'desc' }, distinct: ['tenantId'], select: { tenantId: true, status: true, gateway: true, createdAt: true } }),
+      this.prisma.currencyRate.findFirst({ where: { currency: 'USD' }, orderBy: { date: 'desc' } }),
     ]);
 
-    return { tenants, total, page, limit };
+    const messagesLast30ByTenant = new Map(messagesLast30.map((r) => [r.tenantId, r._count.id]));
+    const messagesPrior30ByTenant = new Map(messagesPrior30.map((r) => [r.tenantId, r._count.id]));
+    const broadcastsByTenant = new Map(broadcastsThisMonth.map((r) => [r.tenantId, r._count.id]));
+    const conversationsByTenant = new Map(conversationsThisMonth.map((r) => [r.tenantId, r._count.id]));
+    const lastPaymentByTenant = new Map(latestPayments.map((p) => [p.tenantId, p]));
+    const usdRate = latestRate?.rateToGhs ?? Number(process.env['GHS_RATE'] ?? '12.5');
+
+    const rows = tenants.map((t) => {
+      const sub = t.subscription;
+      const messagesLast30Days = messagesLast30ByTenant.get(t.id) ?? 0;
+      const messagesPrior30Days = messagesPrior30ByTenant.get(t.id) ?? 0;
+      const lastLoginAt = t.users.reduce<Date | null>((latest, u) => {
+        if (!u.lastLoginAt) return latest;
+        return !latest || u.lastLoginAt > latest ? u.lastLoginAt : latest;
+      }, null);
+      const lastPayment = lastPaymentByTenant.get(t.id) ?? null;
+
+      const mrrGhs = sub && (sub.status === 'ACTIVE' || sub.status === 'PAST_DUE')
+        ? this.normalizePlanPriceToGhs(sub.cycle === 'YEARLY' ? sub.plan.yearlyPrice / 12 : sub.plan.monthlyPrice, sub.plan.currency, usdRate)
+        : 0;
+
+      const { score: healthScore, breakdown: healthBreakdown } = computeHealthScore({
+        loggedInLast7Days: !!lastLoginAt && lastLoginAt >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+        messagesLast30Days,
+        sentBroadcastLast30Days: (broadcastsByTenant.get(t.id) ?? 0) > 0,
+        teammateCount: t.users.length,
+        subscriptionStatus: sub?.status ?? null,
+      });
+
+      const activityDropPct = messagesPrior30Days > 0
+        ? Math.round(((messagesPrior30Days - messagesLast30Days) / messagesPrior30Days) * 1000) / 10
+        : null;
+      const churnRisk = isChurnRisk({
+        pastDue: sub?.status === 'PAST_DUE',
+        activityDropPct,
+        zeroActivityLast14Days: messagesLast30Days === 0 && (!lastLoginAt || lastLoginAt < fourteenDaysAgo),
+      });
+
+      const status = !t.isActive ? 'suspended'
+        : !sub ? 'no_subscription'
+        : sub.status === 'CANCELED' || sub.status === 'EXPIRED' ? 'churned'
+        : sub.status.toLowerCase();
+
+      return {
+        id: t.id, name: t.name, status, isActive: t.isActive,
+        createdAt: t.createdAt, country: t.country, billingEmail: t.billingEmail,
+        plan: sub?.plan.name ?? null, trialEndsAt: sub?.trialEndsAt ?? null,
+        mrrGhs, teammateCount: t.users.length,
+        lastPayment: lastPayment ? { status: lastPayment.status, gateway: lastPayment.gateway, createdAt: lastPayment.createdAt } : null,
+        healthScore, healthBreakdown, churnRisk,
+        usage: {
+          conversationsThisMonth: conversationsByTenant.get(t.id) ?? 0,
+          messagesLast30Days,
+          broadcastsThisMonth: broadcastsByTenant.get(t.id) ?? 0,
+        },
+      };
+    });
+
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const highValueThreshold = this.computeTopPercentileMrr(rows.map((r) => r.mrrGhs), 0.1);
+
+    let filtered = rows;
+    switch (query.filter) {
+      case 'churn_risk': filtered = rows.filter((r) => r.churnRisk); break;
+      case 'trial_ending_7d': filtered = rows.filter((r) => r.status === 'trial' && r.trialEndsAt && r.trialEndsAt <= sevenDaysFromNow && r.trialEndsAt >= now); break;
+      case 'high_value': filtered = rows.filter((r) => r.mrrGhs >= highValueThreshold && r.mrrGhs > 0); break;
+      case 'signed_up_this_month': filtered = rows.filter((r) => r.createdAt >= startOfThisMonth); break;
+      case 'past_due': filtered = rows.filter((r) => r.status === 'past_due'); break;
+      default: break;
+    }
+
+    const sortKey = query.sort ?? 'createdAt';
+    const order = query.order ?? 'desc';
+    const sorted = [...filtered].sort((a, b) => {
+      const av = sortKey === 'name' ? a.name : sortKey === 'mrr' ? a.mrrGhs : sortKey === 'healthScore' ? a.healthScore : a.createdAt.getTime();
+      const bv = sortKey === 'name' ? b.name : sortKey === 'mrr' ? b.mrrGhs : sortKey === 'healthScore' ? b.healthScore : b.createdAt.getTime();
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return order === 'asc' ? cmp : -cmp;
+    });
+
+    return { tenants: sorted.slice(offset, offset + limit), total: sorted.length, limit, offset };
+  }
+
+  private normalizePlanPriceToGhs(amount: number, currency: string, usdRate: number): number {
+    if (currency === 'GHS') return amount;
+    if (currency === 'USD') return amount * usdRate;
+    return amount;
+  }
+
+  /** Returns the MRR value at the given top percentile (e.g. 0.1 = top 10%) among tenants with any MRR at all. */
+  private computeTopPercentileMrr(mrrValues: number[], topFraction: number): number {
+    const paying = mrrValues.filter((v) => v > 0).sort((a, b) => b - a);
+    if (paying.length === 0) return Infinity;
+    const cutoffIndex = Math.max(0, Math.ceil(paying.length * topFraction) - 1);
+    return paying[cutoffIndex]!;
   }
 
   async getWorkspace(id: string) {

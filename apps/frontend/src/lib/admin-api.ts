@@ -53,6 +53,41 @@ export interface Workspace {
   } | null;
 }
 
+export interface TenantTableRow {
+  id: string;
+  name: string;
+  status: string;
+  isActive: boolean;
+  createdAt: string;
+  country: string | null;
+  billingEmail: string | null;
+  plan: string | null;
+  trialEndsAt: string | null;
+  mrrGhs: number;
+  teammateCount: number;
+  lastPayment: { status: string; gateway: string; createdAt: string } | null;
+  healthScore: number;
+  healthBreakdown: { loginActivity: number; messageActivity: number; broadcastActivity: number; teamSize: number; paymentStatus: number };
+  churnRisk: boolean;
+  usage: { conversationsThisMonth: number; messagesLast30Days: number; broadcastsThisMonth: number };
+}
+
+export interface OverviewData {
+  period: { from: string; to: string };
+  mrr: { amountGhs: number; changePct: number | null; trend: { date: string; amountGhs: number }[] };
+  arrGhs: number;
+  activePayingTenants: number;
+  trialsInProgress: number;
+  trialToPaidConversionRate: number | null;
+  netRevenueRetention: number | null;
+  logoChurnRate: number | null;
+  arpuGhs: number;
+  mrrMovement: Record<'NEW' | 'EXPANSION' | 'CONTRACTION' | 'CHURNED', {
+    count: number; amountGhs: number;
+    tenants: { tenantId: string; tenantName: string; mrrGhs: number; date: string }[];
+  }>;
+}
+
 export interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -130,10 +165,24 @@ export const adminApi = {
 
   dashboard: () => req<AdminStats>('GET', '/dashboard'),
 
-  workspaces: (page = 1, search = '') =>
-    req<{ tenants: Workspace[]; total: number; page: number; limit: number }>(
-      'GET', `/workspaces?page=${page}&limit=20&search=${encodeURIComponent(search)}`,
-    ),
+  overview: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    return req<OverviewData>('GET', `/overview${qs ? `?${qs}` : ''}`);
+  },
+
+  workspaces: (opts: { search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.search) params.set('search', opts.search);
+    if (opts.filter) params.set('filter', opts.filter);
+    if (opts.sort) params.set('sort', opts.sort);
+    if (opts.order) params.set('order', opts.order);
+    params.set('limit', String(opts.limit ?? 20));
+    params.set('offset', String(opts.offset ?? 0));
+    return req<{ tenants: TenantTableRow[]; total: number; limit: number; offset: number }>('GET', `/workspaces?${params.toString()}`);
+  },
 
   getWorkspace: (id: string) => req<Workspace & { _count: { users: number; conversations: number; messages: number; contacts: number }; invoices: Invoice[]; creditPurchases: CreditPurchase[] }>('GET', `/workspaces/${id}`),
 

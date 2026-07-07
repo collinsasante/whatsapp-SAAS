@@ -6,7 +6,7 @@ import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAuditService } from './platform-audit.service';
 import { RequirePlatformRole } from './decorators/require-platform-role.decorator';
-import { AdminLoginDto, AdminSetupDto, CreatePlanDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
+import { AdminLoginDto, AdminSetupDto, CreatePlanDto, OverviewQueryDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
 
 @ApiTags('Platform Admin')
 @Controller('platform-admin')
@@ -53,14 +53,16 @@ export class PlatformAdminController {
     return this.adminService.getDashboard();
   }
 
+  @Get('overview')
+  @UseGuards(PlatformAdminGuard)
+  overview(@Query() query: OverviewQueryDto) {
+    return this.adminService.getOverview(query.from, query.to);
+  }
+
   @Get('workspaces')
   @UseGuards(PlatformAdminGuard)
-  workspaces(
-    @Query('page') page: string,
-    @Query('limit') limit: string,
-    @Query('search') search?: string,
-  ) {
-    return this.adminService.getWorkspaces(+page || 1, +limit || 20, search);
+  workspaces(@Query() query: TenantsQueryDto) {
+    return this.adminService.getTenantsTable(query);
   }
 
   @Get('workspaces/:id')
