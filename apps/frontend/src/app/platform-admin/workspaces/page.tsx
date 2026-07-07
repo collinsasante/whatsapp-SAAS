@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Search, CheckCircle2, XCircle, Loader2, ChevronLeft, ChevronRight, CreditCard, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, CheckCircle2, XCircle, Loader2, ChevronLeft, ChevronRight, CreditCard, AlertTriangle, ChevronUp, ChevronDown, Download } from 'lucide-react';
 import { adminApi, type TenantTableRow, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
@@ -78,6 +78,24 @@ export default function WorkspacesPage() {
     else { setSort(key); setOrder('desc'); }
   };
 
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const blob = await adminApi.exportWorkspacesCsv({ search: query, filter, sort, order });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tenants-${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const confirmSetPlan = async () => {
     if (!setPlanFor || !selectedPlanSlug) return;
     setSettingPlan(true);
@@ -145,6 +163,16 @@ export default function WorkspacesPage() {
           />
         </div>
         <button type="submit" className="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-500 transition-colors">Search</button>
+        <button
+          type="button"
+          onClick={() => { void handleExport(); }}
+          disabled={exporting}
+          className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          title="Export the currently filtered/searched tenant list to CSV"
+        >
+          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          Export CSV
+        </button>
       </form>
 
       <div className="flex flex-wrap gap-2 mb-5">

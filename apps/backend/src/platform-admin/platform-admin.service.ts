@@ -8,6 +8,20 @@ import { deriveLifecycleStage, LIFECYCLE_STAGES, LifecycleStage } from './utils/
 
 const MRR_MOVEMENT_CATEGORIES = ['NEW', 'EXPANSION', 'CONTRACTION', 'CHURNED'] as const;
 
+// Matches the existing CSV export convention in reports.service.ts (not shared/exported
+// from anywhere central -- that file duplicates the same two functions too).
+function escapeCsv(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  const s = String(val);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+function toCsvRow(fields: unknown[]): string {
+  return fields.map(escapeCsv).join(',');
+}
+
 @Injectable()
 export class PlatformAdminService {
   constructor(private prisma: PrismaService) {}
@@ -557,6 +571,18 @@ export class PlatformAdminService {
     });
 
     return { tenants: sorted.slice(offset, offset + limit), total: sorted.length, limit, offset };
+  }
+
+  /** CSV export of the tenant table -- same search/filter/sort as getTenantsTable, no pagination. */
+  async exportTenantsCsv(query: TenantsQueryDto): Promise<string> {
+    const { tenants } = await this.getTenantsTable({ ...query, limit: Number.MAX_SAFE_INTEGER, offset: 0 });
+    const headers = ['Name', 'Status', 'Plan', 'Country', 'Billing Email', 'Signed Up', 'MRR (GHS)', 'Health Score', 'Churn Risk', 'Team Size', 'Conversations This Month', 'Messages (30d)', 'Broadcasts This Month'];
+    const rows = tenants.map((t) => toCsvRow([
+      t.name, t.status, t.plan ?? '', t.country ?? '', t.billingEmail ?? '',
+      t.createdAt.toISOString().slice(0, 10), t.mrrGhs, t.healthScore, t.churnRisk ? 'Yes' : 'No',
+      t.teammateCount, t.usage.conversationsThisMonth, t.usage.messagesLast30Days, t.usage.broadcastsThisMonth,
+    ]));
+    return [toCsvRow(headers), ...rows].join('\n');
   }
 
   private normalizePlanPriceToGhs(amount: number, currency: string, usdRate: number): number {
