@@ -9,15 +9,15 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: 'How much does VerzChat cost?', a: 'VerzChat is $25 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' },
+  { q: 'How much does VerzChat cost?', a: 'VerzChat has a free plan (1 agent, 1 WhatsApp channel), a Starter plan at $16/month (2 agents), and a Pro plan at $25/month (20 agents, 5 WhatsApp channels, AI reply suggestions). No per-seat add-ons, no surprise bills. Cancel anytime.' },
   { q: 'Can I use my existing WhatsApp Business number?', a: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through every step.' },
-  { q: 'Is there a per-message fee?', a: 'No. VerzChat charges a flat monthly fee of $25 — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' },
-  { q: 'How many team members can I add?', a: 'Your $25 plan supports unlimited agents. Invite your entire team — support staff, sales reps, managers — all from the same workspace.' },
-  { q: 'Can I cancel at any time?', a: 'Yes — cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes. Your data is retained for 30 days before deletion.' },
-  { q: 'Do you support multiple WhatsApp channels?', a: 'Yes. You can connect up to 3 WhatsApp Business numbers on the standard plan. Each channel has its own inbox and team assignment. Need more? Contact us.' },
+  { q: 'Is there a per-message fee?', a: 'No. VerzChat\'s plans are flat monthly fees — there are no per-message fees on your end. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' },
+  { q: 'How many team members can I add?', a: 'The free plan supports 1 agent, Starter supports 2 agents, and Pro supports up to 20 agents. Pick the plan that matches your team size and upgrade anytime.' },
+  { q: 'Can I cancel at any time?', a: 'Yes — cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes. Your data is retained for 90 days before deletion.' },
+  { q: 'Do you support multiple WhatsApp channels?', a: 'Yes. Free and Starter plans include 1 WhatsApp channel; the Pro plan supports up to 5 WhatsApp channels, each with its own inbox and team assignment.' },
   { q: 'Is my customer data secure?', a: 'All data is encrypted at rest and in transit using AES-256 and TLS 1.3. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' },
   { q: 'How quickly can my team get started?', a: 'Most teams are live in under 20 minutes. Connect your WhatsApp number, invite your agents, and you\'re handling conversations. No developer or onboarding call required.' },
-  { q: 'What happens to my data if I cancel?', a: 'Your workspace remains active until the billing period ends. After that, all data is securely retained for 30 days so you can export it before permanent deletion.' },
+  { q: 'What happens to my data if I cancel?', a: 'Your workspace remains active until the billing period ends. After that, all data is securely retained for 90 days so you can export it before permanent deletion.' },
   { q: 'Do you offer customer support?', a: 'Yes — all plans include priority email and live chat support. For urgent issues, our team typically responds within a few hours during business hours.' },
 ];
 
@@ -89,7 +89,7 @@ export default function BottomCTA() {
         <div className="container">
           <div data-aos="fade-up">
             <h2>Ready to Get Started?</h2>
-            <p>Join hundreds of businesses using VerzChat to manage every customer conversation — $25/month, cancel anytime.</p>
+            <p>Join hundreds of businesses using VerzChat to manage every customer conversation — free to start, cancel anytime.</p>
             <div className="d-flex gap-3 justify-content-center flex-wrap">
               <Link href="/auth/register" className="btn_green">Get Started Free</Link>
               <Link href="/book-demo" className="btn_outline" style={{ borderColor: 'rgba(255,255,255,.25)', color: 'rgba(255,255,255,.8)' }}>Book a Demo</Link>
