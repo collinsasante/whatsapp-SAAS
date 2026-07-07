@@ -153,6 +153,134 @@ export class PlatformAdminService {
   }
 
   /**
+   * Revenue & payments operations -- the dunning worklist. Revenue-by-provider
+   * and success/failure counts are derived from the existing tenant-scoped
+   * AnalyticsDailyRevenueStats rollup (cross-tenant sum, no new storage);
+   * failure *reasons* and the rolling-24h alert threshold read the raw
+   * Payment table directly since reason strings and sub-day windows were
+   * never part of that rollup.
+   *
+   * "Revenue by plan" is an approximation: it attributes each payment to the
+   * tenant's *current* plan, not whatever plan was active when the payment
+   * happened. A tenant who upgraded mid-period has their whole period's
+   * revenue counted under the new plan. Precise historical attribution would
+   * need a plan snapshot per payment, which doesn't exist -- flagging this
+   * rather than pretending it's exact.
+   */
+  async getRevenue(fromStr?: string, toStr?: string) {
+    const { from, to } = resolveDateRange(fromStr, toStr, 'UTC');
+    const fromDate = new Date(`${from}T00:00:00.000Z`);
+    const toDate = new Date(`${to}T00:00:00.000Z`);
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    const [rollupRows, last24hRows, failureReasonRows, pastDueSubs, renewals7, renewals30, paymentsInPeriod] = await Promise.all([
+      this.prisma.analyticsDailyRevenueStats.groupBy({
+        by: ['date', 'gateway'],
+        where: { date: { gte: fromDate, lte: toDate } },
+        _sum: { amount: true, successCount: true, failedCount: true },
+      }),
+      this.prisma.payment.groupBy({
+        by: ['gateway', 'status'],
+        where: { createdAt: { gte: oneDayAgo } },
+        _count: { id: true },
+      }),
+      this.prisma.payment.groupBy({
+        by: ['gateway', 'failReason'],
+        where: { status: 'FAILED', createdAt: { gte: fromDate, lte: toDate } },
+        _count: { id: true },
+      }),
+      this.prisma.subscription.findMany({
+        where: { status: 'PAST_DUE' },
+        orderBy: { currentPeriodEnd: 'asc' },
+        take: 50,
+        select: {
+          tenantId: true, currentPeriodEnd: true,
+          tenant: { select: { name: true, billingEmail: true } },
+          plan: { select: { name: true, monthlyPrice: true, yearlyPrice: true, currency: true } },
+        },
+      }),
+      this.prisma.subscription.count({ where: { status: 'ACTIVE', currentPeriodEnd: { gte: now, lte: in7Days } } }),
+      this.prisma.subscription.count({ where: { status: 'ACTIVE', currentPeriodEnd: { gte: now, lte: in30Days } } }),
+      this.prisma.payment.findMany({
+        where: { status: 'SUCCEEDED', createdAt: { gte: fromDate, lte: toDate } },
+        select: { tenantId: true, amount: true },
+      }),
+    ]);
+
+    const byDate = new Map<string, Record<string, number>>();
+    const successByGateway = new Map<string, { success: number; failed: number; amount: number }>();
+    for (const row of rollupRows) {
+      const dateStr = row.date.toISOString().slice(0, 10);
+      const dayRow = byDate.get(dateStr) ?? {};
+      dayRow[row.gateway] = (dayRow[row.gateway] ?? 0) + (row._sum.amount ?? 0);
+      byDate.set(dateStr, dayRow);
+
+      const g = successByGateway.get(row.gateway) ?? { success: 0, failed: 0, amount: 0 };
+      g.success += row._sum.successCount ?? 0;
+      g.failed += row._sum.failedCount ?? 0;
+      g.amount += row._sum.amount ?? 0;
+      successByGateway.set(row.gateway, g);
+    }
+    const revenueByProviderDay = Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, amounts]) => ({ date, ...amounts }));
+
+    const successRateByProvider = Array.from(successByGateway.entries()).map(([gateway, s]) => ({
+      gateway,
+      successCount: s.success,
+      failedCount: s.failed,
+      amountGhs: s.amount,
+      successRatePct: s.success + s.failed > 0 ? Math.round((s.success / (s.success + s.failed)) * 1000) / 10 : null,
+    }));
+
+    const last24hByGateway = new Map<string, { success: number; failed: number }>();
+    for (const row of last24hRows) {
+      const g = last24hByGateway.get(row.gateway) ?? { success: 0, failed: 0 };
+      if (row.status === 'SUCCEEDED') g.success += row._count.id;
+      if (row.status === 'FAILED') g.failed += row._count.id;
+      last24hByGateway.set(row.gateway, g);
+    }
+    const alerts = Array.from(last24hByGateway.entries())
+      .map(([gateway, s]) => ({ gateway, successRatePct: s.success + s.failed > 0 ? Math.round((s.success / (s.success + s.failed)) * 1000) / 10 : 100, sampleSize: s.success + s.failed }))
+      .filter((a) => a.sampleSize >= 3 && a.successRatePct < 90); // ignore tiny samples -- one failed payment out of one isn't a real signal
+
+    const failureReasons = failureReasonRows.map((r) => ({ gateway: r.gateway, reason: r.failReason ?? 'Unknown', count: r._count.id }));
+
+    const pastDueWorklist = pastDueSubs.map((s) => ({
+      tenantId: s.tenantId, tenantName: s.tenant.name, billingEmail: s.tenant.billingEmail,
+      planName: s.plan.name, amount: s.plan.monthlyPrice, currency: s.plan.currency,
+      overdueSinceDate: s.currentPeriodEnd.toISOString().slice(0, 10),
+      daysOverdue: Math.max(0, Math.floor((now.getTime() - s.currentPeriodEnd.getTime()) / (24 * 60 * 60 * 1000))),
+    }));
+
+    // Revenue-by-plan approximation (see doc comment above)
+    const tenantIds = [...new Set(paymentsInPeriod.map((p) => p.tenantId))];
+    const currentPlans = tenantIds.length
+      ? await this.prisma.subscription.findMany({ where: { tenantId: { in: tenantIds } }, select: { tenantId: true, plan: { select: { name: true } } } })
+      : [];
+    const planByTenant = new Map(currentPlans.map((s) => [s.tenantId, s.plan.name]));
+    const revenueByPlan = new Map<string, number>();
+    for (const p of paymentsInPeriod) {
+      const planName = planByTenant.get(p.tenantId) ?? 'No plan';
+      revenueByPlan.set(planName, (revenueByPlan.get(planName) ?? 0) + p.amount);
+    }
+
+    return {
+      period: { from, to },
+      revenueByProviderDay,
+      successRateByProvider,
+      alerts,
+      failureReasons,
+      pastDueWorklist,
+      upcomingRenewals: { in7Days: renewals7, in30Days: renewals30 },
+      revenueByPlan: Array.from(revenueByPlan.entries()).map(([plan, amount]) => ({ plan, amount })),
+    };
+  }
+
+  /**
    * The tenant table. Health score, churn-risk, and the "high value" filter are
    * all computed values (not stored columns), so -- given the expected scale of
    * a small/medium multi-tenant SaaS (tens to low hundreds of tenants, not
