@@ -40,7 +40,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
   console.log('[admin-api] response', { url: `${BASE}${path}`, status: res.status, ok: res.ok });
 
-  if (res.status === 401) {
+  // A 401 only means "your session expired" if we actually sent a token that got
+  // rejected. A 401 on an unauthenticated call (login, forgot-password) just means
+  // "invalid credentials" -- treating it as a session expiry wiped out that real
+  // error message and silently bounced the user back to the login page they were
+  // already on, which looked like a broken redirect loop.
+  if (res.status === 401 && token) {
     const errBody = await res.clone().json().catch(() => null);
     console.log('[admin-api] 401 body', errBody, '-- clearing token and redirecting to login');
     localStorage.removeItem('admin_token');
