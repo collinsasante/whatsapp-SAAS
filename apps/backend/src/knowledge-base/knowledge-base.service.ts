@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import axios from 'axios';
+import { QueueName, KbEmbeddingJob } from '@whatsapp-platform/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -7,7 +10,20 @@ export class KnowledgeBaseService {
   private readonly logger = new Logger(KnowledgeBaseService.name);
   private readonly learningThrottle = new Map<string, number>();
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @InjectQueue(QueueName.KB_EMBEDDING) private embeddingQueue: Queue,
+  ) {}
+
+  /** Re-chunk + re-embed an article off the request path -- never block a
+   *  create/update/upload response on embedding generation. */
+  private enqueueEmbedding(tenantId: string, articleId: string): void {
+    void this.embeddingQueue.add(
+      'upsert',
+      { tenantId, articleId, action: 'upsert' } satisfies KbEmbeddingJob,
+      { removeOnComplete: true, removeOnFail: 50 },
+    ).catch((err) => this.logger.error(`Failed to enqueue embedding job for article ${articleId}`, err));
+  }
 
   triggerLearningAsync(tenantId: string): void {
     const now = Date.now();
@@ -25,15 +41,22 @@ export class KnowledgeBaseService {
   }
 
   async create(tenantId: string, data: { title: string; content: string; isActive?: boolean; source?: string; sourceRef?: string }) {
-    return this.prisma.knowledgeBaseArticle.create({
+    const article = await this.prisma.knowledgeBaseArticle.create({
       data: { tenantId, source: 'manual', ...data },
     });
+    this.enqueueEmbedding(tenantId, article.id);
+    return article;
   }
 
   async update(tenantId: string, id: string, data: { title?: string; content?: string; isActive?: boolean }) {
     const article = await this.prisma.knowledgeBaseArticle.findFirst({ where: { id, tenantId } });
     if (!article) throw new NotFoundException('Article not found');
-    return this.prisma.knowledgeBaseArticle.update({ where: { id }, data });
+    const updated = await this.prisma.knowledgeBaseArticle.update({ where: { id }, data });
+    // Title/content changes invalidate existing chunks/embeddings; isActive-only
+    // toggles don't (retrieval already filters on article.isActive), but
+    // re-enqueuing is cheap and idempotent, so don't bother special-casing it.
+    if (data.title !== undefined || data.content !== undefined) this.enqueueEmbedding(tenantId, updated.id);
+    return updated;
   }
 
   async remove(tenantId: string, id: string) {
@@ -87,7 +110,7 @@ export class KnowledgeBaseService {
 
     for (let i = 0; i < chunks.length; i++) {
       const chunkTitle = chunks.length > 1 ? `${title} (Part ${i + 1})` : title;
-      await this.prisma.knowledgeBaseArticle.create({
+      const article = await this.prisma.knowledgeBaseArticle.create({
         data: {
           tenantId,
           title: chunkTitle,
@@ -97,6 +120,7 @@ export class KnowledgeBaseService {
           isActive: true,
         },
       });
+      this.enqueueEmbedding(tenantId, article.id);
     }
 
     return { created: chunks.length };
@@ -140,7 +164,7 @@ export class KnowledgeBaseService {
     const chunks = this.chunkText(text, 3000);
     for (let i = 0; i < chunks.length; i++) {
       const chunkTitle = chunks.length > 1 ? `${pageTitle} (Part ${i + 1})` : pageTitle;
-      await this.prisma.knowledgeBaseArticle.create({
+      const article = await this.prisma.knowledgeBaseArticle.create({
         data: {
           tenantId,
           title: chunkTitle,
@@ -150,6 +174,7 @@ export class KnowledgeBaseService {
           isActive: true,
         },
       });
+      this.enqueueEmbedding(tenantId, article.id);
     }
 
     return { created: chunks.length };
@@ -281,9 +306,10 @@ export class KnowledgeBaseService {
             select: { id: true },
           });
           if (!exists) {
-            await this.prisma.knowledgeBaseArticle.create({
+            const learned = await this.prisma.knowledgeBaseArticle.create({
               data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
             });
+            this.enqueueEmbedding(tenantId, learned.id);
             created++;
           }
         }

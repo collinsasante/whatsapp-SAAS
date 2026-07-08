@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
 import { AiLogsService } from './ai-logs.service';
-import { AiResponderService } from '../ai/ai-responder.service';
+import { AiResponderService, detectInjection } from '../ai/ai-responder.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('ai-logs')
@@ -50,28 +50,29 @@ export class AiLogsController {
     );
   }
 
-  /** POST /ai-logs/test  body: { message }  — sandbox test without saving a real log */
+  /**
+   * POST /ai-logs/test  body: { message }  — sandbox test without saving a
+   * real log. Uses the exact same injection-pattern list as the live
+   * pipeline (previously this endpoint kept its own shorter, drifted copy),
+   * and surfaces retrieved sources + action + verification so a tenant can
+   * see WHY an answer would or wouldn't have gone out before going live
+   * (Phase 7.1 test console).
+   */
   @Post('test')
   async test(
     @CurrentUser() user: JwtPayload,
     @Body() body: { message: string },
   ) {
-    const INJECTION_PATTERNS = [
-      /ignore\s+(previous|all|prior)\s+instructions?/i,
-      /act\s+as\s+(an?\s+)?(admin|administrator|root|superuser|system)/i,
-      /reveal\s+(your|the)\s+(system\s+)?prompt/i,
-      /jailbreak/i,
-      /dan\s+mode/i,
-      /bypass\s+(safety|security|filter)/i,
-      /export\s+(all\s+)?(the\s+)?(data|database|customers?|records?)/i,
-    ];
-    const injectionDetected = INJECTION_PATTERNS.some(p => p.test(body.message));
-    const startMs = Date.now();
+    const injectionDetected = detectInjection(body.message);
     const result = await this.aiResponder.generateSuggestion(user.tenantId, 'sandbox-test', body.message);
     return {
       response: result.response,
       confidence: result.confidence,
-      responseTimeMs: Date.now() - startMs,
+      action: result.action,
+      sources: result.retrievedChunks.filter((c) => result.sources.includes(c.id)).map((c) => ({ id: c.id, heading: c.heading, excerpt: c.content.slice(0, 200) })),
+      verificationPassed: result.verificationPassed,
+      verificationFailReason: result.verificationFailReason,
+      responseTimeMs: result.responseTimeMs,
       injectionBlocked: injectionDetected || result.blocked,
       safetyCheck: {
         injectionAttempt: injectionDetected,

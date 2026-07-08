@@ -1,7 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type AiLogStatus = 'SUGGESTED' | 'APPROVED' | 'EDITED' | 'REJECTED' | 'AUTO_SENT';
+/** 0 = identical, 1 = completely rewritten. Ground-truth signal for how much
+ *  an agent had to fix a suggestion before it was fit to send. */
+function levenshteinRatio(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 0;
+  const dp: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return Math.round((dp[a.length][b.length] / maxLen) * 1000) / 1000;
+}
+
+export type AiLogStatus = 'SUGGESTED' | 'APPROVED' | 'EDITED' | 'REJECTED' | 'AUTO_SENT' | 'ESCALATED';
 
 export interface CreateAiLogDto {
   tenantId: string;
@@ -12,6 +29,12 @@ export interface CreateAiLogDto {
   status: AiLogStatus;
   confidenceScore?: number | null;
   responseTimeMs?: number;
+  sources?: string[];
+  action?: string | null;
+  verificationPassed?: boolean | null;
+  verificationFailReason?: string | null;
+  unverifiedDetail?: boolean;
+  escalationReason?: string | null;
 }
 
 @Injectable()
@@ -40,6 +63,14 @@ export class AiLogsService {
     agentId?: string,
     finalSentMessage?: string,
   ) {
+    let editDistanceRatio: number | undefined;
+    if (status === 'EDITED' && finalSentMessage) {
+      const original = await this.db.aiInteractionLog.findFirst({
+        where: { id: logId, tenantId }, select: { aiResponse: true },
+      });
+      if (original?.aiResponse) editDistanceRatio = levenshteinRatio(original.aiResponse, finalSentMessage);
+    }
+
     return this.db.aiInteractionLog.updateMany({
       where: { id: logId, tenantId },
       data: {
@@ -47,6 +78,7 @@ export class AiLogsService {
         agentId: agentId ?? undefined,
         editedByAgent: status === 'EDITED',
         finalSentMessage: finalSentMessage ?? undefined,
+        editDistanceRatio: editDistanceRatio ?? undefined,
       },
     });
   }
