@@ -293,7 +293,12 @@ export const usersApi = {
 };
 
 export const dashboardApi = {
-  get: () => api.get('/dashboard'),
+  overview: () => api.get('/dashboard/overview'),
+  teamStats: () => api.get('/dashboard/team'),
+  conversationTrend: (days = 30) => api.get('/dashboard/conversation-trend', { params: { days } }),
+  conversationStats: (from: string, to: string) => api.get('/dashboard/conversation-stats', { params: { from, to } }),
+  whatsappStatus: () => api.get('/dashboard/whatsapp-status'),
+  businessProfile: () => api.get('/dashboard/business-profile'),
 };
 
 export const analyticsApi = {
