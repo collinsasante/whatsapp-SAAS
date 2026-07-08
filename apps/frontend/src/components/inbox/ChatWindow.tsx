@@ -246,6 +246,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [aiSuggestion, setAiSuggestion] = useState<{ logId: string; response: string; confidence: number | null } | null>(null);
   const [aiSuggestionSending, setAiSuggestionSending] = useState(false);
   const [aiFeedbackLogId, setAiFeedbackLogId] = useState<string | null>(null);
+  // Tracks which AI suggestion (if any) the compose box currently holds, so that
+  // sending it records an 'EDITED' status + edit-distance telemetry -- previously
+  // "Edit & Send" populated the compose box and dropped the log reference, so
+  // every edited-then-sent suggestion was invisible in AI suggestion analytics.
+  const [pendingAiEditLogId, setPendingAiEditLogId] = useState<string | null>(null);
 
   // Older-message pagination
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
@@ -749,6 +754,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     const content = text.trim();
 
     const replyToId = replyTo?.id;
+    if (pendingAiEditLogId && inputMode === 'message') {
+      const logId = pendingAiEditLogId;
+      void aiLogsApi.updateStatus(logId, 'EDITED', content).catch(() => null);
+      setAiFeedbackLogId(logId);
+    }
+    setPendingAiEditLogId(null);
     setText('');
     setReplyTo(null);
     inputRef.current?.focus();
@@ -1829,6 +1840,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   <button
                     onClick={() => {
                       setText(aiSuggestion.response);
+                      setPendingAiEditLogId(aiSuggestion.logId);
                       setAiSuggestion(null);
                       inputRef.current?.focus();
                     }}

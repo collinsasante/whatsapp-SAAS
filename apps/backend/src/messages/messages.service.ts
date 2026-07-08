@@ -9,6 +9,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { StorageService } from '../media/storage.service';
 import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.service';
 import { AiResponderService } from '../ai/ai-responder.service';
+import { EscalationService, EscalationReason } from '../ai/escalation.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { AiLogsService } from '../ai-logs/ai-logs.service';
 import { SendMessageDto } from './dto/message.dto';
@@ -30,6 +31,7 @@ export class MessagesService {
     private chatbotFlowsService: ChatbotFlowsService,
     private activityLogService: ActivityLogService,
     private aiResponderService: AiResponderService,
+    private escalationService: EscalationService,
     private knowledgeBaseService: KnowledgeBaseService,
     private aiLogsService: AiLogsService,
   ) {}
@@ -649,94 +651,255 @@ export class MessagesService {
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     if (content && !flowMatched && !humanOwned) {
-      const aiMode = await this.aiResponderService.getMode(tenantId).catch(() => null);
-
-      if (aiMode === 'SUGGESTION') {
-        // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
-        void (async () => {
-          const startMs = Date.now();
-          const result = await this.aiResponderService.generateSuggestion(
-            tenantId, conversation.id, content, contact.name ?? undefined,
-          );
-          if (!result.response) return;
-
-          const log = await this.aiLogsService.create({
-            tenantId,
-            conversationId: conversation.id,
-            contactId: contact.id,
-            customerMessage: content,
-            aiResponse: result.response,
-            status: 'SUGGESTED',
-            confidenceScore: result.confidence,
-            responseTimeMs: Date.now() - startMs,
-          }) as { id: string };
-
-          this.realtimeService.emitAiSuggestion(tenantId, conversation.id, {
-            logId: log.id,
-            response: result.response,
-            confidence: result.confidence,
-          });
-        })();
-      } else if (aiMode === 'AUTO_REPLY') {
-        const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
-        if (shouldAi) {
-          void (async () => {
-            const startMs = Date.now();
-            const [result, verzAgent] = await Promise.all([
-              this.aiResponderService.generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined),
-              this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
-            ]);
-            if (!result.response) return;
-
-            await this.prisma.tenant.updateMany({
-              where: { id: tenantId, aiCredits: { gt: 0 } },
-              data: { aiCredits: { decrement: 1 } },
-            });
-            await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
-
-            await this.aiLogsService.create({
-              tenantId,
-              conversationId: conversation.id,
-              contactId: contact.id,
-              customerMessage: content,
-              aiResponse: result.response,
-              status: 'AUTO_SENT',
-              confidenceScore: result.confidence,
-              responseTimeMs: Date.now() - startMs,
-            });
-
-            const aiMessage = await this.prisma.message.create({
-              data: {
-                tenantId,
-                conversationId: conversation.id,
-                contactId: contact.id,
-                senderId: verzAgent?.id ?? null,
-                direction: 'OUTBOUND' as const,
-                type: 'TEXT' as const,
-                status: 'SENT' as const,
-                content: result.response,
-                metadata: { aiGenerated: true },
-              },
-              include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
-            });
-
-            if (verzAgent && !assignedTo) {
-              await this.prisma.conversation.update({
-                where: { id: conversation.id },
-                data: { assignedToId: verzAgent.id, status: 'OPEN' },
-              });
-              this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
-                assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
-                status: 'OPEN',
-              });
-            }
-            this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
-          })();
-        }
-      }
+      void this.handleAiResponse(tenantId, conversation.id, contact, content, message.id, assignedTo ?? null)
+        .catch((err) => this.logger.error(`AI responder pipeline error: ${(err as Error).message}`));
     }
 
     return message;
+  }
+
+  /**
+   * Full Verz AI pipeline for one inbound customer message: pre-generation
+   * escalation checks (human request / frustration / loop protection) run
+   * BEFORE any model call, since they're cheap and some (human request) must
+   * win regardless of what the model would say. Then generation + the
+   * confidence/verification gate for AUTO_REPLY. SUGGESTION mode always
+   * shows the agent whatever Verz produced (or nothing, on a hard failure);
+   * AUTO_REPLY only ever sends when action=ANSWER, verification passed, and
+   * confidence clears the tenant's threshold -- anything else becomes a
+   * human-queue escalation with the tenant's holding message, and no credit
+   * is deducted for a blocked send.
+   */
+  private async handleAiResponse(
+    tenantId: string,
+    conversationId: string,
+    contact: { id: string; phone: string; name?: string | null },
+    content: string,
+    currentMessageId: string,
+    assignedTo: { id: string; isAiAgent?: boolean } | null,
+  ) {
+    const [aiMode, aiSettings] = await Promise.all([
+      this.aiResponderService.getMode(tenantId).catch(() => null),
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { aiHoldingMessage: true, aiConfidenceThreshold: true, aiMaxConsecutiveReplies: true },
+      }),
+    ]);
+    if (aiMode !== 'SUGGESTION' && aiMode !== 'AUTO_REPLY') return;
+
+    // --- Pre-generation escalation checks (cheapest path -- never call the model) ---
+    let preReason: EscalationReason | null = this.escalationService.detectHumanIntent(content) ? 'human_request' : null;
+
+    if (!preReason) {
+      // Prior messages only -- the current one is passed separately as `content`,
+      // so detectFrustration's repeat/frustration-streak checks aren't comparing
+      // the current message against itself.
+      const recentInbound = await this.prisma.message.findMany({
+        where: { tenantId, conversationId, direction: 'INBOUND', type: 'TEXT', content: { not: null }, id: { not: currentMessageId } },
+        orderBy: { createdAt: 'desc' }, take: 3, select: { content: true },
+      });
+      if (this.escalationService.detectFrustration(content, recentInbound.map((m) => m.content!).reverse())) {
+        preReason = 'frustration';
+      }
+    }
+
+    if (!preReason) {
+      const maxConsecutive = aiSettings?.aiMaxConsecutiveReplies ?? 5;
+      if (await this.escalationService.isLoopProtectionTriggered(tenantId, conversationId, maxConsecutive)) {
+        preReason = 'loop_protection';
+      }
+    }
+
+    if (preReason) {
+      await this.escalateConversation({
+        tenantId, conversationId, contact, customerQuestion: content, reason: preReason,
+        draftReply: null, aiMode, holdingMessage: aiSettings?.aiHoldingMessage ?? null, assignedTo,
+      });
+      return;
+    }
+
+    // --- Generation (retrieval + grounded prompt + verification happen inside) ---
+    const result = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contact.name ?? undefined);
+    if (!result.response) return; // model call failed entirely after retries -- log nothing, don't leave a broken draft
+
+    let finalAction = result.action;
+    if (finalAction === 'CLARIFY') {
+      const clarifyCount = await this.escalationService.clarifyCount(tenantId, conversationId);
+      if (clarifyCount >= 1) finalAction = 'ESCALATE'; // already asked once -- don't ask forever
+    }
+
+    const kbCoverageNote = result.retrievedChunks.length === 0
+      ? 'The knowledge base had no relevant content for this question.'
+      : `The knowledge base had ${result.retrievedChunks.length} potentially relevant chunk(s), but Verz was not confident enough to answer directly.`;
+
+    if (aiMode === 'SUGGESTION') {
+      // Never auto-send in this mode -- always surface whatever Verz produced,
+      // labeled with action/verification so the agent knows how much to trust it.
+      const log = await this.aiLogsService.create({
+        tenantId, conversationId, contactId: contact.id,
+        customerMessage: content, aiResponse: result.response, status: 'SUGGESTED',
+        confidenceScore: result.confidence, responseTimeMs: result.responseTimeMs,
+        sources: result.sources, action: finalAction,
+        verificationPassed: result.verificationPassed, verificationFailReason: result.verificationFailReason,
+        unverifiedDetail: result.unverifiedDetail,
+      }) as { id: string };
+
+      this.realtimeService.emitAiSuggestion(tenantId, conversationId, {
+        logId: log.id, response: result.response, confidence: result.confidence,
+      });
+
+      if (finalAction === 'ESCALATE') {
+        const reason: EscalationReason = !result.verificationPassed ? 'verification_failed' : 'low_confidence';
+        await this.escalationService.postHandoffNote({
+          tenantId, conversationId,
+          verzAgentId: (await this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null))?.id ?? contact.id,
+          customerQuestion: content, reason, draftReply: result.response, kbCoverageNote,
+        }).catch(() => null);
+      }
+      return;
+    }
+
+    // --- AUTO_REPLY ---
+    const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
+    if (!shouldAi) return;
+
+    const threshold = aiSettings?.aiConfidenceThreshold ?? 75;
+    const canAutoSend = finalAction === 'ANSWER' && result.verificationPassed && (result.confidence ?? 0) >= threshold;
+
+    if (!canAutoSend) {
+      const reason: EscalationReason = finalAction === 'CLARIFY' ? 'clarify_exhausted'
+        : !result.verificationPassed ? 'verification_failed' : 'low_confidence';
+      await this.aiLogsService.create({
+        tenantId, conversationId, contactId: contact.id,
+        customerMessage: content, aiResponse: result.response, status: 'ESCALATED',
+        confidenceScore: result.confidence, responseTimeMs: result.responseTimeMs,
+        sources: result.sources, action: finalAction,
+        verificationPassed: result.verificationPassed, verificationFailReason: result.verificationFailReason,
+        unverifiedDetail: result.unverifiedDetail, escalationReason: reason,
+      });
+      await this.escalateConversation({
+        tenantId, conversationId, contact, customerQuestion: content, reason,
+        draftReply: result.response, aiMode, holdingMessage: aiSettings?.aiHoldingMessage ?? null, assignedTo,
+      });
+      return; // no credit deducted -- nothing was sent to the customer
+    }
+
+    const verzAgent = await this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null);
+
+    // Credit integrity: race-safe conditional decrement (the `gt: 0` guard means
+    // concurrent sends can never take the balance negative), zero credits falls
+    // back to a SUGGESTION instead of a silent shutdown.
+    const decremented = await this.prisma.tenant.updateMany({
+      where: { id: tenantId, aiCredits: { gt: 0 } },
+      data: { aiCredits: { decrement: 1 } },
+    });
+    if (decremented.count === 0) {
+      const log = await this.aiLogsService.create({
+        tenantId, conversationId, contactId: contact.id,
+        customerMessage: content, aiResponse: result.response, status: 'SUGGESTED',
+        confidenceScore: result.confidence, responseTimeMs: result.responseTimeMs,
+        sources: result.sources, action: finalAction, verificationPassed: result.verificationPassed,
+      }) as { id: string };
+      this.realtimeService.emitAiSuggestion(tenantId, conversationId, {
+        logId: log.id, response: result.response, confidence: result.confidence,
+      });
+      return;
+    }
+
+    const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
+    if (!waId) {
+      // Send failed after the credit was already deducted -- refund it.
+      await this.prisma.tenant.update({ where: { id: tenantId }, data: { aiCredits: { increment: 1 } } }).catch(() => null);
+      return;
+    }
+
+    await this.aiLogsService.create({
+      tenantId, conversationId, contactId: contact.id,
+      customerMessage: content, aiResponse: result.response, status: 'AUTO_SENT',
+      confidenceScore: result.confidence, responseTimeMs: result.responseTimeMs,
+      sources: result.sources, action: finalAction, verificationPassed: result.verificationPassed,
+    });
+
+    const aiMessage = await this.prisma.message.create({
+      data: {
+        tenantId, conversationId, contactId: contact.id,
+        senderId: verzAgent?.id ?? null,
+        direction: 'OUTBOUND' as const, type: 'TEXT' as const, status: 'SENT' as const,
+        content: result.response,
+        metadata: { aiGenerated: true },
+      },
+      include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+    });
+
+    if (verzAgent && !assignedTo) {
+      await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { assignedToId: verzAgent.id, status: 'OPEN' },
+      });
+      this.realtimeService.emitConversationUpdated(tenantId, conversationId, {
+        assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
+        status: 'OPEN',
+      });
+    }
+    this.realtimeService.emitNewMessage(tenantId, conversationId, aiMessage);
+  }
+
+  /**
+   * Hands a conversation off to a human: posts an internal note summarizing
+   * why (so an agent never has to reconstruct context by scrolling), marks
+   * the conversation REQUESTED so it surfaces in the human queue, and -- for
+   * AUTO_REPLY tenants with a configured holding message -- sends it to the
+   * customer so they aren't left in silence.
+   */
+  private async escalateConversation(opts: {
+    tenantId: string;
+    conversationId: string;
+    contact: { id: string; phone: string };
+    customerQuestion: string;
+    reason: EscalationReason;
+    draftReply: string | null;
+    aiMode: 'SUGGESTION' | 'AUTO_REPLY';
+    holdingMessage: string | null;
+    assignedTo: { id: string; isAiAgent?: boolean } | null;
+  }) {
+    const verzAgent = await this.aiResponderService.findOrCreateVerzAgent(opts.tenantId).catch(() => null);
+
+    if (verzAgent) {
+      await this.escalationService.postHandoffNote({
+        tenantId: opts.tenantId,
+        conversationId: opts.conversationId,
+        verzAgentId: verzAgent.id,
+        customerQuestion: opts.customerQuestion,
+        reason: opts.reason,
+        draftReply: opts.draftReply,
+        kbCoverageNote: '',
+      }).catch(() => null);
+    }
+
+    if (!opts.assignedTo) {
+      await this.prisma.conversation.update({
+        where: { id: opts.conversationId },
+        data: { status: 'REQUESTED' },
+      }).catch(() => null);
+      this.realtimeService.emitConversationUpdated(opts.tenantId, opts.conversationId, { status: 'REQUESTED' });
+    }
+
+    if (opts.aiMode === 'AUTO_REPLY' && opts.holdingMessage) {
+      const waId = await this.whatsappService.sendTextMessage(opts.tenantId, opts.contact.phone, opts.holdingMessage).catch(() => null);
+      if (waId) {
+        const holdingMsg = await this.prisma.message.create({
+          data: {
+            tenantId: opts.tenantId, conversationId: opts.conversationId, contactId: opts.contact.id,
+            senderId: verzAgent?.id ?? null,
+            direction: 'OUTBOUND' as const, type: 'TEXT' as const, status: 'SENT' as const,
+            content: opts.holdingMessage,
+            metadata: { aiGenerated: true, isEscalationHolding: true },
+          },
+          include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+        });
+        this.realtimeService.emitNewMessage(opts.tenantId, opts.conversationId, holdingMsg);
+      }
+    }
   }
 
   private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>) {

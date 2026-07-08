@@ -14,6 +14,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts",
     "billing:setup-plans": "ts-node scripts/setup-billing-plans.ts",
+    "ai-eval": "ts-node test/ai-evals/run-eval.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

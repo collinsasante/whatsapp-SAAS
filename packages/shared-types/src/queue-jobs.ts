@@ -39,6 +39,12 @@ export interface AiTrialExpireJob {
   tenantId: string;
 }
 
+export interface KbEmbeddingJob {
+  tenantId: string;
+  articleId: string;
+  action: 'upsert' | 'delete';
+}
+
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
   MESSAGE_RETRY = 'message-retry',
@@ -51,4 +57,5 @@ export enum QueueName {
   SLA_MONITOR = 'sla-monitor',
   ANALYTICS_ROLLUP = 'analytics-rollup',
   WHATSAPP_QUALITY_SYNC = 'whatsapp-quality-sync',
+  KB_EMBEDDING = 'kb-embedding',
 }

@@ -69,6 +69,8 @@ model Tenant {
   conversationEvents  ConversationEvent[]
   workspaceMembers    WorkspaceMember[]   @relation("WorkspaceMembers")
   knowledgeBase       KnowledgeBaseArticle[]
+  knowledgeBaseChunks KnowledgeBaseChunk[]
+  aiKnowledgeGaps     AiKnowledgeGap[]
   workspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitations")
   messageDeletions     MessageDeletion[]
   feedback             Feedback[]
@@ -182,6 +184,12 @@ model TenantSettings {
   aiPilotGroup        Boolean  @default(false) @map("ai_pilot_group")
   aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
   aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
+  // Confidence gate + escalation config (Phase 3) -- default ON for new tenants per spec.
+  aiConfidenceThreshold   Int      @default(75) @map("ai_confidence_threshold")
+  aiHoldingMessage        String?  @map("ai_holding_message")
+  aiVerificationEnabled   Boolean  @default(true) @map("ai_verification_enabled")
+  aiDebounceEnabled       Boolean  @default(true) @map("ai_debounce_enabled")
+  aiMaxConsecutiveReplies Int      @default(5) @map("ai_max_consecutive_replies")
   airtableEnabled     Boolean  @default(false) @map("airtable_enabled")
   airtableApiKey      String?  @map("airtable_api_key")
   airtableBaseId      String?  @map("airtable_base_id")
@@ -1778,9 +1786,65 @@ model KnowledgeBaseArticle {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chunks KnowledgeBaseChunk[]
 
   @@index([tenantId])
   @@map("knowledge_base_articles")
+}
+
+// Retrieval unit for RAG. One article -> many chunks (heading-aware, ~300-500
+// tokens, overlapping). `embedding` is a plain Float[] rather than a native
+// pgvector column -- the Postgres images used in every environment
+// (postgres:16-alpine) don't have the pgvector extension installed, and
+// swapping the production DB image is a separate, deliberate infra decision,
+// not something to fold into a feature migration. Cosine similarity is
+// computed in application code (EmbeddingRetrievalService); fine at current
+// scale (tens of tenants, KBs in the tens-to-low-hundreds of articles).
+// Upgrade path: switch to `pgvector/pgvector:pg16`, change this column to
+// `Unsupported("vector(N)")`, and use the native `<=>` operator once KB sizes
+// justify ANN indexing.
+//
+// A generated `content_tsv` tsvector column backs the lexical half of hybrid
+// retrieval (Postgres full-text search, no extension required) -- managed via
+// raw SQL in the migration and queried via $queryRaw, not through Prisma's
+// query builder, since Prisma has no first-class generated-column support.
+model KnowledgeBaseChunk {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  articleId    String   @map("article_id")
+  chunkIndex   Int      @map("chunk_index")
+  heading      String?
+  content      String
+  embedding    Float[]
+  embeddingModel String  @default("local-hash-v1") @map("embedding_model")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  article KnowledgeBaseArticle  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([articleId])
+  @@map("knowledge_base_chunks")
+}
+
+// A recurring question the KB can't answer, clustered from escalations/low-confidence
+// answers. Powers the "your customers are asking about X" panel (Phase 4.2).
+model AiKnowledgeGap {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  clusterKey        String   @map("cluster_key") // normalized topic key used to group occurrences
+  exampleQuestions  String[] @map("example_questions")
+  occurrenceCount   Int      @default(1) @map("occurrence_count")
+  status            String   @default("OPEN") @map("status") // OPEN | DRAFTED | DISMISSED | RESOLVED
+  draftArticleId    String?  @map("draft_article_id")
+  firstSeenAt       DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime @default(now()) @map("last_seen_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, clusterKey])
+  @@index([tenantId, status])
+  @@map("ai_knowledge_gaps")
 }
 
 model DemoRequest {
@@ -1926,6 +1990,15 @@ model AiInteractionLog {
   feedbackLabel    String?  @map("feedback_label")
   feedbackNote     String?  @map("feedback_note")
   createdAt        DateTime @default(now()) @map("created_at")
+
+  // Grounding + verification (Phase 2/3)
+  sources                String[] @default([]) @map("sources") // KnowledgeBaseChunk ids cited by the model
+  action                 String?  @map("action") // ANSWER | ESCALATE | CLARIFY
+  verificationPassed     Boolean? @map("verification_passed")
+  verificationFailReason String?  @map("verification_fail_reason")
+  unverifiedDetail       Boolean  @default(false) @map("unverified_detail")
+  escalationReason       String?  @map("escalation_reason") // human_request | low_confidence | frustration | loop_protection | verification_failed | clarify_exhausted
+  editDistanceRatio      Float?   @map("edit_distance_ratio") // 0 = identical to suggestion, 1 = completely rewritten
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
