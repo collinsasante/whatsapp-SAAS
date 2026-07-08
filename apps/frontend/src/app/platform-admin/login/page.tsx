@@ -19,7 +19,9 @@ export default function AdminLoginPage() {
     setLoading(true);
     try {
       const { token } = await adminApi.login(form.email, form.password);
+      console.log('[admin-login] got token from login response', { tokenPreview: `${token.slice(0, 12)}...${token.slice(-6)}`, length: token.length });
       localStorage.setItem('admin_token', token);
+      console.log('[admin-login] stored in localStorage, readback:', localStorage.getItem('admin_token') === token);
       router.push('/platform-admin/dashboard');
     } catch (err) {
       setError((err as Error).message ?? 'Login failed');
