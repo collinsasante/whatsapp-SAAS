@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -9,6 +9,8 @@ import { AdminLoginDto, AdminSetupDto } from './dto/platform-admin.dto';
 
 @Injectable()
 export class PlatformAdminAuthService {
+  private readonly logger = new Logger(PlatformAdminAuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -68,6 +70,12 @@ export class PlatformAdminAuthService {
 
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://verzchat.com');
     const resetUrl = `${frontendUrl}/platform-admin/reset-password?token=${token}`;
+
+    // Temporary: EmailService only logs "To"/"Subject" when SMTP isn't configured
+    // (see common/email.service.ts), which throws away this URL entirely -- making
+    // password reset a dead end on any environment without real SMTP creds set.
+    // Logging it here so it's recoverable from `docker logs` in the meantime.
+    this.logger.log(`Password reset requested for ${email} -- reset URL: ${resetUrl}`);
 
     await this.emailService.sendRaw({
       to: email,
