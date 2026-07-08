@@ -22,9 +22,30 @@ const DATE_PATTERN = /\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})\b|\b(\d{1,2})\s+(j
 // not a certainty -- see docs/verz-ai-audit.md for the documented limitation.
 const ENGLISH_SIGNAL_WORDS = new Set(['the', 'is', 'are', 'and', 'you', 'your', 'for', 'with', 'have', 'this', 'that', 'we', 'our']);
 
-function extractPrices(text: string): ExtractedPrice[] {
+const NEGATION_MARKERS = ['not ', "n't ", 'no ', 'never ', "isn't ", "aren't ", 'incorrect'];
+
+// Each of these is its own factual claim (e.g. "official API" vs just "API"
+// is a compliance/reliability claim, not a stylistic choice) that the model
+// can add even when told not to invent facts -- prompt instructions alone
+// aren't a hard guarantee, so this is checked in code too. Caught in eval
+// testing: the model repeatedly added "official APIs" for a channels
+// question when the retrieved source never said "official".
+const UNSUPPORTED_QUALIFIER_WORDS = ['official', 'certified', 'guaranteed', 'unlimited', 'compliant', 'verified', 'approved'];
+
+/** True if `text` mentions `needle` immediately after a negation marker --
+ *  "no, it's GHS 313, not GHS 250" is the model correctly refuting a false
+ *  premise, not asserting GHS 250 as fact. Without this, the exact "never
+ *  confidently wrong" behavior we want gets penalized as an unverified price
+ *  and force-escalated for no reason. */
+function isNegatedMention(text: string, matchIndex: number): boolean {
+  const precedingWindow = text.slice(Math.max(0, matchIndex - 15), matchIndex).toLowerCase();
+  return NEGATION_MARKERS.some((m) => precedingWindow.includes(m));
+}
+
+function extractPrices(text: string, opts: { skipNegated?: boolean } = {}): ExtractedPrice[] {
   const out: ExtractedPrice[] = [];
   for (const m of text.matchAll(PRICE_PATTERN)) {
+    if (opts.skipNegated && isNegatedMention(text, m.index ?? 0)) continue;
     const amount = parseFloat(m[1].replace(',', ''));
     if (!Number.isNaN(amount)) out.push({ raw: m[0], amount });
   }
@@ -36,7 +57,11 @@ function normalizePhone(raw: string): string {
 }
 
 function normalizeUrl(raw: string): string {
-  return raw.toLowerCase().replace(/\/$/, '');
+  // Strip trailing sentence punctuation the URL regex swept up along with the
+  // URL itself (e.g. "...register, not verzchat.com/signup" captures a
+  // trailing comma) -- otherwise a correct URL fails comparison purely
+  // because of the sentence around it.
+  return raw.toLowerCase().replace(/[.,;:!?)]+$/, '').replace(/\/$/, '');
 }
 
 function englishSignalRatio(text: string): number {
@@ -87,7 +112,7 @@ export class VerificationService {
     // Prices: strict numeric match required -- this is the "never say GHS 45
     // when the source says GHS 50" guarantee. A price in the reply that
     // doesn't match ANY cited price is a hard failure, not just a flag.
-    const replyPrices = extractPrices(opts.response);
+    const replyPrices = extractPrices(opts.response, { skipNegated: true });
     const citedPrices = new Set(extractPrices(citedContent).map((p) => p.amount));
     const unverifiedPrice = replyPrices.find((p) => !citedPrices.has(p.amount));
     if (unverifiedPrice) {
@@ -101,6 +126,11 @@ export class VerificationService {
     const replyUrls = [...opts.response.matchAll(URL_PATTERN)].map((m) => normalizeUrl(m[0]));
     const unverifiedUrl = replyUrls.find((u) => !citedContent.includes(u));
 
+    const lowerResponse = opts.response.toLowerCase();
+    const unverifiedQualifier = UNSUPPORTED_QUALIFIER_WORDS.find(
+      (w) => new RegExp(`\\b${w}\\b`).test(lowerResponse) && !new RegExp(`\\b${w}\\b`).test(citedContent),
+    );
+
     // Dates: presence-based (formats vary too much for a clean numeric
     // comparison like prices) -- flagged as "unverified detail" rather than a
     // hard block, since a false positive here (e.g. today's date mentioned
@@ -113,6 +143,9 @@ export class VerificationService {
     }
     if (unverifiedUrl) {
       return { passed: false, failReason: `URL "${unverifiedUrl}" not found in cited sources`, unverifiedDetail: false };
+    }
+    if (unverifiedQualifier) {
+      return { passed: false, failReason: `unsupported qualifier "${unverifiedQualifier}" not present in cited sources`, unverifiedDetail: false };
     }
 
     // Language check: best-effort signal only (see ENGLISH_SIGNAL_WORDS doc

@@ -10,10 +10,10 @@ export type EscalationReason =
   | 'clarify_exhausted';
 
 const HUMAN_REQUEST_PATTERNS = [
-  /\b(talk|speak|chat)\s+(to|with)\s+(a\s+)?(real\s+)?(person|human|agent|someone|somebody|rep(resentative)?)\b/i,
-  /\b(can|could|may)\s+i\s+(talk|speak)\s+to\s+(a\s+)?(human|agent|person|manager)\b/i,
-  /\bconnect\s+me\s+(to|with)\s+(a\s+)?(human|agent|person)\b/i,
-  /\bi\s+(want|need)\s+(a\s+)?(human|agent|person|real\s+person)\b/i,
+  /\b(talk|speak|chat)\s+(to|with)\s+(an?\s+)?(real\s+)?(person|human|agent|someone|somebody|rep(resentative)?)\b/i,
+  /\b(can|could|may)\s+i\s+(talk|speak)\s+to\s+(an?\s+)?(human|agent|person|manager)\b/i,
+  /\bconnect\s+me\s+(to|with)\s+(an?\s+)?(human|agent|person)\b/i,
+  /\bi\s+(want|need)\s+(an?\s+)?(human|agent|person|real\s+person)\b/i,
   /\bstop\s+(the\s+)?(bot|robot|ai)\b/i,
   /\b(is\s+)?(this|that)\s+a\s+(bot|robot|machine)\?/i,
   /\bhuman\s+(please|now)\b/i,
@@ -53,15 +53,18 @@ export class EscalationService {
    * frustration-worded messages in a row. False negatives (missing real
    * frustration) are far cheaper here than false positives (escalating a
    * calm customer), so this stays simple rather than trying to be clever.
+   *
+   * `recentInboundMessages` must be PRIOR messages only (current message
+   * excluded), oldest-first -- the caller is responsible for that (see
+   * messages.service.ts's `id: { not: currentMessageId }` query guard).
    */
   detectFrustration(currentMessage: string, recentInboundMessages: string[]): boolean {
     if (isAllCapsAngry(currentMessage)) return true;
 
-    const last = recentInboundMessages.slice(-2);
-    if (last.length === 2) {
-      const [prev, current] = last;
+    const immediatelyPrior = recentInboundMessages[recentInboundMessages.length - 1];
+    if (immediatelyPrior) {
       const normalize = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ');
-      if (normalize(prev) === normalize(current) && current.trim().length > 3) return true; // exact repeat
+      if (normalize(immediatelyPrior) === normalize(currentMessage) && currentMessage.trim().length > 3) return true; // exact repeat
     }
 
     const recentWithCurrent = [...recentInboundMessages.slice(-1), currentMessage];

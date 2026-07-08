@@ -33,13 +33,13 @@ function isOffHours(schedule: Record<string, OffHoursDay>, timezone: string): bo
 // same list -- previously it kept its own separate, shorter copy that had
 // drifted out of sync (missing several of these patterns).
 export const INJECTION_PATTERNS = [
-  /ignore\s+(previous|all|prior)\s+instructions?/i,
-  /disregard\s+(the\s+)?(above|previous|prior)\s+instructions?/i,
+  /ignore\s+(?:all\s+|previous\s+|prior\s+|above\s+|the\s+)*instructions?/i,
+  /disregard\s+(?:all\s+|previous\s+|prior\s+|above\s+|the\s+)*instructions?/i,
   /act\s+as\s+(an?\s+)?(admin|administrator|root|superuser|system)/i,
   /reveal\s+(your|the)\s+(system\s+)?prompt/i,
   /you\s+are\s+now\s+(a|an)\s+/i,
   /forget\s+(everything|all)\s+(you|your)/i,
-  /bypass\s+(safety|security|filter)/i,
+  /bypass\s+(the\s+|your\s+)?(safety|security|filter)/i,
   /export\s+(all\s+)?(the\s+)?(data|database|customers?|records?)/i,
   /give\s+me\s+(all\s+)?(the\s+)?(customer|user|phone|email)/i,
   /jailbreak/i,
@@ -219,9 +219,10 @@ export class AiResponderService {
       `GROUNDING CONTRACT — this is the most important rule:`,
       `- Answer ONLY using the RETRIEVED KNOWLEDGE below. Never use outside knowledge, never invent facts.`,
       `- Every price, phone number, URL, or date you state MUST appear in the retrieved knowledge, worded exactly as it appears there.`,
-      `- If the retrieved knowledge fully answers the question: action = "ANSWER", cite the chunk id(s) you used in "sources".`,
+      `- Do NOT add descriptive qualifiers the retrieved knowledge doesn't use -- words like "official", "certified", "guaranteed", "unlimited", "secure", "compliant" are each a separate factual claim. Only use them if that exact word appears in the retrieved knowledge for that specific fact.`,
+      `- If the retrieved knowledge fully answers the question: action = "ANSWER", cite the chunk id(s) you used in "sources" as bare ids exactly as shown (e.g. "a1b2c3", NOT "id:a1b2c3" -- do not include the "id:" prefix from the brackets below).`,
       `- If the retrieved knowledge does not cover the question, or you are not certain: action = "ESCALATE", sources = [], and response should be a brief, honest "let me get a teammate to help with that" message.`,
-      `- If the retrieved knowledge has relevant-but-ambiguous content (e.g. two products could match) and ONE short clarifying question would resolve it: action = "CLARIFY" and ask exactly one question. Never guess when you could ask.`,
+      `- If the question could reasonably mean more than one thing in the retrieved knowledge (e.g. it could match either of two plans/products, or depends on team size/budget the customer hasn't given you), you MUST ask ONE short clarifying question instead of answering -- action = "CLARIFY". Do NOT list out every option and let the customer pick; ask the one question that narrows it down first. Never guess when you could ask.`,
       `- Never respond with action "ANSWER" and empty sources.`,
       ``,
       `RESPONSE STYLE:`,
@@ -284,7 +285,13 @@ export class AiResponderService {
       ? Math.min(100, Math.max(0, Math.round(parsed.confidence)))
       : null;
     let action: AiAction = parsed.action === 'ESCALATE' || parsed.action === 'CLARIFY' ? parsed.action : 'ANSWER';
-    const sources = Array.isArray(parsed.sources) ? parsed.sources.filter((s): s is string => typeof s === 'string') : [];
+    // Defensive strip of a leading "id:" -- despite the prompt asking for the
+    // bare id, the model sometimes echoes the "[id:xxx]" bracket notation from
+    // the context block literally. Without this, a source that WAS genuinely
+    // retrieved fails verification purely on a citation-formatting slip.
+    const sources = Array.isArray(parsed.sources)
+      ? parsed.sources.filter((s): s is string => typeof s === 'string').map((s) => s.replace(/^id:/i, '').trim())
+      : [];
 
     // Fallback-phrase responses are knowledge gaps -- cap confidence AND force
     // the action, so a model that says "ANSWER" out of habit while giving a

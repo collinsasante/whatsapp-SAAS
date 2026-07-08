@@ -651,7 +651,7 @@ export class MessagesService {
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     if (content && !flowMatched && !humanOwned) {
-      void this.handleAiResponse(tenantId, conversation.id, contact, content, assignedTo ?? null)
+      void this.handleAiResponse(tenantId, conversation.id, contact, content, message.id, assignedTo ?? null)
         .catch((err) => this.logger.error(`AI responder pipeline error: ${(err as Error).message}`));
     }
 
@@ -675,6 +675,7 @@ export class MessagesService {
     conversationId: string,
     contact: { id: string; phone: string; name?: string | null },
     content: string,
+    currentMessageId: string,
     assignedTo: { id: string; isAiAgent?: boolean } | null,
   ) {
     const [aiMode, aiSettings] = await Promise.all([
@@ -690,8 +691,11 @@ export class MessagesService {
     let preReason: EscalationReason | null = this.escalationService.detectHumanIntent(content) ? 'human_request' : null;
 
     if (!preReason) {
+      // Prior messages only -- the current one is passed separately as `content`,
+      // so detectFrustration's repeat/frustration-streak checks aren't comparing
+      // the current message against itself.
       const recentInbound = await this.prisma.message.findMany({
-        where: { tenantId, conversationId, direction: 'INBOUND', type: 'TEXT', content: { not: null } },
+        where: { tenantId, conversationId, direction: 'INBOUND', type: 'TEXT', content: { not: null }, id: { not: currentMessageId } },
         orderBy: { createdAt: 'desc' }, take: 3, select: { content: true },
       });
       if (this.escalationService.detectFrustration(content, recentInbound.map((m) => m.content!).reverse())) {
