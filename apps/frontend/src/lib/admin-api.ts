@@ -157,7 +157,7 @@ export interface Invoice {
   paidAt: string | null;
   gateway: string | null;
   gatewayInvoiceId: string | null;
-  tenant: { name: string; billingEmail: string | null };
+  tenant: { id: string; name: string; billingEmail: string | null };
 }
 
 export interface CreditPurchase {
@@ -291,9 +291,9 @@ export const adminApi = {
 
   platformHealth: () => req<PlatformHealthData>('GET', '/platform-health'),
 
-  users: (page = 1, search = '') =>
+  users: (page = 1, search = '', tenantId = '') =>
     req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
-      'GET', `/users?page=${page}&limit=30&search=${encodeURIComponent(search)}`,
+      'GET', `/users?page=${page}&limit=30&search=${encodeURIComponent(search)}${tenantId ? `&tenantId=${encodeURIComponent(tenantId)}` : ''}`,
     ),
 
   toggleUserActive: (id: string) =>
