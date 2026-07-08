@@ -5,24 +5,54 @@ function getToken(): string {
   return localStorage.getItem('admin_token') ?? '';
 }
 
+/** Debug-only: decodes the JWT payload without verifying it, just to log claims/exp. */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const [, payloadB64] = token.split('.');
+    const json = atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = getToken();
+  const decoded = token ? decodeJwtPayload(token) : null;
+  console.log('[admin-api] request', {
+    method,
+    url: `${BASE}${path}`,
+    hasToken: !!token,
+    tokenPreview: token ? `${token.slice(0, 12)}...${token.slice(-6)}` : null,
+    decodedClaims: decoded,
+    expiresAt: decoded?.['exp'] ? new Date((decoded['exp'] as number) * 1000).toISOString() : null,
+    nowIs: new Date().toISOString(),
+  });
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
+  console.log('[admin-api] response', { url: `${BASE}${path}`, status: res.status, ok: res.ok });
+
   if (res.status === 401) {
+    const errBody = await res.clone().json().catch(() => null);
+    console.log('[admin-api] 401 body', errBody, '-- clearing token and redirecting to login');
     localStorage.removeItem('admin_token');
     window.location.href = '/platform-admin/login';
     throw new Error('Session expired');
   }
 
   const data = await res.json().catch(() => ({ message: 'Request failed' }));
-  if (!res.ok) throw new Error((data as { message?: string }).message ?? 'Request failed');
+  if (!res.ok) {
+    console.log('[admin-api] non-ok response body', data);
+    throw new Error((data as { message?: string }).message ?? 'Request failed');
+  }
   return data as T;
 }
 
