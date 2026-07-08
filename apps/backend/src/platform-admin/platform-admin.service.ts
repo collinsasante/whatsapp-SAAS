@@ -722,7 +722,7 @@ export class PlatformAdminService {
       this.prisma.invoice.findMany({
         skip, take: limit,
         orderBy: { createdAt: 'desc' },
-        include: { tenant: { select: { name: true } } },
+        include: { tenant: { select: { id: true, name: true } } },
       }),
       this.prisma.invoice.count(),
     ]);
@@ -759,14 +759,15 @@ export class PlatformAdminService {
     });
   }
 
-  async getUsers(page = 1, limit = 30, search?: string) {
+  async getUsers(page = 1, limit = 30, search?: string, tenantId?: string) {
     const skip = (page - 1) * limit;
-    const where = search
-      ? { OR: [
-          { email: { contains: search, mode: 'insensitive' as const } },
-          { name: { contains: search, mode: 'insensitive' as const } },
-        ] }
-      : {};
+    const where = {
+      ...(tenantId ? { tenantId } : {}),
+      ...(search ? { OR: [
+        { email: { contains: search, mode: 'insensitive' as const } },
+        { name: { contains: search, mode: 'insensitive' as const } },
+      ] } : {}),
+    };
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
         where, skip, take: limit,
