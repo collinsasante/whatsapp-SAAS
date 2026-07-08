@@ -15,8 +15,14 @@ export function useAutoRefresh(load: () => Promise<void> | void) {
     setSecondsAgo(0);
   }, []);
 
-  // Initial load
-  useEffect(() => { void refresh(); }, [refresh]);
+  // Reload whenever the caller's `load` function identity changes -- that happens
+  // whenever any of ITS OWN dependencies change (search/filter/sort/page, etc).
+  // Previously this depended on `refresh`, which is a stable useCallback([]) wrapper
+  // that never changes identity, so this effect only ever fired once on mount.
+  // Changing a filter/search/sort/page updated the relevant state and re-rendered,
+  // but never actually re-fetched -- the table just sat there showing stale data
+  // until the next 30s auto-poll tick or a manual refresh click papered over it.
+  useEffect(() => { void refresh(); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-poll every 30 s
   useEffect(() => {
