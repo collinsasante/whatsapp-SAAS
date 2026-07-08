@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -9,6 +9,8 @@ import { AdminLoginDto, AdminSetupDto } from './dto/platform-admin.dto';
 
 @Injectable()
 export class PlatformAdminAuthService {
+  private readonly logger = new Logger(PlatformAdminAuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -47,7 +49,7 @@ export class PlatformAdminAuthService {
     });
 
     const token = this.jwtService.sign(
-      { sub: admin.id, role: 'platform_admin', email: admin.email },
+      { sub: admin.id, role: 'platform_admin', adminRole: admin.role, email: admin.email },
       { secret: this.config.get<string>('JWT_SECRET'), expiresIn: '12h' },
     );
 
@@ -61,13 +63,19 @@ export class PlatformAdminAuthService {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    await (this.prisma.platformAdmin as any).update({
+    await this.prisma.platformAdmin.update({
       where: { id: admin.id },
       data: { resetToken: token, resetTokenExpiresAt: expiresAt },
     });
 
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://verzchat.com');
     const resetUrl = `${frontendUrl}/platform-admin/reset-password?token=${token}`;
+
+    // Temporary: EmailService only logs "To"/"Subject" when SMTP isn't configured
+    // (see common/email.service.ts), which throws away this URL entirely -- making
+    // password reset a dead end on any environment without real SMTP creds set.
+    // Logging it here so it's recoverable from `docker logs` in the meantime.
+    this.logger.log(`Password reset requested for ${email} -- reset URL: ${resetUrl}`);
 
     await this.emailService.sendRaw({
       to: email,
@@ -82,13 +90,13 @@ export class PlatformAdminAuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const admin = await (this.prisma.platformAdmin as any).findFirst({
+    const admin = await this.prisma.platformAdmin.findFirst({
       where: { resetToken: token, resetTokenExpiresAt: { gt: new Date() } },
     });
     if (!admin) throw new BadRequestException('Invalid or expired reset link');
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await (this.prisma.platformAdmin as any).update({
+    await this.prisma.platformAdmin.update({
       where: { id: admin.id },
       data: { passwordHash, resetToken: null, resetTokenExpiresAt: null },
     });

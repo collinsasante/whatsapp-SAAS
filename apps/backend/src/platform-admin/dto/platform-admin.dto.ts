@@ -1,4 +1,42 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsNumber, IsBoolean, IsArray } from 'class-validator';
+import { IsEmail, IsString, MinLength, IsOptional, IsNumber, IsBoolean, IsArray, IsIn, IsInt, Matches, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+export class OverviewQueryDto {
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
+}
+
+export class RevenueQueryDto {
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
+}
+
+export class FunnelQueryDto {
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
+}
+
+export class UsageQueryDto {
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
+}
+
+export const TENANT_TABLE_FILTERS = ['churn_risk', 'trial_ending_7d', 'high_value', 'signed_up_this_month', 'past_due'] as const;
+export type TenantTableFilter = (typeof TENANT_TABLE_FILTERS)[number];
+
+export const TENANT_TABLE_SORTS = ['name', 'createdAt', 'mrr', 'healthScore'] as const;
+export type TenantTableSort = (typeof TENANT_TABLE_SORTS)[number];
+
+export class TenantsQueryDto {
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsIn(TENANT_TABLE_FILTERS) filter?: TenantTableFilter;
+  @IsOptional() @IsIn(TENANT_TABLE_SORTS) sort?: TenantTableSort;
+  @IsOptional() @IsIn(['asc', 'desc']) order?: 'asc' | 'desc';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
 
 export class AdminSetupDto {
   @IsString()

@@ -10,6 +10,7 @@ import { SlaMonitorWorker } from './processors/sla-monitor.processor';
 import { InactivityTriggerWorker } from './processors/inactivity-trigger.processor';
 import { AnalyticsRollupWorker } from './processors/analytics-rollup.processor';
 import { WhatsAppQualitySyncWorker } from './processors/whatsapp-quality-sync.processor';
+import { PlatformRollupWorker } from './processors/platform-rollup.processor';
 
 const REDIS_HOST = process.env['REDIS_HOST'] ?? 'localhost';
 const REDIS_PORT = parseInt(process.env['REDIS_PORT'] ?? '6379', 10);
@@ -42,6 +43,7 @@ async function bootstrap() {
   const inactivityWorker = new InactivityTriggerWorker(prisma, connection);
   const analyticsRollupWorker = new AnalyticsRollupWorker(prisma, connection);
   const whatsappQualitySyncWorker = new WhatsAppQualitySyncWorker(prisma, connection);
+  const platformRollupWorker = new PlatformRollupWorker(prisma, connection);
 
   campaignWorker.start();
   automationWorker.start();
@@ -53,13 +55,14 @@ async function bootstrap() {
   await inactivityWorker.start();
   await analyticsRollupWorker.start();
   await whatsappQualitySyncWorker.start();
+  await platformRollupWorker.start();
 
   console.log('All workers started');
 
   process.on('SIGTERM', async () => {
     console.log('Worker: Graceful shutdown...');
     billingCronWorker.stop();
-    await Promise.all([campaignWorker.stop(), automationWorker.stop(), retryWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop(), slaMonitorWorker.stop(), inactivityWorker.stop(), analyticsRollupWorker.stop(), whatsappQualitySyncWorker.stop()]);
+    await Promise.all([campaignWorker.stop(), automationWorker.stop(), retryWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop(), slaMonitorWorker.stop(), inactivityWorker.stop(), analyticsRollupWorker.stop(), whatsappQualitySyncWorker.stop(), platformRollupWorker.stop()]);
     await prisma.$disconnect();
     redis.disconnect();
     process.exit(0);
