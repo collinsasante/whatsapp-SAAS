@@ -780,15 +780,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
     if (!isOnline) {
       const queueId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await offlineQueue.enqueueMessage({
-        id: queueId,
-        tempId,
-        conversationId: conversation.id,
-        payload: { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) },
-        createdAt: new Date().toISOString(),
-      });
-      const [msgs, drafts] = await Promise.all([offlineQueue.getAllMessages(), offlineQueue.getAllDrafts()]);
-      setQueuedCounts(msgs.length, drafts.length);
+      try {
+        await offlineQueue.enqueueMessage({
+          id: queueId,
+          tempId,
+          conversationId: conversation.id,
+          payload: { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) },
+          createdAt: new Date().toISOString(),
+        });
+        const [msgs, drafts] = await Promise.all([offlineQueue.getAllMessages(), offlineQueue.getAllDrafts()]);
+        setQueuedCounts(msgs.length, drafts.length);
+      } catch {
+        // Local storage (IndexedDB) is unavailable/broken on this device — don't leave the
+        // customer thinking an unsent message was queued.
+        removeMessage(conversation.id, tempId);
+        toast.error('Could not save message for offline sending on this device. Please retry once back online.');
+      }
       return;
     }
 
