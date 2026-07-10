@@ -76,13 +76,32 @@ export class MessagesService {
       }
     }
 
+    // Resolve replyToId against a real, persisted message in this conversation before insert.
+    // dto.replyToId can be stale (message since deleted) or a client-side optimistic/temp id
+    // that never made it to the server — either would violate messages_reply_to_id_fkey.
+    let validReplyToId: string | null = null;
+    let replyToWaMessageId: string | undefined;
+    if (dto.replyToId) {
+      const replyToMsg = await this.prisma.message.findFirst({
+        where: { id: dto.replyToId, conversationId },
+        select: { id: true, whatsappMessageId: true },
+      });
+      if (replyToMsg) {
+        validReplyToId = replyToMsg.id;
+        // Only use the wamid if it's a valid WhatsApp message ID (starts with "wamid.")
+        replyToWaMessageId = replyToMsg.whatsappMessageId?.startsWith('wamid.') ? replyToMsg.whatsappMessageId : undefined;
+      } else {
+        this.logger.warn(`Dropping unresolvable replyToId=${dto.replyToId} for conversation=${conversationId}`);
+      }
+    }
+
     const message = await this.prisma.message.create({
       data: {
         tenantId,
         conversationId,
         contactId: contact.id,
         senderId,
-        replyToId: dto.replyToId ?? null,
+        replyToId: validReplyToId,
         direction: MessageDirection.OUTBOUND,
         type: (dto.type as MessageType) ?? MessageType.TEXT,
         status: MessageStatus.QUEUED,
@@ -97,18 +116,6 @@ export class MessagesService {
         replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
       },
     });
-
-    // Resolve the WhatsApp message ID of the message being replied to (for context field)
-    let replyToWaMessageId: string | undefined;
-    if (dto.replyToId) {
-      const replyToMsg = await this.prisma.message.findFirst({
-        where: { id: dto.replyToId, conversationId },
-        select: { whatsappMessageId: true },
-      });
-      const rawId = replyToMsg?.whatsappMessageId;
-      // Only use the wamid if it's a valid WhatsApp message ID (starts with "wamid.")
-      replyToWaMessageId = rawId?.startsWith('wamid.') ? rawId : undefined;
-    }
 
     let whatsappMessageId: string | undefined;
 
