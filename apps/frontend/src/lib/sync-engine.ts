@@ -5,11 +5,16 @@ import { useOfflineStore } from '@/store/offline.store';
 import type { Message } from '@whatsapp-platform/shared-types';
 
 async function refreshCounts() {
-  const [msgs, drafts] = await Promise.all([
-    offlineQueue.getAllMessages(),
-    offlineQueue.getAllDrafts(),
-  ]);
-  useOfflineStore.getState().setQueuedCounts(msgs.length, drafts.length);
+  try {
+    const [msgs, drafts] = await Promise.all([
+      offlineQueue.getAllMessages(),
+      offlineQueue.getAllDrafts(),
+    ]);
+    useOfflineStore.getState().setQueuedCounts(msgs.length, drafts.length);
+  } catch {
+    // IndexedDB unavailable/broken on this device — offline queueing is a best-effort
+    // feature, not a hard requirement. Never let it crash the sync flow.
+  }
 }
 
 export async function flushOfflineQueue(): Promise<void> {
@@ -69,6 +74,8 @@ export async function flushOfflineQueue(): Promise<void> {
         break;
       }
     }
+  } catch {
+    // offlineQueue reads themselves failed (e.g. IndexedDB broken) — nothing to sync.
   } finally {
     await refreshCounts();
     setSyncing(false);
