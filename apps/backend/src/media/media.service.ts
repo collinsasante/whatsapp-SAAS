@@ -79,10 +79,6 @@ export class MediaService {
     await this.prisma.mediaAsset.delete({ where: { id } });
   }
 
-  async getStream(fileKey: string) {
-    return this.storageService.getStream(fileKey);
-  }
-
   async deduplicateAssets(tenantId: string): Promise<{ removed: number }> {
     const all = await this.prisma.mediaAsset.findMany({
       where: { tenantId },
@@ -107,11 +103,14 @@ export class MediaService {
   }
 
   async getStreamWithMime(fileKey: string): Promise<{ stream: NodeJS.ReadableStream | null; mimeType: string | null }> {
-    const [stream, asset] = await Promise.all([
-      this.storageService.getStream(fileKey),
+    const [storageResult, asset] = await Promise.all([
+      this.storageService.getStreamWithMime(fileKey),
       this.prisma.mediaAsset.findFirst({ where: { fileKey }, select: { mimeType: true } }),
     ]);
-    return { stream, mimeType: asset?.mimeType ?? null };
+    // Storage-level Content-Type (set at upload time) covers every file, including
+    // inbound WhatsApp media which never gets a MediaAsset row. The MediaAsset lookup
+    // is only a fallback for older objects written before this was tracked in storage.
+    return { stream: storageResult.stream, mimeType: storageResult.mimeType ?? asset?.mimeType ?? null };
   }
 
   async findMessageMedia(tenantId: string, page = 1, limit = 50, type?: string, search?: string) {

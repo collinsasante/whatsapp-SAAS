@@ -166,24 +166,60 @@ export class StorageService {
     }
   }
 
-  async getStream(fileKey: string): Promise<NodeJS.ReadableStream | null> {
+  /**
+   * Returns the file stream along with its Content-Type, read from the storage
+   * backend's own object metadata (set at upload time by upload()/uploadRaw()).
+   * This is the source of truth for every file regardless of which upload path
+   * wrote it — unlike the MediaAsset table, which only tracks Media Library uploads.
+   */
+  async getStreamWithMime(fileKey: string): Promise<{ stream: NodeJS.ReadableStream | null; mimeType: string | null }> {
     if (this.driver === 's3' && this.s3Client) {
       try {
         const response = await this.s3Client.send(new GetObjectCommand({ Bucket: this.bucket, Key: fileKey }));
-        return response.Body as Readable;
+        return { stream: response.Body as Readable, mimeType: (response.ContentType as string | undefined) ?? null };
       } catch {
-        return null;
+        return { stream: null, mimeType: null };
       }
     } else if (this.driver === 'minio' && this.minioClient) {
       try {
-        return await this.minioClient.getObject(this.bucket, fileKey);
+        const [stream, stat] = await Promise.all([
+          this.minioClient.getObject(this.bucket, fileKey),
+          this.minioClient.statObject(this.bucket, fileKey).catch(() => null),
+        ]);
+        return { stream, mimeType: (stat?.metaData?.['content-type'] as string | undefined) ?? null };
       } catch {
-        return null;
+        return { stream: null, mimeType: null };
       }
     } else {
       const filePath = path.join(this.uploadPath, fileKey);
-      if (!fs.existsSync(filePath)) return null;
-      return fs.createReadStream(filePath);
+      if (!fs.existsSync(filePath)) return { stream: null, mimeType: null };
+      return { stream: fs.createReadStream(filePath), mimeType: guessMimeFromExtension(filePath) };
     }
   }
+}
+
+const EXTENSION_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.mp4': 'video/mp4',
+  '.3gp': 'video/3gpp',
+  '.ogg': 'audio/ogg',
+  '.mp3': 'audio/mpeg',
+  '.aac': 'audio/aac',
+  '.amr': 'audio/amr',
+  '.m4a': 'audio/mp4',
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.csv': 'text/csv',
+  '.txt': 'text/plain',
+};
+
+function guessMimeFromExtension(filePath: string): string | null {
+  return EXTENSION_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? null;
 }
