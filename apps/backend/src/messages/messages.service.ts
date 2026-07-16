@@ -13,6 +13,7 @@ import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { AiLogsService } from '../ai-logs/ai-logs.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
+import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 
@@ -527,6 +528,15 @@ export class MessagesService {
           `${filename}.${ext}`,
         );
         mediaUrl = uploadResult.fileUrl;
+      } else {
+        // downloadMetaMedia already logged the specific cause — this call just makes the
+        // failure visible. Without it, the message silently lands with no mediaUrl at all
+        // and nobody is told the customer's file never made it into the inbox.
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}" — customer's file was not saved`,
+        }).catch(() => {});
       }
     }
 
