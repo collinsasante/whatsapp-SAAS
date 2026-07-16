@@ -20,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from '../messages/messages.service';
 import { CallsService } from '../calls/calls.service';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
+import { notify } from '../common/notifier';
 
 interface CallEvent {
   id: string;
@@ -203,9 +204,14 @@ export class WhatsAppWebhookController {
             try {
               await this.messagesService.handleInbound(tenantId, message, profileName, incomingPhoneNumberId, message.referral);
             } catch (error) {
-              this.logger.error(
-                `[tenant:${tenantId}] Failed to process inbound message ${message.id}: ${error instanceof Error ? error.message : String(error)}`,
-              );
+              const errMessage = error instanceof Error ? error.message : String(error);
+              this.logger.error(`[tenant:${tenantId}] Failed to process inbound message ${message.id}: ${errMessage}`);
+              void notify({
+                source: 'backend',
+                tenantId,
+                message: `Failed to process inbound WhatsApp message: ${errMessage}`,
+                stack: error instanceof Error ? error.stack : undefined,
+              }).catch(() => {});
             }
           }
         }
