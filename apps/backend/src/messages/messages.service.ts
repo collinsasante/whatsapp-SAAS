@@ -307,6 +307,14 @@ export class MessagesService {
     source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
     image_url?: string; media_type?: string; ctwa_clid?: string;
   }) {
+    // Some webhook payload shapes (e.g. certain system/edge-case events) omit `from`
+    // despite the type declaring it required — every downstream path needs a phone
+    // number to identify/create the contact, so there's nothing useful to do without it.
+    if (!waMessage.from) {
+      this.logger.warn(`[tenant:${tenantId}] Skipping inbound message with no "from" phone number: type="${waMessage.type}" id="${waMessage.id}"`);
+      return null;
+    }
+
     // Handle call permission reply — intercept before anything else so it never gets stored
     // as a regular inbound message or reopens a conversation.
     if (waMessage.type === 'interactive' && waMessage.interactive?.type === 'call_permission_reply') {
@@ -450,15 +458,16 @@ export class MessagesService {
       });
       if (targetMsg) {
         const emoji = waMessage.reaction.emoji;
+        // MessageReaction.userId is a FK to the platform User table (agents/admins) —
+        // a WhatsApp contact is never a User, so it can never satisfy that constraint.
+        // Conversations have exactly one contact, so a null userId unambiguously means
+        // "the contact reacted." WhatsApp only allows one active reaction per person per
+        // message, so clear any prior contact reaction before recording the new one.
+        await this.prisma.messageReaction.deleteMany({ where: { messageId: targetMsg.id, userId: null } });
         if (emoji) {
-          await this.prisma.messageReaction.upsert({
-            where: { messageId_userId_emoji: { messageId: targetMsg.id, userId: contact.id, emoji } },
-            create: { messageId: targetMsg.id, tenantId, userId: contact.id, emoji },
-            update: {},
+          await this.prisma.messageReaction.create({
+            data: { messageId: targetMsg.id, tenantId, userId: null, emoji },
           });
-        } else {
-          // Empty emoji = remove all reactions from this contact on this message
-          await this.prisma.messageReaction.deleteMany({ where: { messageId: targetMsg.id, userId: contact.id } });
         }
         const updatedReactions = await this.prisma.messageReaction.findMany({
           where: { messageId: targetMsg.id },
