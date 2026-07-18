@@ -202,22 +202,24 @@ export class ContactsService {
 
   async findOrCreate(tenantId: string, phone: string, name?: string) {
     const normalized = normalizePhone(phone);
-    const existing = await this.findByPhone(tenantId, normalized);
-
-    if (existing) {
-      // Update name from WhatsApp profile if we have one and the contact has none
-      if (name && !existing.name) {
-        return this.prisma.contact.update({
-          where: { id: existing.id },
-          data: { name },
-        });
-      }
-      return existing;
-    }
-
-    return this.prisma.contact.create({
-      data: { tenantId, phone: normalized, name: name ?? null },
+    // upsert (not find-then-create) -- two concurrent inbound webhooks for the same
+    // phone number can both pass a plain existence check before either commits,
+    // then race on contact_tenant_id_phone_key. upsert lets Postgres resolve the
+    // conflict atomically instead of one request crashing on a unique violation.
+    const contact = await this.prisma.contact.upsert({
+      where: { tenantId_phone: { tenantId, phone: normalized } },
+      update: {},
+      create: { tenantId, phone: normalized, name: name ?? null },
     });
+
+    // Update name from WhatsApp profile if we have one and the contact has none
+    if (name && !contact.name) {
+      return this.prisma.contact.update({
+        where: { id: contact.id },
+        data: { name },
+      });
+    }
+    return contact;
   }
 
   async update(tenantId: string, id: string, dto: UpdateContactDto) {
