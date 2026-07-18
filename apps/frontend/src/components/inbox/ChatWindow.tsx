@@ -2907,28 +2907,14 @@ const MessageBubble = memo(function MessageBubble({
                             <span className="text-white text-xs font-medium">Uploading…</span>
                           </div>
                         )}
-                        {!isUploading && (
-                          <a href={proxied} download={getDownloadFilename(message.mediaCaption, proxied)} title="Download video"
-                            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors">
-                            <Download size={13} />
-                          </a>
-                        )}
                       </div>
                     )}
-                    {message.type === 'AUDIO' && (
-                      <div className="flex items-center gap-2 mt-1 max-w-[224px]">
-                        <audio controls className="w-full flex-1 min-w-0"><source src={proxied} /></audio>
-                        <a href={proxied} download={getDownloadFilename(message.mediaCaption, proxied)} title="Download audio"
-                          className={cn('w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-colors', isOutbound ? 'text-teal-100 hover:bg-teal-800' : 'text-gray-500 hover:bg-gray-100')}>
-                          <Download size={12} />
-                        </a>
-                      </div>
-                    )}
+                    {message.type === 'AUDIO' && <audio controls className="w-full max-w-[224px] mt-1"><source src={proxied} /></audio>}
                     {message.type === 'DOCUMENT' && (
                       <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                         {isUploading
                           ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{message.mediaCaption ?? 'Uploading…'}</span></>
-                          : <a href={proxied} download={getDownloadFilename(message.mediaCaption, proxied)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Download document'}</span></a>
+                          : <a href={proxied} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Open document'}</span></a>
                         }
                       </div>
                     )}
