@@ -59,6 +59,21 @@ export function getProxiedMediaUrl(url: string | null | undefined): string {
   return url;
 }
 
+/**
+ * Builds a sensible filename for a downloaded attachment. Message captions rarely
+ * carry a file extension (WhatsApp document captions are free text), so this falls
+ * back to the extension baked into the storage URL (fileKeys always keep the
+ * original extension) rather than letting the browser save an extension-less file.
+ */
+export function getDownloadFilename(caption: string | null | undefined, url: string | null | undefined): string {
+  const urlExt = url?.match(/\.([a-z0-9]+)(?:[?#]|$)/i)?.[1];
+  if (caption) {
+    const hasExt = /\.[a-z0-9]{2,5}$/i.test(caption);
+    return hasExt || !urlExt ? caption : `${caption}.${urlExt}`;
+  }
+  return urlExt ? `file.${urlExt}` : 'file';
+}
+
 /** WhatsApp Cloud API only accepts mp4 and 3gpp video — nothing else */
 export const SUPPORTED_VIDEO_TYPES = ['video/mp4', 'video/3gpp', 'video/3gp'];
 export const SUPPORTED_AUDIO_TYPES = ['audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/aac', 'audio/amr'];
