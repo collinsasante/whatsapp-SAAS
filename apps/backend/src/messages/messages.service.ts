@@ -528,7 +528,7 @@ export class MessagesService {
       else if (waMessage.sticker) { mediaType = waMessage.sticker.mime_type; filename = 'sticker'; }
 
       const downloaded = await this.whatsappService.downloadMetaMedia(tenantId, mediaId);
-      if (downloaded) {
+      if (downloaded.ok) {
         const ext = downloaded.mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
         const uploadResult = await this.storageService.uploadRaw(
           downloaded.buffer,
@@ -538,13 +538,13 @@ export class MessagesService {
         );
         mediaUrl = uploadResult.fileUrl;
       } else {
-        // downloadMetaMedia already logged the specific cause — this call just makes the
-        // failure visible. Without it, the message silently lands with no mediaUrl at all
-        // and nobody is told the customer's file never made it into the inbox.
+        // Without this, the message silently lands with no mediaUrl at all and nobody
+        // is told the customer's file never made it into the inbox. Include the actual
+        // reason (not just a generic "it failed") so the alert is self-diagnosing.
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}" — customer's file was not saved`,
+          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}": ${downloaded.reason} — customer's file was not saved`,
         }).catch(() => {});
       }
     }

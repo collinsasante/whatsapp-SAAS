@@ -5,7 +5,7 @@ import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, Shie
 import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { useInboxStore } from '@/store/inbox.store';
-import { getInitials, formatRelativeTime, getProxiedMediaUrl, getDownloadFilename } from '@/lib/utils';
+import { getInitials, formatRelativeTime, getProxiedMediaUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
@@ -403,11 +403,9 @@ export default function ConversationDetails({ conversation }: Props) {
                   <a
                     key={msg.id}
                     href={getProxiedMediaUrl(msg.mediaUrl) || '#'}
-                    download={getDownloadFilename(msg.mediaCaption, msg.mediaUrl)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-xl transition-colors group"
-                    title="Download"
                   >
                     <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                       <FileText size={14} className="text-blue-600" />
