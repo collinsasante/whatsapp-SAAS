@@ -96,6 +96,10 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   FRONTEND_CTR=$(docker ps --format '{{.Names}}' | grep 'wa_frontend' | head -1)
   if [[ -z "$FRONTEND_CTR" ]]; then echo "ERROR: wa_frontend container not running"; exit 1; fi
   echo "==> Hot-swapping frontend build into $FRONTEND_CTR..."
+  # Next.js content-hashes chunk filenames, so docker cp (which only adds/overwrites,
+  # never deletes) leaves every previous build's chunks behind under new hashes.
+  # Clear the old static output first so orphaned pre-deploy JS never lingers on disk.
+  docker exec "${FRONTEND_CTR}" rm -rf /app/apps/frontend/.next/static
   docker cp apps/frontend/.next/static/. "${FRONTEND_CTR}:/app/apps/frontend/.next/static/"
   docker cp apps/frontend/.next/standalone/apps/frontend/.next/server/. "${FRONTEND_CTR}:/app/apps/frontend/.next/server/"
   docker cp apps/frontend/.next/standalone/apps/frontend/server.js "${FRONTEND_CTR}:/app/apps/frontend/server.js"
