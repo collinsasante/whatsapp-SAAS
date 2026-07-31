@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AirtableService } from './airtable.service';
+import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
 import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, SnoozeWakeJob } from '@whatsapp-platform/shared-types';
@@ -705,14 +706,14 @@ export class ConversationsService {
       };
     }
 
-    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const resp = await fetch(DEEPSEEK_API_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: DEEPSEEK_MODEL,
         max_tokens: 1200,
         messages: [
           {

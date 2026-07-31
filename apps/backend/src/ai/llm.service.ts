@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
 
 export interface LlmMessage { role: 'system' | 'user' | 'assistant'; content: string }
 
@@ -13,8 +14,13 @@ export interface LlmCallResult {
 
 /**
  * Generation-model abstraction (Phase 5.1). DeepSeek is the default/only
- * implementation today; swapping providers or models is a config change
- * (LLM_PROVIDER / LLM_MODEL env vars), not a code change in callers.
+ * implementation today.
+ *
+ * The model is intentionally NOT configurable via environment variable --
+ * it used to read LLM_MODEL from the environment, which meant a stray or
+ * misconfigured env var could silently switch every call to a far more
+ * expensive model with no code change or review. It always uses the locked
+ * DEEPSEEK_MODEL constant now; changing models requires an actual PR.
  *
  * Handles retry-with-backoff on transient failures (timeout, 5xx, network)
  * and one repair-reprompt attempt when the model returns non-JSON despite
@@ -25,7 +31,7 @@ export interface LlmCallResult {
 @Injectable()
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
-  private readonly model = process.env.LLM_MODEL ?? 'deepseek-chat';
+  private readonly model = DEEPSEEK_MODEL;
   private readonly maxRetries = 2;
   private readonly baseDelayMs = 500;
 
@@ -40,7 +46,7 @@ export class LlmService {
       try {
         const axios = (await import('axios')).default;
         const res = await axios.post(
-          'https://api.deepseek.com/v1/chat/completions',
+          DEEPSEEK_API_URL,
           {
             model: this.model,
             max_tokens: opts.maxTokens,
