@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
 
 @Injectable()
 export class KnowledgeBaseService {
@@ -246,9 +247,9 @@ export class KnowledgeBaseService {
 
     try {
       const response = await axios.post(
-        'https://api.deepseek.com/v1/chat/completions',
+        DEEPSEEK_API_URL,
         {
-          model: 'deepseek-chat',
+          model: DEEPSEEK_MODEL,
           max_tokens: 2000,
           messages: [
             {
