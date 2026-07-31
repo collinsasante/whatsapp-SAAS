@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
+import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
 
 interface OffHoursDay { enabled?: boolean; start?: string; end?: string }
 
@@ -218,9 +219,9 @@ export class AiResponderService {
 
     try {
       const res = await axios.post(
-        'https://api.deepseek.com/v1/chat/completions',
+        DEEPSEEK_API_URL,
         {
-          model: 'deepseek-chat',
+          model: DEEPSEEK_MODEL,
           max_tokens: 400,
           messages: chatMessages,
           response_format: { type: 'json_object' },
