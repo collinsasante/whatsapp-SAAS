@@ -1559,9 +1559,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           {/* Click-to-WhatsApp Ad banner */}
           {conversation.adSourceId && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex-shrink-0">
-              {conversation.adImageUrl && (
+              {getProxiedMediaUrl(conversation.adImageUrl) && (
                 <img
-                  src={conversation.adImageUrl}
+                  src={getProxiedMediaUrl(conversation.adImageUrl)}
                   alt="Ad"
                   className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-100"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
