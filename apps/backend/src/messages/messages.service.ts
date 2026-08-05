@@ -419,8 +419,16 @@ export class MessagesService {
         );
         permanentAdImageUrl = fileUrl;
       } catch (err) {
-        this.logger.warn(`Failed to mirror ad preview image: ${(err as Error).message}`);
-        permanentAdImageUrl = referral.image_url;
+        // Meta's ad-preview CDN URL is short-lived -- falling back to it just defers the
+        // same failure to the browser a few minutes later, as a silently-broken <img>.
+        // Leave it unset so the ad banner degrades to headline-only instead.
+        const reason = (err as Error).message;
+        this.logger.warn(`Failed to mirror ad preview image: ${reason}`);
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Failed to mirror WhatsApp ad-preview image: ${reason}`,
+        }).catch(() => {});
       }
     }
 
