@@ -99,7 +99,10 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   # Next.js content-hashes chunk filenames, so docker cp (which only adds/overwrites,
   # never deletes) leaves every previous build's chunks behind under new hashes.
   # Clear the old static output first so orphaned pre-deploy JS never lingers on disk.
-  docker exec "${FRONTEND_CTR}" rm -rf /app/apps/frontend/.next/static
+  # Must run as root (-u root): the container's default user can't delete files that
+  # earlier docker cp landed as root, and this is pure housekeeping -- never let it
+  # abort the deploy (the || true), which is exactly what it did before this fix.
+  docker exec -u root "${FRONTEND_CTR}" rm -rf /app/apps/frontend/.next/static || true
   docker cp apps/frontend/.next/static/. "${FRONTEND_CTR}:/app/apps/frontend/.next/static/"
   docker cp apps/frontend/.next/standalone/apps/frontend/.next/server/. "${FRONTEND_CTR}:/app/apps/frontend/.next/server/"
   docker cp apps/frontend/.next/standalone/apps/frontend/server.js "${FRONTEND_CTR}:/app/apps/frontend/server.js"
