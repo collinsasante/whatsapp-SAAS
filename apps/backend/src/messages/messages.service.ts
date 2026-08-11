@@ -408,7 +408,16 @@ export class MessagesService {
     let permanentAdImageUrl: string | undefined;
     if (referral?.image_url) {
       try {
-        const imgResp = await axios.get<Buffer>(referral.image_url, { responseType: 'arraybuffer', timeout: 10_000 });
+        // Meta's ad-image CDN returns 403 to requests without a browser-like User-Agent
+        // (axios's default `axios/x.y.z` UA is rejected). Present a real browser UA.
+        const imgResp = await axios.get<Buffer>(referral.image_url, {
+          responseType: 'arraybuffer',
+          timeout: 10_000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          },
+        });
         const contentType = (imgResp.headers['content-type'] as string | undefined) ?? 'image/jpeg';
         const ext = contentType.split('/')[1]?.split(';')[0] ?? 'jpg';
         const { fileUrl } = await this.storageService.uploadRaw(
