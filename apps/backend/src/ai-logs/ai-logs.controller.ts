@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Patch, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
@@ -56,6 +56,15 @@ export class AiLogsController {
     @CurrentUser() user: JwtPayload,
     @Body() body: { message: string },
   ) {
+    // generateSuggestion() itself has no enablement/credit gate (only the
+    // AUTO_REPLY production path checks shouldRespond() before calling it) --
+    // without this, sandbox testing could burn real DeepSeek calls on a tenant
+    // with AI disabled or zero credits, with no limit on how many times.
+    const usable = await this.aiResponder.isAiUsable(user.tenantId);
+    if (!usable) {
+      throw new ForbiddenException('VerzAI is not enabled for this workspace, or you are out of AI credits.');
+    }
+
     const INJECTION_PATTERNS = [
       /ignore\s+(previous|all|prior)\s+instructions?/i,
       /act\s+as\s+(an?\s+)?(admin|administrator|root|superuser|system)/i,

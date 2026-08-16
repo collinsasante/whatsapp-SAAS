@@ -2,19 +2,41 @@ import { Injectable, NotFoundException, Logger, BadRequestException } from '@nes
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { articleContentKey, articleTitleKey, selectRelevantArticles } from './knowledge-base.util';
+
+const LEARN_THROTTLE_MS = 30 * 60 * 1000;
+
+// Hard caps for getRelevant()'s prompt-bound KB context -- see selectRelevantArticles()'s
+// doc comment. ~6000 chars is roughly 1500 tokens (English averages ~4 chars/token),
+// generous enough for a real answer without approaching "send the whole KB" territory.
+const KB_RELEVANCE_MAX_ARTICLES = 5;
+const KB_RELEVANCE_MAX_CHARS = 6000;
 
 @Injectable()
 export class KnowledgeBaseService {
   private readonly logger = new Logger(KnowledgeBaseService.name);
-  private readonly learningThrottle = new Map<string, number>();
 
   constructor(private prisma: PrismaService) {}
 
-  triggerLearningAsync(tenantId: string): void {
-    const now = Date.now();
-    const lastRun = this.learningThrottle.get(tenantId) ?? 0;
-    if (now - lastRun < 30 * 60 * 1000) return;
-    this.learningThrottle.set(tenantId, now);
+  /**
+   * Throttle is persisted on TenantSettings.lastKbLearnAt (not an in-memory Map) so
+   * it survives backend restarts/deploys/crashes -- a Map resets to empty on every
+   * process start, which let learning re-fire far more often than intended during
+   * periods of frequent deploys.
+   *
+   * The claim itself is a single conditional UPDATE ("only proceed if no one else
+   * already claimed this tenant's slot within the window"), which Postgres executes
+   * atomically at the row level. That makes this safe across multiple backend
+   * instances: two concurrent callers racing on the same tenant will not both see
+   * count > 0 -- only whichever UPDATE commits first satisfies the WHERE clause.
+   */
+  async triggerLearningAsync(tenantId: string): Promise<void> {
+    const cutoff = new Date(Date.now() - LEARN_THROTTLE_MS);
+    const claimed = await this.prisma.tenantSettings.updateMany({
+      where: { tenantId, OR: [{ lastKbLearnAt: null }, { lastKbLearnAt: { lt: cutoff } }] },
+      data: { lastKbLearnAt: new Date() },
+    });
+    if (claimed.count === 0) return;
     void this.learnFromConversations(tenantId).catch((err) => this.logger.error('background learning error', err));
   }
 
@@ -49,6 +71,12 @@ export class KnowledgeBaseService {
       select: { title: true, content: true },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  /** Bounded, relevance-filtered subset of getActive() for use in LLM prompts -- see selectRelevantArticles() for the full rationale. */
+  async getRelevant(tenantId: string, query: string): Promise<{ title: string; content: string }[]> {
+    const all = await this.getActive(tenantId);
+    return selectRelevantArticles(all, query, { maxArticles: KB_RELEVANCE_MAX_ARTICLES, maxChars: KB_RELEVANCE_MAX_CHARS });
   }
 
   async uploadFile(tenantId: string, file: Express.Multer.File): Promise<{ created: number }> {
@@ -184,8 +212,8 @@ export class KnowledgeBaseService {
     const toDelete: string[] = [];
 
     for (const a of articles) {
-      const titleKey = a.title.toLowerCase().trim();
-      const contentKey = a.content.slice(0, 300).toLowerCase().replace(/\s+/g, ' ').trim();
+      const titleKey = articleTitleKey(a.title);
+      const contentKey = articleContentKey(a.content);
       if (seenTitles.has(titleKey) || seenContent.has(contentKey)) {
         toDelete.push(a.id);
       } else {
@@ -272,22 +300,36 @@ export class KnowledgeBaseService {
       if (jsonStart === -1 || jsonEnd === -1) return { created: 0 };
 
       const articles = JSON.parse(raw.slice(jsonStart, jsonEnd + 1)) as Array<{ title?: string; content?: string }>;
+
+      // Same normalized title/content-prefix comparison deduplicateArticles() uses
+      // for manual cleanup, applied here as a pre-insert check instead -- this runs
+      // every ~30 min indefinitely, so without a real "does this already exist"
+      // check (not just an exact-string title match) it slowly fills the KB with
+      // near-duplicates that differ only in title phrasing or wording, which then
+      // all get sent as prompt context on every customer reply.
+      const existingArticles = await this.prisma.knowledgeBaseArticle.findMany({
+        where: { tenantId },
+        select: { title: true, content: true },
+      });
+      const seenTitles = new Set(existingArticles.map((a) => articleTitleKey(a.title)));
+      const seenContent = new Set(existingArticles.map((a) => articleContentKey(a.content)));
+
       let created = 0;
       for (const art of articles) {
-        if (art.title && art.content) {
-          // Skip exact-title duplicates — learnFromConversations runs every 30 min
-          // and without this guard each run adds near-identical articles indefinitely.
-          const exists = await this.prisma.knowledgeBaseArticle.findFirst({
-            where: { tenantId, title: art.title },
-            select: { id: true },
-          });
-          if (!exists) {
-            await this.prisma.knowledgeBaseArticle.create({
-              data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
-            });
-            created++;
-          }
-        }
+        if (!art.title || !art.content) continue;
+        const titleKey = articleTitleKey(art.title);
+        const contentKey = articleContentKey(art.content);
+        if (seenTitles.has(titleKey) || seenContent.has(contentKey)) continue;
+
+        await this.prisma.knowledgeBaseArticle.create({
+          data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
+        });
+        // Claim these keys immediately so a second near-duplicate proposed in the
+        // same batch (the LLM sometimes returns two similar articles at once) is
+        // also skipped, not just duplicates against pre-existing articles.
+        seenTitles.add(titleKey);
+        seenContent.add(contentKey);
+        created++;
       }
       return { created };
     } catch (err) {

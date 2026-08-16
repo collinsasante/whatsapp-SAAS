@@ -210,7 +210,7 @@ export class MessagesService {
 
       // Trigger real-time AI learning from this agent reply (throttled to once per 30 min per tenant)
       if (dto.type === MessageType.TEXT || !dto.type) {
-        this.knowledgeBaseService.triggerLearningAsync(tenantId);
+        void this.knowledgeBaseService.triggerLearningAsync(tenantId);
       }
 
       const updatedMessage = await this.prisma.message.findUnique({
