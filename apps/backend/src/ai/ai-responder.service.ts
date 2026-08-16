@@ -102,6 +102,30 @@ export class AiResponderService {
     return isOffHours(schedule, settings.timezone ?? 'UTC');
   }
 
+  /**
+   * Eligibility check for the /ai-logs/test sandbox -- deliberately lighter than
+   * shouldRespond(): that method's off-hours/always-on logic answers "should
+   * AUTO_REPLY fire right now", which isn't the right question for "is this admin
+   * allowed to test VerzAI at all" (it would incorrectly block testing outside a
+   * tenant's configured off-hours window even though AI is fully enabled). This
+   * only checks the same underlying enablement/credit/trial gates AUTO_REPLY uses,
+   * without the scheduling logic, and without deducting a credit -- sandbox testing
+   * doesn't consume the tenant's reply budget, it just requires having one.
+   */
+  async isAiUsable(tenantId: string): Promise<boolean> {
+    const [settings, tenant] = await Promise.all([
+      this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { aiEnabled: true, aiTrialApprovedAt: true },
+      }),
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { aiCredits: true } }),
+    ]);
+    if (!settings?.aiEnabled) return false;
+    if (!settings.aiTrialApprovedAt) return false;
+    if (!tenant || tenant.aiCredits <= 0) return false;
+    return true;
+  }
+
   async getMode(tenantId: string): Promise<'SUGGESTION' | 'AUTO_REPLY' | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const settings = await (this.prisma as any).tenantSettings.findUnique({
@@ -137,12 +161,11 @@ export class AiResponderService {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return { response: '', confidence: null, blocked: false };
 
-    const [settings, articles, history] = await Promise.all([
+    const [settings, history] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId },
         select: { businessName: true, aiPersonality: true },
       }),
-      this.knowledgeBaseService.getActive(tenantId),
       this.prisma.message.findMany({
         where: { conversationId, type: 'TEXT', content: { not: null } },
         orderBy: { createdAt: 'desc' },
@@ -166,6 +189,12 @@ export class AiResponderService {
         customerMessage = `I selected option ${bare}: ${optLine.replace(/^[123][.)]\s*/, '').trim()}`;
       }
     }
+
+    // Relevance-filtered, bounded KB context -- uses the (possibly menu-expanded)
+    // final customerMessage so the retrieval query reflects what's actually being
+    // asked. See getRelevant()'s doc comment for why this isn't full vector
+    // retrieval yet and why it's still a real fix over "send everything".
+    const articles = await this.knowledgeBaseService.getRelevant(tenantId, customerMessage);
 
     let kbContext = '';
     if (articles.length > 0) {

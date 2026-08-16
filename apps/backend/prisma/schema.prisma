@@ -182,6 +182,7 @@ model TenantSettings {
   aiPilotGroup        Boolean  @default(false) @map("ai_pilot_group")
   aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
   aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
+  lastKbLearnAt       DateTime? @map("last_kb_learn_at")
   airtableEnabled     Boolean  @default(false) @map("airtable_enabled")
   airtableApiKey      String?  @map("airtable_api_key")
   airtableBaseId      String?  @map("airtable_base_id")
