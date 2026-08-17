@@ -15,3 +15,4 @@ prisma/migrations/dev/
 .claude/
 next-env.d.ts
 .DS_Store
+infra/.env.save
