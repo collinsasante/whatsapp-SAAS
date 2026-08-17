@@ -31,6 +31,13 @@ export class KnowledgeBaseService {
    * count > 0 -- only whichever UPDATE commits first satisfies the WHERE clause.
    */
   async triggerLearningAsync(tenantId: string): Promise<void> {
+    // Temporarily disabled: background learning makes its own DeepSeek call
+    // (learnFromConversations) independent of the main reply flow. Disabled
+    // during an active API-key-compromise incident to eliminate this as a
+    // credit-consuming surface while the key is rotated. Re-enable by
+    // removing this guard once the incident is closed.
+    if (process.env.KB_LEARNING_DISABLED !== 'false') return;
+
     const cutoff = new Date(Date.now() - LEARN_THROTTLE_MS);
     const claimed = await this.prisma.tenantSettings.updateMany({
       where: { tenantId, OR: [{ lastKbLearnAt: null }, { lastKbLearnAt: { lt: cutoff } }] },
