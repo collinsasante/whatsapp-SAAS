@@ -433,7 +433,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const startConversation = async (contact: Contact) => {
     setCreating(true);
     try {
-      const res = await conversationsApi.create({ contactId: contact.id });
+      const res = await conversationsApi.findOrCreate(contact.id);
       const conv = res.data as Conversation & { contact: { id: string; name: string | null; phone: string; avatarUrl: string | null }; assignedTo: { id: string; name: string } | null };
       prependConversation({ ...conv, labels: [], messages: [] });
       onSelect(conv.id);
