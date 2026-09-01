@@ -39,6 +39,11 @@ export interface AiTrialExpireJob {
   tenantId: string;
 }
 
+export interface AiEvalRunJob {
+  evaluationRunId: string;
+  tenantId: string;
+}
+
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
   MESSAGE_RETRY = 'message-retry',
@@ -52,4 +57,5 @@ export enum QueueName {
   ANALYTICS_ROLLUP = 'analytics-rollup',
   WHATSAPP_QUALITY_SYNC = 'whatsapp-quality-sync',
   COMMERCE_RECONCILIATION = 'commerce-reconciliation',
+  AI_EVAL_RUN = 'ai-eval-run',
 }

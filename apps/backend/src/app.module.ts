@@ -34,6 +34,7 @@ import { ManageSettingsModule } from './manage/settings/manage-settings.module';
 import { SegmentsModule } from './segments/segments.module';
 import { BillingModule } from './billing/billing.module';
 import { CommerceModule } from './commerce/commerce.module';
+import { EvaluationModule } from './commerce/evaluation/evaluation.module';
 import { TeamsModule } from './teams/teams.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -109,6 +110,7 @@ import appConfig from './config/app.config';
     SegmentsModule,
     BillingModule,
     CommerceModule,
+    EvaluationModule,
     TeamsModule,
     WorkspaceModule,
     AnalyticsModule,
