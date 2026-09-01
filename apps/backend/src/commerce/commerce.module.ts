@@ -12,6 +12,7 @@ import { CommerceLedgerService } from './ledger/commerce-ledger.service';
 import { CommerceWebhookController } from './webhooks/commerce-webhook.controller';
 import { ReconciliationController } from './reconciliation/reconciliation.controller';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
+import { CommerceAiService } from './ai/commerce-ai.service';
 
 // Managed Commerce (Phase 1, single-pilot-tenant). Sibling to BillingModule --
 // commerce has its own domain objects (Order/Product/CommerceLedgerEntry, not
@@ -22,7 +23,7 @@ import { ReconciliationService } from './reconciliation/reconciliation.service';
 @Module({
   imports: [PrismaModule, ConfigModule, AuditModule],
   controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController],
-  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway],
-  exports: [CommerceLedgerService, OrdersService],
+  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService],
+  exports: [CommerceLedgerService, OrdersService, CommerceAiService],
 })
 export class CommerceModule {}

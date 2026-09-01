@@ -126,6 +126,17 @@ export class OrdersService {
     return order;
   }
 
+  /** The DRAFT order currently being built in this conversation, if any -- used by
+   * CommerceAiService so the AI's tools operate on "the order we're building right
+   * now" without the AI needing to track or pass an order ID itself. */
+  findActiveDraftForConversation(tenantId: string, conversationId: string) {
+    return this.prisma.order.findFirst({
+      where: { tenantId, conversationId, status: OrderStatus.DRAFT },
+      orderBy: { createdAt: 'desc' },
+      include: { items: true },
+    });
+  }
+
   async findOneWithDetails(tenantId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, tenantId },

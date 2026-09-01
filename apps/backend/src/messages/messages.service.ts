@@ -11,6 +11,7 @@ import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.se
 import { AiResponderService } from '../ai/ai-responder.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { AiLogsService } from '../ai-logs/ai-logs.service';
+import { CommerceAiService } from '../commerce/ai/commerce-ai.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
@@ -33,6 +34,7 @@ export class MessagesService {
     private aiResponderService: AiResponderService,
     private knowledgeBaseService: KnowledgeBaseService,
     private aiLogsService: AiLogsService,
+    private commerceAiService: CommerceAiService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -692,6 +694,51 @@ export class MessagesService {
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     if (content && !flowMatched && !humanOwned) {
+      // Managed Commerce (Phase 1, single-pilot-tenant): checked before the normal
+      // aiMode branch so a commerce-enabled tenant's AI runs CommerceAiService's
+      // tool-calling sales agent instead of the knowledge-base Q&A responder. Gated
+      // per-tenant, so this only ever changes behavior for the flagged pilot tenant.
+      const commerceSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null);
+      if (commerceSettings?.commerceEnabled) {
+        void (async () => {
+          const [result, verzAgent] = await Promise.all([
+            this.commerceAiService.handleMessage(tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined),
+            this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
+          ]);
+          if (!result.response) return;
+
+          await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
+
+          const aiMessage = await this.prisma.message.create({
+            data: {
+              tenantId,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              senderId: verzAgent?.id ?? null,
+              direction: 'OUTBOUND' as const,
+              type: 'TEXT' as const,
+              status: 'SENT' as const,
+              content: result.response,
+              metadata: { aiGenerated: true, commerce: true },
+            },
+            include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+          });
+
+          if (verzAgent && !assignedTo) {
+            await this.prisma.conversation.update({
+              where: { id: conversation.id },
+              data: { assignedToId: verzAgent.id, status: 'OPEN' },
+            });
+            this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+              assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
+              status: 'OPEN',
+            });
+          }
+          this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
+        })();
+        return message;
+      }
+
       const aiMode = await this.aiResponderService.getMode(tenantId).catch(() => null);
 
       if (aiMode === 'SUGGESTION') {
