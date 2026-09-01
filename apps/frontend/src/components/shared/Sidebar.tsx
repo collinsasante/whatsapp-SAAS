@@ -316,7 +316,7 @@ export default function Sidebar() {
   const router = useRouter();
   const { clearAuth, user } = useAuthStore();
   const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const [appVersion, setAppVersion] = useState<string>('2.0');
+  const [appVersion, setAppVersion] = useState<string | null>(null);
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -451,7 +451,7 @@ export default function Sidebar() {
           )}
         </Link>
 
-        <span className="text-[11px] text-gray-500 font-medium select-none">v{appVersion}</span>
+        {appVersion && <span className="text-[11px] text-gray-500 font-medium select-none">v{appVersion}</span>}
       </div>
     </aside>
     </>
