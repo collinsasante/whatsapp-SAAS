@@ -123,9 +123,19 @@ const TOOLS = [
 
 const MAX_TOOL_ITERATIONS = 4;
 
+export interface CommerceAiToolCallTrace {
+  name: string;
+  args: unknown;
+  result: unknown;
+}
+
 export interface CommerceAiResult {
   response: string;
   blocked: boolean;
+  /** Populated unconditionally; only consumed by the AI evaluation harness today
+   * (e.g. to verify get_order_status was actually invoked before a payment claim).
+   * messages.service.ts destructures only response/blocked, so this is additive. */
+  toolTrace?: CommerceAiToolCallTrace[];
 }
 
 @Injectable()
@@ -138,13 +148,15 @@ export class CommerceAiService {
     private orders: OrdersService,
   ) {}
 
-  async handleMessage(tenantId: string, conversationId: string, contactId: string, customerPhone: string, customerMessage: string, contactName?: string): Promise<CommerceAiResult> {
+  async handleMessage(tenantId: string, conversationId: string, contactId: string, customerPhone: string, customerMessage: string, contactName?: string, evalContext?: { dryRunPayment: boolean }): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
-      return { response: "I'm here to help you shop. How can I assist you today?", blocked: true };
+      return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
     }
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) return { response: '', blocked: false };
+    if (!apiKey) return { response: '', blocked: false, toolTrace: [] };
+
+    const toolTrace: CommerceAiToolCallTrace[] = [];
 
     const settings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { businessName: true } });
     const businessName = settings?.businessName ?? 'our shop';
@@ -191,29 +203,32 @@ export class CommerceAiService {
         );
 
         const choice = res.data?.choices?.[0]?.message as { content?: string; tool_calls?: ToolCall[] } | undefined;
-        if (!choice) return { response: '', blocked: false };
+        if (!choice) return { response: '', blocked: false, toolTrace };
 
         if (!choice.tool_calls?.length) {
-          return { response: (choice.content ?? '').trim(), blocked: false };
+          return { response: (choice.content ?? '').trim(), blocked: false, toolTrace };
         }
 
         messages.push({ role: 'assistant', content: choice.content ?? null, tool_calls: choice.tool_calls });
 
         for (const call of choice.tool_calls) {
-          const result = await this.executeTool(tenantId, conversationId, contactId, customerPhone, call.function.name, call.function.arguments);
+          let args: unknown;
+          try { args = JSON.parse(call.function.arguments || '{}'); } catch { args = call.function.arguments; }
+          const result = await this.executeTool(tenantId, conversationId, contactId, customerPhone, call.function.name, call.function.arguments, evalContext);
+          toolTrace.push({ name: call.function.name, args, result });
           messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
         }
       }
 
       this.logger.warn(`Commerce AI hit max tool-call iterations for conversation ${conversationId}`);
-      return { response: "Let me get a team member to help finish this up for you.", blocked: false };
+      return { response: "Let me get a team member to help finish this up for you.", blocked: false, toolTrace };
     } catch (err) {
       this.logger.error('Commerce AI error', err);
-      return { response: '', blocked: false };
+      return { response: '', blocked: false, toolTrace };
     }
   }
 
-  private async executeTool(tenantId: string, conversationId: string, contactId: string, customerPhone: string, name: string, argsJson: string): Promise<unknown> {
+  private async executeTool(tenantId: string, conversationId: string, contactId: string, customerPhone: string, name: string, argsJson: string, evalContext?: { dryRunPayment: boolean }): Promise<unknown> {
     let args: Record<string, unknown> = {};
     try { args = JSON.parse(argsJson || '{}'); } catch { /* malformed args -- tool below handles missing fields */ }
 
@@ -258,7 +273,7 @@ export class CommerceAiService {
         case 'submit_order_for_payment': {
           const order = await this.orders.findActiveDraftForConversation(tenantId, conversationId);
           if (!order) return { error: 'No order has been started yet' };
-          const updated = await this.orders.submitForPayment(tenantId, order.id);
+          const updated = await this.orders.submitForPayment(tenantId, order.id, undefined, { dryRun: evalContext?.dryRunPayment });
           const checkoutUrl = updated.paystackReference ? `https://checkout.paystack.com/${updated.paystackReference}` : null;
           return { orderId: updated.id, status: updated.status, totalMajorUnits: updated.totalMajorUnits, currency: updated.currency, checkoutUrl };
         }

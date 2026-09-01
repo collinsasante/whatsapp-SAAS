@@ -74,6 +74,10 @@ export class CommerceReconciliationWorker {
         status: 'PAID',
         paidAt: { gte: since },
         paystackReference: { not: null },
+        // Synthetic fixture orders created by the AI evaluation harness carry a fake
+        // Paystack reference with no real transaction -- verifying them against
+        // Paystack's live API would always fail and raise a false exception.
+        isEvalOrder: false,
         reconciliationExceptions: { none: { status: 'OPEN' } },
       },
       select: { id: true, tenantId: true, totalMajorUnits: true, currency: true, paystackReference: true },

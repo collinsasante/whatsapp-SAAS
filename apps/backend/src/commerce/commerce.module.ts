@@ -24,6 +24,6 @@ import { CommerceAiService } from './ai/commerce-ai.service';
   imports: [PrismaModule, ConfigModule, AuditModule],
   controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController],
   providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService],
-  exports: [CommerceLedgerService, OrdersService, CommerceAiService],
+  exports: [CommerceLedgerService, OrdersService, CommerceAiService, ProductsService],
 })
 export class CommerceModule {}

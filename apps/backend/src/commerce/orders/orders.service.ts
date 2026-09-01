@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
 import { isValidOrderTransition } from './order-state.util';
@@ -67,7 +68,7 @@ export class OrdersService {
   }
 
   /** Initiates payment collection via Paystack (mobile money is a Paystack checkout channel in Ghana -- no separate MTN integration needed). */
-  async submitForPayment(tenantId: string, orderId: string, customerEmail?: string) {
+  async submitForPayment(tenantId: string, orderId: string, customerEmail?: string, opts?: { dryRun?: boolean }) {
     const order = await this.getOwned(tenantId, orderId);
     this.assertTransition(order.status, OrderStatus.PENDING_PAYMENT);
     if (order.totalMajorUnits <= 0) throw new ConflictException('Cannot submit an empty order for payment');
@@ -77,13 +78,18 @@ export class OrdersService {
     // number -- a well-established pattern for phone-first Paystack integrations.
     const email = customerEmail ?? `${order.customerPhone.replace(/[^0-9]/g, '')}@customer.verzchat.com`;
 
-    const { gatewayReference } = await this.paystack.initializeTransaction({
-      email,
-      amountMajorUnits: order.totalMajorUnits,
-      currency: order.currency,
-      tenantId,
-      metadata: { orderId: order.id, source: 'managed-commerce' },
-    });
+    // dryRun (used only by the AI evaluation harness): skip the real Paystack API call
+    // entirely -- no live row is created in the merchant's actual Paystack account --
+    // while exercising identical state-transition logic with a synthetic reference.
+    const { gatewayReference } = opts?.dryRun
+      ? { gatewayReference: `EVAL-${crypto.randomUUID()}` }
+      : await this.paystack.initializeTransaction({
+          email,
+          amountMajorUnits: order.totalMajorUnits,
+          currency: order.currency,
+          tenantId,
+          metadata: { orderId: order.id, source: 'managed-commerce' },
+        });
 
     const updated = await this.prisma.order.update({
       where: { id: orderId },

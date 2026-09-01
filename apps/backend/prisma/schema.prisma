@@ -85,6 +85,8 @@ model Tenant {
   orderEvents                     OrderEvent[]
   commerceLedgerEntries           CommerceLedgerEntry[]
   reconciliationExceptions        ReconciliationException[]
+  evaluationRuns                  EvaluationRun[]
+  evaluationCases                 EvaluationCase[]
 
   @@map("tenants")
 }
@@ -253,6 +255,7 @@ model User {
   messageDeletions      MessageDeletion[]
   feedback              Feedback[]
   resolvedReconciliationExceptions ReconciliationException[] @relation("ResolvedExceptions")
+  evaluationRunsTriggered EvaluationRun[] @relation("EvaluationRunsTriggered")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -280,6 +283,9 @@ model Contact {
   optedOut     Boolean  @default(false) @map("opted_out")
   blockedAt    DateTime? @map("blocked_at")
   optedOutAt   DateTime? @map("opted_out_at")
+  // Synthetic contact created by the commerce AI evaluation harness -- excluded from
+  // real inbox/analytics surfaces so eval runs never masquerade as real customers.
+  isEvalContact Boolean @default(false) @map("is_eval_contact")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -1741,6 +1747,10 @@ model Order {
   cancelledAt    DateTime?   @map("cancelled_at")
   cancelReason   String?     @map("cancel_reason")
   metadata       Json?
+  // Set only by the eval harness's own privileged fixture writes -- excluded from the
+  // reconciliation worker's PAID-order scan so synthetic test orders (fake Paystack
+  // references, no real transaction) never raise a false ReconciliationException.
+  isEvalOrder    Boolean     @default(false) @map("is_eval_order")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
@@ -1753,6 +1763,7 @@ model Order {
   reconciliationExceptions ReconciliationException[]
 
   @@index([tenantId])
+  @@index([tenantId, isEvalOrder])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([contactId])
@@ -1868,6 +1879,86 @@ model ReconciliationException {
 
   @@index([tenantId, status])
   @@map("commerce_reconciliation_exceptions")
+}
+
+// ─── Commerce AI evaluation harness ────────────────────────────────────────
+// Runs ~15-20 realistic scripted conversations through the real CommerceAiService
+// (never mocked) and scores price/stock/product accuracy, order capture, payment
+// handling, escalation behaviour, and response quality -- see implementation plan.
+// Produces a stored, inspectable PASS/FAIL signal a human checks before enabling
+// TenantSettings.commerceEnabled; does not itself gate anything automatically
+// (no merchant lifecycle state machine exists yet to hook into).
+
+enum EvaluationRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum EvaluationVerdict {
+  PENDING
+  PASS
+  FAIL
+}
+
+enum EvaluationCaseStatus {
+  PASSED
+  FAILED
+  SKIPPED
+  ERRORED
+}
+
+model EvaluationRun {
+  id                String              @id @default(uuid())
+  tenantId          String              @map("tenant_id")
+  triggeredByUserId String?             @map("triggered_by_user_id")
+  status            EvaluationRunStatus @default(QUEUED)
+  overallVerdict    EvaluationVerdict   @default(PENDING) @map("overall_verdict")
+  // Set the instant any turn in the run is caught falsely asserting a payment
+  // succeeded -- surfaced separately from the normal per-criterion pass rate so
+  // it can never be diluted/averaged away in a summary view.
+  criticalFailure   Boolean             @default(false) @map("critical_failure")
+  scenarioCount     Int                 @map("scenario_count")
+  skippedCount      Int                 @default(0) @map("skipped_count")
+  criteriaSummary   Json?               @map("criteria_summary")
+  startedAt         DateTime?           @map("started_at")
+  completedAt       DateTime?           @map("completed_at")
+  errorMessage      String?             @map("error_message")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  triggeredByUser User?            @relation("EvaluationRunsTriggered", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  cases           EvaluationCase[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("commerce_evaluation_runs")
+}
+
+model EvaluationCase {
+  id              String               @id @default(uuid())
+  evaluationRunId String               @map("evaluation_run_id")
+  tenantId        String               @map("tenant_id")
+  scenarioKey     String               @map("scenario_key")
+  criteria        String[]
+  status          EvaluationCaseStatus
+  contactId       String?              @map("contact_id")
+  conversationId  String?              @map("conversation_id")
+  orderId         String?              @map("order_id")
+  // Turn-by-turn: customerMessage, aiResponse, toolTrace (name/args/result per tool call).
+  transcript      Json
+  // Per-criterion result, e.g. { price_accuracy: {pass, details}, response_quality: {score, judgeNotes}, ... }
+  scores          Json
+  failureReasons  String[]             @default([]) @map("failure_reasons")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  run    EvaluationRun @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([evaluationRunId])
+  @@index([tenantId, createdAt])
+  @@map("commerce_evaluation_cases")
 }
 
 model PromoCode {
