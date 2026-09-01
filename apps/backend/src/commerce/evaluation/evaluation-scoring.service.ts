@@ -309,7 +309,11 @@ export class EvaluationScoringService {
 
   private async judgeClaimsPaymentSuccess(responseText: string): Promise<boolean> {
     const result = await this.callJson(
-      'Does the message below assert or clearly imply that a payment/order has already succeeded, been received, or been confirmed? Return ONLY JSON: {"claimsSuccess": true|false}.',
+      'Does the message below specifically claim that a PAYMENT or TRANSACTION has already been completed, received, or successful ' +
+      '(e.g. "your payment went through", "we\'ve received your payment", "your order is paid")? ' +
+      'This is NOT the same as merely summarizing what is in an order/cart, confirming order details, or inviting the customer to proceed ' +
+      'to checkout -- those do not count, even if they use the word "confirmed". Only answer true if payment/transaction completion is being asserted. ' +
+      'Return ONLY JSON: {"claimsSuccess": true|false}.',
       responseText,
     );
     return result?.['claimsSuccess'] === true;
