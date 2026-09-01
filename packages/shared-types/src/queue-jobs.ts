@@ -51,4 +51,5 @@ export enum QueueName {
   SLA_MONITOR = 'sla-monitor',
   ANALYTICS_ROLLUP = 'analytics-rollup',
   WHATSAPP_QUALITY_SYNC = 'whatsapp-quality-sync',
+  COMMERCE_RECONCILIATION = 'commerce-reconciliation',
 }
