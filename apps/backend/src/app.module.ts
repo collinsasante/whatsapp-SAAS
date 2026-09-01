@@ -33,6 +33,7 @@ import { WebhooksModule } from './manage/webhooks/webhooks.module';
 import { ManageSettingsModule } from './manage/settings/manage-settings.module';
 import { SegmentsModule } from './segments/segments.module';
 import { BillingModule } from './billing/billing.module';
+import { CommerceModule } from './commerce/commerce.module';
 import { TeamsModule } from './teams/teams.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -107,6 +108,7 @@ import appConfig from './config/app.config';
     ManageSettingsModule,
     SegmentsModule,
     BillingModule,
+    CommerceModule,
     TeamsModule,
     WorkspaceModule,
     AnalyticsModule,

@@ -1,0 +1,192 @@
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { LedgerEntryType, OrderStatus } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { isValidOrderTransition } from '../orders/order-state.util';
+import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
+
+@Injectable()
+export class CommerceLedgerService {
+  private readonly logger = new Logger(CommerceLedgerService.name);
+
+  constructor(private prisma: PrismaService) {}
+
+  /**
+   * The ONLY path in the codebase that can set Order.status = PAID. Called
+   * exclusively from CommerceWebhookController once a payment has been
+   * independently verified by the gateway (never from AI tool-calling,
+   * never from a generic admin/order-update endpoint).
+   *
+   * Idempotent by DB constraint, not just an app-level check: the
+   * `@@unique([orderId, type, gatewayEventId])` on CommerceLedgerEntry means
+   * a duplicate webhook delivery for the same event hits a unique-violation
+   * inside the transaction and is caught below as a no-op, rather than
+   * relying purely on a check-then-write race like BillingEvent's pattern.
+   */
+  async recordPaymentSuccess(orderId: string, gatewayEventId: string, verifiedAmountMajorUnits: number) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      this.logger.warn(`recordPaymentSuccess: unknown order ${orderId}`);
+      return null;
+    }
+
+    if (order.status === OrderStatus.PAID) {
+      // Already processed (most likely a duplicate webhook delivery) -- verify the
+      // amount matches what we already recorded and no-op rather than re-processing.
+      const existing = await this.prisma.commerceLedgerEntry.findFirst({
+        where: { orderId, type: LedgerEntryType.GMV, gatewayEventId },
+      });
+      if (existing) {
+        this.logger.log(`Duplicate payment webhook for order ${orderId} / event ${gatewayEventId} skipped`);
+        return existing;
+      }
+      // Order is PAID but this specific event wasn't the one that paid it -- a second,
+      // different successful payment event for an already-paid order should not happen;
+      // log loudly rather than silently double-counting revenue.
+      this.logger.error(`Order ${orderId} already PAID but received a new payment event ${gatewayEventId} -- ignoring, does not affect the ledger`);
+      return null;
+    }
+
+    if (!isValidOrderTransition(order.status, OrderStatus.PAID)) {
+      this.logger.error(`Cannot mark order ${orderId} PAID from status ${order.status}`);
+      return null;
+    }
+
+    const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } });
+    const takeRatePct = tenantSettings?.takeRatePct ?? 0;
+    const gmvAmount = verifiedAmountMajorUnits;
+    const takeRateAmount = computeTakeRate(gmvAmount, takeRatePct);
+
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const updatedOrder = await tx.order.update({
+          where: { id: orderId },
+          data: { status: OrderStatus.PAID, paidAt: new Date() },
+        });
+
+        const gmvEntry = await tx.commerceLedgerEntry.create({
+          data: {
+            tenantId: order.tenantId,
+            orderId,
+            type: LedgerEntryType.GMV,
+            amountMajorUnits: gmvAmount,
+            currency: order.currency,
+            gatewayEventId,
+            data: { verifiedAmountMajorUnits },
+            processed: true,
+          },
+        });
+
+        await tx.commerceLedgerEntry.create({
+          data: {
+            tenantId: order.tenantId,
+            orderId,
+            type: LedgerEntryType.TAKE_RATE,
+            // Negative: this is platform revenue taken OUT of the merchant's proceeds,
+            // not additional money changing hands -- see ledger.controller.ts summary math.
+            amountMajorUnits: -takeRateAmount,
+            currency: order.currency,
+            gatewayEventId,
+            data: { takeRatePct, gmvAmount },
+            processed: true,
+          },
+        });
+
+        await tx.orderEvent.create({
+          data: { tenantId: order.tenantId, orderId, type: 'PAID', data: { gatewayEventId, gmvAmount, takeRateAmount } },
+        });
+
+        return { updatedOrder, gmvEntry };
+      });
+
+      this.logger.log(`Order ${orderId} PAID -- GMV ${gmvAmount} ${order.currency}, take-rate ${takeRateAmount} (${takeRatePct}%)`);
+      return result.gmvEntry;
+    } catch (err) {
+      // Unique constraint violation on (orderId, type, gatewayEventId) means a
+      // concurrent duplicate delivery of this exact webhook lost the race safely.
+      if (this.isUniqueConstraintError(err)) {
+        this.logger.log(`Concurrent duplicate payment webhook for order ${orderId} / event ${gatewayEventId} -- safely no-op'd`);
+        return this.prisma.commerceLedgerEntry.findFirst({ where: { orderId, type: LedgerEntryType.GMV, gatewayEventId } });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Records a (possibly partial) refund as a REFUND_ADJUSTMENT entry -- never
+   * mutates or deletes the original GMV/TAKE_RATE entries. Only moves the
+   * order to REFUNDED once the cumulative refunded amount reaches the full
+   * order total; a partial refund keeps the order's current status.
+   */
+  async recordRefund(orderId: string, refundAmountMajorUnits: number, gatewayEventId?: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status !== OrderStatus.PAID && order.status !== OrderStatus.FULFILLING && order.status !== OrderStatus.COMPLETED) {
+      throw new ConflictException(`Cannot refund an order in status ${order.status}`);
+    }
+
+    const priorAdjustments = await this.prisma.commerceLedgerEntry.findMany({
+      where: { orderId, type: LedgerEntryType.REFUND_ADJUSTMENT },
+    });
+    const alreadyRefundedMajorUnits = Math.round(priorAdjustments.reduce((sum, e) => sum + Math.abs((e.data as { refundAmountMajorUnits?: number })?.refundAmountMajorUnits ?? 0), 0) * 100) / 100;
+
+    const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } });
+    const takeRatePct = tenantSettings?.takeRatePct ?? 0;
+
+    const { takeRateClawbackMajorUnits } = computeRefundAdjustment({
+      orderTotalMajorUnits: order.totalMajorUnits,
+      takeRatePct,
+      alreadyRefundedMajorUnits,
+      refundAmountMajorUnits,
+    });
+
+    const isFullRefund = Math.round((alreadyRefundedMajorUnits + refundAmountMajorUnits) * 100) / 100 >= order.totalMajorUnits;
+
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.commerceLedgerEntry.create({
+        data: {
+          tenantId: order.tenantId,
+          orderId,
+          type: LedgerEntryType.REFUND_ADJUSTMENT,
+          amountMajorUnits: -takeRateClawbackMajorUnits,
+          currency: order.currency,
+          gatewayEventId,
+          data: { refundAmountMajorUnits, takeRateClawbackMajorUnits },
+          processed: true,
+        },
+      });
+
+      if (isFullRefund) {
+        await tx.order.update({ where: { id: orderId }, data: { status: OrderStatus.REFUNDED } });
+        await tx.orderEvent.create({ data: { tenantId: order.tenantId, orderId, type: 'REFUNDED', data: { refundAmountMajorUnits } } });
+      }
+
+      return entry;
+    });
+  }
+
+  async getLedger(tenantId: string, opts: { page?: number; limit?: number } = {}) {
+    const page = opts.page ?? 1;
+    const limit = opts.limit ?? 50;
+    const [entries, total, summary] = await Promise.all([
+      this.prisma.commerceLedgerEntry.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.commerceLedgerEntry.count({ where: { tenantId } }),
+      this.prisma.commerceLedgerEntry.groupBy({ by: ['type'], where: { tenantId }, _sum: { amountMajorUnits: true } }),
+    ]);
+    return {
+      entries,
+      total,
+      page,
+      limit,
+      totals: Object.fromEntries(summary.map((s) => [s.type, s._sum.amountMajorUnits ?? 0])),
+    };
+  }
+
+  private isUniqueConstraintError(err: unknown): boolean {
+    return !!err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2002';
+  }
+}
