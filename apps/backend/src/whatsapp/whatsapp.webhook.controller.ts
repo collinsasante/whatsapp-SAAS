@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -6,21 +7,24 @@ import {
   Body,
   Headers,
   Param,
+  Req,
   Res,
   HttpCode,
   HttpStatus,
   Logger,
   Inject,
   forwardRef,
+  RawBodyRequest,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from '../messages/messages.service';
 import { CallsService } from '../calls/calls.service';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
 import { notify } from '../common/notifier';
+import { verifyWhatsAppSignature } from './webhook-signature.util';
 
 interface CallEvent {
   id: string;
@@ -121,13 +125,40 @@ export class WhatsAppWebhookController {
     return res.status(403).send('Forbidden');
   }
 
+  /**
+   * Verifies Meta's x-hub-signature-256 against WHATSAPP_APP_SECRET before any
+   * tenant fan-out. All tenants are onboarded under this app's single WABA
+   * embedded-signup flow (confirmed: wabaId/accessToken are per-tenant, but the
+   * App Secret belongs to the one Meta App those WABAs are connected through),
+   * so one global secret is correct here, not a per-tenant one.
+   *
+   * Fails OPEN (logs and continues) when WHATSAPP_APP_SECRET isn't configured,
+   * rather than closed -- this is a new check being added to a controller that
+   * has never verified signatures before, and failing closed with no secret
+   * provisioned yet would silently stop all inbound WhatsApp processing for
+   * every tenant the moment this ships. Only rejects once the secret is
+   * actually set and the signature genuinely doesn't match.
+   */
+  private assertValidSignature(raw: Buffer | undefined, signature: string | undefined): void {
+    const appSecret = process.env['WHATSAPP_APP_SECRET'];
+    if (!appSecret) {
+      this.logger.warn('WHATSAPP_APP_SECRET not configured -- webhook signature verification is disabled');
+      return;
+    }
+    if (!verifyWhatsAppSignature(raw, signature, appSecret)) {
+      throw new BadRequestException('Invalid webhook signature');
+    }
+  }
+
   @Post(':tenantId')
   @HttpCode(HttpStatus.OK)
   async receive(
     @Param('tenantId') tenantId: string,
+    @Req() req: RawBodyRequest<Request>,
     @Body() body: { object: string; entry: WebhookEntry[] },
-    @Headers('x-hub-signature-256') _signature: string,
+    @Headers('x-hub-signature-256') signature: string,
   ) {
+    this.assertValidSignature(req.rawBody, signature);
     if (body.object !== 'whatsapp_business_account') return { status: 'ok' };
 
     // Collect all phone_number_ids present in this webhook batch.
