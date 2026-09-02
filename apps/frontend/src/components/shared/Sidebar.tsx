@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun,
+  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,15 @@ const mainNav: NavItem[] = [
     children: [
       { href: '/ai',      icon: Brain,  label: 'Verz AI Settings' },
       { href: '/ai-test', icon: Bot,    label: 'Testing Center' },
+    ],
+  },
+  {
+    type: 'group',
+    icon: ShoppingCart,
+    label: 'Commerce',
+    children: [
+      { href: '/commerce/products',   icon: Package,        label: 'Products' },
+      { href: '/commerce/evaluation', icon: ClipboardCheck, label: 'Evaluation Runs' },
     ],
   },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
@@ -329,6 +338,7 @@ export default function Sidebar() {
     if (item.label === 'Dashboard') return perms.showDashboard;
     if (item.label === 'Broadcasts') return perms.showCampaigns;
     if (item.label === 'Verz') return perms.showAI;
+    if (item.label === 'Commerce') return perms.showCommerce;
     if (item.label === 'Analytics') return perms.showAnalytics;
     return true;
   });
@@ -466,7 +476,7 @@ const PRIMARY_TABS = [
 ] as const;
 
 // Paths covered by the "More" drawer tab (not in primary tabs)
-const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/settings', '/channels', '/library', '/manage', '/billing'];
+const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/commerce', '/settings', '/channels', '/library', '/manage', '/billing'];
 
 export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname() ?? "";
