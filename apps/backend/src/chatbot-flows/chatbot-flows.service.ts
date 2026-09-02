@@ -82,23 +82,26 @@ export class ChatbotFlowsService {
   }
 
   // Find matching flow for an incoming message
-  async findMatchingFlow(tenantId: string, messageText: string) {
+  async findMatchingFlow(tenantId: string, messageText: string, isFirstMessage: boolean) {
     const flows = await this.prisma.chatbotFlow.findMany({
       where: { tenantId, isActive: true },
       orderBy: [{ priority: 'desc' }],
     });
     const lower = messageText.toLowerCase().trim();
 
+    // FALLBACK only applies if nothing else matched -- collect the highest-priority
+    // one but don't return it until every KEYWORD/FIRST_MESSAGE flow has been checked.
+    let fallback: (typeof flows)[number] | null = null;
     for (const flow of flows) {
       if (flow.trigger === 'KEYWORD') {
         const match = flow.keywords.some((k) => lower === k.toLowerCase() || lower.includes(k.toLowerCase()));
         if (match) return flow;
       } else if (flow.trigger === 'FIRST_MESSAGE') {
-        return flow;
+        if (isFirstMessage) return flow;
       } else if (flow.trigger === 'FALLBACK') {
-        return flow;
+        if (!fallback) fallback = flow;
       }
     }
-    return null;
+    return fallback;
   }
 }

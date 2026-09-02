@@ -690,7 +690,10 @@ export class MessagesService {
     // Trigger chatbot flow if one matches this message
     let flowMatched = false;
     if (content) {
-      const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content);
+      const priorInboundInConversation = await this.prisma.message.count({
+        where: { tenantId, conversationId: conversation.id, direction: MessageDirection.INBOUND, id: { not: message.id } },
+      });
+      const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content, priorInboundInConversation === 0);
       if (flow) {
         flowMatched = true;
         void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[]);
