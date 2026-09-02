@@ -1742,6 +1742,7 @@ model Order {
   customerPhone  String      @map("customer_phone")
   customerName   String?     @map("customer_name")
   paystackReference String?  @map("paystack_reference")
+  paystackCheckoutUrl String? @map("paystack_checkout_url")
   paymentGateway    PaymentGateway? @map("payment_gateway")
   paidAt         DateTime?   @map("paid_at")
   cancelledAt    DateTime?   @map("cancelled_at")

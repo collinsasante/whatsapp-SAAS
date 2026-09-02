@@ -26,6 +26,7 @@ interface Order {
   currency: string;
   totalMajorUnits: number;
   paystackReference: string | null;
+  paystackCheckoutUrl: string | null;
   items?: OrderItem[];
 }
 
@@ -122,7 +123,7 @@ export default function CommerceChatPage() {
     }
   };
 
-  const checkoutUrl = order?.paystackReference ? `https://checkout.paystack.com/${order.paystackReference}` : null;
+  const checkoutUrl = order?.paystackCheckoutUrl ?? null;
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
