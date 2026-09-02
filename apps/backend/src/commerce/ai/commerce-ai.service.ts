@@ -283,8 +283,10 @@ export class CommerceAiService {
           const order = await this.orders.findActiveDraftForConversation(tenantId, conversationId);
           if (!order) return { error: 'No order has been started yet' };
           const updated = await this.orders.submitForPayment(tenantId, order.id, undefined, { dryRun: evalContext?.dryRunPayment });
-          const checkoutUrl = updated.paystackReference ? `https://checkout.paystack.com/${updated.paystackReference}` : null;
-          return { orderId: updated.id, status: updated.status, totalMajorUnits: updated.totalMajorUnits, currency: updated.currency, checkoutUrl };
+          // paystackCheckoutUrl is Paystack's own authorization_url from initializeTransaction --
+          // https://checkout.paystack.com/<reference> is not a valid URL pattern and was
+          // sending customers to a broken "we could not start this transaction" page.
+          return { orderId: updated.id, status: updated.status, totalMajorUnits: updated.totalMajorUnits, currency: updated.currency, checkoutUrl: updated.paystackCheckoutUrl };
         }
 
         case 'get_order_status': {

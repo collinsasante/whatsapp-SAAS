@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageSquare, Send, Loader2, RotateCcw, ShoppingCart, ExternalLink, BadgeCheck } from 'lucide-react';
 import { commerceTestChatApi, commerceOrdersApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { linkify } from '@/lib/linkify';
 import toast from 'react-hot-toast';
 
 interface ChatMessage {
@@ -26,6 +27,7 @@ interface Order {
   currency: string;
   totalMajorUnits: number;
   paystackReference: string | null;
+  paystackCheckoutUrl: string | null;
   items?: OrderItem[];
 }
 
@@ -122,7 +124,7 @@ export default function CommerceChatPage() {
     }
   };
 
-  const checkoutUrl = order?.paystackReference ? `https://checkout.paystack.com/${order.paystackReference}` : null;
+  const checkoutUrl = order?.paystackCheckoutUrl ?? null;
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -165,7 +167,7 @@ export default function CommerceChatPage() {
                       ? 'bg-teal-600 text-white rounded-tr-sm'
                       : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm',
                   )}>
-                    {m.content}
+                    {m.content ? linkify(m.content) : m.content}
                   </div>
                 </div>
               ))

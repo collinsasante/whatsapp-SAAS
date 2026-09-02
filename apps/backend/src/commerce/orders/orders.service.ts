@@ -81,8 +81,8 @@ export class OrdersService {
     // dryRun (used only by the AI evaluation harness): skip the real Paystack API call
     // entirely -- no live row is created in the merchant's actual Paystack account --
     // while exercising identical state-transition logic with a synthetic reference.
-    const { gatewayReference } = opts?.dryRun
-      ? { gatewayReference: `EVAL-${crypto.randomUUID()}` }
+    const { gatewayReference, authorizationUrl } = opts?.dryRun
+      ? { gatewayReference: `EVAL-${crypto.randomUUID()}`, authorizationUrl: null as string | null }
       : await this.paystack.initializeTransaction({
           email,
           amountMajorUnits: order.totalMajorUnits,
@@ -93,7 +93,7 @@ export class OrdersService {
 
     const updated = await this.prisma.order.update({
       where: { id: orderId },
-      data: { status: OrderStatus.PENDING_PAYMENT, paystackReference: gatewayReference },
+      data: { status: OrderStatus.PENDING_PAYMENT, paystackReference: gatewayReference, paystackCheckoutUrl: authorizationUrl },
     });
     await this.recordEvent(tenantId, orderId, 'SUBMITTED_FOR_PAYMENT');
     await this.recordEvent(tenantId, orderId, 'PAYMENT_INITIATED', { gatewayReference });

@@ -28,9 +28,14 @@ export class PaystackGateway implements IBillingGateway {
   }
 
   /**
-   * Initializes a transaction and returns an access_code for the Paystack Inline popup
-   * (`PaystackPop.resumeTransaction(accessCode)`) — no redirect, stays embedded in the page.
-   * Passing `planCode` makes Paystack auto-create a recurring subscription on first charge.
+   * Initializes a transaction. Returns both `accessCode` (for the Paystack Inline
+   * popup, `PaystackPop.resumeTransaction(accessCode)` -- no redirect, stays
+   * embedded in the page) and `authorizationUrl` (Paystack's own ready-to-use
+   * hosted checkout page -- this is NOT the same as `https://checkout.paystack.com/
+   * <reference>`, which is not a valid URL pattern; a caller building a checkout
+   * link must use `authorizationUrl` verbatim, never construct one from the
+   * reference or access code). Passing `planCode` makes Paystack auto-create a
+   * recurring subscription on first charge.
    */
   async initializeTransaction(opts: {
     email: string;
@@ -59,6 +64,7 @@ export class PaystackGateway implements IBillingGateway {
 
     return {
       accessCode: res.data.data.access_code as string,
+      authorizationUrl: res.data.data.authorization_url as string,
       gatewayReference: res.data.data.reference as string,
       gatewayCustomerId: '',
     };
