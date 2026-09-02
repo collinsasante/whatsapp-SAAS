@@ -41,8 +41,9 @@ const mainNav: NavItem[] = [
     icon: Brain,
     label: 'Verz AI',
     children: [
-      { href: '/ai',      icon: Brain,  label: 'Verz AI Settings' },
-      { href: '/ai-test', icon: Bot,    label: 'Testing Center' },
+      { href: '/ai',           icon: Brain,         label: 'Verz AI Settings' },
+      { href: '/ai-test',      icon: Bot,           label: 'Testing Center' },
+      { href: '/ai/test-chat', icon: MessageSquare, label: 'Test Chat' },
     ],
   },
   {

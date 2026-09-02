@@ -51,6 +51,7 @@ import { InboundModule } from './inbound/inbound.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { AiLogsModule } from './ai-logs/ai-logs.module';
 import { AiCoreModule } from './ai-core/ai-core.module';
+import { AiTestChatModule } from './ai-core/test-chat/ai-test-chat.module';
 import { ClientErrorsModule } from './client-errors/client-errors.module';
 import appConfig from './config/app.config';
 
@@ -128,6 +129,7 @@ import appConfig from './config/app.config';
     PlatformAdminModule,
     AiLogsModule,
     AiCoreModule,
+    AiTestChatModule,
     ClientErrorsModule,
   ],
   providers: [
