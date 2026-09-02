@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck,
+  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck, ReceiptText,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -51,6 +51,8 @@ const mainNav: NavItem[] = [
     label: 'Commerce',
     children: [
       { href: '/commerce/products',   icon: Package,        label: 'Products' },
+      { href: '/commerce/orders',     icon: ReceiptText,    label: 'Orders' },
+      { href: '/commerce/chat',       icon: MessageSquare,  label: 'Test Chat' },
       { href: '/commerce/evaluation', icon: ClipboardCheck, label: 'Evaluation Runs' },
     ],
   },
