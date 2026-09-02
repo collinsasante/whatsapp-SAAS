@@ -1,13 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AiTaskType } from '@whatsapp-platform/shared-types';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PipelineInput, PipelineTrace } from '../pipeline/pipeline.types';
+import { PipelineTrace } from '../pipeline/pipeline.types';
+
+/** agentId is optional here (unlike PipelineInput) -- non-pipeline callers
+ * (summarize, KB-learn) have no AiAgent to attribute the call to. */
+export interface TraceRecordInput {
+  tenantId: string;
+  agentId?: string;
+  conversationId?: string;
+  taskType: AiTaskType;
+}
 
 @Injectable()
 export class AiExecutionsService {
   constructor(private prisma: PrismaService) {}
 
-  record(input: PipelineInput, trace: PipelineTrace) {
+  record(input: TraceRecordInput, trace: PipelineTrace) {
     return this.prisma.aiExecution.create({
       data: {
         tenantId: input.tenantId,

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
@@ -16,6 +16,7 @@ import { KNOWLEDGE_CONTEXT_SOURCE, KbRelevantContextSource } from './pipeline/kn
 import { VerzAiPipelineService } from './pipeline/verz-ai-pipeline.service';
 import { AiExecutionsService } from './executions/ai-executions.service';
 import { AiExecutionsController } from './executions/ai-executions.controller';
+import { AiCompletionService } from './completion/ai-completion.service';
 
 /**
  * Verz-AI Phase 1 foundation. Built strangler-style alongside the existing
@@ -26,7 +27,7 @@ import { AiExecutionsController } from './executions/ai-executions.controller';
  * isAiAgent User row the legacy responder already uses, not a second one.
  */
 @Module({
-  imports: [PrismaModule, AiModule, KnowledgeBaseModule],
+  imports: [PrismaModule, AiModule, forwardRef(() => KnowledgeBaseModule)],
   controllers: [AiAgentsController, AiExecutionsController],
   providers: [
     DeepSeekProvider,
@@ -41,7 +42,8 @@ import { AiExecutionsController } from './executions/ai-executions.controller';
     PolicyStage,
     { provide: KNOWLEDGE_CONTEXT_SOURCE, useClass: KbRelevantContextSource },
     VerzAiPipelineService,
+    AiCompletionService,
   ],
-  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService],
+  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService],
 })
 export class AiCoreModule {}

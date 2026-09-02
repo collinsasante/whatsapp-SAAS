@@ -6,6 +6,7 @@ import { ActivityLogModule } from '../activity-log/activity-log.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { AirtableService } from './airtable.service';
+import { AiCoreModule } from '../ai-core/ai-core.module';
 import { QueueName } from '@whatsapp-platform/shared-types';
 
 @Module({
@@ -14,6 +15,7 @@ import { QueueName } from '@whatsapp-platform/shared-types';
     ActivityLogModule,
     NotificationsModule,
     RealtimeModule,
+    AiCoreModule,
   ],
   controllers: [ConversationsController],
   providers: [ConversationsService, AirtableService],
