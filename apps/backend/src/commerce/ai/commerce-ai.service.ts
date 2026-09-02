@@ -203,10 +203,18 @@ export class CommerceAiService {
         );
 
         const choice = res.data?.choices?.[0]?.message as { content?: string; tool_calls?: ToolCall[] } | undefined;
-        if (!choice) return { response: '', blocked: false, toolTrace };
+        const finishReason = res.data?.choices?.[0]?.finish_reason as string | undefined;
+        if (!choice) {
+          this.logger.warn(`Commerce AI: no message in DeepSeek response (finish_reason=${finishReason}) for conversation ${conversationId}. Full response: ${JSON.stringify(res.data)}`);
+          return { response: '', blocked: false, toolTrace };
+        }
 
         if (!choice.tool_calls?.length) {
-          return { response: (choice.content ?? '').trim(), blocked: false, toolTrace };
+          const content = (choice.content ?? '').trim();
+          if (!content) {
+            this.logger.warn(`Commerce AI: empty content and no tool calls (finish_reason=${finishReason}) for conversation ${conversationId}. Sent messages: ${JSON.stringify(messages)}`);
+          }
+          return { response: content, blocked: false, toolTrace };
         }
 
         messages.push({ role: 'assistant', content: choice.content ?? null, tool_calls: choice.tool_calls });
