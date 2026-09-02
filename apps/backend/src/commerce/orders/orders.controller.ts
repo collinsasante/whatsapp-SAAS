@@ -1,10 +1,13 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderStatus } from '@prisma/client';
+import { UserRole } from '@whatsapp-platform/shared-types';
 import { OrdersService } from './orders.service';
+import { CommerceLedgerService } from '../ledger/commerce-ledger.service';
 import { CreateDraftOrderDto, AddOrderItemDto, SubmitForPaymentDto, CancelOrderDto, UpdateFulfillmentDto } from './dto/order.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
 
 @ApiTags('Commerce Orders')
@@ -12,7 +15,10 @@ import { CurrentTenant } from '../../common/decorators/tenant.decorator';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('commerce/orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly ledgerService: CommerceLedgerService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a draft order' })
@@ -54,5 +60,12 @@ export class OrdersController {
   @ApiOperation({ summary: 'Update fulfillment status of a PAID order (rejects PAID as a target -- that only happens via a verified payment webhook)' })
   updateFulfillment(@CurrentTenant() tenantId: string, @Param('id') id: string, @Body() dto: UpdateFulfillmentDto) {
     return this.ordersService.updateFulfillmentStatus(tenantId, id, dto.status);
+  }
+
+  @Post(':id/verify-payment')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Ask Paystack directly whether this order was paid, and promote it to PAID only on a verified success -- pull-based counterpart to the webhook' })
+  verifyPayment(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return this.ledgerService.verifyAndRecordPayment(tenantId, id);
   }
 }

@@ -64,6 +64,26 @@ export class PaystackGateway implements IBillingGateway {
     };
   }
 
+  /**
+   * Asks Paystack directly whether a transaction succeeded. Used by the commerce
+   * verify-payment endpoint as a pull-based alternative to webhook delivery --
+   * the returned status/amount come from Paystack's API, never from the client.
+   */
+  async verifyTransaction(reference: string): Promise<{ status: string; amountMajorUnits: number; currency: string; transactionId: string } | null> {
+    const res = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: this.headers,
+      timeout: 10_000,
+    });
+    const tx = res.data?.data as { status?: string; amount?: number; currency?: string; id?: number } | undefined;
+    if (!tx?.status) return null;
+    return {
+      status: tx.status,
+      amountMajorUnits: (tx.amount ?? 0) / 100,
+      currency: tx.currency ?? '',
+      transactionId: String(tx.id ?? reference),
+    };
+  }
+
   async disableSubscription(subscriptionCode: string, emailToken: string): Promise<void> {
     await axios.post(
       'https://api.paystack.co/subscription/disable',

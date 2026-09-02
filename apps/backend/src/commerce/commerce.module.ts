@@ -13,6 +13,8 @@ import { CommerceWebhookController } from './webhooks/commerce-webhook.controlle
 import { ReconciliationController } from './reconciliation/reconciliation.controller';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { CommerceAiService } from './ai/commerce-ai.service';
+import { CommerceTestChatController } from './test-chat/commerce-test-chat.controller';
+import { CommerceTestChatService } from './test-chat/commerce-test-chat.service';
 
 // Managed Commerce (Phase 1, single-pilot-tenant). Sibling to BillingModule --
 // commerce has its own domain objects (Order/Product/CommerceLedgerEntry, not
@@ -22,8 +24,8 @@ import { CommerceAiService } from './ai/commerce-ai.service';
 // BillingModule today) rather than depending on billing's public surface.
 @Module({
   imports: [PrismaModule, ConfigModule, AuditModule],
-  controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController],
-  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService],
+  controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController],
+  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService, CommerceTestChatService],
   exports: [CommerceLedgerService, OrdersService, CommerceAiService, ProductsService],
 })
 export class CommerceModule {}
