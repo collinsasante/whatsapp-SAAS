@@ -143,6 +143,16 @@ export class OrdersService {
     });
   }
 
+  /** The most recent order in this conversation regardless of status -- used by
+   * get_order_status, which must still find a PAID (or any other non-draft) order
+   * to check on, unlike findActiveDraftForConversation. */
+  findMostRecentForConversation(tenantId: string, conversationId: string) {
+    return this.prisma.order.findFirst({
+      where: { tenantId, conversationId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async findOneWithDetails(tenantId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, tenantId },

@@ -288,7 +288,7 @@ export class CommerceAiService {
         }
 
         case 'get_order_status': {
-          const orderId = (args['orderId'] as string | undefined) ?? (await this.orders.findActiveDraftForConversation(tenantId, conversationId))?.id;
+          const orderId = (args['orderId'] as string | undefined) ?? (await this.orders.findMostRecentForConversation(tenantId, conversationId))?.id;
           if (!orderId) return { error: 'No order to check' };
           const order = await this.orders.getOwned(tenantId, orderId).catch(() => null);
           if (!order) return { error: 'Order not found' };
