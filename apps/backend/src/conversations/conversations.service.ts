@@ -7,6 +7,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { AiResponderService } from '../ai/ai-responder.service';
 import { AirtableService } from './airtable.service';
 import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
@@ -566,6 +567,45 @@ export class ConversationsService {
       contactId: existing.contactId,
       userId: agentId,
       metadata: { agentName: agent?.name ?? '', takeover: true },
+    });
+    this.realtimeService.emitConversationStateChanged(tenantId, id, result as unknown as Record<string, unknown>);
+    return result;
+  }
+
+  /**
+   * The inverse of takeover() -- hands a human-owned (INTERVENED) conversation back
+   * to the AI. There was previously no way to do this at all: once a human took
+   * over, assignedTo stayed that human forever and the AI branch in
+   * MessagesService.handleInbound (gated on `assignedTo && !assignedTo.isAiAgent`)
+   * would silently never run again for that conversation. Resolves the same
+   * synthetic isAiAgent User row findOrCreateVerzAgent uses everywhere else, via
+   * moduleRef (not a module import) to avoid a circular dependency, matching the
+   * existing lazy-resolution pattern for WhatsAppService in markRead() above.
+   */
+  async releaseToAi(tenantId: string, id: string, userId: string) {
+    const existing = await this.findOne(tenantId, id);
+    const aiResponderService = this.moduleRef.get(AiResponderService, { strict: false });
+    const verzAgent = await aiResponderService.findOrCreateVerzAgent(tenantId);
+
+    const result = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        assignedToId: verzAgent.id,
+        status: ConversationStatus.OPEN,
+        intervenedAt: null,
+        slaDeadline: null,
+      },
+      include: CONV_INCLUDE,
+    });
+
+    await this.recordEvent(tenantId, id, ConversationEventType.BOT_RESUMED, userId, { returnedToAi: true });
+    void this.activityLogService.log({
+      tenantId,
+      action: ActivityAction.CONVERSATION_ASSIGNED,
+      conversationId: id,
+      contactId: existing.contactId,
+      userId,
+      metadata: { returnedToAi: true },
     });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result as unknown as Record<string, unknown>);
     return result;
