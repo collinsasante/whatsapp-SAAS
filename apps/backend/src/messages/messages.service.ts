@@ -12,6 +12,10 @@ import { AiResponderService } from '../ai/ai-responder.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { AiLogsService } from '../ai-logs/ai-logs.service';
 import { CommerceAiService } from '../commerce/ai/commerce-ai.service';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { AiAgentsService } from '../ai-core/agents/ai-agents.service';
+import { VerzAiPipelineService } from '../ai-core/pipeline/verz-ai-pipeline.service';
+import { AiExecutionsService } from '../ai-core/executions/ai-executions.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
@@ -35,6 +39,10 @@ export class MessagesService {
     private knowledgeBaseService: KnowledgeBaseService,
     private aiLogsService: AiLogsService,
     private commerceAiService: CommerceAiService,
+    private featureFlagsService: FeatureFlagsService,
+    private aiAgentsService: AiAgentsService,
+    private verzAiPipeline: VerzAiPipelineService,
+    private aiExecutionsService: AiExecutionsService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -739,15 +747,22 @@ export class MessagesService {
         return message;
       }
 
+      // Verz-AI Phase 1 strangler flag: resolved once so both branches below agree
+      // on which pipeline answers this message. Legacy path (flag off) is
+      // completely untouched -- every call below still goes through
+      // AiResponderService exactly as before. Fail-closed: a lookup error means
+      // the legacy responder handles it, never a silent switch to the new path.
+      const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
+
       const aiMode = await this.aiResponderService.getMode(tenantId).catch(() => null);
 
       if (aiMode === 'SUGGESTION') {
         // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
         void (async () => {
           const startMs = Date.now();
-          const result = await this.aiResponderService.generateSuggestion(
-            tenantId, conversation.id, content, contact.name ?? undefined,
-          );
+          const result = useV2
+            ? await this.runVerzAiV2(tenantId, conversation.id, content, contact.name ?? undefined)
+            : { ...(await this.aiResponderService.generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined)), executionId: null as string | null };
           if (!result.response) return;
 
           const log = await this.aiLogsService.create({
@@ -761,6 +776,10 @@ export class MessagesService {
             responseTimeMs: Date.now() - startMs,
           }) as { id: string };
 
+          if (result.executionId) {
+            await this.aiExecutionsService.linkInteractionLog(result.executionId, log.id).catch(() => null);
+          }
+
           this.realtimeService.emitAiSuggestion(tenantId, conversation.id, {
             logId: log.id,
             response: result.response,
@@ -772,19 +791,41 @@ export class MessagesService {
         if (shouldAi) {
           void (async () => {
             const startMs = Date.now();
-            const [result, verzAgent] = await Promise.all([
-              this.aiResponderService.generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined),
-              this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
-            ]);
+            // v2 resolves the agent (and, inside it, the shared synthetic user)
+            // BEFORE looking up verzAgent separately -- running both in the same
+            // Promise.all would risk two concurrent creators racing to create the
+            // synthetic isAiAgent user on a tenant's very first-ever message. The
+            // legacy path's Promise.all below is untouched byte-for-byte.
+            let result: { response: string; confidence: number | null; blocked: boolean; executionId: string | null };
+            let verzAgent: { id: string; name: string; avatarUrl: string | null } | null;
+            if (useV2) {
+              result = await this.runVerzAiV2(tenantId, conversation.id, content, contact.name ?? undefined);
+              verzAgent = await this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null);
+            } else {
+              [result, verzAgent] = await Promise.all([
+                this.aiResponderService
+                  .generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined)
+                  .then((r) => ({ ...r, executionId: null as string | null })),
+                this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
+              ]);
+            }
             if (!result.response) return;
 
-            await this.prisma.tenant.updateMany({
+            const decremented = await this.prisma.tenant.updateMany({
               where: { id: tenantId, aiCredits: { gt: 0 } },
               data: { aiCredits: { decrement: 1 } },
             });
+            // v2-only fix: the legacy decrement result was never checked, so a
+            // tenant at 0 credits could still get a free auto-reply sent
+            // (shouldRespond() above pre-checks credits, so this was already a
+            // narrow, bounded gap). Fixed only at this new call site, per the
+            // strangler discipline of never touching AiResponderService or its
+            // existing callers' behavior.
+            if (useV2 && decremented.count === 0) return;
+
             await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
 
-            await this.aiLogsService.create({
+            const log = await this.aiLogsService.create({
               tenantId,
               conversationId: conversation.id,
               contactId: contact.id,
@@ -793,7 +834,11 @@ export class MessagesService {
               status: 'AUTO_SENT',
               confidenceScore: result.confidence,
               responseTimeMs: Date.now() - startMs,
-            });
+            }) as { id: string };
+
+            if (result.executionId) {
+              await this.aiExecutionsService.linkInteractionLog(result.executionId, log.id).catch(() => null);
+            }
 
             const aiMessage = await this.prisma.message.create({
               data: {
@@ -827,6 +872,24 @@ export class MessagesService {
     }
 
     return message;
+  }
+
+  /**
+   * Resolves the tenant's default AiAgent (lazily backfilled, shares the same
+   * synthetic isAiAgent user the legacy responder uses) and runs the Verz-AI
+   * v2 pipeline. Only called when the verz_ai_v2 feature flag is on.
+   */
+  private runVerzAiV2(tenantId: string, conversationId: string, customerMessage: string, contactName?: string) {
+    return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
+      this.verzAiPipeline.run({
+        tenantId,
+        agentId: agent.id,
+        conversationId,
+        customerMessage,
+        contactName,
+        taskType: 'RESPONDER',
+      }),
+    );
   }
 
   private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>) {
