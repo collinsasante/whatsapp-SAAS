@@ -540,6 +540,10 @@ export const commerceOrdersApi = {
   cancel: (id: string, reason?: string) => api.patch(`/commerce/orders/${id}/cancel`, { reason }),
 };
 
+export const commerceLedgerApi = {
+  get: (page?: number, limit?: number) => api.get('/commerce/ledger', { params: { page, limit } }),
+};
+
 export const commerceTestChatApi = {
   getState: () => api.get('/commerce/test-chat'),
   send: (message: string) => api.post('/commerce/test-chat', { message }),
