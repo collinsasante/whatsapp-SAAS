@@ -516,3 +516,25 @@ export const knowledgeBaseApi = {
   },
   scrape: (url: string) => api.post('/knowledge-base/scrape', { url }),
 };
+
+export const commerceProductsApi = {
+  list: () => api.get('/commerce/products'),
+  get: (id: string) => api.get(`/commerce/products/${id}`),
+  create: (data: {
+    name: string;
+    description?: string;
+    sku?: string;
+    priceMajorUnits: number;
+    currency?: string;
+    imageUrl?: string;
+    stockQuantity?: number;
+  }) => api.post('/commerce/products', data),
+  update: (id: string, data: Record<string, unknown>) => api.patch(`/commerce/products/${id}`, data),
+};
+
+export const commerceEvaluationApi = {
+  trigger: () => api.post('/commerce/evaluation/runs'),
+  list: (page?: number, limit?: number) => api.get('/commerce/evaluation/runs', { params: { page, limit } }),
+  get: (runId: string) => api.get(`/commerce/evaluation/runs/${runId}`),
+  getCase: (runId: string, caseId: string) => api.get(`/commerce/evaluation/runs/${runId}/cases/${caseId}`),
+};
