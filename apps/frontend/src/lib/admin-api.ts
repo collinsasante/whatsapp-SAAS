@@ -130,6 +130,7 @@ export interface WorkspaceDetail {
   healthBreakdown: { loginActivity: number; messageActivity: number; broadcastActivity: number; teamSize: number; paymentStatus: number };
   churnRisk: boolean;
   lifecycleStage: string;
+  settings: { commerceEnabled: boolean; takeRatePct: number | null } | null;
 }
 
 export interface RevenueData {
@@ -342,5 +343,10 @@ export const adminApi = {
   forceSubscription: (tenantId: string, planSlug: string) =>
     req<{ success: boolean; tenantId: string; plan: string; periodEnd: string }>(
       'PATCH', `/workspaces/${tenantId}/force-plan`, { planSlug },
+    ),
+
+  setCommerceConfig: (tenantId: string, commerceEnabled: boolean, takeRatePct: number) =>
+    req<{ success: boolean; tenantId: string; commerceEnabled: boolean; takeRatePct: number }>(
+      'PATCH', `/workspaces/${tenantId}/commerce`, { commerceEnabled, takeRatePct },
     ),
 };

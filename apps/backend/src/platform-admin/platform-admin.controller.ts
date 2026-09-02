@@ -174,6 +174,20 @@ export class PlatformAdminController {
     return result;
   }
 
+  @Patch('workspaces/:id/commerce')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async setCommerceConfig(
+    @Param('id') id: string,
+    @Body('commerceEnabled') commerceEnabled: boolean,
+    @Body('takeRatePct') takeRatePct: number,
+    @Req() req: AdminRequest,
+  ) {
+    const result = await this.adminService.setCommerceConfig(id, commerceEnabled, takeRatePct);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.set_commerce_config', resourceType: 'Tenant', resourceId: id, metadata: { commerceEnabled, takeRatePct }, ...this.auditMeta(req) });
+    return result;
+  }
+
   @Get('workspaces/:id/templates')
   @UseGuards(PlatformAdminGuard)
   workspaceTemplates(@Param('id') id: string) {
