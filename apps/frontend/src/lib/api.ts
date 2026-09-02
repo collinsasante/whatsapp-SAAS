@@ -552,3 +552,15 @@ export const commerceEvaluationApi = {
   get: (runId: string) => api.get(`/commerce/evaluation/runs/${runId}`),
   getCase: (runId: string, caseId: string) => api.get(`/commerce/evaluation/runs/${runId}/cases/${caseId}`),
 };
+
+export const aiExecutionsApi = {
+  list: (params?: { conversationId?: string; status?: string; cursor?: string; limit?: number }) =>
+    api.get('/ai/executions', { params }),
+  get: (id: string) => api.get(`/ai/executions/${id}`),
+};
+
+export const aiTestChatApi = {
+  getState: () => api.get('/ai/test-chat'),
+  send: (message: string) => api.post('/ai/test-chat', { message }),
+  reset: () => api.post('/ai/test-chat/reset'),
+};

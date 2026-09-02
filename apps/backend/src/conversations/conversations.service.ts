@@ -8,7 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AirtableService } from './airtable.service';
-import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
 import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, SnoozeWakeJob } from '@whatsapp-platform/shared-types';
@@ -37,6 +37,7 @@ export class ConversationsService {
     private realtimeService: RealtimeService,
     private airtableService: AirtableService,
     private moduleRef: ModuleRef,
+    private aiCompletionService: AiCompletionService,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
   ) {}
 
@@ -691,9 +692,12 @@ export class ConversationsService {
       .map((m) => `[${m.direction === 'INBOUND' ? contactName : 'Agent'}]: ${m.content}`)
       .join('\n');
 
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) {
-      // Rule-based fallback when no API key is configured
+    // Rule-based fallback -- used both when no key is configured and now, via
+    // AiCompletionService, whenever the completion call itself fails for any
+    // reason (a real improvement over the old behavior, which only fell back
+    // for a missing key and otherwise surfaced a bare "Could not generate
+    // summary." on any other failure).
+    const fallbackSummary = () => {
       const inbound = messages.filter((m) => m.direction === 'INBOUND').length;
       const outbound = messages.filter((m) => m.direction === 'OUTBOUND').length;
       const durationMs = messages.length > 1
@@ -704,25 +708,23 @@ export class ConversationsService {
         summary: `Conversation with ${contactName}: ${inbound + outbound} messages (${inbound} from customer, ${outbound} from agent) over ${hours > 0 ? hours + 'h' : 'less than 1h'}. Status: ${conversation.status}.`,
         note: 'Add DEEPSEEK_API_KEY to .env for full AI summary.',
       };
-    }
+    };
 
-    const resp = await fetch(DEEPSEEK_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        max_tokens: 1200,
-        messages: [
-          {
-            role: 'system',
-            content: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
-          },
-          {
-            role: 'user',
-            content: `Analyze this WhatsApp support conversation and produce an Executive Brief using EXACTLY this format and structure. Do not skip any section. Do not add extra sections.
+    if (!process.env.DEEPSEEK_API_KEY) return fallbackSummary();
+
+    const result = await this.aiCompletionService.complete({
+      tenantId,
+      taskType: 'SUMMARIZE',
+      conversationId,
+      maxTokens: 1200,
+      messages: [
+        {
+          role: 'system',
+          content: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
+        },
+        {
+          role: 'user',
+          content: `Analyze this WhatsApp support conversation and produce an Executive Brief using EXACTLY this format and structure. Do not skip any section. Do not add extra sections.
 
 ## EXECUTIVE SUMMARY
 
@@ -758,14 +760,12 @@ export class ConversationsService {
 
 Conversation:
 ${transcript}`,
-          },
-        ],
-      }),
+        },
+      ],
     });
 
-    const json = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const text = json.choices?.[0]?.message?.content ?? 'Could not generate summary.';
-    return { summary: text };
+    if (result.failed) return fallbackSummary();
+    return { summary: result.content || 'Could not generate summary.' };
   }
 
   // ─── CSV Import ───────────────────────────────────────────────────────────
