@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageSquare, Send, Loader2, RotateCcw, Sparkles, Clock } from 'lucide-react';
 import { aiTestChatApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { linkify } from '@/lib/linkify';
 import toast from 'react-hot-toast';
 
 interface RawMessage {
@@ -155,7 +156,7 @@ export default function AiTestChatPage() {
                       ? 'bg-violet-50 text-violet-900 rounded-tl-sm border border-dashed border-violet-300'
                       : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm',
               )}>
-                {e.content}
+                {linkify(e.content)}
               </div>
               {e.kind === 'suggestion' && (
                 <span className="flex items-center gap-1 text-[11px] text-violet-500 mt-1 px-1">

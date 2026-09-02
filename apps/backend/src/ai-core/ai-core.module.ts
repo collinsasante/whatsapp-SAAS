@@ -12,6 +12,7 @@ import { ContextAssemblyStage } from './pipeline/stages/context-assembly.stage';
 import { PromptBuildStage } from './pipeline/stages/prompt-build.stage';
 import { GenerationStage } from './pipeline/stages/generation.stage';
 import { PolicyStage } from './pipeline/stages/policy.stage';
+import { EscalationStage } from './pipeline/stages/escalation.stage';
 import { KNOWLEDGE_CONTEXT_SOURCE, KbRelevantContextSource } from './pipeline/knowledge-context.source';
 import { VerzAiPipelineService } from './pipeline/verz-ai-pipeline.service';
 import { AiExecutionsService } from './executions/ai-executions.service';
@@ -40,6 +41,7 @@ import { AiCompletionService } from './completion/ai-completion.service';
     PromptBuildStage,
     GenerationStage,
     PolicyStage,
+    EscalationStage,
     { provide: KNOWLEDGE_CONTEXT_SOURCE, useClass: KbRelevantContextSource },
     VerzAiPipelineService,
     AiCompletionService,
