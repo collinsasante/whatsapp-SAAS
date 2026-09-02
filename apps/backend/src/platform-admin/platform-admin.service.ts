@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlanDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
@@ -622,6 +622,7 @@ export class PlatformAdminService {
           select: { id: true, invoiceNumber: true, status: true, total: true, currency: true, createdAt: true, paidAt: true },
         },
         creditPurchases: { orderBy: { createdAt: 'desc' }, take: 10 },
+        settings: { select: { commerceEnabled: true, takeRatePct: true } },
       },
     });
     if (!tenant) throw new NotFoundException('Workspace not found');
@@ -817,5 +818,28 @@ export class PlatformAdminService {
     });
 
     return { success: true, tenantId, plan: plan.name, periodEnd };
+  }
+
+  /**
+   * Managed Commerce is deliberately platform-admin-only to configure (see the
+   * TenantSettings.takeRatePct schema comment): the take rate is VerzChat's own
+   * cut of a merchant's sales, not something a tenant should be able to set for
+   * themselves. commerceEnabled and takeRatePct are set together so a tenant can
+   * never end up commerce-enabled with no rate configured (which would silently
+   * bill them 0%).
+   */
+  async setCommerceConfig(tenantId: string, commerceEnabled: boolean, takeRatePct: number) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    if (takeRatePct < 0 || takeRatePct > 100) throw new BadRequestException('takeRatePct must be between 0 and 100');
+
+    const settings = await this.prisma.tenantSettings.upsert({
+      where: { tenantId },
+      create: { tenantId, commerceEnabled, takeRatePct },
+      update: { commerceEnabled, takeRatePct },
+      select: { commerceEnabled: true, takeRatePct: true },
+    });
+
+    return { success: true, tenantId, ...settings };
   }
 }
