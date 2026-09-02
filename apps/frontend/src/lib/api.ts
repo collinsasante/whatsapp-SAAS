@@ -532,6 +532,20 @@ export const commerceProductsApi = {
   update: (id: string, data: Record<string, unknown>) => api.patch(`/commerce/products/${id}`, data),
 };
 
+export const commerceOrdersApi = {
+  list: (status?: string) => api.get('/commerce/orders', { params: { status } }),
+  get: (id: string) => api.get(`/commerce/orders/${id}`),
+  verifyPayment: (id: string) => api.post(`/commerce/orders/${id}/verify-payment`),
+  updateFulfillment: (id: string, status: string) => api.patch(`/commerce/orders/${id}/fulfillment`, { status }),
+  cancel: (id: string, reason?: string) => api.patch(`/commerce/orders/${id}/cancel`, { reason }),
+};
+
+export const commerceTestChatApi = {
+  getState: () => api.get('/commerce/test-chat'),
+  send: (message: string) => api.post('/commerce/test-chat', { message }),
+  reset: () => api.post('/commerce/test-chat/reset'),
+};
+
 export const commerceEvaluationApi = {
   trigger: () => api.post('/commerce/evaluation/runs'),
   list: (page?: number, limit?: number) => api.get('/commerce/evaluation/runs', { params: { page, limit } }),

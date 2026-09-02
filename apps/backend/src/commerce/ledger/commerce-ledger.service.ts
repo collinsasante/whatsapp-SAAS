@@ -1,6 +1,7 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { LedgerEntryType, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
 
@@ -8,7 +9,51 @@ import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
 export class CommerceLedgerService {
   private readonly logger = new Logger(CommerceLedgerService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private paystack: PaystackGateway,
+  ) {}
+
+  /**
+   * Pull-based counterpart to the Paystack webhook: asks Paystack's verify API
+   * whether the order's transaction actually succeeded, and only then promotes
+   * it through recordPaymentSuccess -- the same trusted path the webhook uses.
+   * The client's claim is never trusted; Paystack's API response is the only
+   * input. Useful when webhook delivery is unavailable (e.g. staging without a
+   * public HTTPS endpoint) or a merchant needs to re-check a "customer says
+   * they paid" order.
+   */
+  async verifyAndRecordPayment(tenantId: string, orderId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.status === OrderStatus.PAID) {
+      return { verified: true, alreadyPaid: true, order };
+    }
+    if (!order.paystackReference) {
+      throw new BadRequestException('Order has no payment reference to verify -- it was never submitted for payment');
+    }
+
+    const tx = await this.paystack.verifyTransaction(order.paystackReference).catch((err) => {
+      this.logger.warn(`verifyAndRecordPayment: Paystack verify failed for ${order.paystackReference}: ${String(err)}`);
+      return null;
+    });
+    if (!tx) {
+      return { verified: false, reason: 'Paystack has no record of this transaction yet', order };
+    }
+    if (tx.status !== 'success') {
+      return { verified: false, reason: `Paystack reports status "${tx.status}"`, paystackStatus: tx.status, order };
+    }
+    if (Math.abs(tx.amountMajorUnits - order.totalMajorUnits) > 0.01) {
+      return {
+        verified: false,
+        reason: `Amount mismatch: Paystack says ${tx.amountMajorUnits}, order total is ${order.totalMajorUnits}`,
+        order,
+      };
+    }
+
+    const updated = await this.recordPaymentSuccess(order.id, tx.transactionId, tx.amountMajorUnits);
+    return { verified: true, alreadyPaid: false, order: updated ?? order };
+  }
 
   /**
    * The ONLY path in the codebase that can set Order.status = PAID. Called
