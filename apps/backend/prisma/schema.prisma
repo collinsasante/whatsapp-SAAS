@@ -87,6 +87,8 @@ model Tenant {
   reconciliationExceptions        ReconciliationException[]
   evaluationRuns                  EvaluationRun[]
   evaluationCases                 EvaluationCase[]
+  aiAgents                        AiAgent[]
+  aiExecutions                    AiExecution[]
 
   @@map("tenants")
 }
@@ -256,6 +258,7 @@ model User {
   feedback              Feedback[]
   resolvedReconciliationExceptions ReconciliationException[] @relation("ResolvedExceptions")
   evaluationRunsTriggered EvaluationRun[] @relation("EvaluationRunsTriggered")
+  aiAgent                AiAgent? @relation("AiAgentUser")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -2229,4 +2232,115 @@ model AiInteractionLog {
   @@index([conversationId])
   @@index([tenantId, createdAt])
   @@map("ai_interaction_logs")
+}
+
+// ---- Verz-AI Phase 1: foundation (provider abstraction, agents, versioned
+// prompts, execution tracing). Built strangler-style alongside AiInteractionLog
+// and the legacy responder -- see ai-core/ module. AiInteractionLog stays the
+// human-workflow record (suggested/approved/edited/feedback); AiExecution below
+// is the machine trace, linked loosely via interactionLogId. ----
+
+model AiAgent {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  name                String
+  description         String?
+  avatarUrl           String?  @map("avatar_url")
+  status              String   @default("ACTIVE") // ACTIVE | PAUSED
+  isDefault           Boolean  @default(false) @map("is_default")
+  // The synthetic isAiAgent User row this agent uses for inbox identity
+  // (Conversation.assignedToId / Message.senderId) -- see findOrCreateVerzAgent.
+  agentUserId         String?  @unique @map("agent_user_id")
+  systemInstructions  String?  @map("system_instructions") @db.Text
+  personality         String?
+  tone                String?
+  language            String   @default("en")
+  modelKey            String   @default("deepseek-v4-flash") @map("model_key")
+  maxResponseTokens   Int      @default(400) @map("max_response_tokens")
+  confidenceThreshold Int?     @map("confidence_threshold")
+  // ---- Phase 2+ stubs: typed slots, unread in Phase 1, never presented as functional ----
+  allowedTools        Json?    @map("allowed_tools")
+  knowledgeSourceIds  String[] @map("knowledge_source_ids")
+  assignedNumberIds   String[] @map("assigned_number_ids")
+  workingHours        Json?    @map("working_hours")
+  escalationRules     Json?    @map("escalation_rules")
+  handoffSettings     Json?    @map("handoff_settings")
+  memorySettings      Json?    @map("memory_settings")
+  safetyRules         Json?    @map("safety_rules")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agentUser  User?         @relation("AiAgentUser", fields: [agentUserId], references: [id], onDelete: SetNull)
+  executions AiExecution[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("ai_agents")
+}
+
+model AiPromptTemplate {
+  id          String            @id @default(uuid())
+  key         String            @unique // e.g. 'responder.system'
+  name        String
+  description String?
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  versions AiPromptVersion[]
+
+  @@map("ai_prompt_templates")
+}
+
+model AiPromptVersion {
+  id          String    @id @default(uuid())
+  templateId  String    @map("template_id")
+  version     String    // '1.0.0'
+  status      String    @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
+  body        String    @db.Text // with {{variables}}
+  variables   String[]
+  changeNote  String?   @map("change_note")
+  createdById String?   @map("created_by_id")
+  activatedAt DateTime? @map("activated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  template   AiPromptTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  executions AiExecution[]
+
+  @@unique([templateId, version])
+  @@index([templateId, status])
+  @@map("ai_prompt_versions")
+}
+
+model AiExecution {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  agentId          String?  @map("agent_id")
+  conversationId   String?  @map("conversation_id")
+  // Loose link to AiInteractionLog (matches that model's own loose-FK style),
+  // written post-hoc after the log row is created in the orchestration block.
+  interactionLogId String?  @map("interaction_log_id")
+  promptVersionId  String?  @map("prompt_version_id")
+  taskType         String   @map("task_type") // RESPONDER | SUMMARIZE | KB_LEARN | TEST
+  provider         String
+  modelKey         String   @map("model_key")
+  status           String   // SUCCESS | BLOCKED | POLICY_REJECTED | PROVIDER_ERROR | EMPTY
+  latencyMs        Int?     @map("latency_ms")
+  inputTokens      Int?     @map("input_tokens")
+  outputTokens     Int?     @map("output_tokens")
+  estCostUsd       Decimal? @map("est_cost_usd") @db.Decimal(10, 6)
+  confidence       Float?
+  safetyFlags      Json?    @map("safety_flags") // {injectionDetected, fallbackCapped, emptyOutput}
+  errorCode        String?  @map("error_code")
+  errorMessage     String?  @map("error_message")
+  stageTimings     Json?    @map("stage_timings") // {guard: 1, context: 42, generate: 1830, ...}
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent         AiAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  promptVersion AiPromptVersion? @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([conversationId])
+  @@map("ai_executions")
 }
