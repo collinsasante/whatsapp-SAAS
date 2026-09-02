@@ -317,7 +317,9 @@ export class WhatsAppService {
     }
   }
 
-  async downloadMetaMedia(tenantId: string, mediaId: string): Promise<{ buffer: Buffer; mimeType: string; filename?: string } | null> {
+  async downloadMetaMedia(tenantId: string, mediaId: string): Promise<
+    { ok: true; buffer: Buffer; mimeType: string; filename?: string } | { ok: false; reason: string }
+  > {
     try {
       const { accessToken } = await this.getTenantCredentials(tenantId);
       const client = this.getClient(accessToken!);
@@ -328,10 +330,11 @@ export class WhatsAppService {
         headers: { Authorization: `Bearer ${accessToken}` },
         timeout: 60000,
       });
-      return { buffer: Buffer.from(dlRes.data), mimeType: mime_type };
+      return { ok: true, buffer: Buffer.from(dlRes.data), mimeType: mime_type };
     } catch (error: unknown) {
-      this.logger.warn(`Failed to download Meta media ${mediaId}: ${metaError(error)}`);
-      return null;
+      const reason = metaError(error);
+      this.logger.warn(`Failed to download Meta media ${mediaId}: ${reason}`);
+      return { ok: false, reason };
     }
   }
 

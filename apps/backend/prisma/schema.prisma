@@ -80,6 +80,13 @@ model Tenant {
   analyticsDailyConversationStats AnalyticsDailyConversationStats[]
   analyticsDailyRevenueStats      AnalyticsDailyRevenueStats[]
   platformTenantMrrSnapshots      PlatformTenantMrrSnapshot[]
+  products                        Product[]
+  orders                          Order[]
+  orderEvents                     OrderEvent[]
+  commerceLedgerEntries           CommerceLedgerEntry[]
+  reconciliationExceptions        ReconciliationException[]
+  evaluationRuns                  EvaluationRun[]
+  evaluationCases                 EvaluationCase[]
 
   @@map("tenants")
 }
@@ -182,10 +189,18 @@ model TenantSettings {
   aiPilotGroup        Boolean  @default(false) @map("ai_pilot_group")
   aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
   aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
+  lastKbLearnAt       DateTime? @map("last_kb_learn_at")
   airtableEnabled     Boolean  @default(false) @map("airtable_enabled")
   airtableApiKey      String?  @map("airtable_api_key")
   airtableBaseId      String?  @map("airtable_base_id")
   airtableTableName   String?  @map("airtable_table_name")
+  // Managed Commerce (Phase 1, single-pilot-tenant): flips a tenant from flat-subscription
+  // billing into outcome-based GMV take-rate billing. takeRatePct is null (commerce off) until
+  // explicitly set. Payment collection reuses the existing Paystack gateway (mobile money is
+  // a Paystack checkout channel in Ghana, no separate MTN integration) -- see implementation
+  // plan for full Phase 1 scope.
+  commerceEnabled     Boolean  @default(false) @map("commerce_enabled")
+  takeRatePct         Float?   @map("take_rate_pct")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -239,6 +254,8 @@ model User {
   messageEdits          MessageEdit[]
   messageDeletions      MessageDeletion[]
   feedback              Feedback[]
+  resolvedReconciliationExceptions ReconciliationException[] @relation("ResolvedExceptions")
+  evaluationRunsTriggered EvaluationRun[] @relation("EvaluationRunsTriggered")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -266,6 +283,9 @@ model Contact {
   optedOut     Boolean  @default(false) @map("opted_out")
   blockedAt    DateTime? @map("blocked_at")
   optedOutAt   DateTime? @map("opted_out_at")
+  // Synthetic contact created by the commerce AI evaluation harness -- excluded from
+  // real inbox/analytics surfaces so eval runs never masquerade as real customers.
+  isEvalContact Boolean @default(false) @map("is_eval_contact")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -275,6 +295,7 @@ model Contact {
   campaignRecipients CampaignRecipient[]
   activityLogs       ActivityLog[]
   callLogs           CallLog[]
+  orders             Order[]
 
   @@unique([tenantId, phone])
   @@index([tenantId])
@@ -323,6 +344,7 @@ model Conversation {
   activityLogs      ActivityLog[]
   pinnedMessages    PinnedMessage[]
   conversationEvents ConversationEvent[]
+  orders            Order[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -1663,6 +1685,280 @@ model BillingEvent {
   @@index([event])
   @@index([processed])
   @@map("billing_events")
+}
+
+// ─── Managed Commerce (Phase 1, single-pilot-tenant) ──────────────────────
+// Outcome-based GMV take-rate commerce, gated per tenant via
+// TenantSettings.commerceEnabled. See implementation plan for full scope
+// and what is deliberately deferred (KYC, multi-merchant console, disputes,
+// statements UI, etc.) until this pilot proves the model.
+
+model Product {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  name          String
+  description   String?
+  sku           String?
+  priceMajorUnits Float  @map("price_major_units")
+  currency      String   @default("GHS")
+  isActive      Boolean  @default(true) @map("is_active")
+  imageUrl      String?  @map("image_url")
+  stockQuantity Int?     @map("stock_quantity")
+  // Simple JSON variants for Phase 1 (single pilot tenant) rather than a
+  // relational ProductVariant table -- e.g. [{name, priceDeltaMajorUnits, stockQuantity, sku}].
+  // A real join table is a fast-follow once there's more than one pilot merchant.
+  variants      Json?
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@map("commerce_products")
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+  FULFILLING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  tenantId       String      @map("tenant_id")
+  contactId      String      @map("contact_id")
+  conversationId String?     @map("conversation_id")
+  status         OrderStatus @default(DRAFT)
+  currency       String      @default("GHS")
+  subtotalMajorUnits Float   @map("subtotal_major_units")
+  totalMajorUnits    Float   @map("total_major_units")
+  customerPhone  String      @map("customer_phone")
+  customerName   String?     @map("customer_name")
+  paystackReference String?  @map("paystack_reference")
+  paymentGateway    PaymentGateway? @map("payment_gateway")
+  paidAt         DateTime?   @map("paid_at")
+  cancelledAt    DateTime?   @map("cancelled_at")
+  cancelReason   String?     @map("cancel_reason")
+  metadata       Json?
+  // Set only by the eval harness's own privileged fixture writes -- excluded from the
+  // reconciliation worker's PAID-order scan so synthetic test orders (fake Paystack
+  // references, no real transaction) never raise a false ReconciliationException.
+  isEvalOrder    Boolean     @default(false) @map("is_eval_order")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact             @relation(fields: [contactId], references: [id])
+  conversation Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  items        OrderItem[]
+  events       OrderEvent[]
+  ledgerEntries CommerceLedgerEntry[]
+  reconciliationExceptions ReconciliationException[]
+
+  @@index([tenantId])
+  @@index([tenantId, isEvalOrder])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([contactId])
+  @@map("commerce_orders")
+}
+
+model OrderItem {
+  id        String @id @default(uuid())
+  orderId   String @map("order_id")
+  productId String? @map("product_id")
+
+  // Price snapshot at purchase time -- never re-derive from the live Product,
+  // matching InvoiceItem's snapshot shape. productId is nullable/no-cascade so
+  // deleting a Product later never touches historical order line items.
+  productNameSnapshot         String  @map("product_name_snapshot")
+  unitPriceMajorUnitsSnapshot Float   @map("unit_price_major_units_snapshot")
+  variantLabelSnapshot        String? @map("variant_label_snapshot")
+  quantity          Int   @map("quantity")
+  lineTotalMajorUnits Float @map("line_total_major_units")
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("commerce_order_items")
+}
+
+enum OrderEventType {
+  CREATED
+  ITEM_ADDED
+  SUBMITTED_FOR_PAYMENT
+  PAYMENT_INITIATED
+  PAID
+  FULFILLMENT_UPDATED
+  CANCELLED
+  REFUNDED
+}
+
+model OrderEvent {
+  id        String         @id @default(uuid())
+  tenantId  String         @map("tenant_id")
+  orderId   String         @map("order_id")
+  type      OrderEventType
+  data      Json?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([tenantId])
+  @@map("commerce_order_events")
+}
+
+enum LedgerEntryType {
+  GMV
+  TAKE_RATE
+  REFUND_ADJUSTMENT
+}
+
+model CommerceLedgerEntry {
+  id              String          @id @default(uuid())
+  tenantId        String          @map("tenant_id")
+  orderId         String          @map("order_id")
+  type            LedgerEntryType
+  amountMajorUnits Float          @map("amount_major_units")
+  currency        String
+  gateway         PaymentGateway? @map("gateway")
+  gatewayEventId  String?         @map("gateway_event_id")
+  data            Json
+  processed       Boolean         @default(false)
+  error           String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // The real idempotency guarantee -- a DB constraint, not just an app-level
+  // check-then-write race. Stronger than BillingEvent's app-only dedupe.
+  @@unique([orderId, type, gatewayEventId])
+  @@index([tenantId])
+  @@index([orderId])
+  @@index([type])
+  @@map("commerce_ledger_entries")
+}
+
+enum ExceptionStatus {
+  OPEN
+  RESOLVED
+}
+
+model ReconciliationException {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  orderId  String @map("order_id")
+  type     String
+
+  status ExceptionStatus @default(OPEN)
+  expectedAmountMajorUnits Float? @map("expected_amount_major_units")
+  actualAmountMajorUnits   Float? @map("actual_amount_major_units")
+  details  Json?
+
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedById   String?   @map("resolved_by_id")
+  resolutionNote String?   @map("resolution_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  resolvedBy User?  @relation("ResolvedExceptions", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@map("commerce_reconciliation_exceptions")
+}
+
+// ─── Commerce AI evaluation harness ────────────────────────────────────────
+// Runs ~15-20 realistic scripted conversations through the real CommerceAiService
+// (never mocked) and scores price/stock/product accuracy, order capture, payment
+// handling, escalation behaviour, and response quality -- see implementation plan.
+// Produces a stored, inspectable PASS/FAIL signal a human checks before enabling
+// TenantSettings.commerceEnabled; does not itself gate anything automatically
+// (no merchant lifecycle state machine exists yet to hook into).
+
+enum EvaluationRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum EvaluationVerdict {
+  PENDING
+  PASS
+  FAIL
+}
+
+enum EvaluationCaseStatus {
+  PASSED
+  FAILED
+  SKIPPED
+  ERRORED
+}
+
+model EvaluationRun {
+  id                String              @id @default(uuid())
+  tenantId          String              @map("tenant_id")
+  triggeredByUserId String?             @map("triggered_by_user_id")
+  status            EvaluationRunStatus @default(QUEUED)
+  overallVerdict    EvaluationVerdict   @default(PENDING) @map("overall_verdict")
+  // Set the instant any turn in the run is caught falsely asserting a payment
+  // succeeded -- surfaced separately from the normal per-criterion pass rate so
+  // it can never be diluted/averaged away in a summary view.
+  criticalFailure   Boolean             @default(false) @map("critical_failure")
+  scenarioCount     Int                 @map("scenario_count")
+  skippedCount      Int                 @default(0) @map("skipped_count")
+  criteriaSummary   Json?               @map("criteria_summary")
+  startedAt         DateTime?           @map("started_at")
+  completedAt       DateTime?           @map("completed_at")
+  errorMessage      String?             @map("error_message")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  triggeredByUser User?            @relation("EvaluationRunsTriggered", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  cases           EvaluationCase[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("commerce_evaluation_runs")
+}
+
+model EvaluationCase {
+  id              String               @id @default(uuid())
+  evaluationRunId String               @map("evaluation_run_id")
+  tenantId        String               @map("tenant_id")
+  scenarioKey     String               @map("scenario_key")
+  criteria        String[]
+  status          EvaluationCaseStatus
+  contactId       String?              @map("contact_id")
+  conversationId  String?              @map("conversation_id")
+  orderId         String?              @map("order_id")
+  // Turn-by-turn: customerMessage, aiResponse, toolTrace (name/args/result per tool call).
+  transcript      Json
+  // Per-criterion result, e.g. { price_accuracy: {pass, details}, response_quality: {score, judgeNotes}, ... }
+  scores          Json
+  failureReasons  String[]             @default([]) @map("failure_reasons")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  run    EvaluationRun @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([evaluationRunId])
+  @@index([tenantId, createdAt])
+  @@map("commerce_evaluation_cases")
 }
 
 model PromoCode {

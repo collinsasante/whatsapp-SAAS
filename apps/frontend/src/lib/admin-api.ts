@@ -5,24 +5,59 @@ function getToken(): string {
   return localStorage.getItem('admin_token') ?? '';
 }
 
+/** Debug-only: decodes the JWT payload without verifying it, just to log claims/exp. */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const [, payloadB64] = token.split('.');
+    const json = atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = getToken();
+  const decoded = token ? decodeJwtPayload(token) : null;
+  console.log('[admin-api] request', {
+    method,
+    url: `${BASE}${path}`,
+    hasToken: !!token,
+    tokenPreview: token ? `${token.slice(0, 12)}...${token.slice(-6)}` : null,
+    decodedClaims: decoded,
+    expiresAt: decoded?.['exp'] ? new Date((decoded['exp'] as number) * 1000).toISOString() : null,
+    nowIs: new Date().toISOString(),
+  });
+
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401) {
+  console.log('[admin-api] response', { url: `${BASE}${path}`, status: res.status, ok: res.ok });
+
+  // A 401 only means "your session expired" if we actually sent a token that got
+  // rejected. A 401 on an unauthenticated call (login, forgot-password) just means
+  // "invalid credentials" -- treating it as a session expiry wiped out that real
+  // error message and silently bounced the user back to the login page they were
+  // already on, which looked like a broken redirect loop.
+  if (res.status === 401 && token) {
+    const errBody = await res.clone().json().catch(() => null);
+    console.log('[admin-api] 401 body', errBody, '-- clearing token and redirecting to login');
     localStorage.removeItem('admin_token');
     window.location.href = '/platform-admin/login';
     throw new Error('Session expired');
   }
 
   const data = await res.json().catch(() => ({ message: 'Request failed' }));
-  if (!res.ok) throw new Error((data as { message?: string }).message ?? 'Request failed');
+  if (!res.ok) {
+    console.log('[admin-api] non-ok response body', data);
+    throw new Error((data as { message?: string }).message ?? 'Request failed');
+  }
   return data as T;
 }
 
@@ -157,7 +192,7 @@ export interface Invoice {
   paidAt: string | null;
   gateway: string | null;
   gatewayInvoiceId: string | null;
-  tenant: { name: string; billingEmail: string | null };
+  tenant: { id: string; name: string; billingEmail: string | null };
 }
 
 export interface CreditPurchase {
@@ -291,9 +326,9 @@ export const adminApi = {
 
   platformHealth: () => req<PlatformHealthData>('GET', '/platform-health'),
 
-  users: (page = 1, search = '') =>
+  users: (page = 1, search = '', tenantId = '') =>
     req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
-      'GET', `/users?page=${page}&limit=30&search=${encodeURIComponent(search)}`,
+      'GET', `/users?page=${page}&limit=30&search=${encodeURIComponent(search)}${tenantId ? `&tenantId=${encodeURIComponent(tenantId)}` : ''}`,
     ),
 
   toggleUserActive: (id: string) =>

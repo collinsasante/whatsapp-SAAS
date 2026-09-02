@@ -182,8 +182,13 @@ export class PlatformAdminController {
 
   @Get('users')
   @UseGuards(PlatformAdminGuard)
-  users(@Query('page') page: string, @Query('limit') limit: string, @Query('search') search?: string) {
-    return this.adminService.getUsers(+page || 1, +limit || 30, search);
+  users(
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+    @Query('search') search?: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.adminService.getUsers(+page || 1, +limit || 30, search, tenantId);
   }
 
   @Patch('users/:id/toggle-active')

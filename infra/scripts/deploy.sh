@@ -7,9 +7,21 @@ set -e
 TARGET="${1:-all}"
 REPO_ROOT="/root/whatsapp-platform"
 
-echo "==> Pulling latest code..."
 cd "$REPO_ROOT"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# This script pulls and builds whatever branch is currently checked out here --
+# if that ever drifts off main (e.g. left over from manual staging testing), every
+# subsequent automatic deploy silently ships the wrong code with no error, since
+# the only downstream check is a health endpoint that can't tell which commit built it.
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
+  echo "ERROR: refusing to deploy — this checkout is on '$CURRENT_BRANCH', not 'main'."
+  echo "Deploying from here would silently ship '$CURRENT_BRANCH' to production."
+  echo "If that's really intended, run: git checkout main && bash $0 $@"
+  exit 1
+fi
+
+echo "==> Pulling latest code..."
 git pull origin "$CURRENT_BRANCH"
 
 # Re-exec the updated script so any changes to deploy.sh itself take effect
@@ -84,6 +96,10 @@ if [[ "$TARGET" == "frontend" || "$TARGET" == "all" ]]; then
   FRONTEND_CTR=$(docker ps --format '{{.Names}}' | grep 'wa_frontend' | head -1)
   if [[ -z "$FRONTEND_CTR" ]]; then echo "ERROR: wa_frontend container not running"; exit 1; fi
   echo "==> Hot-swapping frontend build into $FRONTEND_CTR..."
+  # Next.js content-hashes chunk filenames, so docker cp (which only adds/overwrites,
+  # never deletes) leaves every previous build's chunks behind under new hashes.
+  # Clear the old static output first so orphaned pre-deploy JS never lingers on disk.
+  docker exec "${FRONTEND_CTR}" rm -rf /app/apps/frontend/.next/static
   docker cp apps/frontend/.next/static/. "${FRONTEND_CTR}:/app/apps/frontend/.next/static/"
   docker cp apps/frontend/.next/standalone/apps/frontend/.next/server/. "${FRONTEND_CTR}:/app/apps/frontend/.next/server/"
   docker cp apps/frontend/.next/standalone/apps/frontend/server.js "${FRONTEND_CTR}:/app/apps/frontend/server.js"

@@ -70,6 +70,7 @@ jobs:
             infra:
               - 'infra/nginx/**'
               - 'infra/docker-compose.yml'
+              - 'infra/scripts/**'
 
       - name: Deploy backend
         if: steps.changes.outputs.backend == 'true'

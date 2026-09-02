@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Receipt, AlertTriangle, TrendingUp, Clock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { adminApi, type Invoice, type RevenueData } from '@/lib/admin-api';
@@ -25,6 +26,7 @@ const STATUS_META: Record<string, string> = {
 };
 
 export default function BillingPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -209,7 +211,11 @@ export default function BillingPage() {
                 ) : invoices.length === 0 ? (
                   <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400">No invoices yet</td></tr>
                 ) : invoices.map(inv => (
-                  <tr key={inv.id} className="hover:bg-gray-50">
+                  <tr
+                    key={inv.id}
+                    onClick={() => router.push(`/platform-admin/workspaces/${inv.tenant.id}`)}
+                    className="hover:bg-gray-50 cursor-pointer"
+                  >
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{inv.tenant.name}</div>
                       <div className="text-xs text-gray-400">{inv.tenant.billingEmail ?? '—'}</div>

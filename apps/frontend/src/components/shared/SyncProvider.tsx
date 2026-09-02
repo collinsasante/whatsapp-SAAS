@@ -13,11 +13,15 @@ export function SyncProvider() {
   // Hydrate queue counts from IDB on mount
   useEffect(() => {
     async function hydrate() {
-      const [msgs, drafts] = await Promise.all([
-        offlineQueue.getAllMessages(),
-        offlineQueue.getAllDrafts(),
-      ]);
-      setQueuedCounts(msgs.length, drafts.length);
+      try {
+        const [msgs, drafts] = await Promise.all([
+          offlineQueue.getAllMessages(),
+          offlineQueue.getAllDrafts(),
+        ]);
+        setQueuedCounts(msgs.length, drafts.length);
+      } catch {
+        // IndexedDB unavailable/broken on this device — offline queueing is best-effort.
+      }
     }
     void hydrate();
   }, [setQueuedCounts]);

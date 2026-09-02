@@ -20,13 +20,30 @@ export function ErrorTracker() {
       }).catch(() => { /* ignore — reporter must never throw */ });
     };
 
+    // Harmless browser quirk (Chrome/Safari) fired when a ResizeObserver callback can't
+    // finish delivering all notifications within one frame — not an app bug, never actionable.
+    const isIgnorable = (message: string) => /^ResizeObserver loop/.test(message);
+
     const onError = (event: ErrorEvent) => {
+      if (isIgnorable(event.message)) return;
       report(event.message, event.error?.stack, event.filename);
     };
 
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
       const err = event.reason;
-      const message = err instanceof Error ? err.message : String(err ?? 'Unhandled promise rejection');
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else if (err && typeof err === 'object' && 'name' in err) {
+        // e.g. DOMException from a failed IndexedDB request — carries useful name/code
+        // but isn't `instanceof Error` in every browser, and rarely has a stack.
+        const name = String((err as { name?: unknown }).name ?? 'Error');
+        const code = 'code' in err ? ` code=${(err as { code?: unknown }).code}` : '';
+        message = `${name}${code}: ${String((err as { message?: unknown }).message ?? err)}`;
+      } else {
+        message = String(err ?? 'Unhandled promise rejection');
+      }
+      if (isIgnorable(message)) return;
       const stack = err instanceof Error ? err.stack : undefined;
       report(message, stack);
     };

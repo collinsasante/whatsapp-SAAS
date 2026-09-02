@@ -11,8 +11,10 @@ import { ChatbotFlowsService, FlowNode } from '../chatbot-flows/chatbot-flows.se
 import { AiResponderService } from '../ai/ai-responder.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { AiLogsService } from '../ai-logs/ai-logs.service';
+import { CommerceAiService } from '../commerce/ai/commerce-ai.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
+import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 
@@ -32,6 +34,7 @@ export class MessagesService {
     private aiResponderService: AiResponderService,
     private knowledgeBaseService: KnowledgeBaseService,
     private aiLogsService: AiLogsService,
+    private commerceAiService: CommerceAiService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -74,13 +77,32 @@ export class MessagesService {
       }
     }
 
+    // Resolve replyToId against a real, persisted message in this conversation before insert.
+    // dto.replyToId can be stale (message since deleted) or a client-side optimistic/temp id
+    // that never made it to the server — either would violate messages_reply_to_id_fkey.
+    let validReplyToId: string | null = null;
+    let replyToWaMessageId: string | undefined;
+    if (dto.replyToId) {
+      const replyToMsg = await this.prisma.message.findFirst({
+        where: { id: dto.replyToId, conversationId },
+        select: { id: true, whatsappMessageId: true },
+      });
+      if (replyToMsg) {
+        validReplyToId = replyToMsg.id;
+        // Only use the wamid if it's a valid WhatsApp message ID (starts with "wamid.")
+        replyToWaMessageId = replyToMsg.whatsappMessageId?.startsWith('wamid.') ? replyToMsg.whatsappMessageId : undefined;
+      } else {
+        this.logger.warn(`Dropping unresolvable replyToId=${dto.replyToId} for conversation=${conversationId}`);
+      }
+    }
+
     const message = await this.prisma.message.create({
       data: {
         tenantId,
         conversationId,
         contactId: contact.id,
         senderId,
-        replyToId: dto.replyToId ?? null,
+        replyToId: validReplyToId,
         direction: MessageDirection.OUTBOUND,
         type: (dto.type as MessageType) ?? MessageType.TEXT,
         status: MessageStatus.QUEUED,
@@ -95,18 +117,6 @@ export class MessagesService {
         replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
       },
     });
-
-    // Resolve the WhatsApp message ID of the message being replied to (for context field)
-    let replyToWaMessageId: string | undefined;
-    if (dto.replyToId) {
-      const replyToMsg = await this.prisma.message.findFirst({
-        where: { id: dto.replyToId, conversationId },
-        select: { whatsappMessageId: true },
-      });
-      const rawId = replyToMsg?.whatsappMessageId;
-      // Only use the wamid if it's a valid WhatsApp message ID (starts with "wamid.")
-      replyToWaMessageId = rawId?.startsWith('wamid.') ? rawId : undefined;
-    }
 
     let whatsappMessageId: string | undefined;
 
@@ -202,7 +212,7 @@ export class MessagesService {
 
       // Trigger real-time AI learning from this agent reply (throttled to once per 30 min per tenant)
       if (dto.type === MessageType.TEXT || !dto.type) {
-        this.knowledgeBaseService.triggerLearningAsync(tenantId);
+        void this.knowledgeBaseService.triggerLearningAsync(tenantId);
       }
 
       const updatedMessage = await this.prisma.message.findUnique({
@@ -305,6 +315,14 @@ export class MessagesService {
     source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
     image_url?: string; media_type?: string; ctwa_clid?: string;
   }) {
+    // Some webhook payload shapes (e.g. certain system/edge-case events) omit `from`
+    // despite the type declaring it required — every downstream path needs a phone
+    // number to identify/create the contact, so there's nothing useful to do without it.
+    if (!waMessage.from) {
+      this.logger.warn(`[tenant:${tenantId}] Skipping inbound message with no "from" phone number: type="${waMessage.type}" id="${waMessage.id}"`);
+      return null;
+    }
+
     // Handle call permission reply — intercept before anything else so it never gets stored
     // as a regular inbound message or reopens a conversation.
     if (waMessage.type === 'interactive' && waMessage.interactive?.type === 'call_permission_reply') {
@@ -390,7 +408,16 @@ export class MessagesService {
     let permanentAdImageUrl: string | undefined;
     if (referral?.image_url) {
       try {
-        const imgResp = await axios.get<Buffer>(referral.image_url, { responseType: 'arraybuffer', timeout: 10_000 });
+        // Meta's ad-image CDN returns 403 to requests without a browser-like User-Agent
+        // (axios's default `axios/x.y.z` UA is rejected). Present a real browser UA.
+        const imgResp = await axios.get<Buffer>(referral.image_url, {
+          responseType: 'arraybuffer',
+          timeout: 10_000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          },
+        });
         const contentType = (imgResp.headers['content-type'] as string | undefined) ?? 'image/jpeg';
         const ext = contentType.split('/')[1]?.split(';')[0] ?? 'jpg';
         const { fileUrl } = await this.storageService.uploadRaw(
@@ -401,8 +428,16 @@ export class MessagesService {
         );
         permanentAdImageUrl = fileUrl;
       } catch (err) {
-        this.logger.warn(`Failed to mirror ad preview image: ${(err as Error).message}`);
-        permanentAdImageUrl = referral.image_url;
+        // Meta's ad-preview CDN URL is short-lived -- falling back to it just defers the
+        // same failure to the browser a few minutes later, as a silently-broken <img>.
+        // Leave it unset so the ad banner degrades to headline-only instead.
+        const reason = (err as Error).message;
+        this.logger.warn(`Failed to mirror ad preview image: ${reason}`);
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Failed to mirror WhatsApp ad-preview image: ${reason}`,
+        }).catch(() => {});
       }
     }
 
@@ -448,15 +483,16 @@ export class MessagesService {
       });
       if (targetMsg) {
         const emoji = waMessage.reaction.emoji;
+        // MessageReaction.userId is a FK to the platform User table (agents/admins) —
+        // a WhatsApp contact is never a User, so it can never satisfy that constraint.
+        // Conversations have exactly one contact, so a null userId unambiguously means
+        // "the contact reacted." WhatsApp only allows one active reaction per person per
+        // message, so clear any prior contact reaction before recording the new one.
+        await this.prisma.messageReaction.deleteMany({ where: { messageId: targetMsg.id, userId: null } });
         if (emoji) {
-          await this.prisma.messageReaction.upsert({
-            where: { messageId_userId_emoji: { messageId: targetMsg.id, userId: contact.id, emoji } },
-            create: { messageId: targetMsg.id, tenantId, userId: contact.id, emoji },
-            update: {},
+          await this.prisma.messageReaction.create({
+            data: { messageId: targetMsg.id, tenantId, userId: null, emoji },
           });
-        } else {
-          // Empty emoji = remove all reactions from this contact on this message
-          await this.prisma.messageReaction.deleteMany({ where: { messageId: targetMsg.id, userId: contact.id } });
         }
         const updatedReactions = await this.prisma.messageReaction.findMany({
           where: { messageId: targetMsg.id },
@@ -511,7 +547,7 @@ export class MessagesService {
       else if (waMessage.sticker) { mediaType = waMessage.sticker.mime_type; filename = 'sticker'; }
 
       const downloaded = await this.whatsappService.downloadMetaMedia(tenantId, mediaId);
-      if (downloaded) {
+      if (downloaded.ok) {
         const ext = downloaded.mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
         const uploadResult = await this.storageService.uploadRaw(
           downloaded.buffer,
@@ -520,6 +556,15 @@ export class MessagesService {
           `${filename}.${ext}`,
         );
         mediaUrl = uploadResult.fileUrl;
+      } else {
+        // Without this, the message silently lands with no mediaUrl at all and nobody
+        // is told the customer's file never made it into the inbox. Include the actual
+        // reason (not just a generic "it failed") so the alert is self-diagnosing.
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}": ${downloaded.reason} — customer's file was not saved`,
+        }).catch(() => {});
       }
     }
 
@@ -649,6 +694,51 @@ export class MessagesService {
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     if (content && !flowMatched && !humanOwned) {
+      // Managed Commerce (Phase 1, single-pilot-tenant): checked before the normal
+      // aiMode branch so a commerce-enabled tenant's AI runs CommerceAiService's
+      // tool-calling sales agent instead of the knowledge-base Q&A responder. Gated
+      // per-tenant, so this only ever changes behavior for the flagged pilot tenant.
+      const commerceSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null);
+      if (commerceSettings?.commerceEnabled) {
+        void (async () => {
+          const [result, verzAgent] = await Promise.all([
+            this.commerceAiService.handleMessage(tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined),
+            this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
+          ]);
+          if (!result.response) return;
+
+          await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
+
+          const aiMessage = await this.prisma.message.create({
+            data: {
+              tenantId,
+              conversationId: conversation.id,
+              contactId: contact.id,
+              senderId: verzAgent?.id ?? null,
+              direction: 'OUTBOUND' as const,
+              type: 'TEXT' as const,
+              status: 'SENT' as const,
+              content: result.response,
+              metadata: { aiGenerated: true, commerce: true },
+            },
+            include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+          });
+
+          if (verzAgent && !assignedTo) {
+            await this.prisma.conversation.update({
+              where: { id: conversation.id },
+              data: { assignedToId: verzAgent.id, status: 'OPEN' },
+            });
+            this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+              assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
+              status: 'OPEN',
+            });
+          }
+          this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
+        })();
+        return message;
+      }
+
       const aiMode = await this.aiResponderService.getMode(tenantId).catch(() => null);
 
       if (aiMode === 'SUGGESTION') {

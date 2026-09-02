@@ -23,7 +23,7 @@ import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
-import { cn, getInitials, formatMessageTime, getProxiedMediaUrl, getApiError } from '@/lib/utils';
+import { cn, getInitials, formatMessageTime, getProxiedMediaUrl, getDownloadFilename, getApiError } from '@/lib/utils';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useTheme } from 'next-themes';
 import { offlineQueue } from '@/lib/offline-queue';
@@ -780,15 +780,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
     if (!isOnline) {
       const queueId = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await offlineQueue.enqueueMessage({
-        id: queueId,
-        tempId,
-        conversationId: conversation.id,
-        payload: { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) },
-        createdAt: new Date().toISOString(),
-      });
-      const [msgs, drafts] = await Promise.all([offlineQueue.getAllMessages(), offlineQueue.getAllDrafts()]);
-      setQueuedCounts(msgs.length, drafts.length);
+      try {
+        await offlineQueue.enqueueMessage({
+          id: queueId,
+          tempId,
+          conversationId: conversation.id,
+          payload: { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) },
+          createdAt: new Date().toISOString(),
+        });
+        const [msgs, drafts] = await Promise.all([offlineQueue.getAllMessages(), offlineQueue.getAllDrafts()]);
+        setQueuedCounts(msgs.length, drafts.length);
+      } catch {
+        // Local storage (IndexedDB) is unavailable/broken on this device — don't leave the
+        // customer thinking an unsent message was queued.
+        removeMessage(conversation.id, tempId);
+        toast.error('Could not save message for offline sending on this device. Please retry once back online.');
+      }
       return;
     }
 
@@ -1552,9 +1559,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           {/* Click-to-WhatsApp Ad banner */}
           {conversation.adSourceId && (
             <div className="flex items-center gap-3 px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex-shrink-0">
-              {conversation.adImageUrl && (
+              {getProxiedMediaUrl(conversation.adImageUrl) && (
                 <img
-                  src={conversation.adImageUrl}
+                  src={getProxiedMediaUrl(conversation.adImageUrl)}
                   alt="Ad"
                   className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-100"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -2895,7 +2902,7 @@ const MessageBubble = memo(function MessageBubble({
                       <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                         {isUploading
                           ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{message.mediaCaption ?? 'Uploading…'}</span></>
-                          : <a href={proxied} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Download document'}</span></a>
+                          : <a href={proxied} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Open document'}</span></a>
                         }
                       </div>
                     )}
@@ -3010,7 +3017,7 @@ const MessageBubble = memo(function MessageBubble({
             <X size={20} />
           </button>
           <img src={lightboxSrc} alt="Full size" className="max-w-[90vw] max-h-[90vh] rounded-2xl object-contain" onClick={(e) => e.stopPropagation()} />
-          <a href={lightboxSrc} download target="_blank" rel="noopener noreferrer" className="absolute bottom-4 right-4 flex items-center gap-2 text-xs text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl transition-colors" onClick={(e) => e.stopPropagation()}>
+          <a href={lightboxSrc} download={getDownloadFilename(undefined, lightboxSrc)} target="_blank" rel="noopener noreferrer" className="absolute bottom-4 right-4 flex items-center gap-2 text-xs text-white/70 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl transition-colors" onClick={(e) => e.stopPropagation()}>
             <Download size={13} /> Download
           </a>
         </div>,

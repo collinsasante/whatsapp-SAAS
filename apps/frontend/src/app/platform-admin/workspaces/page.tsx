@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Search, CheckCircle2, XCircle, Loader2, ChevronLeft, ChevronRight, CreditCard, AlertTriangle, ChevronUp, ChevronDown, Download } from 'lucide-react';
 import { adminApi, type TenantTableRow, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
@@ -35,6 +36,7 @@ function statusLabel(status: string) {
 }
 
 export default function WorkspacesPage() {
+  const router = useRouter();
   const [tenants, setTenants] = useState<TenantTableRow[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -212,9 +214,13 @@ export default function WorkspacesPage() {
             ) : tenants.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No workspaces found</td></tr>
             ) : tenants.map(t => (
-              <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+              <tr
+                key={t.id}
+                onClick={() => router.push(`/platform-admin/workspaces/${t.id}`)}
+                className="hover:bg-gray-50 transition-colors cursor-pointer"
+              >
                 <td className="px-4 py-3">
-                  <Link href={`/platform-admin/workspaces/${t.id}`} className="font-medium text-gray-900 hover:text-teal-600 hover:underline">{t.name}</Link>
+                  <Link href={`/platform-admin/workspaces/${t.id}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-teal-600 hover:underline">{t.name}</Link>
                   <div className="text-xs text-gray-400">{t.billingEmail ?? '—'}{t.country ? ` · ${t.country}` : ''}</div>
                   {t.churnRisk && (
                     <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-red-600">
@@ -241,14 +247,14 @@ export default function WorkspacesPage() {
                 </td>
                 <td className="px-4 py-3">
                   <button
-                    onClick={() => setExpandedHealthId(expandedHealthId === t.id ? null : t.id)}
+                    onClick={(e) => { e.stopPropagation(); setExpandedHealthId(expandedHealthId === t.id ? null : t.id); }}
                     className={`px-2 py-0.5 rounded-full text-xs font-semibold ${healthColor(t.healthScore)}`}
                     title="Click for breakdown"
                   >
                     {t.healthScore}
                   </button>
                   {expandedHealthId === t.id && (
-                    <div className="mt-1.5 text-[10px] text-gray-500 space-y-0.5 bg-gray-50 rounded-lg p-2 w-40">
+                    <div onClick={(e) => e.stopPropagation()} className="mt-1.5 text-[10px] text-gray-500 space-y-0.5 bg-gray-50 rounded-lg p-2 w-40">
                       <div>Login activity: {t.healthBreakdown.loginActivity}/25</div>
                       <div>Message activity: {t.healthBreakdown.messageActivity}/25</div>
                       <div>Broadcast activity: {t.healthBreakdown.broadcastActivity}/15</div>
@@ -266,13 +272,13 @@ export default function WorkspacesPage() {
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => { setSetPlanFor(t); setSelectedPlanSlug(plans.find(p => p.name === t.plan)?.slug ?? ''); }}
+                      onClick={(e) => { e.stopPropagation(); setSetPlanFor(t); setSelectedPlanSlug(plans.find(p => p.name === t.plan)?.slug ?? ''); }}
                       className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
                     >
                       <CreditCard className="w-3 h-3" /> Set Plan
                     </button>
                     <button
-                      onClick={() => toggleActive(t)}
+                      onClick={(e) => { e.stopPropagation(); void toggleActive(t); }}
                       disabled={acting === t.id}
                       className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                         t.isActive
