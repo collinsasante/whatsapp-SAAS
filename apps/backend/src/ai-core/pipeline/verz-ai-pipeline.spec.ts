@@ -4,6 +4,7 @@ import { ContextAssemblyStage } from './stages/context-assembly.stage';
 import { PromptBuildStage } from './stages/prompt-build.stage';
 import { GenerationStage } from './stages/generation.stage';
 import { PolicyStage } from './stages/policy.stage';
+import { EscalationStage } from './stages/escalation.stage';
 import { AiExecutionsService } from '../executions/ai-executions.service';
 import { PromptsService } from '../prompts/prompts.service';
 import { ProviderRegistryService } from '../providers/provider-registry.service';
@@ -55,9 +56,10 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
   const promptBuild = new PromptBuildStage(promptsService);
   const generation = new GenerationStage(registry);
   const policy = new PolicyStage();
+  const escalation = new EscalationStage();
   const executions = new AiExecutionsService(prisma as never);
 
-  return new VerzAiPipelineService(prisma as never, executions, guard, contextAssembly, promptBuild, generation, policy);
+  return new VerzAiPipelineService(prisma as never, executions, guard, contextAssembly, promptBuild, generation, policy, escalation);
 }
 
 describe('VerzAiPipelineService (integration, MockProvider)', () => {
@@ -86,7 +88,7 @@ describe('VerzAiPipelineService (integration, MockProvider)', () => {
     expect(savedExecution.outputTokens).toBe(20);
     expect(savedExecution.estCostUsd).toBeGreaterThan(0);
     expect(savedExecution.confidence).toBe(92);
-    expect(Object.keys(savedExecution.stageTimings)).toEqual(['guard', 'context_assembly', 'prompt_build', 'generation', 'policy']);
+    expect(Object.keys(savedExecution.stageTimings)).toEqual(['guard', 'context_assembly', 'prompt_build', 'generation', 'policy', 'escalation']);
   });
 
   it('short-circuits on an injection attempt: generation is never reached, trace is BLOCKED', async () => {

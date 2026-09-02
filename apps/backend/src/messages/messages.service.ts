@@ -765,6 +765,10 @@ export class MessagesService {
             : { ...(await this.aiResponderService.generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined)), executionId: null as string | null };
           if (!result.response) return;
 
+          if (result.shouldEscalate) {
+            await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
+          }
+
           const log = await this.aiLogsService.create({
             tenantId,
             conversationId: conversation.id,
@@ -796,7 +800,7 @@ export class MessagesService {
             // Promise.all would risk two concurrent creators racing to create the
             // synthetic isAiAgent user on a tenant's very first-ever message. The
             // legacy path's Promise.all below is untouched byte-for-byte.
-            let result: { response: string; confidence: number | null; blocked: boolean; executionId: string | null };
+            let result: { response: string; confidence: number | null; blocked: boolean; executionId: string | null; shouldEscalate?: boolean };
             let verzAgent: { id: string; name: string; avatarUrl: string | null } | null;
             if (useV2) {
               result = await this.runVerzAiV2(tenantId, conversation.id, content, contact.name ?? undefined);
@@ -810,6 +814,10 @@ export class MessagesService {
               ]);
             }
             if (!result.response) return;
+
+            if (result.shouldEscalate) {
+              await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
+            }
 
             const decremented = await this.prisma.tenant.updateMany({
               where: { id: tenantId, aiCredits: { gt: 0 } },

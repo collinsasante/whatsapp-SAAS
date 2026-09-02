@@ -1,10 +1,19 @@
 import { AiExecutionStatus, AiExecutionSafetyFlags, AiTaskType } from '@whatsapp-platform/shared-types';
 
-/** Identical shape to the legacy AiSuggestionResult -- drops into existing call sites unchanged. */
+/**
+ * Same shape as the legacy AiSuggestionResult plus one new field
+ * (`shouldEscalate`) -- drops into existing call sites unchanged since
+ * legacy code never reads a field it doesn't know about.
+ */
 export interface VerzAiResult {
   response: string;
   confidence: number | null;
   blocked: boolean;
+  /** Set by EscalationStage; the caller (messages.service.ts) is responsible for
+   * actually moving the conversation to the REQUESTED queue -- the pipeline only
+   * decides, it never mutates conversation state itself (keeps this module from
+   * needing ConversationsService, which would create another circular import). */
+  shouldEscalate?: boolean;
 }
 
 export interface PipelineInput {

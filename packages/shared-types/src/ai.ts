@@ -57,6 +57,8 @@ export interface AiExecutionSafetyFlags {
   injectionDetected?: boolean;
   fallbackCapped?: boolean;
   emptyOutput?: boolean;
+  humanEscalation?: boolean;
+  escalationReason?: 'explicit_request' | 'low_confidence';
 }
 
 export interface AiExecution {
