@@ -164,6 +164,7 @@ export const conversationsApi = {
   markRead: (id: string) => api.patch(`/conversations/${id}/read`),
   markUnread: (id: string) => api.patch(`/conversations/${id}/mark-unread`),
   takeover: (id: string) => api.post(`/conversations/${id}/takeover`),
+  releaseToAi: (id: string) => api.post(`/conversations/${id}/release-to-ai`),
   addNote: (id: string, content: string) => api.post(`/conversations/${id}/notes`, { content }),
   getNotes: (id: string) => api.get(`/conversations/${id}/notes`),
   editNote: (id: string, noteId: string, content: string) => api.patch(`/conversations/${id}/notes/${noteId}`, { content }),
