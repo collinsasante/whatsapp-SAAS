@@ -1,11 +1,21 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
+import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { DeepSeekProvider } from './providers/deepseek.provider';
 import { ProviderRegistryService } from './providers/provider-registry.service';
 import { PromptsService } from './prompts/prompts.service';
 import { AiAgentsService } from './agents/ai-agents.service';
 import { AiAgentsController } from './agents/ai-agents.controller';
+import { GuardStage } from './pipeline/stages/guard.stage';
+import { ContextAssemblyStage } from './pipeline/stages/context-assembly.stage';
+import { PromptBuildStage } from './pipeline/stages/prompt-build.stage';
+import { GenerationStage } from './pipeline/stages/generation.stage';
+import { PolicyStage } from './pipeline/stages/policy.stage';
+import { KNOWLEDGE_CONTEXT_SOURCE, KbRelevantContextSource } from './pipeline/knowledge-context.source';
+import { VerzAiPipelineService } from './pipeline/verz-ai-pipeline.service';
+import { AiExecutionsService } from './executions/ai-executions.service';
+import { AiExecutionsController } from './executions/ai-executions.controller';
 
 /**
  * Verz-AI Phase 1 foundation. Built strangler-style alongside the existing
@@ -16,9 +26,22 @@ import { AiAgentsController } from './agents/ai-agents.controller';
  * isAiAgent User row the legacy responder already uses, not a second one.
  */
 @Module({
-  imports: [PrismaModule, AiModule],
-  controllers: [AiAgentsController],
-  providers: [DeepSeekProvider, ProviderRegistryService, PromptsService, AiAgentsService],
-  exports: [ProviderRegistryService, PromptsService, AiAgentsService],
+  imports: [PrismaModule, AiModule, KnowledgeBaseModule],
+  controllers: [AiAgentsController, AiExecutionsController],
+  providers: [
+    DeepSeekProvider,
+    ProviderRegistryService,
+    PromptsService,
+    AiAgentsService,
+    AiExecutionsService,
+    GuardStage,
+    ContextAssemblyStage,
+    PromptBuildStage,
+    GenerationStage,
+    PolicyStage,
+    { provide: KNOWLEDGE_CONTEXT_SOURCE, useClass: KbRelevantContextSource },
+    VerzAiPipelineService,
+  ],
+  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService],
 })
 export class AiCoreModule {}
