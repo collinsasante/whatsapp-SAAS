@@ -6,6 +6,7 @@ import { ContextAssemblyStage } from './stages/context-assembly.stage';
 import { PromptBuildStage } from './stages/prompt-build.stage';
 import { GenerationStage } from './stages/generation.stage';
 import { PolicyStage } from './stages/policy.stage';
+import { EscalationStage } from './stages/escalation.stage';
 import { newTrace, PipelineContext, PipelineInput, PipelineStage, VerzAiResult } from './pipeline.types';
 
 @Injectable()
@@ -21,8 +22,9 @@ export class VerzAiPipelineService {
     promptBuild: PromptBuildStage,
     generation: GenerationStage,
     policy: PolicyStage,
+    escalation: EscalationStage,
   ) {
-    this.stages = [guard, contextAssembly, promptBuild, generation, policy];
+    this.stages = [guard, contextAssembly, promptBuild, generation, policy, escalation];
   }
 
   /**
