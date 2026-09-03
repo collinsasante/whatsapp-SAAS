@@ -1,4 +1,5 @@
 import { AiExecutionStatus, AiExecutionSafetyFlags, AiTaskType } from '@whatsapp-platform/shared-types';
+import { ToolExecutionContext } from '../tools/tool-registry.types';
 
 /**
  * Same shape as the legacy AiSuggestionResult plus one new field
@@ -61,6 +62,15 @@ export interface PipelineContext {
   result?: VerzAiResult;
   shortCircuit: boolean;
   trace: PipelineTrace;
+  /** Verz-AI unification, Phase A: names of registered ai-core tools to offer this run
+   * (see ai-core/tools/tool-registry.service.ts). Undefined/empty means no tools --
+   * GenerationStage falls back to its original single-shot JSON completion unchanged.
+   * Nothing populates this yet; wiring per-tenant/per-agent capability into it is a
+   * Phase C concern (see the Verz-AI unification plan). */
+  tools?: string[];
+  /** Required alongside `tools` when non-empty -- the real IDs a tool handler needs to
+   * act (contactId/customerPhone), which PipelineInput doesn't carry today. */
+  toolContext?: ToolExecutionContext;
 }
 
 export interface PipelineStage {

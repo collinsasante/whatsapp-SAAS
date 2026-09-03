@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../../common/deepseek';
-import { CommerceAiToolCallTrace } from '../ai/commerce-ai.service';
+import { ToolCallTrace as CommerceAiToolCallTrace } from '../../ai-core/tools/tool-calling.service';
 import { EvaluationScenario } from './evaluation.types';
 import { crossCheckOrderCapture, assertNoSuccessfulPurchase, assertToolWasCalled, fuzzyMatchProduct } from './evaluation-checks.util';
 

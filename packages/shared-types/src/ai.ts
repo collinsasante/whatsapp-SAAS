@@ -51,7 +51,7 @@ export interface AiPromptVersion {
 /** Mirrors AiInteractionLog's status set for RESPONDER traces; other task types use SUCCESS/PROVIDER_ERROR/EMPTY only. */
 export type AiExecutionStatus = 'SUCCESS' | 'BLOCKED' | 'POLICY_REJECTED' | 'PROVIDER_ERROR' | 'EMPTY';
 
-export type AiTaskType = 'RESPONDER' | 'SUMMARIZE' | 'KB_LEARN' | 'TEST';
+export type AiTaskType = 'RESPONDER' | 'SUMMARIZE' | 'KB_LEARN' | 'TEST' | 'LEAD_SCORE';
 
 export interface AiExecutionSafetyFlags {
   injectionDetected?: boolean;

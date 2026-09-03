@@ -54,7 +54,9 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
   const guard = new GuardStage(prisma as never);
   const contextAssembly = new ContextAssemblyStage(prisma as never, noKb);
   const promptBuild = new PromptBuildStage(promptsService);
-  const generation = new GenerationStage(registry);
+  // ctx.tools is never set in these fixtures, so ToolCallingService is never actually
+  // invoked -- a stub satisfies the constructor without needing a real implementation.
+  const generation = new GenerationStage(registry, {} as never);
   const policy = new PolicyStage();
   const escalation = new EscalationStage();
   const executions = new AiExecutionsService(prisma as never);

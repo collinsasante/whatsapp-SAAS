@@ -3,7 +3,12 @@ export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  /** Only meaningful on a 'tool' role message -- which tool call this is the result of. */
   toolCallId?: string;
+  /** Only meaningful on an 'assistant' role message that requested tool calls -- must be
+   * echoed back on that assistant turn for the provider to correctly associate the
+   * following 'tool' role messages with it on the next round-trip. */
+  toolCalls?: ChatToolCall[];
 }
 
 export interface ChatToolDef {

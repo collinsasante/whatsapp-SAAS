@@ -68,7 +68,14 @@ export class DeepSeekProvider implements AiProvider {
             model: req.modelKey,
             max_tokens: req.maxTokens ?? 400,
             ...(req.temperature !== undefined && { temperature: req.temperature }),
-            messages: req.messages.map((m) => ({ role: m.role, content: m.content, ...(m.toolCallId && { tool_call_id: m.toolCallId }) })),
+            messages: req.messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+              ...(m.toolCallId && { tool_call_id: m.toolCallId }),
+              ...(m.toolCalls?.length && {
+                tool_calls: m.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.arguments } })),
+              }),
+            })),
             ...(req.jsonMode && { response_format: { type: 'json_object' } }),
             ...(req.tools?.length && {
               tools: req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })),
