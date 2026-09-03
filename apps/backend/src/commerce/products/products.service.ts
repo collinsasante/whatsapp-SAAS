@@ -17,6 +17,7 @@ export class ProductsService {
         currency: dto.currency ?? 'GHS',
         imageUrl: dto.imageUrl,
         stockQuantity: dto.stockQuantity,
+        minOrderQuantity: dto.minOrderQuantity,
         variants: dto.variants as never,
       },
     });
@@ -46,6 +47,7 @@ export class ProductsService {
         ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
         ...(dto.stockQuantity !== undefined && { stockQuantity: dto.stockQuantity }),
+        ...(dto.minOrderQuantity !== undefined && { minOrderQuantity: dto.minOrderQuantity }),
         ...(dto.variants !== undefined && { variants: dto.variants as never }),
       },
     });

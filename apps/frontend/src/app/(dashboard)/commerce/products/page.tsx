@@ -16,6 +16,7 @@ interface Product {
   isActive: boolean;
   imageUrl: string | null;
   stockQuantity: number | null;
+  minOrderQuantity: number | null;
   createdAt: string;
 }
 
@@ -101,7 +102,7 @@ function ImageUploadButton({ onUploaded, uploading, setUploading }: {
   );
 }
 
-const BLANK_NEW_PRODUCT = { name: '', description: '', sku: '', priceMajorUnits: '', currency: 'GHS', stockQuantity: '', imageUrl: '' };
+const BLANK_NEW_PRODUCT = { name: '', description: '', sku: '', priceMajorUnits: '', currency: 'GHS', stockQuantity: '', minOrderQuantity: '', imageUrl: '' };
 
 export default function CommerceProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -112,7 +113,7 @@ export default function CommerceProductsPage() {
   const [newProduct, setNewProduct] = useState({ ...BLANK_NEW_PRODUCT });
 
   const [selected, setSelected] = useState<Product | null>(null);
-  const [edit, setEdit] = useState({ name: '', description: '', priceMajorUnits: '', stockQuantity: '', imageUrl: '' });
+  const [edit, setEdit] = useState({ name: '', description: '', priceMajorUnits: '', stockQuantity: '', minOrderQuantity: '', imageUrl: '' });
   const [saving, setSaving] = useState(false);
   const [uploadingEdit, setUploadingEdit] = useState(false);
 
@@ -136,6 +137,7 @@ export default function CommerceProductsPage() {
       description: p.description ?? '',
       priceMajorUnits: String(p.priceMajorUnits),
       stockQuantity: p.stockQuantity === null ? '' : String(p.stockQuantity),
+      minOrderQuantity: p.minOrderQuantity === null ? '' : String(p.minOrderQuantity),
       imageUrl: p.imageUrl ?? '',
     });
   };
@@ -155,6 +157,7 @@ export default function CommerceProductsPage() {
         currency: newProduct.currency.trim() || 'GHS',
         imageUrl: newProduct.imageUrl || undefined,
         stockQuantity: newProduct.stockQuantity.trim() === '' ? undefined : parseInt(newProduct.stockQuantity, 10),
+        minOrderQuantity: newProduct.minOrderQuantity.trim() === '' ? undefined : parseInt(newProduct.minOrderQuantity, 10),
       });
       toast.success(`"${newProduct.name}" added`);
       setShowCreate(false);
@@ -180,6 +183,7 @@ export default function CommerceProductsPage() {
         description: edit.description.trim() || null,
         priceMajorUnits: parseFloat(edit.priceMajorUnits) || 0,
         stockQuantity: edit.stockQuantity.trim() === '' ? null : parseInt(edit.stockQuantity, 10),
+        minOrderQuantity: edit.minOrderQuantity.trim() === '' ? null : parseInt(edit.minOrderQuantity, 10),
         imageUrl: edit.imageUrl || null,
       });
       toast.success('Product updated');
@@ -303,6 +307,7 @@ export default function CommerceProductsPage() {
                 <Field label={`Price (${selected.currency})`} value={edit.priceMajorUnits} onChange={v => setEdit(s => ({ ...s, priceMajorUnits: v }))} type="number" />
                 <Field label="Stock qty (blank = unlimited)" value={edit.stockQuantity} onChange={v => setEdit(s => ({ ...s, stockQuantity: v }))} type="number" placeholder="Unlimited" />
               </div>
+              <Field label="Min order qty (blank = no minimum)" value={edit.minOrderQuantity} onChange={v => setEdit(s => ({ ...s, minOrderQuantity: v }))} type="number" placeholder="No minimum" />
               {selected.sku && <div className="text-xs text-gray-400">SKU: {selected.sku} · created {new Date(selected.createdAt).toLocaleDateString()}</div>}
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
@@ -364,6 +369,7 @@ export default function CommerceProductsPage() {
                 <Field label="SKU (optional)" value={newProduct.sku} onChange={v => setNewProduct(p => ({ ...p, sku: v }))} />
                 <Field label="Stock qty (blank = unlimited)" value={newProduct.stockQuantity} onChange={v => setNewProduct(p => ({ ...p, stockQuantity: v }))} type="number" placeholder="Unlimited" />
               </div>
+              <Field label="Min order qty (blank = no minimum)" value={newProduct.minOrderQuantity} onChange={v => setNewProduct(p => ({ ...p, minOrderQuantity: v }))} type="number" placeholder="No minimum" />
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0">
               <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors">
