@@ -17,12 +17,13 @@ function buildDeps() {
     products: {},
     orders: {},
     knowledgeBase: { getRelevant: jest.fn().mockResolvedValue([]) },
+    conversations: { request: jest.fn().mockResolvedValue(null) },
   };
 }
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceAiService(deps.prisma as any, deps.products as any, deps.orders as any, deps.knowledgeBase as any);
+  return new CommerceAiService(deps.prisma as any, deps.products as any, deps.orders as any, deps.knowledgeBase as any, deps.conversations as any);
 }
 
 function mockChatResponse(content: string) {
@@ -89,6 +90,51 @@ describe('CommerceAiService', () => {
 
       expect(result.blocked).toBe(true);
       expect(mockedAxios.post).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('human escalation', () => {
+    it('flips the conversation to REQUESTED when the customer explicitly asks for a human', async () => {
+      const deps = buildDeps();
+      mockChatResponse("Sure, I'll get someone to help with that.");
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'I need to speak with a human');
+
+      expect(deps.conversations.request).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+    });
+
+    it('does not escalate a normal product question', async () => {
+      const deps = buildDeps();
+      mockChatResponse('Sure, we have that in stock.');
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'do you have labels?');
+
+      expect(deps.conversations.request).not.toHaveBeenCalled();
+    });
+
+    it('still generates a reply even if the escalation call fails', async () => {
+      const deps = buildDeps();
+      deps.conversations.request = jest.fn().mockRejectedValue(new Error('db down'));
+      mockChatResponse("Sure, I'll get someone to help with that.");
+      const service = buildService(deps);
+
+      const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'can I speak to a human');
+
+      expect(result.response).toBe("Sure, I'll get someone to help with that.");
+    });
+  });
+
+  describe('response length', () => {
+    it('requests a token budget generous enough to avoid mid-sentence truncation', async () => {
+      mockChatResponse('A full, uncut reply.');
+      const service = buildService(buildDeps());
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'give me a full quote');
+
+      const sentBody = mockedAxios.post.mock.calls[0][1] as { max_tokens: number };
+      expect(sentBody.max_tokens).toBeGreaterThanOrEqual(900);
     });
   });
 });
