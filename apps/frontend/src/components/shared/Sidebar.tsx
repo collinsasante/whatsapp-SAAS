@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck, ReceiptText, Wallet,
+  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck, ReceiptText, Wallet, ClipboardList,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -58,6 +58,7 @@ const mainNav: NavItem[] = [
       { href: '/commerce/evaluation', icon: ClipboardCheck, label: 'Evaluation Runs' },
     ],
   },
+  { type: 'link', href: '/tasks',     icon: ClipboardList, label: 'Tasks' },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
   { type: 'link', href: '/calls',     icon: Phone,     label: 'Calls' },
 ];
@@ -480,7 +481,7 @@ const PRIMARY_TABS = [
 ] as const;
 
 // Paths covered by the "More" drawer tab (not in primary tabs)
-const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/commerce', '/settings', '/channels', '/library', '/manage', '/billing'];
+const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/commerce', '/tasks', '/settings', '/channels', '/library', '/manage', '/billing'];
 
 export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname() ?? "";

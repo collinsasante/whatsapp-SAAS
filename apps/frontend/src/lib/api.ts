@@ -529,6 +529,7 @@ export const commerceProductsApi = {
     currency?: string;
     imageUrl?: string;
     stockQuantity?: number;
+    minOrderQuantity?: number;
   }) => api.post('/commerce/products', data),
   update: (id: string, data: Record<string, unknown>) => api.patch(`/commerce/products/${id}`, data),
 };
@@ -539,10 +540,19 @@ export const commerceOrdersApi = {
   verifyPayment: (id: string) => api.post(`/commerce/orders/${id}/verify-payment`),
   updateFulfillment: (id: string, status: string) => api.patch(`/commerce/orders/${id}/fulfillment`, { status }),
   cancel: (id: string, reason?: string) => api.patch(`/commerce/orders/${id}/cancel`, { reason }),
+  approve: (id: string, customerEmail?: string) => api.post(`/commerce/orders/${id}/approve`, { customerEmail }),
+  reject: (id: string, reason?: string) => api.post(`/commerce/orders/${id}/reject`, { reason }),
 };
 
 export const commerceLedgerApi = {
   get: (page?: number, limit?: number) => api.get('/commerce/ledger', { params: { page, limit } }),
+};
+
+export const internalTasksApi = {
+  list: (params?: { status?: string; department?: string; assigneeId?: string }) => api.get('/internal-tasks', { params }),
+  get: (id: string) => api.get(`/internal-tasks/${id}`),
+  updateStatus: (id: string, status: string) => api.patch(`/internal-tasks/${id}/status`, { status }),
+  assign: (id: string, assigneeId: string) => api.patch(`/internal-tasks/${id}/assign`, { assigneeId }),
 };
 
 export const commerceTestChatApi = {

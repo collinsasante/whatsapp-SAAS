@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ReceiptText, X, Loader2, BadgeCheck, RefreshCw } from 'lucide-react';
+import { ReceiptText, X, Loader2, BadgeCheck, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 import { commerceOrdersApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -51,6 +51,7 @@ function apiErr(e: unknown, fallback: string): string {
 
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',
+  AWAITING_APPROVAL: 'bg-orange-50 text-orange-600',
   PENDING_PAYMENT: 'bg-amber-50 text-amber-600',
   PAID: 'bg-green-50 text-green-600',
   FULFILLING: 'bg-blue-50 text-blue-600',
@@ -74,6 +75,8 @@ export default function CommerceOrdersPage() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -119,6 +122,36 @@ export default function CommerceOrdersPage() {
       toast.error(apiErr(e, 'Verification failed'));
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const approveOrder = async () => {
+    if (!selected) return;
+    setApproving(true);
+    try {
+      await commerceOrdersApi.approve(selected.id);
+      toast.success('Order approved — payment link sent to the customer');
+      await openOrder(selected.id);
+      await load();
+    } catch (e) {
+      toast.error(apiErr(e, 'Failed to approve order'));
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const rejectOrder = async () => {
+    if (!selected) return;
+    setRejecting(true);
+    try {
+      await commerceOrdersApi.reject(selected.id);
+      toast.success('Order rejected');
+      await openOrder(selected.id);
+      await load();
+    } catch (e) {
+      toast.error(apiErr(e, 'Failed to reject order'));
+    } finally {
+      setRejecting(false);
     }
   };
 
@@ -282,6 +315,26 @@ export default function CommerceOrdersPage() {
                 >
                   {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
                   Verify payment with Paystack
+                </button>
+              </div>
+            )}
+            {selected && selected.status === 'AWAITING_APPROVAL' && (
+              <div className="px-6 py-4 border-t border-gray-100 shrink-0 flex gap-2">
+                <button
+                  onClick={approveOrder}
+                  disabled={approving || rejecting}
+                  className="flex items-center justify-center gap-1.5 flex-1 px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
+                >
+                  {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Approve
+                </button>
+                <button
+                  onClick={rejectOrder}
+                  disabled={approving || rejecting}
+                  className="flex items-center justify-center gap-1.5 flex-1 px-4 py-2 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors font-medium"
+                >
+                  {rejecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                  Reject
                 </button>
               </div>
             )}
