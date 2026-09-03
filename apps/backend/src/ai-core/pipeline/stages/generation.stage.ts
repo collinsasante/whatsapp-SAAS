@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AiProviderError, ChatMessage } from '../../providers/ai-provider.interface';
 import { ProviderRegistryService } from '../../providers/provider-registry.service';
 import { estimateCostUsd, getModelCatalogEntry } from '../../models/model-catalog';
+import { ToolCallingService } from '../../tools/tool-calling.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 
 interface ParsedGeneration {
@@ -14,7 +15,10 @@ export class GenerationStage implements PipelineStage {
   readonly name = 'generation';
   private readonly logger = new Logger(GenerationStage.name);
 
-  constructor(private registry: ProviderRegistryService) {}
+  constructor(
+    private registry: ProviderRegistryService,
+    private toolCalling: ToolCallingService,
+  ) {}
 
   async execute(ctx: PipelineContext): Promise<void> {
     const startedAt = Date.now();
@@ -22,6 +26,43 @@ export class GenerationStage implements PipelineStage {
     const userContent = ctx.input.contactName
       ? `Customer name: ${ctx.input.contactName}\nMessage: ${ctx.customerMessage}`
       : ctx.customerMessage;
+
+    // Verz-AI unification, Phase A: when a run has tools available (ctx.tools --
+    // nothing populates this yet, see pipeline.types.ts), delegate to the same shared
+    // tool-calling engine CommerceAiService uses instead of this stage's own single-shot
+    // completion. Final answers from a tool-calling run are plain text, not the
+    // {response, confidence} JSON convention below -- confidence is left null in that
+    // case, the same "no signal available" state PolicyStage/EscalationStage already
+    // handle for a JSON-parse failure.
+    if (ctx.tools?.length) {
+      if (!ctx.toolContext) {
+        this.logger.warn('ctx.tools set without ctx.toolContext -- running without tools this turn');
+      } else {
+        const result = await this.toolCalling.complete({
+          tenantId: ctx.input.tenantId,
+          taskType: ctx.input.taskType,
+          conversationId: ctx.input.conversationId,
+          agentId: ctx.input.agentId,
+          systemPrompt: ctx.renderedSystemPrompt ?? '',
+          historyMessages: ctx.historyMessages,
+          userMessage: userContent,
+          toolNames: ctx.tools,
+          toolContext: ctx.toolContext,
+          modelKey: ctx.modelKey,
+          maxTokens: ctx.maxResponseTokens,
+        });
+
+        if (result.failed) {
+          ctx.result = { response: '', confidence: null, blocked: false };
+          ctx.trace.status = 'PROVIDER_ERROR';
+        } else {
+          ctx.result = { response: result.hitMaxIterations ? '' : result.content, confidence: null, blocked: false };
+          ctx.trace.status = 'SUCCESS';
+        }
+        ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
+        return;
+      }
+    }
 
     const messages: ChatMessage[] = [
       { role: 'system', content: ctx.renderedSystemPrompt ?? '' },

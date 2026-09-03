@@ -90,6 +90,7 @@ model Tenant {
   aiAgents                        AiAgent[]
   aiExecutions                    AiExecution[]
   internalTasks                   InternalTask[]
+  leads                           Lead[]
 
   @@map("tenants")
 }
@@ -360,11 +361,54 @@ model Contact {
   callLogs           CallLog[]
   orders             Order[]
   internalTasks      InternalTask[]
+  leads              Lead[]
 
   @@unique([tenantId, phone])
   @@index([tenantId])
   @@index([phone])
   @@map("contacts")
+}
+
+enum LeadStatus {
+  NEW
+  ENGAGED
+  QUALIFIED
+  HOT
+  WARM
+  NURTURE
+  UNQUALIFIED
+  CONVERTED
+  LOST
+}
+
+// Verz-AI Phase 2c: one evolving row per conversation (upserted in place as the
+// conversation progresses, not a new row per scoring pass), scored by a background
+// service -- never a customer-facing tool -- so staff can triage which conversations
+// are worth attention without customers ever seeing the reasoning.
+model Lead {
+  id                    String     @id @default(uuid())
+  tenantId              String     @map("tenant_id")
+  contactId             String     @map("contact_id")
+  conversationId        String     @unique @map("conversation_id")
+  score                 Int        @default(0)
+  status                LeadStatus @default(NEW)
+  intent                String?    @db.Text
+  urgencySignal         String?    @map("urgency_signal")
+  budgetSignal          String?    @map("budget_signal")
+  productInterest       String?    @map("product_interest")
+  recommendedNextAction String?    @map("recommended_next_action")
+  reasoningSummary      String?    @map("reasoning_summary") @db.Text
+  lastScoredAt          DateTime?  @map("last_scored_at")
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([contactId])
+  @@map("leads")
 }
 
 model Conversation {
@@ -410,6 +454,7 @@ model Conversation {
   conversationEvents ConversationEvent[]
   orders            Order[]
   internalTasks     InternalTask[]
+  lead              Lead?
 
   @@index([tenantId])
   @@index([tenantId, status])
