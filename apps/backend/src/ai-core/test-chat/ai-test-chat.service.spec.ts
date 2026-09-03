@@ -15,16 +15,22 @@ function buildMessagesServiceMock() {
   return { handleInbound: jest.fn().mockResolvedValue(null) };
 }
 
+function buildConversationsServiceMock() {
+  return { resolve: jest.fn().mockResolvedValue(null) };
+}
+
 describe('AiTestChatService', () => {
   let prisma: ReturnType<typeof buildPrismaMock>;
   let messagesService: ReturnType<typeof buildMessagesServiceMock>;
+  let conversationsService: ReturnType<typeof buildConversationsServiceMock>;
   let service: AiTestChatService;
 
   beforeEach(() => {
     prisma = buildPrismaMock();
     messagesService = buildMessagesServiceMock();
+    conversationsService = buildConversationsServiceMock();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    service = new AiTestChatService(prisma as any, messagesService as any);
+    service = new AiTestChatService(prisma as any, messagesService as any, conversationsService as any);
   });
 
   describe('ensureAiEnabled (via getState)', () => {
@@ -95,6 +101,32 @@ describe('AiTestChatService', () => {
 
       expect(result.mode).toBe('AUTO_REPLY');
       expect(result.message).toEqual({ id: 'msg-1', content: 'Hi there!' });
+    });
+  });
+
+  describe('reset (forceNew)', () => {
+    beforeEach(() => {
+      prisma.tenantSettings.findUnique.mockResolvedValue({ aiEnabled: true });
+      prisma.contact.findFirst.mockResolvedValue({ id: 'contact-1', name: 'Test Customer (you)' });
+    });
+
+    it('resolves a dangling non-resolved conversation before starting a new one, so handleInbound never writes to it again', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 'stale-conv' });
+      prisma.conversation.create.mockResolvedValue({ id: 'fresh-conv' });
+
+      const result = await service.reset('t1', 'u1');
+
+      expect(conversationsService.resolve).toHaveBeenCalledWith('t1', 'stale-conv', 'u1');
+      expect(result.conversationId).toBe('fresh-conv');
+    });
+
+    it('does not call resolve when there is no dangling conversation', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(null);
+      prisma.conversation.create.mockResolvedValue({ id: 'fresh-conv' });
+
+      await service.reset('t1', 'u1');
+
+      expect(conversationsService.resolve).not.toHaveBeenCalled();
     });
   });
 });
