@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
+import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { PaystackGateway } from '../billing/gateways/paystack.gateway';
 import { ProductsController } from './products/products.controller';
 import { ProductsService } from './products/products.service';
@@ -23,7 +24,7 @@ import { CommerceTestChatService } from './test-chat/commerce-test-chat.service'
 // messages. Re-provides PaystackGateway directly (not exported from
 // BillingModule today) rather than depending on billing's public surface.
 @Module({
-  imports: [PrismaModule, ConfigModule, AuditModule],
+  imports: [PrismaModule, ConfigModule, AuditModule, KnowledgeBaseModule],
   controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController],
   providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService, CommerceTestChatService],
   exports: [CommerceLedgerService, OrdersService, CommerceAiService, ProductsService],
