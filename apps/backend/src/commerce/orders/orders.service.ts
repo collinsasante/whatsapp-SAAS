@@ -210,9 +210,9 @@ export class OrdersService {
     return order;
   }
 
-  findAll(tenantId: string, status?: OrderStatus) {
+  findAll(tenantId: string, status?: OrderStatus, contactId?: string) {
     return this.prisma.order.findMany({
-      where: { tenantId, ...(status ? { status } : {}) },
+      where: { tenantId, ...(status ? { status } : {}), ...(contactId ? { contactId } : {}) },
       orderBy: { createdAt: 'desc' },
       include: { items: true },
     });

@@ -548,6 +548,11 @@ export const commerceLedgerApi = {
   get: (page?: number, limit?: number) => api.get('/commerce/ledger', { params: { page, limit } }),
 };
 
+export const leadsApi = {
+  getForConversation: (conversationId: string) => api.get(`/leads/conversation/${conversationId}`),
+  rescore: (conversationId: string) => api.post(`/leads/conversation/${conversationId}/rescore`),
+};
+
 export const internalTasksApi = {
   list: (params?: { status?: string; department?: string; assigneeId?: string }) => api.get('/internal-tasks', { params }),
   get: (id: string) => api.get(`/internal-tasks/${id}`),

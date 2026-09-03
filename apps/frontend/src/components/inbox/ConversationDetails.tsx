@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw, Copy, Check } from 'lucide-react';
-import { conversationsApi, activityLogApi, contactsApi } from '@/lib/api';
+import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw, Copy, Check, Target } from 'lucide-react';
+import { conversationsApi, activityLogApi, contactsApi, leadsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { useInboxStore } from '@/store/inbox.store';
 import { getInitials, formatRelativeTime, getProxiedMediaUrl } from '@/lib/utils';
@@ -54,6 +54,29 @@ interface Props {
   conversation: Conversation;
 }
 
+interface Lead {
+  score: number;
+  status: string;
+  intent: string | null;
+  urgencySignal: string | null;
+  budgetSignal: string | null;
+  productInterest: string | null;
+  recommendedNextAction: string | null;
+  lastScoredAt: string | null;
+}
+
+const LEAD_STATUS_STYLE: Record<string, string> = {
+  HOT: 'bg-red-50 text-red-600',
+  QUALIFIED: 'bg-orange-50 text-orange-600',
+  WARM: 'bg-amber-50 text-amber-600',
+  ENGAGED: 'bg-blue-50 text-blue-600',
+  NEW: 'bg-gray-100 text-gray-500',
+  NURTURE: 'bg-gray-100 text-gray-500',
+  UNQUALIFIED: 'bg-gray-100 text-gray-400',
+  CONVERTED: 'bg-emerald-50 text-emerald-600',
+  LOST: 'bg-gray-100 text-gray-400',
+};
+
 interface ActivityEntry {
   id: string;
   action: string;
@@ -94,6 +117,10 @@ export default function ConversationDetails({ conversation }: Props) {
   const [briefText, setBriefText] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefCopied, setBriefCopied] = useState(false);
+  const [leadExpanded, setLeadExpanded] = useState(false);
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [leadLoading, setLeadLoading] = useState(false);
+  const [leadRescoring, setLeadRescoring] = useState(false);
 
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
@@ -109,6 +136,14 @@ export default function ConversationDetails({ conversation }: Props) {
   useEffect(() => {
     setBriefText(null);
     setBriefExpanded(false);
+    setLead(null);
+  }, [conversation.id]);
+
+  useEffect(() => {
+    setLeadLoading(true);
+    void leadsApi.getForConversation(conversation.id).then((res) => {
+      setLead((res.data as Lead | null) ?? null);
+    }).catch(() => {}).finally(() => setLeadLoading(false));
   }, [conversation.id]);
 
   useEffect(() => {
@@ -170,6 +205,18 @@ export default function ConversationDetails({ conversation }: Props) {
       toast.error('Could not generate brief');
     } finally {
       setBriefLoading(false);
+    }
+  };
+
+  const rescoreLead = async () => {
+    setLeadRescoring(true);
+    try {
+      const res = await leadsApi.rescore(conversation.id);
+      setLead((res.data as Lead | null) ?? null);
+    } catch {
+      toast.error('Could not score this lead');
+    } finally {
+      setLeadRescoring(false);
     }
   };
 
@@ -321,6 +368,73 @@ export default function ConversationDetails({ conversation }: Props) {
                     : <Sparkles size={12} />
                   }
                   {briefLoading ? 'Generating…' : 'Generate Brief'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Lead Score */}
+      <div className="border-b border-gray-100">
+        <button
+          onClick={() => setLeadExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors"
+        >
+          <span className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+            <Target size={14} className="text-orange-500" /> Lead Score
+          </span>
+          <div className="flex items-center gap-2">
+            {lead && (
+              <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', LEAD_STATUS_STYLE[lead.status] ?? 'bg-gray-100 text-gray-500')}>
+                {lead.score} · {lead.status}
+              </span>
+            )}
+            {leadExpanded ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+          </div>
+        </button>
+        {leadExpanded && (
+          <div className="px-5 pb-4">
+            {leadLoading ? (
+              <p className="text-xs text-gray-400 text-center py-2">Loading…</p>
+            ) : lead ? (
+              <div className="space-y-2">
+                {([
+                  { label: 'Intent', value: lead.intent },
+                  { label: 'Urgency', value: lead.urgencySignal },
+                  { label: 'Budget', value: lead.budgetSignal },
+                  { label: 'Interest', value: lead.productInterest },
+                  { label: 'Next Action', value: lead.recommendedNextAction },
+                ] as { label: string; value: string | null }[]).filter((r) => r.value).map(({ label, value }) => (
+                  <div key={label} className="flex items-start justify-between gap-2 py-0.5">
+                    <span className="text-xs text-gray-400 shrink-0">{label}</span>
+                    <span className="text-xs font-medium text-gray-800 text-right">{value}</span>
+                  </div>
+                ))}
+                <button
+                  onClick={() => { void rescoreLead(); }}
+                  disabled={leadRescoring}
+                  className="mt-2 flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium disabled:opacity-50"
+                >
+                  <RefreshCw size={11} className={leadRescoring ? 'animate-spin' : ''} />
+                  {leadRescoring ? 'Scoring…' : 'Rescore'}
+                </button>
+              </div>
+            ) : (
+              <div className="text-center py-3">
+                <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+                  Not scored yet. Commerce AI scores leads automatically as the conversation progresses.
+                </p>
+                <button
+                  onClick={() => { void rescoreLead(); }}
+                  disabled={leadRescoring}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-colors"
+                >
+                  {leadRescoring
+                    ? <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <Target size={12} />
+                  }
+                  {leadRescoring ? 'Scoring…' : 'Score Now'}
                 </button>
               </div>
             )}

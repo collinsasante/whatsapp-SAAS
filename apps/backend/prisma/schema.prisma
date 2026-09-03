@@ -381,10 +381,12 @@ enum LeadStatus {
   LOST
 }
 
-// Verz-AI Phase 2c: one evolving row per conversation (upserted in place as the
-// conversation progresses, not a new row per scoring pass), scored by a background
-// service -- never a customer-facing tool -- so staff can triage which conversations
-// are worth attention without customers ever seeing the reasoning.
+// Verz-AI unification, Phase B: one evolving row per conversation (upserted in place
+// as the conversation progresses, not a new row per scoring pass). Scored two ways --
+// a throttled background pass after each inbound commerce message, and on-demand via
+// the qualify_lead agent tool (ai-core/tools/lead.tools.ts) -- but reasoningSummary is
+// never returned from that tool, only from staff-facing reads, so the model's own
+// scoring rationale can never leak into a customer-facing reply.
 model Lead {
   id                    String     @id @default(uuid())
   tenantId              String     @map("tenant_id")

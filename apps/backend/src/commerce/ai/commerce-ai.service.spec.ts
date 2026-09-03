@@ -105,7 +105,7 @@ describe('CommerceAiService', () => {
       const sentReq = deps.toolCalling.complete.mock.calls[0][0];
       expect(sentReq.toolNames.sort()).toEqual([
         'add_item_to_order', 'create_internal_task', 'get_current_order', 'get_order_status',
-        'get_product_details', 'search_products', 'submit_order_for_payment',
+        'get_product_details', 'qualify_lead', 'search_products', 'submit_order_for_payment',
       ]);
       expect(sentReq.maxTokens).toBeGreaterThanOrEqual(900);
       expect(sentReq.toolContext).toEqual({ tenantId: 't1', conversationId: 'conv1', contactId: 'contact1', customerPhone: '+233555000111', dryRunPayment: undefined });
