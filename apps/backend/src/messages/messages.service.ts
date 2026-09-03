@@ -17,11 +17,28 @@ import { AiAgentsService } from '../ai-core/agents/ai-agents.service';
 import { VerzAiPipelineService } from '../ai-core/pipeline/verz-ai-pipeline.service';
 import { AiExecutionsService } from '../ai-core/executions/ai-executions.service';
 import { LeadsService } from '../leads/leads.service';
+import { ToolCallTrace } from '../ai-core/tools/tool-calling.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
+
+/**
+ * Verz-AI unification, Phase C: the single result shape every AI generator
+ * (Commerce, Verz-AI v2 pipeline, legacy responder) is normalized into before the
+ * shared SUGGESTION/AUTO_REPLY post-processing runs -- see generateAiReply below.
+ * `toolTrace` is populated only by the Commerce path (for the eval harness); every
+ * other generator leaves it undefined.
+ */
+interface UnifiedAiResult {
+  response: string;
+  confidence: number | null;
+  blocked: boolean;
+  executionId: string | null;
+  shouldEscalate?: boolean;
+  toolTrace?: ToolCallTrace[];
+}
 
 @Injectable()
 export class MessagesService {
@@ -707,187 +724,27 @@ export class MessagesService {
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     if (content && !flowMatched && !humanOwned) {
-      // Managed Commerce (Phase 1, single-pilot-tenant): checked before the normal
-      // aiMode branch so a commerce-enabled tenant's AI runs CommerceAiService's
-      // tool-calling sales agent instead of the knowledge-base Q&A responder. Gated
-      // per-tenant, so this only ever changes behavior for the flagged pilot tenant.
-      const commerceSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null);
-      if (commerceSettings?.commerceEnabled) {
-        // Verz-AI unification, Phase B: proactive background lead scoring, throttled
-        // inside LeadsService (see THROTTLE_MS) so this doesn't run a fresh LLM call on
-        // every single message. Runs independently of the reply IIFE below -- a scoring
-        // failure or delay must never affect reply latency or delivery.
-        void this.leadsService
-          .scoreConversation(tenantId, conversation.id, contact.id)
-          .catch((err) => this.logger.warn(`Background lead scoring failed for conversation ${conversation.id}: ${String(err)}`));
-
-        void (async () => {
-          const [result, verzAgent] = await Promise.all([
-            this.commerceAiService.handleMessage(tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined),
-            this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
-          ]);
-          if (!result.response) return;
-
-          await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
-
-          const aiMessage = await this.prisma.message.create({
-            data: {
-              tenantId,
-              conversationId: conversation.id,
-              contactId: contact.id,
-              senderId: verzAgent?.id ?? null,
-              direction: 'OUTBOUND' as const,
-              type: 'TEXT' as const,
-              status: 'SENT' as const,
-              content: result.response,
-              metadata: { aiGenerated: true, commerce: true },
-            },
-            include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
-          });
-
-          if (verzAgent && !assignedTo) {
-            await this.prisma.conversation.update({
-              where: { id: conversation.id },
-              data: { assignedToId: verzAgent.id, status: 'OPEN' },
-            });
-            this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
-              assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
-              status: 'OPEN',
-            });
-          }
-          this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
-        })();
-        return message;
-      }
-
-      // Verz-AI Phase 1 strangler flag: resolved once so both branches below agree
-      // on which pipeline answers this message. Legacy path (flag off) is
-      // completely untouched -- every call below still goes through
-      // AiResponderService exactly as before. Fail-closed: a lookup error means
-      // the legacy responder handles it, never a silent switch to the new path.
-      const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-
-      const aiMode = await this.aiResponderService.getMode(tenantId).catch(() => null);
+      // Verz-AI unification, Phase C: commerceEnabled and aiMode are resolved once,
+      // together, so every tenant -- commerce-enabled or not -- goes through the same
+      // SUGGESTION/AUTO_REPLY dispatch below. Commerce used to be checked here and
+      // return early with its own bespoke send/log/self-assign logic, bypassing
+      // aiMode, credit metering, and aiLogsService entirely (see generateAiReply);
+      // it's now just one more input into the generator choice, so a commerce-enabled
+      // tenant gets the same SUGGESTION-mode human review, credit metering, and audit
+      // trail every other tenant already has.
+      const [commerceSettings, aiMode] = await Promise.all([
+        this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null),
+        this.aiResponderService.getMode(tenantId).catch(() => null),
+      ]);
+      const commerceEnabled = !!commerceSettings?.commerceEnabled;
 
       if (aiMode === 'SUGGESTION') {
         // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
-        void (async () => {
-          const startMs = Date.now();
-          const result = useV2
-            ? await this.runVerzAiV2(tenantId, conversation.id, content, contact.name ?? undefined)
-            : { ...(await this.aiResponderService.generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined)), executionId: null as string | null };
-          if (!result.response) return;
-
-          if (result.shouldEscalate) {
-            await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
-          }
-
-          const log = await this.aiLogsService.create({
-            tenantId,
-            conversationId: conversation.id,
-            contactId: contact.id,
-            customerMessage: content,
-            aiResponse: result.response,
-            status: 'SUGGESTED',
-            confidenceScore: result.confidence,
-            responseTimeMs: Date.now() - startMs,
-          }) as { id: string };
-
-          if (result.executionId) {
-            await this.aiExecutionsService.linkInteractionLog(result.executionId, log.id).catch(() => null);
-          }
-
-          this.realtimeService.emitAiSuggestion(tenantId, conversation.id, {
-            logId: log.id,
-            response: result.response,
-            confidence: result.confidence,
-          });
-        })();
+        void this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled);
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
-          void (async () => {
-            const startMs = Date.now();
-            // v2 resolves the agent (and, inside it, the shared synthetic user)
-            // BEFORE looking up verzAgent separately -- running both in the same
-            // Promise.all would risk two concurrent creators racing to create the
-            // synthetic isAiAgent user on a tenant's very first-ever message. The
-            // legacy path's Promise.all below is untouched byte-for-byte.
-            let result: { response: string; confidence: number | null; blocked: boolean; executionId: string | null; shouldEscalate?: boolean };
-            let verzAgent: { id: string; name: string; avatarUrl: string | null } | null;
-            if (useV2) {
-              result = await this.runVerzAiV2(tenantId, conversation.id, content, contact.name ?? undefined);
-              verzAgent = await this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null);
-            } else {
-              [result, verzAgent] = await Promise.all([
-                this.aiResponderService
-                  .generateSuggestion(tenantId, conversation.id, content, contact.name ?? undefined)
-                  .then((r) => ({ ...r, executionId: null as string | null })),
-                this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
-              ]);
-            }
-            if (!result.response) return;
-
-            if (result.shouldEscalate) {
-              await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
-            }
-
-            const decremented = await this.prisma.tenant.updateMany({
-              where: { id: tenantId, aiCredits: { gt: 0 } },
-              data: { aiCredits: { decrement: 1 } },
-            });
-            // v2-only fix: the legacy decrement result was never checked, so a
-            // tenant at 0 credits could still get a free auto-reply sent
-            // (shouldRespond() above pre-checks credits, so this was already a
-            // narrow, bounded gap). Fixed only at this new call site, per the
-            // strangler discipline of never touching AiResponderService or its
-            // existing callers' behavior.
-            if (useV2 && decremented.count === 0) return;
-
-            await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
-
-            const log = await this.aiLogsService.create({
-              tenantId,
-              conversationId: conversation.id,
-              contactId: contact.id,
-              customerMessage: content,
-              aiResponse: result.response,
-              status: 'AUTO_SENT',
-              confidenceScore: result.confidence,
-              responseTimeMs: Date.now() - startMs,
-            }) as { id: string };
-
-            if (result.executionId) {
-              await this.aiExecutionsService.linkInteractionLog(result.executionId, log.id).catch(() => null);
-            }
-
-            const aiMessage = await this.prisma.message.create({
-              data: {
-                tenantId,
-                conversationId: conversation.id,
-                contactId: contact.id,
-                senderId: verzAgent?.id ?? null,
-                direction: 'OUTBOUND' as const,
-                type: 'TEXT' as const,
-                status: 'SENT' as const,
-                content: result.response,
-                metadata: { aiGenerated: true },
-              },
-              include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
-            });
-
-            if (verzAgent && !assignedTo) {
-              await this.prisma.conversation.update({
-                where: { id: conversation.id },
-                data: { assignedToId: verzAgent.id, status: 'OPEN' },
-              });
-              this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
-                assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
-                status: 'OPEN',
-              });
-            }
-            this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
-          })();
+          void this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo);
         }
       }
     }
@@ -911,6 +768,204 @@ export class MessagesService {
         taskType: 'RESPONDER',
       }),
     );
+  }
+
+  /**
+   * Verz-AI unification, Phase C: the single generator dispatch every aiMode branch
+   * calls through. Commerce's own generator (CommerceAiService, already on shared
+   * ai-core provider/tracing/tool-calling infrastructure since Phase A) is offered
+   * whenever the tenant is commerce-enabled, regardless of the verz_ai_v2 flag --
+   * that flag only ever chose between the v2 pipeline and the legacy responder for
+   * NON-commerce tenants, so it's resolved lazily here rather than upfront. Every
+   * branch is normalized into the same UnifiedAiResult shape before returning.
+   */
+  private async generateAiReply(
+    tenantId: string,
+    conversationId: string,
+    contactId: string,
+    customerPhone: string,
+    content: string,
+    contactName: string | undefined,
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean },
+  ): Promise<UnifiedAiResult> {
+    if (opts.commerceEnabled) {
+      const r = await this.commerceAiService.handleMessage(
+        tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
+        { readOnlyTools: opts.readOnlyTools },
+      );
+      return { response: r.response, confidence: null, blocked: r.blocked, executionId: null, toolTrace: r.toolTrace };
+    }
+
+    const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, content, contactName);
+
+    const legacy = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contactName);
+    return { ...legacy, executionId: null };
+  }
+
+  /** Fire-and-forget background lead scoring, throttled inside LeadsService (see
+   * THROTTLE_MS) -- runs independently of the reply generated below it; a scoring
+   * failure or delay must never affect reply latency or delivery. Only meaningful
+   * for commerce-enabled tenants (Lead Intelligence is a sales/commerce concept). */
+  private maybeScoreLead(tenantId: string, conversationId: string, contactId: string, commerceEnabled: boolean) {
+    if (!commerceEnabled) return;
+    void this.leadsService
+      .scoreConversation(tenantId, conversationId, contactId)
+      .catch((err) => this.logger.warn(`Background lead scoring failed for conversation ${conversationId}: ${String(err)}`));
+  }
+
+  private async handleAiSuggestion(
+    tenantId: string,
+    conversation: { id: string },
+    contact: { id: string; phone: string; name: string | null },
+    content: string,
+    commerceEnabled: boolean,
+  ) {
+    this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
+
+    const startMs = Date.now();
+    // SUGGESTION mode restricts Commerce to read-only tools: it has never run in
+    // SUGGESTION mode before, so a human hasn't yet approved anything the AI wants to
+    // do -- add_item_to_order/submit_order_for_payment/create_internal_task stay
+    // withheld until AUTO_REPLY or a human sends the reply themselves. New safeguard
+    // for a new capability, not a weakening of anything that exists today.
+    const result = await this.generateAiReply(
+      tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
+      { commerceEnabled, readOnlyTools: true },
+    ).catch((err) => {
+      this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
+      return null;
+    });
+    if (!result?.response) return;
+
+    if (result.shouldEscalate) {
+      await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
+    }
+
+    const log = await this.aiLogsService.create({
+      tenantId,
+      conversationId: conversation.id,
+      contactId: contact.id,
+      customerMessage: content,
+      aiResponse: result.response,
+      status: 'SUGGESTED',
+      confidenceScore: result.confidence,
+      responseTimeMs: Date.now() - startMs,
+    }).catch((err) => {
+      this.logger.warn(`Failed to persist AI suggestion log for conversation ${conversation.id}: ${String(err)}`);
+      return null;
+    }) as { id: string } | null;
+    if (!log) return;
+
+    if (result.executionId) {
+      await this.aiExecutionsService.linkInteractionLog(result.executionId, log.id).catch(() => null);
+    }
+
+    this.realtimeService.emitAiSuggestion(tenantId, conversation.id, {
+      logId: log.id,
+      response: result.response,
+      confidence: result.confidence,
+    });
+  }
+
+  private async handleAiAutoReply(
+    tenantId: string,
+    conversation: { id: string },
+    contact: { id: string; phone: string; name: string | null },
+    content: string,
+    commerceEnabled: boolean,
+    assignedTo: { id: string; isAiAgent?: boolean } | null | undefined,
+  ) {
+    this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
+
+    const startMs = Date.now();
+    const [result, verzAgent] = await Promise.all([
+      this.generateAiReply(
+        tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
+        { commerceEnabled, readOnlyTools: false },
+      ).catch((err) => {
+        this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
+        return null;
+      }),
+      this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
+    ]);
+    if (!result?.response) return;
+
+    if (result.shouldEscalate) {
+      await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
+    }
+
+    const decremented = await this.prisma.tenant.updateMany({
+      where: { id: tenantId, aiCredits: { gt: 0 } },
+      data: { aiCredits: { decrement: 1 } },
+    }).catch((err) => {
+      this.logger.warn(`Credit decrement failed for tenant ${tenantId}: ${String(err)}`);
+      return null;
+    });
+    // Checked unconditionally now (previously only for the v2 path, so a tenant at 0
+    // credits could still get a free auto-reply from the legacy responder or, before
+    // unification, an uncounted Commerce reply). shouldRespond() above already
+    // pre-checks credits, so this closes a narrow, already-bounded gap rather than
+    // changing everyday behavior for tenants with credits remaining.
+    if (!decremented || decremented.count === 0) return;
+
+    await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
+
+    const log = await this.aiLogsService.create({
+      tenantId,
+      conversationId: conversation.id,
+      contactId: contact.id,
+      customerMessage: content,
+      aiResponse: result.response,
+      status: 'AUTO_SENT',
+      confidenceScore: result.confidence,
+      responseTimeMs: Date.now() - startMs,
+    }).catch((err) => {
+      this.logger.warn(`Failed to persist AI auto-reply log for conversation ${conversation.id}: ${String(err)}`);
+      return null;
+    }) as { id: string } | null;
+
+    if (log && result.executionId) {
+      await this.aiExecutionsService.linkInteractionLog(result.executionId, log.id).catch(() => null);
+    }
+
+    const aiMessage = await this.prisma.message.create({
+      data: {
+        tenantId,
+        conversationId: conversation.id,
+        contactId: contact.id,
+        senderId: verzAgent?.id ?? null,
+        direction: 'OUTBOUND' as const,
+        type: 'TEXT' as const,
+        status: 'SENT' as const,
+        content: result.response,
+        // commerce:true is preserved from the pre-unification Commerce branch's own
+        // message metadata, so anything already keying off it keeps working.
+        metadata: commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true },
+      },
+      include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+    }).catch((err) => {
+      this.logger.warn(`Failed to persist AI auto-reply message for conversation ${conversation.id}: ${String(err)}`);
+      return null;
+    });
+    if (!aiMessage) return;
+
+    if (verzAgent && !assignedTo) {
+      const updated = await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { assignedToId: verzAgent.id, status: 'OPEN' },
+      }).catch((err) => {
+        this.logger.warn(`Failed to self-assign conversation ${conversation.id}: ${String(err)}`);
+        return null;
+      });
+      if (updated) {
+        this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+          assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
+          status: 'OPEN',
+        });
+      }
+    }
+    this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
   }
 
   private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>) {
