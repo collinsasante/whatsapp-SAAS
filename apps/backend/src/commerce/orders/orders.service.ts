@@ -1,8 +1,9 @@
 import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Order } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
+import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
 import { isValidOrderTransition } from './order-state.util';
 
 interface AddOrderItemInput {
@@ -18,6 +19,7 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private paystack: PaystackGateway,
+    private internalTasks: InternalTasksService,
   ) {}
 
   async createDraft(tenantId: string, opts: { contactId: string; conversationId?: string; customerPhone: string; customerName?: string; currency?: string }) {
@@ -70,6 +72,20 @@ export class OrdersService {
   /** Initiates payment collection via Paystack (mobile money is a Paystack checkout channel in Ghana -- no separate MTN integration needed). */
   async submitForPayment(tenantId: string, orderId: string, customerEmail?: string, opts?: { dryRun?: boolean }) {
     const order = await this.getOwned(tenantId, orderId);
+
+    // Business-rule enforcement lives in code, not AI judgment: a DRAFT order with any
+    // item below its product's minOrderQuantity is routed to a human for approval
+    // instead of being rejected outright or silently allowed. Only checked when
+    // transitioning FROM DRAFT -- an approval-flow re-entry (AWAITING_APPROVAL ->
+    // PENDING_PAYMENT via approveOrder) never re-triggers this, since a human already
+    // made the call.
+    if (order.status === OrderStatus.DRAFT) {
+      const belowMinimum = await this.getItemsBelowMinimum(orderId);
+      if (belowMinimum.length > 0) {
+        return this.sendForApproval(tenantId, order, belowMinimum);
+      }
+    }
+
     this.assertTransition(order.status, OrderStatus.PENDING_PAYMENT);
     if (order.totalMajorUnits <= 0) throw new ConflictException('Cannot submit an empty order for payment');
 
@@ -108,6 +124,34 @@ export class OrdersService {
       data: { status: OrderStatus.CANCELLED, cancelledAt: new Date(), cancelReason: reason },
     });
     await this.recordEvent(tenantId, orderId, 'CANCELLED', { reason });
+    return updated;
+  }
+
+  /** Human approves an AWAITING_APPROVAL order -- reuses submitForPayment() unchanged
+   * (real Paystack init, same as a normal checkout) since a human has already made the
+   * exception call; the below-minimum check only ever fires when entering from DRAFT. */
+  async approveOrder(tenantId: string, orderId: string, approvedByUserId: string, customerEmail?: string) {
+    const order = await this.getOwned(tenantId, orderId);
+    if (order.status !== OrderStatus.AWAITING_APPROVAL) {
+      throw new ConflictException('Only AWAITING_APPROVAL orders can be approved');
+    }
+    const updated = await this.submitForPayment(tenantId, orderId, customerEmail);
+    await this.recordEvent(tenantId, orderId, 'APPROVED', { approvedByUserId });
+    await this.internalTasks
+      .resolveByOrderId(tenantId, orderId, approvedByUserId, 'DONE')
+      .catch((err) => this.logger.warn(`Failed to resolve task for approved order ${orderId}: ${String(err)}`));
+    return updated;
+  }
+
+  async rejectOrder(tenantId: string, orderId: string, rejectedByUserId: string, reason?: string) {
+    const order = await this.getOwned(tenantId, orderId);
+    if (order.status !== OrderStatus.AWAITING_APPROVAL) {
+      throw new ConflictException('Only AWAITING_APPROVAL orders can be rejected');
+    }
+    const updated = await this.cancel(tenantId, orderId, reason ?? 'Rejected: below minimum order quantity');
+    await this.internalTasks
+      .resolveByOrderId(tenantId, orderId, rejectedByUserId, 'CANCELLED')
+      .catch((err) => this.logger.warn(`Failed to resolve task for rejected order ${orderId}: ${String(err)}`));
     return updated;
   }
 
@@ -178,6 +222,41 @@ export class OrdersService {
     if (!isValidOrderTransition(from, to)) {
       throw new ConflictException(`Invalid order transition: ${from} -> ${to}`);
     }
+  }
+
+  /** Order items whose quantity is below their product's configured minOrderQuantity --
+   * items without a product (deleted) or without a minimum set are never flagged. */
+  private async getItemsBelowMinimum(orderId: string) {
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId },
+      include: { product: { select: { minOrderQuantity: true } } },
+    });
+    return items.filter((i) => i.product?.minOrderQuantity != null && i.quantity < i.product.minOrderQuantity);
+  }
+
+  private async sendForApproval(
+    tenantId: string,
+    order: Order,
+    belowMinimum: { productId: string | null; productNameSnapshot: string; quantity: number; product: { minOrderQuantity: number | null } | null }[],
+  ) {
+    this.assertTransition(order.status, OrderStatus.AWAITING_APPROVAL);
+    const updated = await this.prisma.order.update({ where: { id: order.id }, data: { status: OrderStatus.AWAITING_APPROVAL } });
+    const summary = belowMinimum.map((i) => `${i.productNameSnapshot} (qty ${i.quantity}, min ${i.product?.minOrderQuantity})`).join(', ');
+    await this.recordEvent(tenantId, order.id, 'SENT_FOR_APPROVAL', {
+      items: belowMinimum.map((i) => ({ productId: i.productId, quantity: i.quantity, minOrderQuantity: i.product?.minOrderQuantity })),
+    });
+    await this.internalTasks
+      .create(tenantId, {
+        department: 'Orders',
+        title: `Order below minimum quantity -- ${order.customerName ?? order.customerPhone}`,
+        description: `Order ${order.id} has item(s) below the configured minimum order quantity: ${summary}. Approve to send the customer a payment link, or reject.`,
+        orderId: order.id,
+        conversationId: order.conversationId ?? undefined,
+        contactId: order.contactId,
+        createdById: null,
+      })
+      .catch((err) => this.logger.warn(`Failed to create approval task for order ${order.id}: ${String(err)}`));
+    return updated;
   }
 
   private async recalculateTotals(orderId: string) {

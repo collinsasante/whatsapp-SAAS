@@ -7,7 +7,8 @@ import { OrderStatus } from '@prisma/client';
  * need a REFUND, not a status rollback.
  */
 export const ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  DRAFT: ['PENDING_PAYMENT', 'CANCELLED'],
+  DRAFT: ['PENDING_PAYMENT', 'AWAITING_APPROVAL', 'CANCELLED'],
+  AWAITING_APPROVAL: ['PENDING_PAYMENT', 'CANCELLED'],
   PENDING_PAYMENT: ['PAID', 'CANCELLED'],
   PAID: ['FULFILLING', 'COMPLETED', 'REFUNDED'],
   FULFILLING: ['COMPLETED', 'REFUNDED'],

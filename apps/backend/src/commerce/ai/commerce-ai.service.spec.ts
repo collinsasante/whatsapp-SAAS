@@ -15,20 +15,32 @@ function buildDeps() {
   return {
     prisma: buildPrismaMock(),
     products: {},
-    orders: {},
+    orders: { findMostRecentForConversation: jest.fn().mockResolvedValue(null) },
     knowledgeBase: { getRelevant: jest.fn().mockResolvedValue([]) },
     conversations: { request: jest.fn().mockResolvedValue(null) },
+    internalTasks: { create: jest.fn().mockResolvedValue({ id: 'task-1', status: 'OPEN', assignedTeamId: null }) },
   };
 }
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceAiService(deps.prisma as any, deps.products as any, deps.orders as any, deps.knowledgeBase as any, deps.conversations as any);
+  return new CommerceAiService(deps.prisma as any, deps.products as any, deps.orders as any, deps.knowledgeBase as any, deps.conversations as any, deps.internalTasks as any);
 }
 
 function mockChatResponse(content: string) {
   mockedAxios.post.mockResolvedValueOnce({
     data: { choices: [{ message: { content }, finish_reason: 'stop' }] },
+  });
+}
+
+function mockToolCallResponse(name: string, args: Record<string, unknown>) {
+  mockedAxios.post.mockResolvedValueOnce({
+    data: {
+      choices: [{
+        message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name, arguments: JSON.stringify(args) } }] },
+        finish_reason: 'tool_calls',
+      }],
+    },
   });
 }
 
@@ -135,6 +147,58 @@ describe('CommerceAiService', () => {
 
       const sentBody = mockedAxios.post.mock.calls[0][1] as { max_tokens: number };
       expect(sentBody.max_tokens).toBeGreaterThanOrEqual(900);
+    });
+  });
+
+  describe('create_internal_task tool', () => {
+    it('creates a real task instead of just replying that a team will help', async () => {
+      const deps = buildDeps();
+      mockToolCallResponse('create_internal_task', { department: 'Design', title: 'Forward artwork', description: 'Customer wants their artwork checked' });
+      mockChatResponse("I've flagged this for our design team.");
+      const service = buildService(deps);
+
+      const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'can you forward my artwork to the design team?');
+
+      expect(deps.internalTasks.create).toHaveBeenCalledWith('t1', expect.objectContaining({
+        department: 'Design', title: 'Forward artwork', description: 'Customer wants their artwork checked',
+        conversationId: 'conv1', contactId: 'contact1', createdById: null,
+      }));
+      expect(result.response).toBe("I've flagged this for our design team.");
+    });
+
+    it('rejects a tool call missing required fields without creating a task', async () => {
+      const deps = buildDeps();
+      mockToolCallResponse('create_internal_task', { department: 'Design' });
+      mockChatResponse('Let me get a bit more detail first.');
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'forward this to design');
+
+      expect(deps.internalTasks.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('submit_order_for_payment -- AWAITING_APPROVAL result', () => {
+    it('does not expose a checkoutUrl when the order needs approval', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (deps as any).orders = {
+        findMostRecentForConversation: jest.fn().mockResolvedValue(null),
+        findActiveDraftForConversation: jest.fn().mockResolvedValue({ id: 'order-1', items: [] }),
+        submitForPayment: jest.fn().mockResolvedValue({ id: 'order-1', status: 'AWAITING_APPROVAL', totalMajorUnits: 43, currency: 'GHS', paystackCheckoutUrl: null }),
+      };
+      mockToolCallResponse('submit_order_for_payment', {});
+      mockChatResponse("Your order needs a quick review, I'll follow up once it's approved.");
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'checkout please');
+
+      const sentMessages = mockedAxios.post.mock.calls[1][1] as { messages: { role: string; content: string }[] };
+      const toolResultMessage = sentMessages.messages.find((m) => m.role === 'tool');
+      const toolResult = JSON.parse(toolResultMessage!.content);
+      expect(toolResult.status).toBe('AWAITING_APPROVAL');
+      expect(toolResult.checkoutUrl).toBeUndefined();
+      expect(toolResult.note).toContain('approval');
     });
   });
 });

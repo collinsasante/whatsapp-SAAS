@@ -36,6 +36,7 @@ import { BillingModule } from './billing/billing.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { EvaluationModule } from './commerce/evaluation/evaluation.module';
 import { TeamsModule } from './teams/teams.module';
+import { InternalTasksModule } from './internal-tasks/internal-tasks.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 
@@ -114,6 +115,7 @@ import appConfig from './config/app.config';
     CommerceModule,
     EvaluationModule,
     TeamsModule,
+    InternalTasksModule,
     WorkspaceModule,
     AnalyticsModule,
 
