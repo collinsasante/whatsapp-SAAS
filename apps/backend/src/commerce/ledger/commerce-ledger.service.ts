@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { LedgerEntryType, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
+import { LeadsService } from '../../leads/leads.service';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
 
@@ -12,6 +13,9 @@ export class CommerceLedgerService {
   constructor(
     private prisma: PrismaService,
     private paystack: PaystackGateway,
+    // Injected via LeadsModule's @Global() export, not a CommerceModule import edge --
+    // see leads.module.ts for why.
+    private leads: LeadsService,
   ) {}
 
   /**
@@ -144,6 +148,16 @@ export class CommerceLedgerService {
       });
 
       this.logger.log(`Order ${orderId} PAID -- GMV ${gmvAmount} ${order.currency}, take-rate ${takeRateAmount} (${takeRatePct}%)`);
+
+      // Best-effort: a real payment is the one deterministic, non-AI signal that a lead
+      // converted (see leads.service.ts's VALID_STATUSES comment -- the model itself can
+      // never set this status). Not every order has a conversationId (e.g. an order
+      // placed outside a WhatsApp conversation), so this is a no-op in that case.
+      if (order.conversationId) {
+        this.leads.markConverted(order.tenantId, order.conversationId)
+          .catch((err) => this.logger.warn(`Failed to mark lead converted for order ${orderId}: ${String(err)}`));
+      }
+
       return result.gmvEntry;
     } catch (err) {
       // Unique constraint violation on (orderId, type, gatewayEventId) means a

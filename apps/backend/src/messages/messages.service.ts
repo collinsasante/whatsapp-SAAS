@@ -16,6 +16,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { AiAgentsService } from '../ai-core/agents/ai-agents.service';
 import { VerzAiPipelineService } from '../ai-core/pipeline/verz-ai-pipeline.service';
 import { AiExecutionsService } from '../ai-core/executions/ai-executions.service';
+import { LeadsService } from '../leads/leads.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
@@ -43,6 +44,7 @@ export class MessagesService {
     private aiAgentsService: AiAgentsService,
     private verzAiPipeline: VerzAiPipelineService,
     private aiExecutionsService: AiExecutionsService,
+    private leadsService: LeadsService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -711,6 +713,14 @@ export class MessagesService {
       // per-tenant, so this only ever changes behavior for the flagged pilot tenant.
       const commerceSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null);
       if (commerceSettings?.commerceEnabled) {
+        // Verz-AI unification, Phase B: proactive background lead scoring, throttled
+        // inside LeadsService (see THROTTLE_MS) so this doesn't run a fresh LLM call on
+        // every single message. Runs independently of the reply IIFE below -- a scoring
+        // failure or delay must never affect reply latency or delivery.
+        void this.leadsService
+          .scoreConversation(tenantId, conversation.id, contact.id)
+          .catch((err) => this.logger.warn(`Background lead scoring failed for conversation ${conversation.id}: ${String(err)}`));
+
         void (async () => {
           const [result, verzAgent] = await Promise.all([
             this.commerceAiService.handleMessage(tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined),
