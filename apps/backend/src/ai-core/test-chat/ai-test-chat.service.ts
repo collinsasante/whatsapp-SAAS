@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagesService } from '../../messages/messages.service';
+import { ConversationsService } from '../../conversations/conversations.service';
 
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 20_000;
@@ -24,6 +25,7 @@ export class AiTestChatService {
   constructor(
     private prisma: PrismaService,
     private messagesService: MessagesService,
+    private conversationsService: ConversationsService,
   ) {}
 
   /**
@@ -48,6 +50,19 @@ export class AiTestChatService {
     }
   }
 
+  /**
+   * handleInbound() resolves "the" conversation for an inbound message via
+   * ConversationsService.findOrCreate(), whose "existing" lookup is
+   * `{tenantId, contactId, status: {not: RESOLVED}}` -- no contactSource
+   * filter, no ordering. This method used to look up its own conversation by
+   * `contactSource: 'dashboard_test_ai'` ordered by createdAt desc instead,
+   * which drifted from handleInbound()'s pick as soon as this contact had more
+   * than one non-resolved conversation (e.g. a prior test session left one
+   * dangling): the AI's reply would land on whichever row handleInbound found
+   * -- visible in the real Inbox -- while this page kept polling a different
+   * row that never received it. Matching the same where-clause here guarantees
+   * both always agree on which conversation is "current".
+   */
   private async findOrCreateSession(tenantId: string, userId: string, forceNew = false) {
     const phone = this.phoneFor(userId);
     let contact = await this.prisma.contact.findFirst({ where: { tenantId, phone } });
@@ -55,11 +70,20 @@ export class AiTestChatService {
       contact = await this.prisma.contact.create({ data: { tenantId, phone, name: 'Test Customer (you)' } });
     }
 
+    if (forceNew) {
+      // Resolve any conversation handleInbound() would otherwise still treat as
+      // the active one for this contact, so it can never keep receiving replies
+      // this page has moved on from polling.
+      const stale = await this.prisma.conversation.findFirst({
+        where: { tenantId, contactId: contact.id, status: { not: 'RESOLVED' } },
+      });
+      if (stale) await this.conversationsService.resolve(tenantId, stale.id, userId).catch(() => null);
+    }
+
     let conversation = forceNew
       ? null
       : await this.prisma.conversation.findFirst({
-          where: { tenantId, contactId: contact.id, contactSource: 'dashboard_test_ai' },
-          orderBy: { createdAt: 'desc' },
+          where: { tenantId, contactId: contact.id, status: { not: 'RESOLVED' } },
         });
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
