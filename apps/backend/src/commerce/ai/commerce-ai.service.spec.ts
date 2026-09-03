@@ -152,5 +152,33 @@ describe('CommerceAiService', () => {
 
       expect(result.toolTrace).toEqual(trace);
     });
+
+    it('restricts to read-only tools when opts.readOnlyTools is set (Phase C, SUGGESTION mode)', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi', undefined, undefined, { readOnlyTools: true });
+
+      const sentReq = deps.toolCalling.complete.mock.calls[0][0];
+      expect(sentReq.toolNames.sort()).toEqual([
+        'get_current_order', 'get_order_status', 'get_product_details', 'qualify_lead', 'search_products',
+      ]);
+      expect(sentReq.toolNames).not.toContain('add_item_to_order');
+      expect(sentReq.toolNames).not.toContain('submit_order_for_payment');
+      expect(sentReq.toolNames).not.toContain('create_internal_task');
+    });
+
+    it('offers the full tool set when opts.readOnlyTools is false or omitted', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi', undefined, undefined, { readOnlyTools: false });
+
+      const sentReq = deps.toolCalling.complete.mock.calls[0][0];
+      expect(sentReq.toolNames).toContain('add_item_to_order');
+      expect(sentReq.toolNames).toContain('submit_order_for_payment');
+    });
   });
 });

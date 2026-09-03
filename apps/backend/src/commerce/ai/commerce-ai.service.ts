@@ -36,6 +36,18 @@ const COMMERCE_TOOL_NAMES = [
   'qualify_lead',
 ];
 
+/** Verz-AI unification, Phase C: offered instead of COMMERCE_TOOL_NAMES when the
+ * caller is running this in SUGGESTION mode -- Commerce has never run in
+ * SUGGESTION mode before, so a human hasn't approved anything yet;
+ * order/task-mutating tools stay withheld until AUTO_REPLY or a human sends. */
+const READ_ONLY_COMMERCE_TOOL_NAMES = [
+  'search_products',
+  'get_product_details',
+  'get_current_order',
+  'get_order_status',
+  'qualify_lead',
+];
+
 export interface CommerceAiResult {
   response: string;
   blocked: boolean;
@@ -64,6 +76,7 @@ export class CommerceAiService {
     customerMessage: string,
     contactName?: string,
     evalContext?: { dryRunPayment: boolean },
+    opts?: { readOnlyTools?: boolean },
   ): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
       return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
@@ -140,7 +153,7 @@ export class CommerceAiService {
       // contactName-prefixed version instead, matching the pre-unification behavior.
       historyMessages: historyMessages.slice(0, -1),
       userMessage: userContent,
-      toolNames: COMMERCE_TOOL_NAMES,
+      toolNames: opts?.readOnlyTools ? READ_ONLY_COMMERCE_TOOL_NAMES : COMMERCE_TOOL_NAMES,
       toolContext: { tenantId, conversationId, contactId, customerPhone, dryRunPayment: evalContext?.dryRunPayment },
       modelKey: DEEPSEEK_MODEL,
       maxTokens: 900, // 500 was cutting off replies mid-sentence on longer, multi-item quotes
