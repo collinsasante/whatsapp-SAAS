@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle, BarChart3, Bot, Check, CheckCircle2,
-  CreditCard, Download, Mail, RefreshCw, Sparkles, Users, X, Zap,
+  CreditCard, Download, Mail, Receipt, RefreshCw, Sparkles, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -63,8 +63,28 @@ interface Invoice {
 }
 
 interface CreditPack {
-  slug: string; credits: number; amount: number;
-  label: string; description: string; currency: string;
+  id: string; slug: string; name: string;
+  credits: number; bonusCredits: number;
+  priceGhs: number | null; priceUsd: number | null;
+  isActive: boolean; displayOrder: number;
+}
+
+interface CreditTransaction {
+  id: string;
+  type: 'PURCHASE' | 'BONUS' | 'AI_USAGE' | 'REFUND' | 'ADJUSTMENT';
+  credits: number;
+  balanceAfter: number;
+  description: string;
+  createdAt: string;
+}
+
+interface CreditUsageSummary {
+  currentBalance: number;
+  usedThisMonth: number;
+  purchasedThisMonth: number;
+  aiRequestsThisMonth: number;
+  totalPurchased: number;
+  totalUsed: number;
 }
 
 // ─── Currency helpers ─────────────────────────────────────────────────────────
@@ -300,12 +320,15 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
   onClose: () => void;
   onPurchased: () => void;
 }) {
-  const [gateway, setGateway] = useState<Gateway>('stripe');
+  const [gateway, setGateway] = useState<Gateway>(pack.priceUsd != null ? 'stripe' : 'paystack');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('form');
   const [error, setError] = useState<string | null>(null);
   const [stripeSecret, setStripeSecret] = useState<{ clientSecret: string; publishableKey: string } | null>(null);
   const [paystackAccessCode, setPaystackAccessCode] = useState<string | null>(null);
+  const totalCredits = pack.credits + pack.bonusCredits;
+  const price = gateway === 'stripe' ? pack.priceUsd : pack.priceGhs;
+  const priceLabel = price == null ? '—' : gateway === 'stripe' ? `$${price}` : `GH₵${price}`;
 
   const handleContinue = async () => {
     setError(null);
@@ -332,7 +355,7 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Buy {pack.label}</h2>
+          <h2 className="font-bold text-gray-900">Buy {pack.name}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
             <X size={16} />
           </button>
@@ -384,24 +407,24 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setGateway('stripe')}
-                    className={cn('p-3 rounded-xl border-2 text-left transition-all',
+                  <button onClick={() => setGateway('stripe')} disabled={pack.priceUsd == null}
+                    className={cn('p-3 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed',
                       gateway === 'stripe' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
                     <div className="text-sm font-semibold text-gray-900">💳 Card (Stripe)</div>
                   </button>
-                  <button onClick={() => setGateway('paystack')}
-                    className={cn('p-3 rounded-xl border-2 text-left transition-all',
+                  <button onClick={() => setGateway('paystack')} disabled={pack.priceGhs == null}
+                    className={cn('p-3 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed',
                       gateway === 'paystack' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
                     <div className="text-sm font-semibold text-gray-900">🏦 Paystack</div>
                   </button>
                 </div>
               </div>
               <div className="bg-gray-50 rounded-xl p-4 text-sm flex justify-between font-bold text-gray-900">
-                <span>{pack.label}</span><span>${pack.amount}</span>
+                <span>{pack.name} — {totalCredits.toLocaleString()} credits</span><span>{priceLabel}</span>
               </div>
             </div>
             <div className="px-5 pb-5">
-              <button onClick={() => { void handleContinue(); }} disabled={loading}
+              <button onClick={() => { void handleContinue(); }} disabled={loading || price == null}
                 className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
                 {loading
                   ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout…</>
@@ -450,37 +473,44 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
             <span className="text-xs text-gray-400">credits remaining</span>
           </div>
         </div>
-        <p className="text-xs text-gray-400 mb-4">Each VerzAI reply costs 1 credit. Credits never expire.</p>
+        <p className="text-xs text-gray-400 mb-4">Credits are spent based on actual AI usage per reply, so cost scales with how much VerzAI has to do. Credits never expire.</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {packs.map((pack) => (
+          {packs.map((pack, i) => {
+            const isFeatured = i === 1; // second tier ("Growth") highlighted, same visual convention as before
+            return (
             <div key={pack.slug}
               className={cn('relative border-2 rounded-xl p-4 flex flex-col gap-2 transition-all',
-                pack.slug === 'growth-600'
+                isFeatured
                   ? 'border-teal-500 bg-teal-50'
                   : 'border-gray-200 hover:border-teal-300')}>
-              {pack.slug === 'growth-600' && (
+              {isFeatured && (
                 <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold px-2 py-0.5 bg-teal-600 text-white rounded-full whitespace-nowrap">
                   Most Popular
                 </span>
               )}
-              <div className="flex items-baseline gap-1">
-                <span className="text-xl font-bold text-gray-900">${pack.amount}</span>
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                {pack.priceGhs != null && <span className="text-xl font-bold text-gray-900">GH₵{pack.priceGhs}</span>}
+                {pack.priceUsd != null && <span className="text-xs text-gray-400">${pack.priceUsd}</span>}
               </div>
-              <p className="text-sm font-semibold text-gray-900">{pack.label}</p>
-              <p className="text-xs text-gray-500 leading-relaxed">{pack.description}</p>
+              <p className="text-sm font-semibold text-gray-900">{pack.name}</p>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                {(pack.credits + pack.bonusCredits).toLocaleString()} credits
+                {pack.bonusCredits > 0 && <span className="text-teal-600"> (+{pack.bonusCredits.toLocaleString()} bonus)</span>}
+              </p>
               <button
                 onClick={() => setBuyingPack(pack)}
                 className={cn(
                   'mt-auto py-2 px-4 rounded-lg text-sm font-semibold transition-colors',
-                  pack.slug === 'growth-600'
+                  isFeatured
                     ? 'bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60'
                     : 'bg-gray-100 text-gray-800 hover:bg-teal-600 hover:text-white disabled:opacity-60',
                 )}>
                 Buy Now
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {balance <= 20 && balance > 0 && (
@@ -497,6 +527,80 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
         )}
       </div>
     </>
+  );
+}
+
+// ─── CreditActivitySection ─────────────────────────────────────────────────────
+
+const TXN_STYLE: Record<CreditTransaction['type'], { label: string; color: string }> = {
+  PURCHASE:  { label: 'Credit Purchase', color: 'text-teal-600' },
+  BONUS:     { label: 'Bonus',           color: 'text-teal-600' },
+  AI_USAGE:  { label: 'AI Usage',        color: 'text-gray-500' },
+  REFUND:    { label: 'Refund',          color: 'text-teal-600' },
+  ADJUSTMENT:{ label: 'Adjustment',      color: 'text-amber-600' },
+};
+
+function CreditActivitySection() {
+  const [summary, setSummary] = useState<CreditUsageSummary | null>(null);
+  const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void Promise.all([
+      billingApi.getCreditUsageSummary().then((r) => setSummary(r.data as CreditUsageSummary)),
+      billingApi.getCreditTransactions(1, 20).then((r) => setTransactions((r.data as { items: CreditTransaction[] }).items ?? [])),
+    ]).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5">
+      <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
+        <Receipt size={16} className="text-teal-600" />Usage &amp; Transactions
+      </h2>
+
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          {[
+            { label: 'Current Balance', value: summary.currentBalance },
+            { label: 'Used This Month', value: summary.usedThisMonth },
+            { label: 'Purchased This Month', value: summary.purchasedThisMonth },
+            { label: 'AI Requests This Month', value: summary.aiRequestsThisMonth },
+          ].map((s) => (
+            <div key={s.label} className="bg-gray-50 rounded-xl p-3">
+              <p className="text-lg font-bold text-gray-900">{s.value.toLocaleString()}</p>
+              <p className="text-xs text-gray-500">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {transactions.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-6">No credit activity yet</p>
+      ) : (
+        <div className="space-y-1 max-h-96 overflow-y-auto">
+          {transactions.map((txn) => {
+            const style = TXN_STYLE[txn.type];
+            const positive = txn.credits > 0;
+            return (
+              <div key={txn.id} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                <div className="min-w-0">
+                  <p className={cn('text-sm font-medium', style.color)}>{style.label}</p>
+                  <p className="text-xs text-gray-400 truncate">{txn.description}</p>
+                </div>
+                <div className="text-right shrink-0 pl-3">
+                  <p className={cn('text-sm font-semibold', positive ? 'text-teal-600' : 'text-gray-700')}>
+                    {positive ? '+' : ''}{txn.credits.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-gray-400">{new Date(txn.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -766,6 +870,9 @@ export default function BillingPage() {
 
           {/* AI Credits */}
           <CreditPacksSection onPurchased={() => { void load(); }} />
+
+          {/* AI Credits usage & transaction history */}
+          <CreditActivitySection />
 
           {/* Billing email */}
           <div className="bg-white rounded-2xl border border-gray-200 p-5">

@@ -39,6 +39,10 @@ function buildDeps() {
     verzAiPipeline: { run: jest.fn().mockResolvedValue({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' }) },
     aiExecutionsService: { linkInteractionLog: jest.fn().mockResolvedValue(null) },
     leadsService: { scoreConversation: jest.fn().mockResolvedValue(null) },
+    aiCreditsService: {
+      hasSufficientBalance: jest.fn().mockResolvedValue(true),
+      chargeFlat: jest.fn().mockResolvedValue({ settled: true, transaction: null }),
+    },
   };
 }
 
@@ -49,7 +53,7 @@ function buildService(deps: ReturnType<typeof buildDeps>) {
     deps.realtimeService as any, deps.storageService as any, deps.chatbotFlowsService as any, deps.activityLogService as any,
     deps.aiResponderService as any, deps.knowledgeBaseService as any, deps.aiLogsService as any, deps.commerceAiService as any,
     deps.featureFlagsService as any, deps.aiAgentsService as any, deps.verzAiPipeline as any, deps.aiExecutionsService as any,
-    deps.leadsService as any,
+    deps.leadsService as any, deps.aiCreditsService as any,
   );
 }
 
@@ -93,6 +97,37 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
 
       expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane');
       expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: null });
+    });
+
+    it('charges a flat estimated credit amount for the legacy responder, since it has no real token tracking', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
+
+      expect(deps.aiCreditsService.chargeFlat).toHaveBeenCalledWith('t1', expect.any(Number), 'Legacy AI responder usage');
+    });
+
+    it('does not charge the legacy flat amount when the legacy responder produced no response', async () => {
+      const deps = buildDeps();
+      deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: '', confidence: null, blocked: false });
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
+
+      expect(deps.aiCreditsService.chargeFlat).not.toHaveBeenCalled();
+    });
+
+    it('does not charge a flat amount for the commerce or v2 pipeline paths -- those settle centrally via AiExecutionsService', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: true, readOnlyTools: false });
+
+      expect(deps.aiCreditsService.chargeFlat).not.toHaveBeenCalled();
     });
   });
 
@@ -166,7 +201,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
   });
 
   describe('handleAiAutoReply', () => {
-    it('decrements credits, sends, persists with commerce:true metadata, and logs AUTO_SENT when commerceEnabled', async () => {
+    it('sends, persists with commerce:true metadata, and logs AUTO_SENT when commerceEnabled', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
 
@@ -174,7 +209,6 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null);
 
       expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: false });
-      expect(deps.prisma.tenant.updateMany).toHaveBeenCalledWith({ where: { id: 't1', aiCredits: { gt: 0 } }, data: { aiCredits: { decrement: 1 } } });
       expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'We have that in stock.');
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, commerce: true } }) }));
       expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
@@ -190,17 +224,15 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true } }) }));
     });
 
-    it('stops before sending when credits are exhausted, on every generator path (not just v2)', async () => {
+    it('no longer decrements credits itself -- Verz AI Credits settles centrally as part of generation, not as a pre-send gate', async () => {
       const deps = buildDeps();
-      deps.prisma.tenant.updateMany.mockResolvedValue({ count: 0 });
       const service = buildService(deps);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
 
-      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
-      expect(deps.prisma.message.create).not.toHaveBeenCalled();
-      expect(deps.aiLogsService.create).not.toHaveBeenCalled();
+      expect(deps.prisma.tenant.updateMany).not.toHaveBeenCalled();
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalled();
     });
 
     it('self-assigns and emits conversationUpdated only when there is no existing assignee', async () => {
@@ -257,7 +289,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null)).resolves.toBeUndefined();
-      expect(deps.prisma.tenant.updateMany).not.toHaveBeenCalled();
+      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
     });
 
     it('degrades gracefully when message persistence fails, without throwing or emitting', async () => {

@@ -18,6 +18,7 @@ import { VerzAiPipelineService } from '../ai-core/pipeline/verz-ai-pipeline.serv
 import { AiExecutionsService } from '../ai-core/executions/ai-executions.service';
 import { LeadsService } from '../leads/leads.service';
 import { ToolCallTrace } from '../ai-core/tools/tool-calling.service';
+import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
@@ -39,6 +40,13 @@ interface UnifiedAiResult {
   shouldEscalate?: boolean;
   toolTrace?: ToolCallTrace[];
 }
+
+/** Conservative starting estimate for the legacy (untracked) AI responder path --
+ * see generateAiReply's legacy branch. Roughly matches what a typical short
+ * RESPONDER exchange costs under real token-based metering elsewhere; tune via
+ * the admin pricing API alongside AiPricingConfig.creditsPerUsd once real usage
+ * data exists, not a final business decision baked into code. */
+const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
 
 @Injectable()
 export class MessagesService {
@@ -62,6 +70,7 @@ export class MessagesService {
     private verzAiPipeline: VerzAiPipelineService,
     private aiExecutionsService: AiExecutionsService,
     private leadsService: LeadsService,
+    private aiCreditsService: AiCreditsService,
   ) {}
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
@@ -739,8 +748,14 @@ export class MessagesService {
       const commerceEnabled = !!commerceSettings?.commerceEnabled;
 
       if (aiMode === 'SUGGESTION') {
-        // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
-        void this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled);
+        // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
+        // behavior change) -- they cost real provider spend whether or not a human
+        // ends up sending them, so they're gated the same way AUTO_REPLY already was.
+        const hasCredits = await this.aiCreditsService.hasSufficientBalance(tenantId).catch(() => false);
+        if (hasCredits) {
+          // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
+          void this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled);
+        }
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
@@ -800,6 +815,15 @@ export class MessagesService {
     if (useV2) return this.runVerzAiV2(tenantId, conversationId, content, contactName);
 
     const legacy = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contactName);
+    // The legacy responder calls DeepSeek via raw axios with no token tracking, so it
+    // never flows through AiExecutionsService.record() (the central settlement hook
+    // every other path uses) -- a fixed, honestly-labeled estimate instead. This path
+    // is a strangler-pattern leftover slated for retirement, not worth instrumenting.
+    if (legacy.response) {
+      await this.aiCreditsService
+        .chargeFlat(tenantId, LEGACY_RESPONDER_FLAT_CREDIT_COST, 'Legacy AI responder usage')
+        .catch((err) => this.logger.warn(`Legacy credit charge failed for tenant ${tenantId}: ${String(err)}`));
+    }
     return { ...legacy, executionId: null };
   }
 
@@ -895,20 +919,13 @@ export class MessagesService {
       await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
     }
 
-    const decremented = await this.prisma.tenant.updateMany({
-      where: { id: tenantId, aiCredits: { gt: 0 } },
-      data: { aiCredits: { decrement: 1 } },
-    }).catch((err) => {
-      this.logger.warn(`Credit decrement failed for tenant ${tenantId}: ${String(err)}`);
-      return null;
-    });
-    // Checked unconditionally now (previously only for the v2 path, so a tenant at 0
-    // credits could still get a free auto-reply from the legacy responder or, before
-    // unification, an uncounted Commerce reply). shouldRespond() above already
-    // pre-checks credits, so this closes a narrow, already-bounded gap rather than
-    // changing everyday behavior for tenants with credits remaining.
-    if (!decremented || decremented.count === 0) return;
-
+    // Verz AI Credits: the flat -1-per-send decrement that used to live here is gone --
+    // real usage-based charging now happens automatically as part of generateAiReply()
+    // above (either via AiExecutionsService.record()'s central settlement hook, or the
+    // legacy path's explicit chargeFlat), right when real token usage is known. By the
+    // time we're here the AI call already happened and already cost real money; there's
+    // no additional gate before sending -- withholding an already-generated, already-
+    // charged-for reply would waste the spend without helping the customer.
     await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
 
     const log = await this.aiLogsService.create({

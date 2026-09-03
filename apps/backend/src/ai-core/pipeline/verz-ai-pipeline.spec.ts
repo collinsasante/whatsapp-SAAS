@@ -59,7 +59,10 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
   const generation = new GenerationStage(registry, {} as never);
   const policy = new PolicyStage();
   const escalation = new EscalationStage();
-  const executions = new AiExecutionsService(prisma as never);
+  // Credit settlement isn't under test here (record()'s own spec covers it) and
+  // is defensively try/caught inside record(), so stubs are safe -- a real
+  // credits/pricing call would just throw and get logged, never fail the test.
+  const executions = new AiExecutionsService(prisma as never, {} as never, {} as never);
 
   return new VerzAiPipelineService(prisma as never, executions, guard, contextAssembly, promptBuild, generation, policy, escalation);
 }

@@ -74,12 +74,19 @@ export class VerzAiPipelineService {
       ctx.result = { response: '', confidence: null, blocked: false };
     } finally {
       ctx.trace.latencyMs = Date.now() - startedAt;
-      try {
-        const execution = await this.executions.record(input, ctx.trace);
-        executionId = execution.id;
-      } catch (traceErr) {
-        // Tracing must never be why a customer doesn't get a reply.
-        this.logger.error('Failed to persist AiExecution trace', traceErr instanceof Error ? traceErr.stack : String(traceErr));
+      // GenerationStage's tools branch already recorded a real AiExecution row
+      // (via ToolCallingService's own trace() call) -- recording again here
+      // would double-write, and once credit charging is wired to
+      // AiExecutionsService.record(), double-charge. See
+      // PipelineTrace.alreadyRecorded's doc comment.
+      if (!ctx.trace.alreadyRecorded) {
+        try {
+          const execution = await this.executions.record(input, ctx.trace);
+          executionId = execution.id;
+        } catch (traceErr) {
+          // Tracing must never be why a customer doesn't get a reply.
+          this.logger.error('Failed to persist AiExecution trace', traceErr instanceof Error ? traceErr.stack : String(traceErr));
+        }
       }
     }
 

@@ -15,7 +15,7 @@ describe('PlatformAdminService.setCommerceConfig', () => {
   beforeEach(() => {
     prisma = buildPrismaMock();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    service = new PlatformAdminService(prisma as any);
+    service = new PlatformAdminService(prisma as any, {} as any);
   });
 
   it('upserts commerce settings for an existing workspace', async () => {

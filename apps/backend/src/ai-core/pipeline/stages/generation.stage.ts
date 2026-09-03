@@ -59,6 +59,10 @@ export class GenerationStage implements PipelineStage {
           ctx.result = { response: result.hitMaxIterations ? '' : result.content, confidence: null, blocked: false };
           ctx.trace.status = 'SUCCESS';
         }
+        // ToolCallingService.complete() already wrote its own AiExecution row
+        // (with real tokens/cost) internally -- see PipelineTrace.alreadyRecorded's
+        // doc comment. This ctx.trace has no token/cost data to contribute.
+        ctx.trace.alreadyRecorded = true;
         ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
         return;
       }

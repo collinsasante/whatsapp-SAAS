@@ -40,6 +40,14 @@ export interface PipelineTrace {
   errorCode?: string;
   errorMessage?: string;
   stageTimings: Record<string, number>;
+  /** Set by GenerationStage's tools branch: ToolCallingService already wrote
+   * its own AiExecution row (with real tokens/cost) for this turn via its
+   * internal trace() call. VerzAiPipelineService.run()'s outer finally block
+   * must skip its own record() call when this is true, or every tool-calling
+   * pipeline run would double-write (and, once credit charging is wired to
+   * AiExecutionsService.record(), double-charge) -- the outer trace here has
+   * no token/cost data of its own to record anyway. */
+  alreadyRecorded?: boolean;
 }
 
 /**

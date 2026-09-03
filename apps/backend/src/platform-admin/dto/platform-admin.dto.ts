@@ -104,3 +104,52 @@ export class UpdatePlanDto {
   @IsOptional() @IsNumber()  limMaxTemplates?: number;
   @IsOptional() @IsArray()   features?: string[];
 }
+
+// ── Verz AI Credits admin config ────────────────────────────────────────────
+
+export class CreateAiPricingConfigDto {
+  @IsString()  provider: string;
+  @IsString()  modelKey: string;
+  @IsNumber()  inputCostPerMillionUsd: number;
+  @IsNumber()  outputCostPerMillionUsd: number;
+  @IsNumber()  creditsPerUsd: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class UpdateAiPricingConfigDto {
+  @IsOptional() @IsNumber()  inputCostPerMillionUsd?: number;
+  @IsOptional() @IsNumber()  outputCostPerMillionUsd?: number;
+  @IsOptional() @IsNumber()  creditsPerUsd?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+export class CreateAiCreditPackageDto {
+  @IsString()  slug: string;
+  @IsString()  name: string;
+  @IsInt() @Min(1) credits: number;
+  @IsOptional() @IsInt() @Min(0) bonusCredits?: number;
+  @IsOptional() @IsNumber() priceGhs?: number;
+  @IsOptional() @IsNumber() priceUsd?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsInt() displayOrder?: number;
+}
+
+export class UpdateAiCreditPackageDto {
+  @IsOptional() @IsString()  name?: string;
+  @IsOptional() @IsInt() @Min(1) credits?: number;
+  @IsOptional() @IsInt() @Min(0) bonusCredits?: number;
+  @IsOptional() @IsNumber() priceGhs?: number;
+  @IsOptional() @IsNumber() priceUsd?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsInt() displayOrder?: number;
+}
+
+export class UpdateCommerceFeeDefaultDto {
+  @IsNumber() @Min(0) @Max(100) defaultCommerceFeePct: number;
+}
+
+export class GrantCreditsDto {
+  @IsInt() @Min(1) credits: number;
+  @IsString() description: string;
+  @IsOptional() @IsIn(['BONUS', 'ADJUSTMENT']) type?: 'BONUS' | 'ADJUSTMENT';
+}

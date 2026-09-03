@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BillingService } from './billing.service';
@@ -98,6 +98,21 @@ export class BillingController {
   @ApiOperation({ summary: 'Get current AI credit balance' })
   getAiCredits(@CurrentTenant() tenantId: string) {
     return this.billingService.getAiCredits(tenantId);
+  }
+
+  @Get('credits/transactions')
+  @ApiOperation({ summary: 'Paginated AI credit ledger for this tenant' })
+  getCreditTransactions(@CurrentTenant() tenantId: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    return this.billingService.getCreditTransactions(tenantId, {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Get('credits/usage')
+  @ApiOperation({ summary: 'AI credit usage summary (balance, this-month usage/purchases, lifetime totals)' })
+  getCreditUsageSummary(@CurrentTenant() tenantId: string) {
+    return this.billingService.getCreditUsageSummary(tenantId);
   }
 
   @Post('credits/checkout/stripe')

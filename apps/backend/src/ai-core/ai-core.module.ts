@@ -22,6 +22,8 @@ import { AiExecutionsController } from './executions/ai-executions.controller';
 import { AiCompletionService } from './completion/ai-completion.service';
 import { ToolRegistryService } from './tools/tool-registry.service';
 import { ToolCallingService } from './tools/tool-calling.service';
+import { AiCreditsService } from './credits/ai-credits.service';
+import { AiPricingService } from './pricing/ai-pricing.service';
 
 /**
  * Verz-AI Phase 1 foundation. Built strangler-style alongside the existing
@@ -61,7 +63,9 @@ import { ToolCallingService } from './tools/tool-calling.service';
     AiCompletionService,
     ToolRegistryService,
     ToolCallingService,
+    AiCreditsService,
+    AiPricingService,
   ],
-  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, ToolRegistryService, ToolCallingService],
+  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService],
 })
 export class AiCoreModule {}
