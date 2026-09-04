@@ -28,8 +28,9 @@ describe('GenerationStage', () => {
         usage: { inputTokens: 10, outputTokens: 5 }, provider: 'deepseek', model: DEFAULT_MODEL_KEY, latencyMs: 5,
       }) }) };
       const toolCalling = { complete: jest.fn() };
+      const conversationState = { mergeState: jest.fn().mockResolvedValue(undefined) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage(registry as any, toolCalling as any);
+      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any);
       const ctx = buildCtx();
 
       await stage.execute(ctx);
@@ -41,12 +42,13 @@ describe('GenerationStage', () => {
 
   describe('with tools (Verz-AI unification, Phase A)', () => {
     const toolContext = { tenantId: 't1', conversationId: 'c1', contactId: 'ct1', customerPhone: '+233555000111' };
+    const conversationState = { mergeState: jest.fn().mockResolvedValue(undefined) };
 
     it('delegates to ToolCallingService and uses its plain-text result as the response', async () => {
       const registry = { forModel: jest.fn() };
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We have that in stock.', toolTrace: [], failed: false, hitMaxIterations: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage(registry as any, toolCalling as any);
+      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any);
       const ctx = buildCtx({ tools: ['search_products'], toolContext });
 
       await stage.execute(ctx);
@@ -62,7 +64,7 @@ describe('GenerationStage', () => {
     it('produces a PROVIDER_ERROR trace and empty response when the tool-calling call fails', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: '', toolTrace: [], failed: true, hitMaxIterations: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any);
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any);
       const ctx = buildCtx({ tools: ['search_products'], toolContext });
 
       await stage.execute(ctx);
@@ -78,7 +80,7 @@ describe('GenerationStage', () => {
       }) }) };
       const toolCalling = { complete: jest.fn() };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage(registry as any, toolCalling as any);
+      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any);
       const ctx = buildCtx({ tools: ['search_products'] }); // no toolContext
 
       await stage.execute(ctx);

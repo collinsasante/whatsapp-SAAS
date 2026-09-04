@@ -8,6 +8,7 @@ import { GenerationStage } from './stages/generation.stage';
 import { PolicyStage } from './stages/policy.stage';
 import { EscalationStage } from './stages/escalation.stage';
 import { newTrace, PipelineContext, PipelineInput, PipelineStage, VerzAiResult } from './pipeline.types';
+import { resolveToolNames } from './tool-capability.util';
 
 @Injectable()
 export class VerzAiPipelineService {
@@ -52,6 +53,19 @@ export class VerzAiPipelineService {
       knowledgeContext: '',
       shortCircuit: false,
       trace: newTrace(),
+      // Verz-AI unification, Phase E: turns GenerationStage's tool-calling branch
+      // live for the first time in production -- previously nothing ever set these.
+      ...(input.contactId && input.customerPhone
+        ? {
+            tools: resolveToolNames({ readOnlyTools: !!input.readOnlyTools }),
+            toolContext: {
+              tenantId: input.tenantId,
+              conversationId: input.conversationId,
+              contactId: input.contactId,
+              customerPhone: input.customerPhone,
+            },
+          }
+        : {}),
     };
 
     let executionId: string | null = null;

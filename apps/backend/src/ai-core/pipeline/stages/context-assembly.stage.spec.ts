@@ -19,15 +19,17 @@ function buildCtx(customerMessage: string): PipelineContext {
 }
 
 describe('ContextAssemblyStage', () => {
-  let prisma: { tenantSettings: { findUnique: jest.Mock }; message: { findMany: jest.Mock } };
+  let prisma: { tenantSettings: { findUnique: jest.Mock }; message: { findMany: jest.Mock }; conversation: { findFirst: jest.Mock } };
+  let conversationState: { getState: jest.Mock };
   let knowledgeSource: jest.Mocked<KnowledgeContextSource>;
   let stage: ContextAssemblyStage;
 
   beforeEach(() => {
-    prisma = { tenantSettings: { findUnique: jest.fn() }, message: { findMany: jest.fn() } };
+    prisma = { tenantSettings: { findUnique: jest.fn() }, message: { findMany: jest.fn() }, conversation: { findFirst: jest.fn().mockResolvedValue(null) } };
+    conversationState = { getState: jest.fn().mockResolvedValue(null) };
     knowledgeSource = { getContext: jest.fn().mockResolvedValue('') };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    stage = new ContextAssemblyStage(prisma as any, knowledgeSource);
+    stage = new ContextAssemblyStage(prisma as any, conversationState as any, knowledgeSource);
   });
 
   it('sets businessName from TenantSettings, falling back to "our business"', async () => {

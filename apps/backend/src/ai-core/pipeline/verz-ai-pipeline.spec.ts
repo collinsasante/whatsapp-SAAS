@@ -28,10 +28,16 @@ function buildPrismaMock() {
     message: {
       findMany: jest.fn().mockResolvedValue([{ direction: 'INBOUND', content: 'How much is delivery?' }]),
     },
+    conversation: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     aiPromptTemplate: {
       findUnique: jest.fn().mockResolvedValue({
         id: 'tmpl-1',
-        versions: [{ id: 'ver-1', templateId: 'tmpl-1', version: '1.0.0', body: 'System for {{business_name}}: {{personality}} {{tenant_instructions}} {{knowledge_base}}', variables: [] }],
+        // version matches RESPONDER_SYSTEM_VERSION so PromptsService.ensureVersion's
+        // upgrade path (unrelated to this suite, covered in prompts.service.spec.ts)
+        // short-circuits immediately without needing aiPromptVersion mocked here.
+        versions: [{ id: 'ver-1', templateId: 'tmpl-1', version: '1.1.0', body: 'System for {{business_name}}: {{personality}} {{tenant_instructions}} {{knowledge_base}}', variables: [] }],
       }),
       create: jest.fn(),
     },
@@ -50,13 +56,17 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
   const promptsService = new PromptsService(prisma as never);
   const registry = new ProviderRegistryService(mockProvider as never);
   const noKb: KnowledgeContextSource = { getContext: jest.fn().mockResolvedValue('') };
+  // Not under test here (state-derivation.util.spec.ts covers the merge logic itself);
+  // these fixtures never populate ctx.tools, so the tool-calling branch that would
+  // call mergeState never runs anyway -- a stub satisfies both constructors.
+  const conversationState = { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) };
 
   const guard = new GuardStage(prisma as never);
-  const contextAssembly = new ContextAssemblyStage(prisma as never, noKb);
+  const contextAssembly = new ContextAssemblyStage(prisma as never, conversationState as never, noKb);
   const promptBuild = new PromptBuildStage(promptsService);
   // ctx.tools is never set in these fixtures, so ToolCallingService is never actually
   // invoked -- a stub satisfies the constructor without needing a real implementation.
-  const generation = new GenerationStage(registry, {} as never);
+  const generation = new GenerationStage(registry, {} as never, conversationState as never);
   const policy = new PolicyStage();
   const escalation = new EscalationStage();
   // Credit settlement isn't under test here (record()'s own spec covers it) and

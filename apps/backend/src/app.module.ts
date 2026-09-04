@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
+import { ConversationStateModule } from './conversations/conversation-state.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { AuthModule } from './auth/auth.module';
@@ -86,6 +87,7 @@ import appConfig from './config/app.config';
       }),
     }),
     PrismaModule,
+    ConversationStateModule,
     RealtimeModule,
     AuthModule,
     TenantModule,

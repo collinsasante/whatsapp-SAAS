@@ -13,6 +13,10 @@ const HUMAN_REQUEST_PATTERNS: readonly RegExp[] = [
   /is there a (human|person|agent|real (person|human))/i,
   /can (i|you) (speak|talk) to (someone|somebody)/i,
   /i (want|need) to speak to someone/i,
+  // Rejecting the AI itself, not asking a question it can't answer -- still a
+  // real "get me a human" signal even without naming a role.
+  /(hate|don'?t (want|like)( to)?) (chat(ting)?|talk(ing)?|deal(ing)?) (to|with) (an? )?(ai|bot|chatbot|robot)/i,
+  /stop (being|acting like) a (bot|robot|chatbot)/i,
 ];
 
 /** Very low confidence means the model itself is signaling a knowledge gap it

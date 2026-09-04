@@ -48,8 +48,10 @@ describe('PromptsService', () => {
     });
 
     it('does not re-seed on a second call (skips the create)', async () => {
+      // version matches RESPONDER_SYSTEM_VERSION so ensureVersion's upgrade path
+      // (a separate concern, covered below) short-circuits immediately.
       prisma.aiPromptTemplate.findUnique.mockResolvedValue({
-        versions: [{ id: 'v1', templateId: 't1', version: '1.0.0', body: 'x', variables: [] }],
+        versions: [{ id: 'v1', templateId: 't1', version: '1.1.0', body: 'x', variables: [] }],
       });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
@@ -60,7 +62,7 @@ describe('PromptsService', () => {
 
     it('caches the active version and does not re-query within the TTL', async () => {
       prisma.aiPromptTemplate.findUnique.mockResolvedValue({
-        versions: [{ id: 'v1', templateId: 't1', version: '1.0.0', body: 'x', variables: [] }],
+        versions: [{ id: 'v1', templateId: 't1', version: '1.1.0', body: 'x', variables: [] }],
       });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
@@ -76,6 +78,53 @@ describe('PromptsService', () => {
       prisma.aiPromptTemplate.findUnique.mockResolvedValue({ versions: [] });
 
       await expect(service.getActiveVersion('some.other.key')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('ensureVersion (Verz-AI unification, Phase D auto-upgrade)', () => {
+    it('auto-activates the new version when the current ACTIVE one is untouched from the original v1.0.0 seed', async () => {
+      const { RESPONDER_SYSTEM_BODY_V1_0_0 } = jest.requireActual('./seed/responder-system.v1');
+      prisma.aiPromptTemplate.findUnique.mockResolvedValue({
+        id: 't1',
+        versions: [{ id: 'v-old', templateId: 't1', version: '1.0.0', body: RESPONDER_SYSTEM_BODY_V1_0_0, variables: [] }],
+      });
+      prisma.aiPromptVersion.findFirst.mockResolvedValue(null);
+      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-new', version: '1.1.0', status: 'ACTIVE' });
+
+      await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
+
+      expect(prisma.aiPromptVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ version: '1.1.0', status: 'ACTIVE' }),
+      }));
+      expect(prisma.aiPromptVersion.update).toHaveBeenCalledWith({ where: { id: 'v-old' }, data: { status: 'ARCHIVED' } });
+    });
+
+    it('creates the new version as DRAFT (never overwriting) when the current ACTIVE one was customized', async () => {
+      prisma.aiPromptTemplate.findUnique.mockResolvedValue({
+        id: 't1',
+        versions: [{ id: 'v-old', templateId: 't1', version: '1.0.0', body: 'a tenant admin wrote this', variables: [] }],
+      });
+      prisma.aiPromptVersion.findFirst.mockResolvedValue(null);
+      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-new', version: '1.1.0', status: 'DRAFT' });
+
+      await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
+
+      expect(prisma.aiPromptVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ version: '1.1.0', status: 'DRAFT' }),
+      }));
+      expect(prisma.aiPromptVersion.update).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when a 1.1.0 version already exists (idempotent across restarts)', async () => {
+      prisma.aiPromptTemplate.findUnique.mockResolvedValue({
+        id: 't1',
+        versions: [{ id: 'v-old', templateId: 't1', version: '1.0.0', body: 'x', variables: [] }],
+      });
+      prisma.aiPromptVersion.findFirst.mockResolvedValue({ id: 'v-new', version: '1.1.0' });
+
+      await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
+
+      expect(prisma.aiPromptVersion.create).not.toHaveBeenCalled();
     });
   });
 

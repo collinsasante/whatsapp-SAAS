@@ -16,11 +16,16 @@ function buildDeps() {
       message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }) },
       conversation: { update: jest.fn().mockResolvedValue({ id: 'conv1' }) },
     },
-    whatsappService: { sendTextMessage: jest.fn().mockResolvedValue(undefined) },
+    whatsappService: {
+      sendTextMessage: jest.fn().mockResolvedValue(undefined),
+      uploadMediaToMeta: jest.fn().mockResolvedValue('meta-media-id'),
+      sendMediaMessageById: jest.fn().mockResolvedValue('wamid.media'),
+      sendMediaMessage: jest.fn().mockResolvedValue('wamid.media-fallback'),
+    },
     conversationsService: { request: jest.fn().mockResolvedValue(null) },
     contactsService: {},
     realtimeService: { emitAiSuggestion: jest.fn(), emitNewMessage: jest.fn(), emitConversationUpdated: jest.fn() },
-    storageService: {},
+    storageService: { downloadBuffer: jest.fn().mockResolvedValue({ buffer: Buffer.from('img'), mimeType: 'image/jpeg' }) },
     chatbotFlowsService: {},
     activityLogService: {},
     aiResponderService: {
@@ -43,6 +48,7 @@ function buildDeps() {
       hasSufficientBalance: jest.fn().mockResolvedValue(true),
       chargeFlat: jest.fn().mockResolvedValue({ settled: true, transaction: null }),
     },
+    conversationState: { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -53,7 +59,7 @@ function buildService(deps: ReturnType<typeof buildDeps>) {
     deps.realtimeService as any, deps.storageService as any, deps.chatbotFlowsService as any, deps.activityLogService as any,
     deps.aiResponderService as any, deps.knowledgeBaseService as any, deps.aiLogsService as any, deps.commerceAiService as any,
     deps.featureFlagsService as any, deps.aiAgentsService as any, deps.verzAiPipeline as any, deps.aiExecutionsService as any,
-    deps.leadsService as any, deps.aiCreditsService as any,
+    deps.leadsService as any, deps.aiCreditsService as any, deps.conversationState as any,
   );
 }
 
@@ -245,6 +251,27 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(deps.prisma.conversation.update).toHaveBeenCalledWith({ where: { id: 'conv1' }, data: { assignedToId: 'agent-1', status: 'OPEN' } });
       expect(deps.realtimeService.emitConversationUpdated).toHaveBeenCalled();
       expect(deps.realtimeService.emitNewMessage).toHaveBeenCalledWith('t1', 'conv1', { id: 'msg-1' });
+    });
+
+    it('delivers a tool-triggered media side effect after the text reply, persisted as its own IMAGE message (Verz-AI unification, Phase G)', async () => {
+      const deps = buildDeps();
+      deps.commerceAiService.handleMessage.mockResolvedValue({
+        response: 'Here you go',
+        blocked: false,
+        toolTrace: [],
+        mediaToSend: [{ type: 'send_media', mediaUrl: '/api/v1/media/serve/products/x.jpg', mediaType: 'IMAGE', caption: 'Shrink Film', productId: 'p1' }],
+      });
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'send me a pic', true, null);
+
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'Here you go');
+      expect(deps.whatsappService.uploadMediaToMeta).toHaveBeenCalledWith('t1', Buffer.from('img'), 'image/jpeg', expect.any(String));
+      expect(deps.whatsappService.sendMediaMessageById).toHaveBeenCalledWith('t1', '+233555000111', 'image', 'meta-media-id', 'Shrink Film', undefined);
+      expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ type: 'IMAGE', status: 'SENT', mediaUrl: '/api/v1/media/serve/products/x.jpg', metadata: { aiGenerated: true, productId: 'p1' } }),
+      }));
     });
 
     it('skips self-assignment when the conversation is already assigned', async () => {

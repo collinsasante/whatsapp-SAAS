@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_TEMPLATE_KEY, RESPONDER_SYSTEM_TEMPLATE_NAME, RESPONDER_SYSTEM_VARIABLES, RESPONDER_SYSTEM_VERSION } from './seed/responder-system.v1';
+import {
+  RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_TEMPLATE_KEY,
+  RESPONDER_SYSTEM_TEMPLATE_NAME, RESPONDER_SYSTEM_VARIABLES, RESPONDER_SYSTEM_VERSION,
+} from './seed/responder-system.v1';
 
 const CACHE_TTL_MS = 60_000;
 
@@ -30,7 +33,10 @@ export class PromptsService {
 
   private async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
-    const existing = await this.prisma.aiPromptTemplate.findUnique({ where: { key: RESPONDER_SYSTEM_TEMPLATE_KEY } });
+    const existing = await this.prisma.aiPromptTemplate.findUnique({
+      where: { key: RESPONDER_SYSTEM_TEMPLATE_KEY },
+      include: { versions: { where: { status: 'ACTIVE' }, take: 1 } },
+    });
     if (!existing) {
       await this.prisma.aiPromptTemplate.create({
         data: {
@@ -49,8 +55,47 @@ export class PromptsService {
         },
       });
       this.logger.log(`Seeded default prompt template "${RESPONDER_SYSTEM_TEMPLATE_KEY}" v${RESPONDER_SYSTEM_VERSION}`);
+    } else {
+      await this.ensureVersion(existing.id, existing.versions[0]);
     }
     this.seeded = true;
+  }
+
+  /**
+   * Verz-AI unification, Phase D: brings an already-seeded template up to the
+   * latest RESPONDER_SYSTEM_VERSION. Only auto-activates the new version when
+   * the current ACTIVE one is byte-identical to the original v1.0.0 seed --
+   * i.e. genuinely untouched by a tenant admin -- otherwise creates it as a
+   * DRAFT so a customized prompt is never silently overwritten. A template
+   * with no ACTIVE version at all is a separate, pre-existing anomaly this
+   * method doesn't try to fix -- getActiveVersion's own NotFoundException
+   * already surfaces that case; skip rather than guess.
+   */
+  private async ensureVersion(templateId: string, active: { id: string; version: string; body: string } | undefined): Promise<void> {
+    if (!active || active.version === RESPONDER_SYSTEM_VERSION) return;
+
+    const alreadyHasNewVersion = await this.prisma.aiPromptVersion.findFirst({ where: { templateId, version: RESPONDER_SYSTEM_VERSION } });
+    if (alreadyHasNewVersion) return;
+
+    const untouched = active.body === RESPONDER_SYSTEM_BODY_V1_0_0;
+    const created = await this.prisma.aiPromptVersion.create({
+      data: {
+        templateId,
+        version: RESPONDER_SYSTEM_VERSION,
+        status: untouched ? 'ACTIVE' : 'DRAFT',
+        body: RESPONDER_SYSTEM_BODY,
+        variables: [...RESPONDER_SYSTEM_VARIABLES],
+        activatedAt: untouched ? new Date() : undefined,
+        changeNote: 'Adds business-info/conversation-state grounding; identity/safety moved out of the editable body.',
+      },
+    });
+
+    if (untouched) {
+      await this.prisma.aiPromptVersion.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } });
+      this.logger.log(`Auto-upgraded prompt template "${RESPONDER_SYSTEM_TEMPLATE_KEY}" to v${RESPONDER_SYSTEM_VERSION}`);
+    } else {
+      this.logger.log(`Prompt template "${RESPONDER_SYSTEM_TEMPLATE_KEY}" has a customized ACTIVE version -- v${RESPONDER_SYSTEM_VERSION} created as DRAFT (id ${created.id}), not auto-activated`);
+    }
   }
 
   /** Loads the ACTIVE version of a template by key, cached for CACHE_TTL_MS. */

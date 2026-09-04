@@ -442,6 +442,11 @@ model Conversation {
   adSourceId     String?            @map("ad_source_id")
   adHeadline     String?            @map("ad_headline")
   adImageUrl     String?            @map("ad_image_url")
+  // Verz-AI unification, Phase F: advisory cross-turn state (current intent, known
+  // facts, selected product, active order, last topic) -- read/rendered into the
+  // prompt as a compact summary, never branched on by application code. Nullable/
+  // additive; absence just means "no state tracked yet," not an error.
+  aiState        Json?              @map("ai_state")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
