@@ -153,3 +153,113 @@ export class GrantCreditsDto {
   @IsString() description: string;
   @IsOptional() @IsIn(['BONUS', 'ADJUSTMENT']) type?: 'BONUS' | 'ADJUSTMENT';
 }
+
+// ── Admin platform: invite & RBAC ───────────────────────────────────────────
+
+export class InviteAdminDto {
+  @IsEmail() email: string;
+  @IsString() name: string;
+  @IsIn(['SUPER_ADMIN', 'SUPPORT', 'VIEWER']) role: 'SUPER_ADMIN' | 'SUPPORT' | 'VIEWER';
+}
+
+export class UpdateAdminRoleDto {
+  @IsIn(['SUPER_ADMIN', 'SUPPORT', 'VIEWER']) role: 'SUPER_ADMIN' | 'SUPPORT' | 'VIEWER';
+}
+
+// ── Monitoring: error logs & webhook events ─────────────────────────────────
+
+export class ErrorLogsQueryDto {
+  @IsOptional() @IsIn(['OPEN', 'RESOLVED', 'IGNORED']) status?: string;
+  @IsOptional() @IsIn(['WARN', 'ERROR', 'CRITICAL']) severity?: string;
+  @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export class UpdateErrorLogStatusDto {
+  @IsIn(['OPEN', 'RESOLVED', 'IGNORED']) status: 'OPEN' | 'RESOLVED' | 'IGNORED';
+}
+
+export class WebhookEventsQueryDto {
+  @IsOptional() @IsIn(['WHATSAPP', 'STRIPE_BILLING', 'PAYSTACK_BILLING', 'PAYSTACK_COMMERCE']) source?: string;
+  @IsOptional() @IsIn(['RECEIVED', 'PROCESSED', 'FAILED']) status?: string;
+  @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+// ── Analytics: AI / Commerce / Messaging / Payments / Audit ────────────────
+
+export class AiCreditWalletsQueryDto {
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export class AiCreditTransactionsQueryDto {
+  @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsIn(['PURCHASE', 'BONUS', 'AI_USAGE', 'REFUND', 'ADJUSTMENT']) type?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export const ORDER_STATUSES = ['DRAFT', 'AWAITING_APPROVAL', 'PENDING_PAYMENT', 'PAID', 'FULFILLING', 'COMPLETED', 'CANCELLED', 'REFUNDED'] as const;
+
+export class OrdersQueryDto {
+  @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsIn(ORDER_STATUSES) status?: string;
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export class PaymentsQueryDto {
+  @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsIn(['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED', 'DISPUTED']) status?: string;
+  @IsOptional() @IsIn(['STRIPE', 'PAYSTACK']) gateway?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export class AuditLogsQueryDto {
+  @IsOptional() @IsString() adminId?: string;
+  @IsOptional() @IsString() action?: string;
+  @IsOptional() @IsString() resourceType?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export class SearchQueryDto {
+  @IsString() q: string;
+}
+
+// ── Feature flags (admin CRUD -- FeatureFlagsService methods already exist, wiring routes) ──
+
+export class CreateFeatureFlagDto {
+  @IsString() key: string;
+  @IsString() name: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsString() rolloutType?: string;
+  @IsOptional() @IsNumber() rolloutPct?: number;
+  @IsOptional() @IsArray() betaTenants?: string[];
+  @IsOptional() @IsString() environment?: string;
+  @IsOptional() @IsString() category?: string;
+}
+
+export class UpdateFeatureFlagDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsString() rolloutType?: string;
+  @IsOptional() @IsNumber() rolloutPct?: number;
+  @IsOptional() @IsArray() betaTenants?: string[];
+  @IsOptional() @IsString() environment?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsBoolean() killSwitch?: boolean;
+}
+
+export class SetFlagRolloutDto {
+  @IsBoolean() enabled: boolean;
+}

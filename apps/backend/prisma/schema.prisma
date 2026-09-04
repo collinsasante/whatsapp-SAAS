@@ -92,6 +92,8 @@ model Tenant {
   internalTasks                   InternalTask[]
   leads                           Lead[]
   aiCreditTransactions             AiCreditTransaction[]
+  errorLogs                        ErrorLog[]
+  webhookEvents                    WebhookEvent[]
 
   @@map("tenants")
 }
@@ -2464,6 +2466,84 @@ model AiExecution {
   @@index([tenantId, createdAt])
   @@index([conversationId])
   @@map("ai_executions")
+}
+
+// ── Admin platform: error monitoring & webhook monitoring ──────────────────
+// Both approved as genuinely new infrastructure -- neither existed anywhere
+// in the codebase before this. Both only ever start collecting data from
+// when they ship; no historical backfill is possible or attempted.
+
+// One row per distinct error fingerprint (service+message), with a running
+// occurrence count -- not one row per occurrence, to avoid an unbounded
+// table under a real incident. Written from SentryExceptionFilter (5xx) and
+// ClientErrorsController (frontend reports); both already the single
+// catch-all point for their respective error source.
+model ErrorLog {
+  id               String    @id @default(uuid())
+  tenantId         String?   @map("tenant_id")
+  service          String    // 'backend' | 'frontend' | a specific module name
+  severity         String    @default("ERROR") // WARN | ERROR | CRITICAL
+  message          String    @db.Text
+  stack            String?   @db.Text
+  requestId        String?   @map("request_id")
+  resourceType     String?   @map("resource_type")
+  resourceId       String?   @map("resource_id")
+  fingerprint      String    // dedup key: service+message-prefix(+url/status where available)
+  occurrenceCount  Int       @default(1) @map("occurrence_count")
+  firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at")
+  status           String    @default("OPEN") // OPEN | RESOLVED | IGNORED
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@unique([fingerprint])
+  @@index([tenantId])
+  @@index([severity, status])
+  @@index([lastSeenAt])
+  @@map("error_logs")
+}
+
+enum WebhookSource {
+  WHATSAPP
+  STRIPE_BILLING
+  PAYSTACK_BILLING
+  PAYSTACK_COMMERCE
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+// One row per inbound webhook delivery across all four sources -- something
+// none of the existing webhook controllers persisted before (each only
+// logged independently via Logger/notify()). `payload` is captured with
+// secrets/signatures stripped before persistence, never raw. `attempts`
+// only increments on an admin-triggered reprocess (POST .../reprocess),
+// which is only offered for sources whose underlying handler is already
+// proven idempotent (all four are, by construction of their own dedup keys).
+model WebhookEvent {
+  id             String              @id @default(uuid())
+  source         WebhookSource
+  eventType      String              @map("event_type")
+  status         WebhookEventStatus  @default(RECEIVED)
+  gatewayEventId String?             @map("gateway_event_id")
+  tenantId       String?             @map("tenant_id")
+  payload        Json?
+  error          String?             @db.Text
+  attempts       Int                 @default(1)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  processedAt    DateTime?           @map("processed_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([source, status])
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([gatewayEventId])
+  @@map("webhook_events")
 }
 
 // ── Verz AI Credits billing ─────────────────────────────────────────────────

@@ -44,7 +44,7 @@ async function bootstrap() {
 
   app.enableVersioning({ type: VersioningType.URI });
 
-  app.useGlobalFilters(new SentryExceptionFilter());
+  app.useGlobalFilters(app.get(SentryExceptionFilter));
 
   app.useGlobalPipes(
     new ValidationPipe({

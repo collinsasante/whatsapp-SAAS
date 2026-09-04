@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
+import { MonitoringModule } from './common/monitoring/monitoring.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { AuthModule } from './auth/auth.module';
@@ -55,6 +56,7 @@ import { AiLogsModule } from './ai-logs/ai-logs.module';
 import { AiCoreModule } from './ai-core/ai-core.module';
 import { AiTestChatModule } from './ai-core/test-chat/ai-test-chat.module';
 import { ClientErrorsModule } from './client-errors/client-errors.module';
+import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
 import appConfig from './config/app.config';
 
 @Module({
@@ -86,6 +88,7 @@ import appConfig from './config/app.config';
       }),
     }),
     PrismaModule,
+    MonitoringModule,
     RealtimeModule,
     AuthModule,
     TenantModule,
@@ -138,6 +141,7 @@ import appConfig from './config/app.config';
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    SentryExceptionFilter,
   ],
 })
 export class AppModule implements NestModule {

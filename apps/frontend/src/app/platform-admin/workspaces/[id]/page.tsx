@@ -8,6 +8,7 @@ import {
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
 import { adminApi, type WorkspaceDetail, type Plan } from '@/lib/admin-api';
+import { showConfirm } from '@/store/confirm.store';
 
 const LIFECYCLE_LABELS: Record<string, string> = {
   signed_up: 'Signed up',
@@ -77,6 +78,11 @@ export default function WorkspaceDetailPage() {
 
   const toggleActive = async () => {
     if (!data) return;
+    const willSuspend = data.isActive;
+    if (!await showConfirm(`${willSuspend ? 'Suspend' : 'Activate'} ${data.name}?`, {
+      subtext: willSuspend ? 'This blocks the whole workspace from logging in until reactivated.' : undefined,
+      danger: willSuspend,
+    })) return;
     setActing(true);
     try {
       if (data.isActive) {

@@ -29,8 +29,9 @@ function buildPrismaMock(overrides: Partial<Record<string, unknown>> = {}) {
 function buildService(prisma: ReturnType<typeof buildPrismaMock>) {
   const paystack = {};
   const leads = { markConverted: jest.fn().mockResolvedValue(undefined) };
+  const webhookEventService = { findOne: jest.fn(), markReprocessed: jest.fn() };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceLedgerService(prisma as any, paystack as any, leads as any);
+  return new CommerceLedgerService(prisma as any, paystack as any, leads as any, webhookEventService as any);
 }
 
 describe('CommerceLedgerService -- commerce fee default', () => {
@@ -90,5 +91,57 @@ describe('CommerceLedgerService -- commerce fee default', () => {
       expect(result).toBe(existing);
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('CommerceLedgerService.reprocessWebhookEvent', () => {
+  function buildServiceWithWebhookEvents(prisma: ReturnType<typeof buildPrismaMock>, webhookEventService: { findOne: jest.Mock; markReprocessed: jest.Mock }) {
+    const paystack = {};
+    const leads = { markConverted: jest.fn().mockResolvedValue(undefined) };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return new CommerceLedgerService(prisma as any, paystack as any, leads as any, webhookEventService as any);
+  }
+
+  it('rejects a webhook event from a non-commerce source', async () => {
+    const prisma = buildPrismaMock();
+    const webhookEventService = { findOne: jest.fn().mockResolvedValue({ id: 'evt-1', source: 'STRIPE_BILLING' }), markReprocessed: jest.fn() };
+    const service = buildServiceWithWebhookEvents(prisma, webhookEventService);
+
+    await expect(service.reprocessWebhookEvent('evt-1')).rejects.toThrow();
+    expect(webhookEventService.markReprocessed).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown webhook event id', async () => {
+    const prisma = buildPrismaMock();
+    const webhookEventService = { findOne: jest.fn().mockResolvedValue(null), markReprocessed: jest.fn() };
+    const service = buildServiceWithWebhookEvents(prisma, webhookEventService);
+
+    await expect(service.reprocessWebhookEvent('missing')).rejects.toThrow();
+  });
+
+  it('replays the stored parsed payload through recordPaymentSuccess and marks PROCESSED', async () => {
+    const prisma = buildPrismaMock();
+    const storedPayload = { event: 'charge.success', status: 'success', gatewayReference: 'ref-1', gatewayPaymentId: 'pay-1', metadata: { orderId: 'order-1' }, amount: 100 };
+    const webhookEventService = { findOne: jest.fn().mockResolvedValue({ id: 'evt-1', source: 'PAYSTACK_COMMERCE', payload: storedPayload }), markReprocessed: jest.fn().mockResolvedValue(undefined) };
+    const service = buildServiceWithWebhookEvents(prisma, webhookEventService);
+
+    const result = await service.reprocessWebhookEvent('evt-1');
+
+    expect(result).toEqual({ status: 'PROCESSED' });
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(webhookEventService.markReprocessed).toHaveBeenCalledWith('evt-1', 'PROCESSED');
+  });
+
+  it('marks FAILED (not throwing) if replay itself throws', async () => {
+    const prisma = buildPrismaMock();
+    prisma.order.findUnique.mockRejectedValue(new Error('db down'));
+    const storedPayload = { event: 'charge.success', status: 'success', gatewayReference: 'ref-1', metadata: { orderId: 'order-1' }, amount: 100 };
+    const webhookEventService = { findOne: jest.fn().mockResolvedValue({ id: 'evt-1', source: 'PAYSTACK_COMMERCE', payload: storedPayload }), markReprocessed: jest.fn().mockResolvedValue(undefined) };
+    const service = buildServiceWithWebhookEvents(prisma, webhookEventService);
+
+    const result = await service.reprocessWebhookEvent('evt-1');
+
+    expect(result).toEqual({ status: 'FAILED' });
+    expect(webhookEventService.markReprocessed).toHaveBeenCalledWith('evt-1', 'FAILED', 'db down');
   });
 });

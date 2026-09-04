@@ -1,8 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { LedgerEntryType, OrderStatus } from '@prisma/client';
+import { LedgerEntryType, OrderStatus, WebhookSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
+import { ParsedWebhookEvent } from '../../billing/gateways/gateway.interface';
 import { LeadsService } from '../../leads/leads.service';
+import { WebhookEventService } from '../../common/monitoring/webhook-event.service';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
 
@@ -20,6 +22,7 @@ export class CommerceLedgerService {
     // Injected via LeadsModule's @Global() export, not a CommerceModule import edge --
     // see leads.module.ts for why.
     private leads: LeadsService,
+    private webhookEventService: WebhookEventService,
   ) {}
 
   /** Verz AI Credits / commerce fee: platform-admin-configurable global default,
@@ -185,6 +188,48 @@ export class CommerceLedgerService {
         return this.prisma.commerceLedgerEntry.findFirst({ where: { orderId, type: LedgerEntryType.GMV, gatewayEventId } });
       }
       throw err;
+    }
+  }
+
+  /** Shared by the live Paystack commerce webhook and admin-triggered reprocess(). */
+  async processPaystackWebhookPayload(parsed: ParsedWebhookEvent): Promise<void> {
+    if (parsed.status !== 'success' || !parsed.gatewayReference) return;
+
+    const orderId = (parsed.metadata as Record<string, unknown> | undefined)?.['orderId'] as string | undefined;
+    const order = orderId
+      ? await this.prisma.order.findUnique({ where: { id: orderId } })
+      : await this.prisma.order.findFirst({ where: { paystackReference: parsed.gatewayReference } });
+
+    if (!order) {
+      this.logger.warn(`Commerce Paystack webhook for unknown order (reference ${parsed.gatewayReference})`);
+      return;
+    }
+
+    const eventId = parsed.gatewayPaymentId ?? parsed.gatewayReference;
+    await this.recordPaymentSuccess(order.id, eventId, parsed.amount ?? order.totalMajorUnits);
+  }
+
+  /**
+   * Admin-triggered replay of an already-received WebhookEvent, using the
+   * parsed payload captured at receipt time (not the raw signed body --
+   * reprocessing doesn't re-verify a signature, it's gated by
+   * PlatformAdminGuard instead). Safe to call repeatedly: recordPaymentSuccess
+   * is idempotent on CommerceLedgerEntry's [orderId, type, gatewayEventId]
+   * unique constraint. Only offered for PAYSTACK_COMMERCE -- the only source
+   * this service knows how to replay.
+   */
+  async reprocessWebhookEvent(id: string): Promise<{ status: 'PROCESSED' | 'FAILED' }> {
+    const row = await this.webhookEventService.findOne(id);
+    if (!row || row.source !== WebhookSource.PAYSTACK_COMMERCE) {
+      throw new BadRequestException('Reprocessing is only supported for commerce Paystack webhook events');
+    }
+    try {
+      await this.processPaystackWebhookPayload(row.payload as unknown as ParsedWebhookEvent);
+      await this.webhookEventService.markReprocessed(id, 'PROCESSED');
+      return { status: 'PROCESSED' };
+    } catch (err) {
+      await this.webhookEventService.markReprocessed(id, 'FAILED', err instanceof Error ? err.message : String(err));
+      return { status: 'FAILED' };
     }
   }
 

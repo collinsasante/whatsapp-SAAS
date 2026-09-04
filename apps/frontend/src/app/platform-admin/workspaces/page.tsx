@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Search, CheckCircle2, XCircle, Loader2, ChevronLeft, ChevronRight, CreditCard, AlertTriangle, ChevronUp, ChevronDown, Download } from 'lucide-react';
 import { adminApi, type TenantTableRow, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
 import { LiveBadge } from '../_components/LiveBadge';
 
@@ -115,6 +116,11 @@ export default function WorkspacesPage() {
   };
 
   const toggleActive = async (t: TenantTableRow) => {
+    const willSuspend = t.isActive;
+    if (!await showConfirm(`${willSuspend ? 'Suspend' : 'Activate'} ${t.name}?`, {
+      subtext: willSuspend ? 'This blocks the whole workspace from logging in until reactivated.' : undefined,
+      danger: willSuspend,
+    })) return;
     setActing(t.id);
     try {
       if (t.isActive) {
