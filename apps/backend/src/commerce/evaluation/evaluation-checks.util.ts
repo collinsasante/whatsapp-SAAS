@@ -1,4 +1,4 @@
-import { CommerceAiToolCallTrace } from '../ai/commerce-ai.service';
+import { ToolCallTrace as CommerceAiToolCallTrace } from '../../ai-core/tools/tool-calling.service';
 
 export interface RealOrderItem {
   productId: string | null;

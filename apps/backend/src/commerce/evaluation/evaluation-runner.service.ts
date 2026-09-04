@@ -106,6 +106,8 @@ export class EvaluationRunnerService {
         blocked: result.blocked,
         toolTrace: result.toolTrace ?? [],
         orderStatusAfterTurn: draft?.status,
+        mediaToSend: result.mediaToSend ?? [],
+        scriptedTurn,
       });
     }
 

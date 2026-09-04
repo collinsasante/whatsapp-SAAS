@@ -164,6 +164,7 @@ export const conversationsApi = {
   markRead: (id: string) => api.patch(`/conversations/${id}/read`),
   markUnread: (id: string) => api.patch(`/conversations/${id}/mark-unread`),
   takeover: (id: string) => api.post(`/conversations/${id}/takeover`),
+  releaseToAi: (id: string) => api.post(`/conversations/${id}/release-to-ai`),
   addNote: (id: string, content: string) => api.post(`/conversations/${id}/notes`, { content }),
   getNotes: (id: string) => api.get(`/conversations/${id}/notes`),
   editNote: (id: string, noteId: string, content: string) => api.patch(`/conversations/${id}/notes/${noteId}`, { content }),
@@ -434,6 +435,9 @@ export const billingApi = {
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
   getCreditPacks: () => api.get('/billing/credits/packs'),
   getAiCredits: () => api.get('/billing/credits/balance'),
+  getCreditTransactions: (page?: number, limit?: number) =>
+    api.get('/billing/credits/transactions', { params: { page, limit } }),
+  getCreditUsageSummary: () => api.get('/billing/credits/usage'),
   initiateStripeCreditCheckout: (packSlug: string) =>
     api.post('/billing/credits/checkout/stripe', { packSlug }),
   initiatePaystackCreditCheckout: (packSlug: string) =>
@@ -528,6 +532,7 @@ export const commerceProductsApi = {
     currency?: string;
     imageUrl?: string;
     stockQuantity?: number;
+    minOrderQuantity?: number;
   }) => api.post('/commerce/products', data),
   update: (id: string, data: Record<string, unknown>) => api.patch(`/commerce/products/${id}`, data),
 };
@@ -538,6 +543,24 @@ export const commerceOrdersApi = {
   verifyPayment: (id: string) => api.post(`/commerce/orders/${id}/verify-payment`),
   updateFulfillment: (id: string, status: string) => api.patch(`/commerce/orders/${id}/fulfillment`, { status }),
   cancel: (id: string, reason?: string) => api.patch(`/commerce/orders/${id}/cancel`, { reason }),
+  approve: (id: string, customerEmail?: string) => api.post(`/commerce/orders/${id}/approve`, { customerEmail }),
+  reject: (id: string, reason?: string) => api.post(`/commerce/orders/${id}/reject`, { reason }),
+};
+
+export const commerceLedgerApi = {
+  get: (page?: number, limit?: number) => api.get('/commerce/ledger', { params: { page, limit } }),
+};
+
+export const leadsApi = {
+  getForConversation: (conversationId: string) => api.get(`/leads/conversation/${conversationId}`),
+  rescore: (conversationId: string) => api.post(`/leads/conversation/${conversationId}/rescore`),
+};
+
+export const internalTasksApi = {
+  list: (params?: { status?: string; department?: string; assigneeId?: string }) => api.get('/internal-tasks', { params }),
+  get: (id: string) => api.get(`/internal-tasks/${id}`),
+  updateStatus: (id: string, status: string) => api.patch(`/internal-tasks/${id}/status`, { status }),
+  assign: (id: string, assigneeId: string) => api.patch(`/internal-tasks/${id}/assign`, { assigneeId }),
 };
 
 export const commerceTestChatApi = {
@@ -551,4 +574,16 @@ export const commerceEvaluationApi = {
   list: (page?: number, limit?: number) => api.get('/commerce/evaluation/runs', { params: { page, limit } }),
   get: (runId: string) => api.get(`/commerce/evaluation/runs/${runId}`),
   getCase: (runId: string, caseId: string) => api.get(`/commerce/evaluation/runs/${runId}/cases/${caseId}`),
+};
+
+export const aiExecutionsApi = {
+  list: (params?: { conversationId?: string; status?: string; cursor?: string; limit?: number }) =>
+    api.get('/ai/executions', { params }),
+  get: (id: string) => api.get(`/ai/executions/${id}`),
+};
+
+export const aiTestChatApi = {
+  getState: () => api.get('/ai/test-chat'),
+  send: (message: string) => api.post('/ai/test-chat', { message }),
+  reset: () => api.post('/ai/test-chat/reset'),
 };

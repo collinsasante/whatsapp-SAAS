@@ -7,8 +7,9 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { AiResponderService } from '../ai/ai-responder.service';
 import { AirtableService } from './airtable.service';
-import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
 import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, MessageType, QueueName, SnoozeWakeJob } from '@whatsapp-platform/shared-types';
@@ -37,6 +38,7 @@ export class ConversationsService {
     private realtimeService: RealtimeService,
     private airtableService: AirtableService,
     private moduleRef: ModuleRef,
+    private aiCompletionService: AiCompletionService,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
   ) {}
 
@@ -570,6 +572,45 @@ export class ConversationsService {
     return result;
   }
 
+  /**
+   * The inverse of takeover() -- hands a human-owned (INTERVENED) conversation back
+   * to the AI. There was previously no way to do this at all: once a human took
+   * over, assignedTo stayed that human forever and the AI branch in
+   * MessagesService.handleInbound (gated on `assignedTo && !assignedTo.isAiAgent`)
+   * would silently never run again for that conversation. Resolves the same
+   * synthetic isAiAgent User row findOrCreateVerzAgent uses everywhere else, via
+   * moduleRef (not a module import) to avoid a circular dependency, matching the
+   * existing lazy-resolution pattern for WhatsAppService in markRead() above.
+   */
+  async releaseToAi(tenantId: string, id: string, userId: string) {
+    const existing = await this.findOne(tenantId, id);
+    const aiResponderService = this.moduleRef.get(AiResponderService, { strict: false });
+    const verzAgent = await aiResponderService.findOrCreateVerzAgent(tenantId);
+
+    const result = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        assignedToId: verzAgent.id,
+        status: ConversationStatus.OPEN,
+        intervenedAt: null,
+        slaDeadline: null,
+      },
+      include: CONV_INCLUDE,
+    });
+
+    await this.recordEvent(tenantId, id, ConversationEventType.BOT_RESUMED, userId, { returnedToAi: true });
+    void this.activityLogService.log({
+      tenantId,
+      action: ActivityAction.CONVERSATION_ASSIGNED,
+      conversationId: id,
+      contactId: existing.contactId,
+      userId,
+      metadata: { returnedToAi: true },
+    });
+    this.realtimeService.emitConversationStateChanged(tenantId, id, result as unknown as Record<string, unknown>);
+    return result;
+  }
+
   async addNote(tenantId: string, conversationId: string, authorId: string, dto: CreateNoteDto) {
     const conv = await this.findOne(tenantId, conversationId);
     const note = await this.prisma.conversationNote.create({
@@ -691,9 +732,12 @@ export class ConversationsService {
       .map((m) => `[${m.direction === 'INBOUND' ? contactName : 'Agent'}]: ${m.content}`)
       .join('\n');
 
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) {
-      // Rule-based fallback when no API key is configured
+    // Rule-based fallback -- used both when no key is configured and now, via
+    // AiCompletionService, whenever the completion call itself fails for any
+    // reason (a real improvement over the old behavior, which only fell back
+    // for a missing key and otherwise surfaced a bare "Could not generate
+    // summary." on any other failure).
+    const fallbackSummary = () => {
       const inbound = messages.filter((m) => m.direction === 'INBOUND').length;
       const outbound = messages.filter((m) => m.direction === 'OUTBOUND').length;
       const durationMs = messages.length > 1
@@ -704,25 +748,23 @@ export class ConversationsService {
         summary: `Conversation with ${contactName}: ${inbound + outbound} messages (${inbound} from customer, ${outbound} from agent) over ${hours > 0 ? hours + 'h' : 'less than 1h'}. Status: ${conversation.status}.`,
         note: 'Add DEEPSEEK_API_KEY to .env for full AI summary.',
       };
-    }
+    };
 
-    const resp = await fetch(DEEPSEEK_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        max_tokens: 1200,
-        messages: [
-          {
-            role: 'system',
-            content: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
-          },
-          {
-            role: 'user',
-            content: `Analyze this WhatsApp support conversation and produce an Executive Brief using EXACTLY this format and structure. Do not skip any section. Do not add extra sections.
+    if (!process.env.DEEPSEEK_API_KEY) return fallbackSummary();
+
+    const result = await this.aiCompletionService.complete({
+      tenantId,
+      taskType: 'SUMMARIZE',
+      conversationId,
+      maxTokens: 1200,
+      messages: [
+        {
+          role: 'system',
+          content: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
+        },
+        {
+          role: 'user',
+          content: `Analyze this WhatsApp support conversation and produce an Executive Brief using EXACTLY this format and structure. Do not skip any section. Do not add extra sections.
 
 ## EXECUTIVE SUMMARY
 
@@ -758,14 +800,12 @@ export class ConversationsService {
 
 Conversation:
 ${transcript}`,
-          },
-        ],
-      }),
+        },
+      ],
     });
 
-    const json = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const text = json.choices?.[0]?.message?.content ?? 'Could not generate summary.';
-    return { summary: text };
+    if (result.failed) return fallbackSummary();
+    return { summary: result.content || 'Could not generate summary.' };
   }
 
   // ─── CSV Import ───────────────────────────────────────────────────────────
