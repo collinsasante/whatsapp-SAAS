@@ -2,9 +2,10 @@ import { BadRequestException, Controller, Headers, HttpCode, Logger, Post, RawBo
 import { SkipThrottle } from '@nestjs/throttler';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request } from 'express';
-import { PrismaService } from '../../prisma/prisma.service';
+import { WebhookSource } from '@prisma/client';
 import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
 import { CommerceLedgerService } from '../ledger/commerce-ledger.service';
+import { WebhookEventService } from '../../common/monitoring/webhook-event.service';
 
 /**
  * Commerce payment webhooks -- structurally separate from BillingWebhookController
@@ -20,9 +21,9 @@ export class CommerceWebhookController {
   private readonly logger = new Logger(CommerceWebhookController.name);
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly paystack: PaystackGateway,
     private readonly ledgerService: CommerceLedgerService,
+    private readonly webhookEventService: WebhookEventService,
   ) {}
 
   @Post('paystack')
@@ -40,22 +41,23 @@ export class CommerceWebhookController {
     });
     if (!parsed) return { received: true };
 
-    if (parsed.status !== 'success' || !parsed.gatewayReference) {
-      return { received: true };
+    const eventLogId = await this.webhookEventService.recordReceived({
+      source: WebhookSource.PAYSTACK_COMMERCE,
+      eventType: parsed.event,
+      gatewayEventId: parsed.gatewayPaymentId ?? parsed.gatewayReference,
+      // parsed is stored (not raw) -- already signature-verified and structurally
+      // safe to replay later via CommerceLedgerService.reprocessWebhookEvent()
+      // without needing the original signature.
+      payload: parsed,
+    });
+
+    try {
+      await this.ledgerService.processPaystackWebhookPayload(parsed);
+      await this.webhookEventService.markOutcome(eventLogId, 'PROCESSED');
+    } catch (err) {
+      await this.webhookEventService.markOutcome(eventLogId, 'FAILED', err instanceof Error ? err.message : String(err));
+      throw err;
     }
-
-    const orderId = (parsed.metadata as Record<string, unknown> | undefined)?.['orderId'] as string | undefined;
-    const order = orderId
-      ? await this.prisma.order.findUnique({ where: { id: orderId } })
-      : await this.prisma.order.findFirst({ where: { paystackReference: parsed.gatewayReference } });
-
-    if (!order) {
-      this.logger.warn(`Commerce Paystack webhook for unknown order (reference ${parsed.gatewayReference})`);
-      return { received: true };
-    }
-
-    const eventId = parsed.gatewayPaymentId ?? parsed.gatewayReference;
-    await this.ledgerService.recordPaymentSuccess(order.id, eventId, parsed.amount ?? order.totalMajorUnits);
 
     return { received: true };
   }

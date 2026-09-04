@@ -30,12 +30,13 @@ function buildDeps() {
     invoiceService: {},
     subscriptionService: {},
     aiCreditsService: { grant: jest.fn().mockResolvedValue({ settled: true, transaction: { id: 'txn-1' } }) },
+    webhookEventService: { recordReceived: jest.fn().mockResolvedValue('event-log-1'), markOutcome: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
 function buildController(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new BillingWebhookController(deps.prisma as any, deps.stripe as any, deps.paystack as any, deps.invoiceService as any, deps.subscriptionService as any, deps.aiCreditsService as any);
+  return new BillingWebhookController(deps.prisma as any, deps.stripe as any, deps.paystack as any, deps.invoiceService as any, deps.subscriptionService as any, deps.aiCreditsService as any, deps.webhookEventService as any);
 }
 
 function buildReq() {

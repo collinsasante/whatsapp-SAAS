@@ -1,6 +1,7 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { notify } from '../notifier';
+import { ErrorLogService } from '../monitoring/error-log.service';
 
 let Sentry: { withScope?: (cb: (s: unknown) => void) => void; captureException?: (e: unknown) => void } | null = null;
 try {
@@ -8,9 +9,12 @@ try {
   Sentry = require('@sentry/nestjs');
 } catch { /* package not installed */ }
 
+@Injectable()
 @Catch()
 export class SentryExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger('ExceptionFilter');
+
+  constructor(private readonly errorLogService: ErrorLogService) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -47,18 +51,28 @@ export class SentryExceptionFilter implements ExceptionFilter {
       });
     }
 
-    // Forward 5xx errors to Telegram and Slack
+    // Forward 5xx errors to Telegram/Slack and persist them for the admin Errors page
     if (status >= 500) {
       const message = exception instanceof Error ? exception.message : String(exception);
       const stack = exception instanceof Error ? exception.stack : undefined;
+      const tenantId = (request as Request & { tenantId?: string }).tenantId;
       void notify({
         source: 'backend',
         method: request.method,
         url: request.url,
         status,
-        tenantId: (request as Request & { tenantId?: string }).tenantId,
+        tenantId,
         message,
         stack,
+      });
+      void this.errorLogService.record({
+        service: 'backend',
+        severity: status >= 500 ? 'ERROR' : 'WARN',
+        message: `${request.method} ${request.url} → ${status}: ${message}`,
+        stack,
+        tenantId,
+        resourceType: 'http_route',
+        resourceId: `${request.method} ${request.route?.path ?? request.url}`,
       });
     }
 

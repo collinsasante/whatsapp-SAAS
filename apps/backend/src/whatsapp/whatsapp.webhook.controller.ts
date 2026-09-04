@@ -23,7 +23,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from '../messages/messages.service';
 import { CallsService } from '../calls/calls.service';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
+import { WebhookSource } from '@prisma/client';
 import { notify } from '../common/notifier';
+import { WebhookEventService } from '../common/monitoring/webhook-event.service';
 import { verifyWhatsAppSignature } from './webhook-signature.util';
 
 interface CallEvent {
@@ -102,6 +104,7 @@ export class WhatsAppWebhookController {
     private prisma: PrismaService,
     private messagesService: MessagesService,
     @Inject(forwardRef(() => CallsService)) private callsService: CallsService,
+    private webhookEventService: WebhookEventService,
   ) {}
 
   @Get(':tenantId')
@@ -200,7 +203,23 @@ export class WhatsAppWebhookController {
 
     // Process the full webhook payload for each matched tenant.
     for (const tenant of tenants) {
-      await this.processWebhookForTenant(tenant.id, body.entry ?? []);
+      const eventTypes = new Set<string>();
+      for (const entry of body.entry ?? []) {
+        for (const change of entry.changes ?? []) eventTypes.add(change.field);
+      }
+      const eventId = await this.webhookEventService.recordReceived({
+        source: WebhookSource.WHATSAPP,
+        eventType: [...eventTypes].join(',') || 'unknown',
+        tenantId: tenant.id,
+        payload: body.entry,
+      });
+      try {
+        await this.processWebhookForTenant(tenant.id, body.entry ?? []);
+        await this.webhookEventService.markOutcome(eventId, 'PROCESSED');
+      } catch (error) {
+        await this.webhookEventService.markOutcome(eventId, 'FAILED', error instanceof Error ? error.message : String(error));
+        throw error;
+      }
     }
 
     return { status: 'ok' };

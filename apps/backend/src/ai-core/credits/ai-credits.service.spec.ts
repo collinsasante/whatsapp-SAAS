@@ -219,4 +219,43 @@ describe('AiCreditsService', () => {
       });
     });
   });
+
+  describe('adminListTransactions', () => {
+    it('is unscoped by default (no tenantId filter) unlike the tenant-facing getTransactions', async () => {
+      const findMany = jest.fn().mockResolvedValue([{ id: 'txn-1', tenantId: 't1' }, { id: 'txn-2', tenantId: 't2' }]);
+      const count = jest.fn().mockResolvedValue(2);
+      const prisma = buildPrismaMock({ aiCreditTransaction: { findUnique: jest.fn(), create: jest.fn(), findMany, count } });
+      const service = buildService(prisma);
+
+      const result = await service.adminListTransactions({});
+
+      expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
+      expect(result.total).toBe(2);
+      expect(result.items).toHaveLength(2);
+    });
+
+    it('filters by tenantId and type when provided', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const count = jest.fn().mockResolvedValue(0);
+      const prisma = buildPrismaMock({ aiCreditTransaction: { findUnique: jest.fn(), create: jest.fn(), findMany, count } });
+      const service = buildService(prisma);
+
+      await service.adminListTransactions({ tenantId: 't1', type: AiCreditTransactionType.AI_USAGE });
+
+      expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { tenantId: 't1', type: AiCreditTransactionType.AI_USAGE },
+      }));
+    });
+
+    it('clamps limit to 100', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const count = jest.fn().mockResolvedValue(0);
+      const prisma = buildPrismaMock({ aiCreditTransaction: { findUnique: jest.fn(), create: jest.fn(), findMany, count } });
+      const service = buildService(prisma);
+
+      await service.adminListTransactions({ limit: 500 });
+
+      expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100 }));
+    });
+  });
 });

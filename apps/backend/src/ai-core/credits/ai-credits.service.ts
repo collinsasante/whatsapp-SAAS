@@ -156,6 +156,27 @@ export class AiCreditsService {
     return { items, total, page, limit };
   }
 
+  /** Admin-scoped counterpart to getTransactions() -- tenantId is an optional filter here, not a requirement, unlike the tenant-facing endpoint. */
+  async adminListTransactions(opts: { tenantId?: string; type?: AiCreditTransactionType; limit?: number; offset?: number } = {}) {
+    const limit = Math.min(opts.limit ?? 50, 100);
+    const offset = opts.offset ?? 0;
+    const where = {
+      ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
+      ...(opts.type ? { type: opts.type } : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.aiCreditTransaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        include: { tenant: { select: { id: true, name: true } } },
+      }),
+      this.prisma.aiCreditTransaction.count({ where }),
+    ]);
+    return { items, total, limit, offset };
+  }
+
   async getUsageSummary(tenantId: string) {
     const monthStart = new Date();
     monthStart.setDate(1);

@@ -19,7 +19,8 @@ import { BillingCycle, PaymentGateway, PaymentStatus, SubscriptionStatus } from 
 import { InvoiceService } from './invoice.service';
 import { SubscriptionService } from './subscription.service';
 import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
-import { AiCreditTransactionType } from '@prisma/client';
+import { AiCreditTransactionType, WebhookSource } from '@prisma/client';
+import { WebhookEventService } from '../common/monitoring/webhook-event.service';
 
 @SkipThrottle()
 @ApiExcludeController()
@@ -34,6 +35,7 @@ export class BillingWebhookController {
     private readonly invoiceService: InvoiceService,
     private readonly subscriptionService: SubscriptionService,
     private readonly aiCreditsService: AiCreditsService,
+    private readonly webhookEventService: WebhookEventService,
   ) {}
 
   @Post('stripe')
@@ -75,6 +77,13 @@ export class BillingWebhookController {
       }
     }
 
+    const eventLogId = await this.webhookEventService.recordReceived({
+      source: gateway === PaymentGateway.STRIPE ? WebhookSource.STRIPE_BILLING : WebhookSource.PAYSTACK_BILLING,
+      eventType: parsed.event,
+      gatewayEventId: eventId,
+      payload: parsed,
+    });
+
     try {
       if (parsed.isCanceled && parsed.gatewaySubscriptionId) {
         await this.handleSubscriptionCanceled(gateway, parsed);
@@ -83,8 +92,10 @@ export class BillingWebhookController {
       } else if (parsed.status === 'failed' && (parsed.gatewayPaymentId || parsed.gatewayReference)) {
         await this.handlePaymentFailed(parsed);
       }
+      await this.webhookEventService.markOutcome(eventLogId, 'PROCESSED');
     } catch (err) {
       this.logger.error(`Failed to process ${gateway} webhook ${parsed.event}: ${String(err)}`);
+      await this.webhookEventService.markOutcome(eventLogId, 'FAILED', err instanceof Error ? err.message : String(err));
     }
 
     return { received: true };

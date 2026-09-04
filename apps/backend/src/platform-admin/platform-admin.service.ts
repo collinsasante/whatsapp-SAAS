@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AiCreditTransactionType } from '@prisma/client';
+import { AiCreditTransactionType, WebhookSource, WebhookEventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
+import { CommerceLedgerService } from '../commerce/ledger/commerce-ledger.service';
+import { ErrorLogService } from '../common/monitoring/error-log.service';
+import { WebhookEventService } from '../common/monitoring/webhook-event.service';
 import {
   CreateAiCreditPackageDto, CreateAiPricingConfigDto, CreatePlanDto, GrantCreditsDto,
-  TenantsQueryDto, UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto,
-  UpdatePlanDto, UpdateWorkspaceDto,
+  TenantsQueryDto, UpdateAdminRoleDto, UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto,
+  UpdatePlanDto, UpdateWorkspaceDto, ErrorLogsQueryDto, WebhookEventsQueryDto, UpdateErrorLogStatusDto,
 } from './dto/platform-admin.dto';
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
@@ -33,6 +36,9 @@ export class PlatformAdminService {
   constructor(
     private prisma: PrismaService,
     private aiCreditsService: AiCreditsService,
+    private commerceLedgerService: CommerceLedgerService,
+    private errorLogService: ErrorLogService,
+    private webhookEventService: WebhookEventService,
   ) {}
 
   async getDashboard() {
@@ -799,6 +805,71 @@ export class PlatformAdminService {
       update: { value: data.defaultCommerceFeePct, updatedBy: adminId },
     });
     return { defaultCommerceFeePct: data.defaultCommerceFeePct };
+  }
+
+  // ── Admin platform: RBAC ───────────────────────────────────────────────────
+
+  async listAdmins() {
+    return this.prisma.platformAdmin.findMany({
+      select: { id: true, email: true, name: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** SUPER_ADMIN-gated at the route; also blocks an admin from changing
+   * their own role here specifically, so a single-admin system can't lock
+   * itself out by accident (self-service role changes have no upside worth
+   * that risk). */
+  async updateAdminRole(id: string, data: UpdateAdminRoleDto, actingAdminId: string) {
+    if (id === actingAdminId) throw new BadRequestException('Cannot change your own role -- ask another SUPER_ADMIN');
+    const admin = await this.prisma.platformAdmin.findUnique({ where: { id } });
+    if (!admin) throw new NotFoundException('Admin not found');
+    return this.prisma.platformAdmin.update({
+      where: { id },
+      data: { role: data.role },
+      select: { id: true, email: true, name: true, role: true },
+    });
+  }
+
+  // ── Monitoring: error logs ──────────────────────────────────────────────
+
+  async listErrors(query: ErrorLogsQueryDto) {
+    return this.errorLogService.list(query);
+  }
+
+  async getError(id: string) {
+    const row = await this.errorLogService.findOne(id);
+    if (!row) throw new NotFoundException('Error log not found');
+    return row;
+  }
+
+  async updateErrorStatus(id: string, data: UpdateErrorLogStatusDto) {
+    const row = await this.errorLogService.findOne(id);
+    if (!row) throw new NotFoundException('Error log not found');
+    return this.errorLogService.updateStatus(id, data.status);
+  }
+
+  // ── Monitoring: webhook events ──────────────────────────────────────────
+
+  async listWebhookEvents(query: WebhookEventsQueryDto) {
+    return this.webhookEventService.list({
+      source: query.source as WebhookSource | undefined,
+      status: query.status as WebhookEventStatus | undefined,
+      tenantId: query.tenantId,
+      limit: query.limit,
+      offset: query.offset,
+    });
+  }
+
+  async getWebhookEvent(id: string) {
+    const row = await this.webhookEventService.findOne(id);
+    if (!row) throw new NotFoundException('Webhook event not found');
+    return row;
+  }
+
+  /** Only PAYSTACK_COMMERCE is currently replayable -- see CommerceLedgerService.reprocessWebhookEvent. */
+  async reprocessWebhookEvent(id: string) {
+    return this.commerceLedgerService.reprocessWebhookEvent(id);
   }
 
   async grantCredits(tenantId: string, data: GrantCreditsDto) {
