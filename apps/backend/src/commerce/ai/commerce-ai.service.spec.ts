@@ -3,6 +3,7 @@ import { CommerceAiService } from './commerce-ai.service';
 function buildPrismaMock() {
   return {
     tenantSettings: { findUnique: jest.fn().mockResolvedValue({ businessName: 'Acme Prints' }) },
+    conversation: { findFirst: jest.fn().mockResolvedValue(null) },
     message: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
@@ -12,17 +13,18 @@ function buildDeps() {
     prisma: buildPrismaMock(),
     knowledgeBase: { getRelevant: jest.fn().mockResolvedValue([]) },
     conversations: { request: jest.fn().mockResolvedValue(null) },
+    conversationState: { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) },
     toolCalling: { complete: jest.fn() },
   };
 }
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceAiService(deps.prisma as any, deps.knowledgeBase as any, deps.conversations as any, deps.toolCalling as any);
+  return new CommerceAiService(deps.prisma as any, deps.knowledgeBase as any, deps.conversations as any, deps.conversationState as any, deps.toolCalling as any);
 }
 
 function mockCompletion(overrides: Record<string, unknown> = {}) {
-  return { content: '', toolTrace: [], failed: false, hitMaxIterations: false, ...overrides };
+  return { content: '', toolTrace: [], failed: false, hitMaxIterations: false, sideEffects: [], ...overrides };
 }
 
 describe('CommerceAiService', () => {
@@ -105,7 +107,8 @@ describe('CommerceAiService', () => {
       const sentReq = deps.toolCalling.complete.mock.calls[0][0];
       expect(sentReq.toolNames.sort()).toEqual([
         'add_item_to_order', 'create_internal_task', 'get_current_order', 'get_order_status',
-        'get_product_details', 'qualify_lead', 'search_products', 'submit_order_for_payment',
+        'get_product_details', 'qualify_lead', 'remember_conversation_facts', 'search_products',
+        'send_product_image', 'submit_order_for_payment',
       ]);
       expect(sentReq.maxTokens).toBeGreaterThanOrEqual(900);
       expect(sentReq.toolContext).toEqual({ tenantId: 't1', conversationId: 'conv1', contactId: 'contact1', customerPhone: '+233555000111', dryRunPayment: undefined });
@@ -121,7 +124,7 @@ describe('CommerceAiService', () => {
       expect(deps.toolCalling.complete.mock.calls[0][0].toolContext.dryRunPayment).toBe(true);
     });
 
-    it('falls back to a "get a team member" message when the loop hits max iterations', async () => {
+    it('falls back to a "get a team member" message AND actually escalates when the loop hits max iterations', async () => {
       const deps = buildDeps();
       deps.toolCalling.complete.mockResolvedValue(mockCompletion({ hitMaxIterations: true }));
       const service = buildService(deps);
@@ -129,6 +132,9 @@ describe('CommerceAiService', () => {
       const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'complex request');
 
       expect(result.response).toBe('Let me get a team member to help finish this up for you.');
+      // Verz-AI unification, Phase I: this used to be purely cosmetic text with no
+      // real side effect -- confirm the conversation is actually flipped to REQUESTED.
+      expect(deps.conversations.request).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
     });
 
     it('returns an empty response without throwing on a provider failure', async () => {
@@ -140,6 +146,28 @@ describe('CommerceAiService', () => {
 
       expect(result.response).toBe('');
       expect(result.blocked).toBe(false);
+    });
+
+    it('forwards mediaToSend side effects from the tool loop', async () => {
+      const deps = buildDeps();
+      const sideEffects = [{ type: 'send_media', mediaUrl: 'https://example.com/x.jpg', mediaType: 'IMAGE', productId: 'p1' }];
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'Here you go', sideEffects }));
+      const service = buildService(deps);
+
+      const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'send me a pic');
+
+      expect(result.mediaToSend).toEqual(sideEffects);
+    });
+
+    it('derives and persists conversation state from the toolTrace', async () => {
+      const deps = buildDeps();
+      const trace = [{ name: 'get_product_details', args: { productId: 'p1' }, result: { id: 'p1', name: 'Shrink Film' } }];
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok', toolTrace: trace }));
+      const service = buildService(deps);
+
+      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'tell me about it');
+
+      expect(deps.conversationState.mergeState).toHaveBeenCalledWith('t1', 'conv1', expect.objectContaining({ selectedProductId: 'p1' }));
     });
 
     it('forwards the toolTrace unchanged for the evaluation harness', async () => {
@@ -162,11 +190,13 @@ describe('CommerceAiService', () => {
 
       const sentReq = deps.toolCalling.complete.mock.calls[0][0];
       expect(sentReq.toolNames.sort()).toEqual([
-        'get_current_order', 'get_order_status', 'get_product_details', 'qualify_lead', 'search_products',
+        'get_current_order', 'get_order_status', 'get_product_details', 'qualify_lead',
+        'remember_conversation_facts', 'search_products',
       ]);
       expect(sentReq.toolNames).not.toContain('add_item_to_order');
       expect(sentReq.toolNames).not.toContain('submit_order_for_payment');
       expect(sentReq.toolNames).not.toContain('create_internal_task');
+      expect(sentReq.toolNames).not.toContain('send_product_image');
     });
 
     it('offers the full tool set when opts.readOnlyTools is false or omitted', async () => {

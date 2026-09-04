@@ -3,6 +3,8 @@ import { AiProviderError, ChatMessage } from '../../providers/ai-provider.interf
 import { ProviderRegistryService } from '../../providers/provider-registry.service';
 import { estimateCostUsd, getModelCatalogEntry } from '../../models/model-catalog';
 import { ToolCallingService } from '../../tools/tool-calling.service';
+import { deriveStateFromToolTrace } from '../../tools/state-derivation.util';
+import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 
 interface ParsedGeneration {
@@ -18,6 +20,7 @@ export class GenerationStage implements PipelineStage {
   constructor(
     private registry: ProviderRegistryService,
     private toolCalling: ToolCallingService,
+    private conversationState: ConversationStateService,
   ) {}
 
   async execute(ctx: PipelineContext): Promise<void> {
@@ -52,13 +55,35 @@ export class GenerationStage implements PipelineStage {
           maxTokens: ctx.maxResponseTokens,
         });
 
+        // Deterministic half of state tracking -- reads whatever tools actually
+        // ran this turn regardless of the outcome below. Never throws.
+        void this.conversationState.mergeState(ctx.input.tenantId, ctx.input.conversationId, deriveStateFromToolTrace(result.toolTrace));
+
         if (result.failed) {
           ctx.result = { response: '', confidence: null, blocked: false };
           ctx.trace.status = 'PROVIDER_ERROR';
+        } else if (result.hitMaxIterations) {
+          // Verz-AI unification, Phase I: previously this branch returned an empty
+          // response with no escalation signal at all -- worse than Commerce's own
+          // (also-fixed) hitMaxIterations fallback, since it wasn't even a line of
+          // text. This stage can't call ConversationsService directly (would create
+          // a circular import), but doesn't need to: shouldEscalate is enough --
+          // messages.service.ts already acts on that flag in both
+          // handleAiAutoReply/handleAiSuggestion, and EscalationStage (which runs
+          // right after this stage) only ever adds escalation, never clears it.
+          ctx.result = {
+            response: "Let me get a team member to help finish this up for you.",
+            confidence: null, blocked: false, shouldEscalate: true,
+          };
+          ctx.trace.status = 'SUCCESS';
         } else {
-          ctx.result = { response: result.hitMaxIterations ? '' : result.content, confidence: null, blocked: false };
+          ctx.result = { response: result.content, confidence: null, blocked: false, mediaToSend: result.sideEffects };
           ctx.trace.status = 'SUCCESS';
         }
+        // ToolCallingService.complete() already wrote its own AiExecution row
+        // (with real tokens/cost) internally -- see PipelineTrace.alreadyRecorded's
+        // doc comment. This ctx.trace has no token/cost data to contribute.
+        ctx.trace.alreadyRecorded = true;
         ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
         return;
       }

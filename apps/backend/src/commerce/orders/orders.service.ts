@@ -40,6 +40,18 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * Verz-AI unification, Phase H: two real correctness fixes.
+   * 1. Calling this twice for the same product+variant now increments the
+   *    existing line's quantity instead of creating a duplicate line item --
+   *    the two known callers (this REST endpoint's manual order-builder UI,
+   *    and the add_item_to_order AI tool) both expect "add N more of this"
+   *    to behave like a running cart, not accumulate separate lines silently.
+   * 2. Variant price deltas (Product.variants[].priceDeltaMajorUnits) are now
+   *    actually applied to the charged price -- previously get_product_details
+   *    surfaced them to the AI/customer but nothing here ever honored them, a
+   *    real gap between what could be quoted and what would actually be charged.
+   */
   async addItem(tenantId: string, orderId: string, item: AddOrderItemInput) {
     const order = await this.getOwned(tenantId, orderId);
     if (order.status !== OrderStatus.DRAFT) {
@@ -49,20 +61,35 @@ export class OrdersService {
     if (!product) throw new NotFoundException('Product not found or inactive');
     if (item.quantity < 1) throw new ConflictException('Quantity must be at least 1');
 
-    const unitPrice = product.priceMajorUnits;
-    const lineTotal = Math.round(unitPrice * item.quantity * 100) / 100;
+    const variants = (product.variants as { name: string; priceDeltaMajorUnits?: number }[] | null) ?? [];
+    const matchedVariant = item.variantLabel ? variants.find((v) => v.name === item.variantLabel) : undefined;
+    const unitPrice = product.priceMajorUnits + (matchedVariant?.priceDeltaMajorUnits ?? 0);
 
-    await this.prisma.orderItem.create({
-      data: {
-        orderId,
-        productId: product.id,
-        productNameSnapshot: product.name,
-        unitPriceMajorUnitsSnapshot: unitPrice,
-        variantLabelSnapshot: item.variantLabel,
-        quantity: item.quantity,
-        lineTotalMajorUnits: lineTotal,
-      },
+    const existing = await this.prisma.orderItem.findFirst({
+      where: { orderId, productId: product.id, variantLabelSnapshot: item.variantLabel ?? null },
     });
+
+    if (existing) {
+      const newQuantity = existing.quantity + item.quantity;
+      const newLineTotal = Math.round(unitPrice * newQuantity * 100) / 100;
+      await this.prisma.orderItem.update({
+        where: { id: existing.id },
+        data: { quantity: newQuantity, lineTotalMajorUnits: newLineTotal, unitPriceMajorUnitsSnapshot: unitPrice },
+      });
+    } else {
+      const lineTotal = Math.round(unitPrice * item.quantity * 100) / 100;
+      await this.prisma.orderItem.create({
+        data: {
+          orderId,
+          productId: product.id,
+          productNameSnapshot: product.name,
+          unitPriceMajorUnitsSnapshot: unitPrice,
+          variantLabelSnapshot: item.variantLabel,
+          quantity: item.quantity,
+          lineTotalMajorUnits: lineTotal,
+        },
+      });
+    }
 
     await this.recalculateTotals(orderId);
     await this.recordEvent(tenantId, orderId, 'ITEM_ADDED', { productId: product.id, quantity: item.quantity });

@@ -21,7 +21,7 @@ export function buildCatalogueTools(products: ProductsService): ToolDefinition[]
         const filtered = query
           ? all.filter((p) => p.name.toLowerCase().includes(query) || p.description?.toLowerCase().includes(query))
           : all;
-        return filtered.slice(0, 15).map((p) => ({ id: p.id, name: p.name, priceMajorUnits: p.priceMajorUnits, currency: p.currency, inStock: p.stockQuantity === null || p.stockQuantity > 0 }));
+        return filtered.slice(0, 15).map((p) => ({ id: p.id, name: p.name, priceMajorUnits: p.priceMajorUnits, currency: p.currency, inStock: p.stockQuantity === null || p.stockQuantity > 0, hasImage: !!p.imageUrl }));
       },
     },
     {
@@ -39,7 +39,7 @@ export function buildCatalogueTools(products: ProductsService): ToolDefinition[]
         if (!productId) return { error: 'productId is required' };
         const product = await products.findOne(ctx.tenantId, productId).catch(() => null);
         if (!product) return { error: 'Product not found' };
-        return { id: product.id, name: product.name, description: product.description, priceMajorUnits: product.priceMajorUnits, currency: product.currency, stockQuantity: product.stockQuantity, variants: product.variants };
+        return { id: product.id, name: product.name, description: product.description, priceMajorUnits: product.priceMajorUnits, currency: product.currency, stockQuantity: product.stockQuantity, variants: product.variants, hasImage: !!product.imageUrl };
       },
     },
   ];

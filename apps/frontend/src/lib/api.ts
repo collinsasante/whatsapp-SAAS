@@ -435,6 +435,9 @@ export const billingApi = {
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
   getCreditPacks: () => api.get('/billing/credits/packs'),
   getAiCredits: () => api.get('/billing/credits/balance'),
+  getCreditTransactions: (page?: number, limit?: number) =>
+    api.get('/billing/credits/transactions', { params: { page, limit } }),
+  getCreditUsageSummary: () => api.get('/billing/credits/usage'),
   initiateStripeCreditCheckout: (packSlug: string) =>
     api.post('/billing/credits/checkout/stripe', { packSlug }),
   initiatePaystackCreditCheckout: (packSlug: string) =>

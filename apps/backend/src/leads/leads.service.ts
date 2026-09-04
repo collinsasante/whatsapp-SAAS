@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OrdersService } from '../commerce/orders/orders.service';
 import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { ChatMessage } from '../ai-core/providers/ai-provider.interface';
+import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 
 // CONVERTED deliberately excluded: that transition happens exactly once, from
 // markConverted() below on a real verified payment (mirroring Order.status = PAID's
@@ -43,6 +44,7 @@ export class LeadsService {
     private prisma: PrismaService,
     private orders: OrdersService,
     private aiCompletion: AiCompletionService,
+    private aiCredits: AiCreditsService,
   ) {}
 
   async getForConversation(tenantId: string, conversationId: string): Promise<Lead | null> {
@@ -84,6 +86,11 @@ export class LeadsService {
     ]);
 
     if (history.length === 0) return existing;
+
+    // Verz AI Credits: a coarse pre-call gate, same as every other AI entry point --
+    // skip the real LLM call entirely rather than run up spend the tenant can't pay for.
+    const hasCredits = await this.aiCredits.hasSufficientBalance(tenantId).catch(() => true);
+    if (!hasCredits) return existing;
 
     const conversationText = history.reverse().map((m) => `${m.direction === 'INBOUND' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n');
     const orderSummary = orders.length === 0

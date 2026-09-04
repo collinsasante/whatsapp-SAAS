@@ -8,6 +8,7 @@ import { UsageService } from './usage.service';
 import { InitiateCheckoutDto, InitiateCreditCheckoutDto } from './dto/billing.dto';
 import { StripeGateway } from './gateways/stripe.gateway';
 import { PaystackGateway } from './gateways/paystack.gateway';
+import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 import { randomBytes } from 'crypto';
 
 function genRef(prefix: string) {
@@ -26,6 +27,7 @@ export class BillingService {
     private readonly usageService: UsageService,
     private readonly stripeGateway: StripeGateway,
     private readonly paystackGateway: PaystackGateway,
+    private readonly aiCreditsService: AiCreditsService,
   ) {}
 
   async getStatus(tenantId: string) {
@@ -247,15 +249,11 @@ export class BillingService {
     return this.usageService.getHistoricalUsage(tenantId);
   }
 
-  static readonly CREDIT_PACKS = [
-    { slug: 'starter-200',  credits: 200,   amount: 5,   label: '200 Credits',   description: 'Great for small teams getting started', currency: 'USD' },
-    { slug: 'growth-600',   credits: 600,   amount: 12,  label: '600 Credits',   description: 'Most popular — 3× more value', currency: 'USD' },
-    { slug: 'pro-1500',     credits: 1500,  amount: 25,  label: '1,500 Credits', description: 'Best value for active workspaces', currency: 'USD' },
-    { slug: 'scale-4000',   credits: 4000,  amount: 55,  label: '4,000 Credits', description: 'High-volume teams', currency: 'USD' },
-  ] as const;
-
-  getCreditPacks() {
-    return BillingService.CREDIT_PACKS;
+  /** Verz AI Credits: packages are now admin-configurable rows (AiCreditPackage),
+   * not this hardcoded array -- see platform-admin's pricing endpoints. Only active
+   * packages, cheapest/display-first order. */
+  async getCreditPacks() {
+    return this.prisma.aiCreditPackage.findMany({ where: { isActive: true }, orderBy: { displayOrder: 'asc' } });
   }
 
   async getAiCredits(tenantId: string) {
@@ -266,17 +264,26 @@ export class BillingService {
     return { credits: tenant?.aiCredits ?? 0 };
   }
 
-  private getCreditPack(packSlug: string) {
-    const pack = BillingService.CREDIT_PACKS.find((p) => p.slug === packSlug);
+  async getCreditTransactions(tenantId: string, opts: { page?: number; limit?: number } = {}) {
+    return this.aiCreditsService.getTransactions(tenantId, opts);
+  }
+
+  async getCreditUsageSummary(tenantId: string) {
+    return this.aiCreditsService.getUsageSummary(tenantId);
+  }
+
+  private async getCreditPack(packSlug: string) {
+    const pack = await this.prisma.aiCreditPackage.findFirst({ where: { slug: packSlug, isActive: true } });
     if (!pack) throw new BadRequestException('Invalid credit pack');
     return pack;
   }
 
-  // ─── Stripe: one-off credit pack purchase ─────────────────────────────────
+  // ─── Stripe: one-off credit pack purchase (USD) ────────────────────────────
 
   async initiateStripeCreditCheckout(tenantId: string, dto: InitiateCreditCheckoutDto) {
     const tenant = await this.requireTenant(tenantId);
-    const pack = this.getCreditPack(dto.packSlug);
+    const pack = await this.getCreditPack(dto.packSlug);
+    if (pack.priceUsd == null) throw new BadRequestException('This credit pack is not available via card payment');
     const billingEmail = dto.billingEmail ?? tenant.billingEmail;
     if (!billingEmail) throw new BadRequestException('A billing email is required');
 
@@ -289,23 +296,24 @@ export class BillingService {
 
     const checkout = await this.stripeGateway.createOneOffPaymentIntent({
       customerId,
-      amountMajorUnits: pack.amount,
-      currency: pack.currency,
+      amountMajorUnits: pack.priceUsd,
+      currency: 'USD',
       tenantId,
       metadata: { packSlug: dto.packSlug, reference },
     });
 
+    const totalCredits = pack.credits + pack.bonusCredits;
     await this.prisma.$transaction([
       this.prisma.creditPurchase.create({
         data: {
-          tenantId, credits: pack.credits, packSlug: dto.packSlug, amount: pack.amount,
-          currency: pack.currency, gateway: PaymentGateway.STRIPE, paystackRef: reference, status: PaymentStatus.PENDING,
+          tenantId, credits: totalCredits, packSlug: dto.packSlug, amount: pack.priceUsd,
+          currency: 'USD', gateway: PaymentGateway.STRIPE, paystackRef: reference, status: PaymentStatus.PENDING,
         },
       }),
       this.prisma.payment.create({
         data: {
           tenantId, gateway: PaymentGateway.STRIPE, status: PaymentStatus.PENDING,
-          amount: pack.amount, currency: pack.currency,
+          amount: pack.priceUsd, currency: 'USD',
           gatewayPaymentId: checkout.gatewayReference, gatewayReference: reference,
         },
       }),
@@ -314,39 +322,41 @@ export class BillingService {
     return {
       clientSecret: checkout.clientSecret,
       publishableKey: this.config.get<string>('STRIPE_PUBLISHABLE_KEY', ''),
-      amount: pack.amount,
-      credits: pack.credits,
+      amount: pack.priceUsd,
+      credits: totalCredits,
       pack,
     };
   }
 
-  // ─── Paystack: one-off credit pack purchase ───────────────────────────────
+  // ─── Paystack: one-off credit pack purchase (GHS) ──────────────────────────
 
   async initiatePaystackCreditCheckout(tenantId: string, dto: InitiateCreditCheckoutDto) {
     const tenant = await this.requireTenant(tenantId);
-    const pack = this.getCreditPack(dto.packSlug);
+    const pack = await this.getCreditPack(dto.packSlug);
+    if (pack.priceGhs == null) throw new BadRequestException('This credit pack is not available via Paystack');
     const billingEmail = dto.billingEmail ?? tenant.billingEmail;
     if (!billingEmail) throw new BadRequestException('A billing email is required');
 
     const checkout = await this.paystackGateway.initializeTransaction({
       email: billingEmail,
-      amountMajorUnits: pack.amount,
-      currency: pack.currency,
+      amountMajorUnits: pack.priceGhs,
+      currency: 'GHS',
       tenantId,
       metadata: { packSlug: dto.packSlug },
     });
 
+    const totalCredits = pack.credits + pack.bonusCredits;
     await this.prisma.$transaction([
       this.prisma.creditPurchase.create({
         data: {
-          tenantId, credits: pack.credits, packSlug: dto.packSlug, amount: pack.amount,
-          currency: pack.currency, gateway: PaymentGateway.PAYSTACK, paystackRef: checkout.gatewayReference, status: PaymentStatus.PENDING,
+          tenantId, credits: totalCredits, packSlug: dto.packSlug, amount: pack.priceGhs,
+          currency: 'GHS', gateway: PaymentGateway.PAYSTACK, paystackRef: checkout.gatewayReference, status: PaymentStatus.PENDING,
         },
       }),
       this.prisma.payment.create({
         data: {
           tenantId, gateway: PaymentGateway.PAYSTACK, status: PaymentStatus.PENDING,
-          amount: pack.amount, currency: pack.currency, gatewayReference: checkout.gatewayReference,
+          amount: pack.priceGhs, currency: 'GHS', gatewayReference: checkout.gatewayReference,
         },
       }),
     ]);
@@ -355,8 +365,8 @@ export class BillingService {
       accessCode: checkout.accessCode,
       reference: checkout.gatewayReference,
       publicKey: this.config.get<string>('PAYSTACK_PUBLIC_KEY', ''),
-      amount: pack.amount,
-      credits: pack.credits,
+      amount: pack.priceGhs,
+      credits: totalCredits,
       pack,
     };
   }

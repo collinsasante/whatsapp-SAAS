@@ -24,6 +24,8 @@ function buildOrdersMock() {
   return { findAll: jest.fn().mockResolvedValue([]) };
 }
 
+const aiCredits = { hasSufficientBalance: jest.fn().mockResolvedValue(true) };
+
 const QUALIFICATION_JSON = JSON.stringify({
   score: 85,
   status: 'HOT',
@@ -42,7 +44,7 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn().mockResolvedValue({ content: QUALIFICATION_JSON, failed: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       const result = await service.scoreConversation('t1', 'c1', 'ct1');
 
@@ -60,7 +62,7 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn() };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       const result = await service.scoreConversation('t1', 'c1', 'ct1');
 
@@ -74,7 +76,7 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn().mockResolvedValue({ content: QUALIFICATION_JSON, failed: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       await service.scoreConversation('t1', 'c1', 'ct1', { force: true });
 
@@ -86,7 +88,7 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn().mockResolvedValue({ content: JSON.stringify({ score: 99, status: 'CONVERTED' }), failed: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       await service.scoreConversation('t1', 'c1', 'ct1');
 
@@ -99,7 +101,7 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn().mockResolvedValue({ content: '', failed: true }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       const result = await service.scoreConversation('t1', 'c1', 'ct1');
 
@@ -113,10 +115,25 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn().mockResolvedValue({ content: 'not json', failed: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       const result = await service.scoreConversation('t1', 'c1', 'ct1');
 
+      expect(result).toBe(existing);
+    });
+
+    it('skips the AI call entirely when the tenant has insufficient credits', async () => {
+      const existing = { id: 'lead-1', lastScoredAt: null, score: 10, status: 'NEW' };
+      const prisma = buildPrismaMock({ lead: { findUnique: jest.fn().mockResolvedValue(existing), upsert: jest.fn(), updateMany: jest.fn() } });
+      const orders = buildOrdersMock();
+      const aiCompletion = { complete: jest.fn() };
+      const noCredits = { hasSufficientBalance: jest.fn().mockResolvedValue(false) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, noCredits as any);
+
+      const result = await service.scoreConversation('t1', 'c1', 'ct1');
+
+      expect(aiCompletion.complete).not.toHaveBeenCalled();
       expect(result).toBe(existing);
     });
   });
@@ -126,7 +143,7 @@ describe('LeadsService', () => {
       const prisma = buildPrismaMock();
       const orders = buildOrdersMock();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, {} as any);
+      const service = new LeadsService(prisma as any, orders as any, {} as any, aiCredits as any);
 
       await service.markConverted('t1', 'c1');
 
@@ -140,7 +157,7 @@ describe('LeadsService', () => {
       const orders = buildOrdersMock();
       const aiCompletion = { complete: jest.fn().mockResolvedValue({ content: QUALIFICATION_JSON, failed: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any);
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, aiCredits as any);
 
       await service.rescore('t1', 'c1');
 
@@ -152,7 +169,7 @@ describe('LeadsService', () => {
       const prisma = buildPrismaMock({ conversation: { findFirst: jest.fn().mockResolvedValue(null) } });
       const orders = buildOrdersMock();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const service = new LeadsService(prisma as any, orders as any, {} as any);
+      const service = new LeadsService(prisma as any, orders as any, {} as any, aiCredits as any);
 
       const result = await service.rescore('t1', 'c1');
 

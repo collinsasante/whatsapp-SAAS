@@ -7,7 +7,12 @@ import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAuditService } from './platform-audit.service';
 import { PlatformHealthService } from './platform-health.service';
 import { RequirePlatformRole } from './decorators/require-platform-role.decorator';
-import { AdminLoginDto, AdminSetupDto, CreatePlanDto, FunnelQueryDto, OverviewQueryDto, RevenueQueryDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto, UsageQueryDto } from './dto/platform-admin.dto';
+import {
+  AdminLoginDto, AdminSetupDto, CreateAiCreditPackageDto, CreateAiPricingConfigDto, CreatePlanDto,
+  FunnelQueryDto, GrantCreditsDto, OverviewQueryDto, RevenueQueryDto, TenantsQueryDto,
+  UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto, UpdatePlanDto,
+  UpdateWorkspaceDto, UsageQueryDto,
+} from './dto/platform-admin.dto';
 
 @ApiTags('Platform Admin')
 @Controller('platform-admin')
@@ -185,6 +190,80 @@ export class PlatformAdminController {
   ) {
     const result = await this.adminService.setCommerceConfig(id, commerceEnabled, takeRatePct);
     await this.auditService.log({ adminId: req.adminId, action: 'workspace.set_commerce_config', resourceType: 'Tenant', resourceId: id, metadata: { commerceEnabled, takeRatePct }, ...this.auditMeta(req) });
+    return result;
+  }
+
+  // ── Verz AI Credits admin config ────────────────────────────────────────
+
+  @Get('ai/pricing')
+  @UseGuards(PlatformAdminGuard)
+  listAiPricingConfigs() {
+    return this.adminService.listAiPricingConfigs();
+  }
+
+  @Post('ai/pricing')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async createAiPricingConfig(@Body() data: CreateAiPricingConfigDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.createAiPricingConfig(data);
+    await this.auditService.log({ adminId: req.adminId, action: 'ai_pricing.create', resourceType: 'AiPricingConfig', resourceId: result.id, metadata: data, ...this.auditMeta(req) });
+    return result;
+  }
+
+  @Patch('ai/pricing/:id')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async updateAiPricingConfig(@Param('id') id: string, @Body() data: UpdateAiPricingConfigDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.updateAiPricingConfig(id, data);
+    await this.auditService.log({ adminId: req.adminId, action: 'ai_pricing.update', resourceType: 'AiPricingConfig', resourceId: id, metadata: data, ...this.auditMeta(req) });
+    return result;
+  }
+
+  @Get('ai/credit-packages')
+  @UseGuards(PlatformAdminGuard)
+  listAiCreditPackages() {
+    return this.adminService.listAiCreditPackages();
+  }
+
+  @Post('ai/credit-packages')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async createAiCreditPackage(@Body() data: CreateAiCreditPackageDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.createAiCreditPackage(data);
+    await this.auditService.log({ adminId: req.adminId, action: 'ai_credit_package.create', resourceType: 'AiCreditPackage', resourceId: result.id, metadata: data, ...this.auditMeta(req) });
+    return result;
+  }
+
+  @Patch('ai/credit-packages/:id')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async updateAiCreditPackage(@Param('id') id: string, @Body() data: UpdateAiCreditPackageDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.updateAiCreditPackage(id, data);
+    await this.auditService.log({ adminId: req.adminId, action: 'ai_credit_package.update', resourceType: 'AiCreditPackage', resourceId: id, metadata: data, ...this.auditMeta(req) });
+    return result;
+  }
+
+  @Get('settings/commerce-fee')
+  @UseGuards(PlatformAdminGuard)
+  getDefaultCommerceFeePct() {
+    return this.adminService.getDefaultCommerceFeePct();
+  }
+
+  @Patch('settings/commerce-fee')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async setDefaultCommerceFeePct(@Body() data: UpdateCommerceFeeDefaultDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.setDefaultCommerceFeePct(data, req.adminId);
+    await this.auditService.log({ adminId: req.adminId, action: 'settings.set_default_commerce_fee', resourceType: 'PlatformSettings', resourceId: 'default_commerce_fee_pct', metadata: data, ...this.auditMeta(req) });
+    return result;
+  }
+
+  @Post('workspaces/:id/credits/grant')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async grantCredits(@Param('id') id: string, @Body() data: GrantCreditsDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.grantCredits(id, data);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.grant_credits', resourceType: 'Tenant', resourceId: id, metadata: data, ...this.auditMeta(req) });
     return result;
   }
 

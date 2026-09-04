@@ -44,7 +44,7 @@ describe('ToolCallingService', () => {
 
     const result = await service.complete(baseReq());
 
-    expect(result).toEqual({ content: 'We have labels in stock.', toolTrace: [], failed: false, hitMaxIterations: false });
+    expect(result).toEqual({ content: 'We have labels in stock.', toolTrace: [], failed: false, hitMaxIterations: false, sideEffects: [] });
     expect(deps.complete).toHaveBeenCalledTimes(1);
     expect(deps.executions.record).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 't1', conversationId: 'c1', taskType: 'RESPONDER' }),
@@ -101,7 +101,7 @@ describe('ToolCallingService', () => {
 
     const result = await service.complete(baseReq());
 
-    expect(result).toEqual({ content: '', toolTrace: [], failed: true, hitMaxIterations: false });
+    expect(result).toEqual({ content: '', toolTrace: [], failed: true, hitMaxIterations: false, sideEffects: [] });
     expect(deps.executions.record).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ status: 'PROVIDER_ERROR', errorCode: 'auth' }),

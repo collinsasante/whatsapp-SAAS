@@ -10,7 +10,7 @@ export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
     {
       def: {
         name: 'add_item_to_order',
-        description: "Add a product to the customer's current order (creates the order if this is the first item). Call this once the customer has confirmed what they want to buy and how many.",
+        description: "Add a product to the customer's current order (creates the order if this is the first item). STATE-CHANGING: calling this a second time for a product already in the order increases its quantity rather than adding a duplicate line -- call it once per distinct add, with the total quantity the customer wants, not once per unit. Only call this once the customer has confirmed what they want and how many; this does not charge them anything yet.",
         parameters: {
           type: 'object',
           properties: {
@@ -49,7 +49,7 @@ export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
     {
       def: {
         name: 'submit_order_for_payment',
-        description: 'Finalize the current draft order and get a real payment link to send the customer. Only call this once the customer has explicitly confirmed they want to check out.',
+        description: 'STATE-CHANGING, CUSTOMER-FACING SIDE EFFECT: finalizes the current draft order and either returns a real payment link to send the customer, or -- if any item is below its minimum order quantity -- routes the order to a manager for approval instead (no payment link in that case, this is not a rejection). Only call this once the customer has explicitly said they want to check out; it locks in the order as it stands right now, so make sure get_current_order reflects everything they want first.',
         parameters: { type: 'object', properties: {} },
       },
       execute: async (ctx: ToolExecutionContext) => {

@@ -6,9 +6,13 @@ import { LeadsService } from '../../leads/leads.service';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
 
+const DEFAULT_COMMERCE_FEE_SETTING_KEY = 'default_commerce_fee_pct';
+const DEFAULT_COMMERCE_FEE_CACHE_TTL_MS = 60_000;
+
 @Injectable()
 export class CommerceLedgerService {
   private readonly logger = new Logger(CommerceLedgerService.name);
+  private defaultFeeCache: { value: number; cachedAt: number } | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -17,6 +21,20 @@ export class CommerceLedgerService {
     // see leads.module.ts for why.
     private leads: LeadsService,
   ) {}
+
+  /** Verz AI Credits / commerce fee: platform-admin-configurable global default,
+   * applied only when a tenant has never had TenantSettings.takeRatePct explicitly
+   * set -- an explicit per-tenant rate (via setCommerceConfig) always wins. Small
+   * TTL cache, same pattern as FeatureFlagsService.isEnabledCached. */
+  private async getDefaultCommerceFeePct(): Promise<number> {
+    if (this.defaultFeeCache && Date.now() - this.defaultFeeCache.cachedAt < DEFAULT_COMMERCE_FEE_CACHE_TTL_MS) {
+      return this.defaultFeeCache.value;
+    }
+    const row = await this.prisma.platformSettings.findUnique({ where: { key: DEFAULT_COMMERCE_FEE_SETTING_KEY } }).catch(() => null);
+    const value = typeof row?.value === 'number' ? row.value : 0;
+    this.defaultFeeCache = { value, cachedAt: Date.now() };
+    return value;
+  }
 
   /**
    * Pull-based counterpart to the Paystack webhook: asks Paystack's verify API
@@ -101,7 +119,7 @@ export class CommerceLedgerService {
     }
 
     const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } });
-    const takeRatePct = tenantSettings?.takeRatePct ?? 0;
+    const takeRatePct = tenantSettings?.takeRatePct ?? (await this.getDefaultCommerceFeePct());
     const gmvAmount = verifiedAmountMajorUnits;
     const takeRateAmount = computeTakeRate(gmvAmount, takeRatePct);
 
@@ -188,8 +206,12 @@ export class CommerceLedgerService {
     });
     const alreadyRefundedMajorUnits = Math.round(priorAdjustments.reduce((sum, e) => sum + Math.abs((e.data as { refundAmountMajorUnits?: number })?.refundAmountMajorUnits ?? 0), 0) * 100) / 100;
 
+    // Pre-existing limitation, not introduced here: this re-reads the tenant's
+    // CURRENT rate (or default) rather than whatever rate was actually applied at
+    // payment time. If a rate changes between payment and refund, the clawback
+    // uses the new rate, not the original one. Out of scope for this change.
     const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } });
-    const takeRatePct = tenantSettings?.takeRatePct ?? 0;
+    const takeRatePct = tenantSettings?.takeRatePct ?? (await this.getDefaultCommerceFeePct());
 
     const { takeRateClawbackMajorUnits } = computeRefundAdjustment({
       orderTotalMajorUnits: order.totalMajorUnits,

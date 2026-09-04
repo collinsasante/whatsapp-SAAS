@@ -10,6 +10,9 @@ describe('detectHumanRequest', () => {
     'Can you transfer me to customer service representative',
     'can I speak to someone',
     'I want to speak to someone about my order',
+    'I hate chatting with AI',
+    "I don't want to talk to a bot",
+    'stop being a robot and get me a real answer',
   ];
 
   it.each(POSITIVE_EXAMPLES)('detects an explicit human request: "%s"', (message) => {

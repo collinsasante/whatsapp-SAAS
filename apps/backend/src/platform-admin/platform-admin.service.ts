@@ -1,6 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { AiCreditTransactionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreatePlanDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
+import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
+import {
+  CreateAiCreditPackageDto, CreateAiPricingConfigDto, CreatePlanDto, GrantCreditsDto,
+  TenantsQueryDto, UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto,
+  UpdatePlanDto, UpdateWorkspaceDto,
+} from './dto/platform-admin.dto';
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
 import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
@@ -24,7 +30,10 @@ function toCsvRow(fields: unknown[]): string {
 
 @Injectable()
 export class PlatformAdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private aiCreditsService: AiCreditsService,
+  ) {}
 
   async getDashboard() {
     const now = new Date();
@@ -750,6 +759,54 @@ export class PlatformAdminService {
 
   async updatePlan(id: string, data: UpdatePlanDto) {
     return this.prisma.plan.update({ where: { id }, data });
+  }
+
+  // ── Verz AI Credits admin config ──────────────────────────────────────────
+
+  async listAiPricingConfigs() {
+    return this.prisma.aiPricingConfig.findMany({ orderBy: [{ provider: 'asc' }, { modelKey: 'asc' }] });
+  }
+
+  async createAiPricingConfig(data: CreateAiPricingConfigDto) {
+    return this.prisma.aiPricingConfig.create({ data });
+  }
+
+  async updateAiPricingConfig(id: string, data: UpdateAiPricingConfigDto) {
+    return this.prisma.aiPricingConfig.update({ where: { id }, data });
+  }
+
+  async listAiCreditPackages() {
+    return this.prisma.aiCreditPackage.findMany({ orderBy: { displayOrder: 'asc' } });
+  }
+
+  async createAiCreditPackage(data: CreateAiCreditPackageDto) {
+    return this.prisma.aiCreditPackage.create({ data });
+  }
+
+  async updateAiCreditPackage(id: string, data: UpdateAiCreditPackageDto) {
+    return this.prisma.aiCreditPackage.update({ where: { id }, data });
+  }
+
+  async getDefaultCommerceFeePct() {
+    const row = await this.prisma.platformSettings.findUnique({ where: { key: 'default_commerce_fee_pct' } });
+    return { defaultCommerceFeePct: typeof row?.value === 'number' ? row.value : 0 };
+  }
+
+  async setDefaultCommerceFeePct(data: UpdateCommerceFeeDefaultDto, adminId: string) {
+    await this.prisma.platformSettings.upsert({
+      where: { key: 'default_commerce_fee_pct' },
+      create: { key: 'default_commerce_fee_pct', value: data.defaultCommerceFeePct, description: 'Global default commerce fee %, applied when a tenant has no explicit takeRatePct', updatedBy: adminId },
+      update: { value: data.defaultCommerceFeePct, updatedBy: adminId },
+    });
+    return { defaultCommerceFeePct: data.defaultCommerceFeePct };
+  }
+
+  async grantCredits(tenantId: string, data: GrantCreditsDto) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    const type = data.type === 'ADJUSTMENT' ? AiCreditTransactionType.ADJUSTMENT : AiCreditTransactionType.BONUS;
+    const result = await this.aiCreditsService.grant(tenantId, type, data.credits, data.description);
+    return { success: result.settled, transaction: result.transaction };
   }
 
   async getWorkspaceTemplates(tenantId: string) {

@@ -91,6 +91,7 @@ model Tenant {
   aiExecutions                    AiExecution[]
   internalTasks                   InternalTask[]
   leads                           Lead[]
+  aiCreditTransactions             AiCreditTransaction[]
 
   @@map("tenants")
 }
@@ -441,6 +442,11 @@ model Conversation {
   adSourceId     String?            @map("ad_source_id")
   adHeadline     String?            @map("ad_headline")
   adImageUrl     String?            @map("ad_image_url")
+  // Verz-AI unification, Phase F: advisory cross-turn state (current intent, known
+  // facts, selected product, active order, last topic) -- read/rendered into the
+  // prompt as a compact summary, never branched on by application code. Nullable/
+  // additive; absence just means "no state tracked yet," not an error.
+  aiState        Json?              @map("ai_state")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -2138,6 +2144,7 @@ model CreditPurchase {
   updatedAt   DateTime      @updatedAt      @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiCreditTransaction AiCreditTransaction?
 
   @@index([tenantId])
   @@map("credit_purchases")
@@ -2439,7 +2446,7 @@ model AiExecution {
   // written post-hoc after the log row is created in the orchestration block.
   interactionLogId String?  @map("interaction_log_id")
   promptVersionId  String?  @map("prompt_version_id")
-  taskType         String   @map("task_type") // RESPONDER | SUMMARIZE | KB_LEARN | TEST
+  taskType         String   @map("task_type") // RESPONDER | SUMMARIZE | KB_LEARN | TEST | LEAD_SCORE
   provider         String
   modelKey         String   @map("model_key")
   status           String   // SUCCESS | BLOCKED | POLICY_REJECTED | PROVIDER_ERROR | EMPTY
@@ -2457,8 +2464,86 @@ model AiExecution {
   tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   agent         AiAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   promptVersion AiPromptVersion? @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  creditTransaction AiCreditTransaction?
 
   @@index([tenantId, createdAt])
   @@index([conversationId])
   @@map("ai_executions")
+}
+
+// ── Verz AI Credits billing ─────────────────────────────────────────────────
+
+enum AiCreditTransactionType {
+  PURCHASE
+  BONUS
+  AI_USAGE
+  REFUND
+  ADJUSTMENT
+}
+
+// Append-only ledger -- Tenant.aiCredits is the fast-read cached balance,
+// this is the source of truth for how it got there. aiExecutionId/
+// creditPurchaseId are each @unique (Postgres allows multiple NULLs on a
+// unique column, so non-AI_USAGE/non-PURCHASE rows are unaffected) --
+// exactly one settlement per AI call, exactly one grant per purchase,
+// enforced by the database, same pattern as CommerceLedgerEntry's
+// @@unique([orderId, type, gatewayEventId]).
+model AiCreditTransaction {
+  id               String                  @id @default(uuid())
+  tenantId         String                  @map("tenant_id")
+  type             AiCreditTransactionType
+  credits          Int // negative for AI_USAGE / negative ADJUSTMENT, positive otherwise
+  balanceAfter     Int                     @map("balance_after")
+  aiExecutionId    String?                 @unique @map("ai_execution_id")
+  creditPurchaseId String?                 @unique @map("credit_purchase_id")
+  description      String
+  metadata         Json?
+  createdAt        DateTime                @default(now()) @map("created_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiExecution    AiExecution?    @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  creditPurchase CreditPurchase? @relation(fields: [creditPurchaseId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("ai_credit_transactions")
+}
+
+// Admin-configurable AI provider/model pricing -- the only place cost-per-
+// token and the credit conversion multiplier live. model-catalog.ts stays
+// the source of truth for provider capabilities (context window, tool
+// support); pricing specifically is DB-backed so it can change without a
+// deploy.
+model AiPricingConfig {
+  id                      String   @id @default(uuid())
+  provider                String
+  modelKey                String   @map("model_key")
+  inputCostPerMillionUsd  Float    @map("input_cost_per_million_usd")
+  outputCostPerMillionUsd Float    @map("output_cost_per_million_usd")
+  creditsPerUsd           Float    @map("credits_per_usd")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, modelKey])
+  @@map("ai_pricing_configs")
+}
+
+// Admin-configurable credit packages -- replaces BillingService's previous
+// hardcoded CREDIT_PACKS array. credits is gateway-agnostic (same grant
+// regardless of which gateway you paid through); priceGhs backs the
+// Paystack checkout, priceUsd backs Stripe.
+model AiCreditPackage {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  name         String
+  credits      Int
+  bonusCredits Int      @default(0) @map("bonus_credits")
+  priceGhs     Float?   @map("price_ghs")
+  priceUsd     Float?   @map("price_usd")
+  isActive     Boolean  @default(true) @map("is_active")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_credit_packages")
 }
