@@ -464,11 +464,6 @@ export class MessagesService {
       }
     }
 
-    // Migrate any legacy OPEN conversations to REQUESTING on next inbound message
-    if (conversation.status === 'OPEN') {
-      await this.conversationsService.request(tenantId, conversation.id);
-    }
-
     // Handle customer-deleted message — mark it deleted in our DB
     if (waMessage.type === 'deleted') {
       return null;
@@ -501,21 +496,43 @@ export class MessagesService {
       return null;
     }
 
+    // Production bug fix (contacts/messages don't load): the OPEN->REQUESTED
+    // escalation below used to run unconditionally right after findOrCreate,
+    // BEFORE the deleted/reaction checks above and the unsupported-type check
+    // below -- all three of which can return null (or, for unsupported types,
+    // previously returned null) without ever creating a Message row. That left
+    // real, reproduced cases of a conversation created and escalated to
+    // REQUESTED ("customer needs a human") with zero messages ever attached --
+    // support staff would open it and see nothing, with no way to tell a real
+    // failure apart from an empty shell. Moved here, after both no-message
+    // early-returns, so escalation only ever fires once we know a message
+    // (real or the unsupported-type placeholder just below) will actually be
+    // persisted.
     let content: string | undefined;
     let mediaUrl: string | undefined;
     let mediaType: string | undefined;
     let mediaCaption: string | undefined;
     const messageMetadata: Record<string, unknown> = {};
 
-    const msgType = waMessage.type.toUpperCase() as MessageType;
+    let msgType = waMessage.type.toUpperCase() as MessageType;
 
-    // WhatsApp sends type="unsupported" for polls, ephemeral messages, and
-    // other types not yet exposed via the Cloud API. Skip them silently
-    // (we already acknowledged the webhook — no need to crash).
+    // WhatsApp sends type="unsupported" for polls, ephemeral messages, and other
+    // types not yet exposed via the Cloud API. Previously skipped silently (debug-
+    // level log only, filtered out in production) -- the customer's message vanished
+    // with zero trace for support staff, who'd just see an empty conversation. Now
+    // persisted as a visible placeholder instead, same as any other inbound message,
+    // so at least "the customer tried to send something we can't display yet" is
+    // visible rather than nothing at all.
     const validMessageTypes = new Set<string>(Object.values(MessageType));
     if (!validMessageTypes.has(msgType)) {
-      this.logger.debug(`[tenant:${tenantId}] Skipping unsupported WA message type "${waMessage.type}"`);
-      return null;
+      this.logger.warn(`[tenant:${tenantId}] Unsupported WA message type "${waMessage.type}" -- persisting a placeholder instead of discarding it`);
+      messageMetadata['originalWaType'] = waMessage.type;
+      content = `[Sent a message type we can't display yet: ${waMessage.type}. Ask them to resend as text, an image, or a document.]`;
+      msgType = MessageType.TEXT;
+    }
+
+    if (conversation.status === 'OPEN') {
+      await this.conversationsService.request(tenantId, conversation.id);
     }
 
     if (waMessage.text) content = waMessage.text.body;
