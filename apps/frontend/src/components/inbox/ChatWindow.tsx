@@ -193,6 +193,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Support-reported bug: "previous chats don't load even though the chat exists" --
+  // messagesApi.list() failing (network blip, transient backend error, etc.) was
+  // completely silent: Promise.allSettled swallowed the rejection, nothing was ever
+  // shown to the agent, and the conversation just looked permanently empty with no
+  // way to tell a real failure apart from a genuinely empty chat. This surfaces it.
+  const [loadError, setLoadError] = useState(false);
   const [recording, setRecording] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -432,32 +438,36 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     return () => { socket.off(SocketEvent.AI_SUGGESTION, handler); };
   }, [conversation.id]);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setHasMoreOlder(false);
-      try {
-        const [msgsRes, notesRes, activityRes] = await Promise.allSettled([
-          messagesApi.list(conversation.id, { limit: 100 }),
-          conversationsApi.getNotes(conversation.id),
-          activityLogApi.forConversation(conversation.id),
-        ]);
-        if (msgsRes.status === 'fulfilled') {
-          const payload = msgsRes.value.data as { data: Message[]; hasMore?: boolean };
-          setMessages(conversation.id, payload.data);
-          setHasMoreOlder(!!payload.hasMore);
-          scrollToBottom(true);
-          // Second scroll after virtualizer re-measures actual item heights
-          requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true)));
-        }
-        if (notesRes.status === 'fulfilled') setNotes(notesRes.value.data as typeof notes);
-        if (activityRes.status === 'fulfilled') setActivityLogs(conversation.id, (activityRes.value.data as ActivityEntry[]) ?? []);
-        void conversationsApi.markRead(conversation.id).catch(() => {});
-        updateConversation(conversation.id, { unreadCount: 0 });
-      } finally { setLoading(false); }
-    };
-    void load();
+  const loadMessages = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    setHasMoreOlder(false);
+    try {
+      const [msgsRes, notesRes, activityRes] = await Promise.allSettled([
+        messagesApi.list(conversation.id, { limit: 100 }),
+        conversationsApi.getNotes(conversation.id),
+        activityLogApi.forConversation(conversation.id),
+      ]);
+      if (msgsRes.status === 'fulfilled') {
+        const payload = msgsRes.value.data as { data: Message[]; hasMore?: boolean };
+        setMessages(conversation.id, payload.data);
+        setHasMoreOlder(!!payload.hasMore);
+        scrollToBottom(true);
+        // Second scroll after virtualizer re-measures actual item heights
+        requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(true)));
+      } else {
+        // Previously silent: the conversation just looked permanently empty, with
+        // nothing distinguishing "genuinely no messages" from "the fetch failed."
+        setLoadError(true);
+      }
+      if (notesRes.status === 'fulfilled') setNotes(notesRes.value.data as typeof notes);
+      if (activityRes.status === 'fulfilled') setActivityLogs(conversation.id, (activityRes.value.data as ActivityEntry[]) ?? []);
+      void conversationsApi.markRead(conversation.id).catch(() => {});
+      updateConversation(conversation.id, { unreadCount: 0 });
+    } finally { setLoading(false); }
   }, [conversation.id, setMessages, updateConversation, setActivityLogs]);
+
+  useEffect(() => { void loadMessages(); }, [loadMessages]);
 
   // Client-side search — compute matching message IDs whenever query or messages change
   useEffect(() => {
@@ -558,7 +568,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         }
       });
     } catch {
-      // silently ignore
+      // Support-reported bug: same silent-failure pattern as the initial load above --
+      // a failed "load older" request used to just leave the button sitting there with
+      // no feedback, indistinguishable from "nothing happened yet." Now at least tells
+      // the agent it failed so they know to retry rather than assume there's nothing more.
+      toast.error("Couldn't load older messages -- try again");
     } finally {
       setLoadingOlder(false);
     }
@@ -1591,11 +1605,23 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
             {timeline.length === 0 ? (
-              loading
-                ? <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
-                : <div className="text-center text-gray-400 text-sm mt-12">
-                    {outboundSession ? 'Call in progress…' : 'Send a message to start the conversation.'}
-                  </div>
+              loading ? (
+                <div className="flex justify-center pt-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" /></div>
+              ) : loadError ? (
+                <div className="text-center mt-12">
+                  <p className="text-sm text-red-500 mb-2">Couldn&apos;t load this conversation&apos;s messages.</p>
+                  <button
+                    onClick={() => void loadMessages()}
+                    className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-3 py-1.5 hover:bg-teal-100"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center text-gray-400 text-sm mt-12">
+                  {outboundSession ? 'Call in progress…' : 'Send a message to start the conversation.'}
+                </div>
+              )
             ) : (
               <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
                 {virtualizer.getVirtualItems().map((virtualItem) => {
