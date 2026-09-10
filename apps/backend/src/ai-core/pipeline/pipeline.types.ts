@@ -64,6 +64,11 @@ export interface PipelineTrace {
    * AiExecutionsService.record(), double-charge) -- the outer trace here has
    * no token/cost data of its own to record anyway. */
   alreadyRecorded?: boolean;
+  /** Second hardening pass, Section 2: sanitized tool-call trace for this turn,
+   * persisted to AiExecution.toolTrace. Populated by ToolCallingService's own
+   * trace() helper for any tool-calling run (Commerce, or the v2 pipeline's tools
+   * branch) -- absent for non-tool-calling turns. */
+  toolTrace?: unknown;
 }
 
 /**

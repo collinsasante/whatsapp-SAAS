@@ -49,6 +49,21 @@ describe('ChatbotFlowsService.findMatchingFlow', () => {
     expect(fallbackHit?.id).toBe('fb');
   });
 
+  it('Verz-AI unification, Phase M: defers a FALLBACK flow to AI when the tenant has AI switched on, but KEYWORD still wins regardless', async () => {
+    prisma.chatbotFlow.findMany.mockResolvedValue([
+      flow({ id: 'kw', trigger: 'KEYWORD', keywords: ['refund'], priority: 10 }),
+      flow({ id: 'fb', trigger: 'FALLBACK', priority: 5 }),
+    ]);
+
+    const fallbackWithAiOff = await service.findMatchingFlow('t1', 'something unrelated', false, false);
+    const fallbackWithAiOn = await service.findMatchingFlow('t1', 'something unrelated', false, true);
+    const keywordWithAiOn = await service.findMatchingFlow('t1', 'I want a refund', false, true);
+
+    expect(fallbackWithAiOff?.id).toBe('fb');
+    expect(fallbackWithAiOn).toBeNull();
+    expect(keywordWithAiOn?.id).toBe('kw');
+  });
+
   it('does not let FALLBACK preempt a lower-priority KEYWORD flow', async () => {
     prisma.chatbotFlow.findMany.mockResolvedValue([
       flow({ id: 'fb', trigger: 'FALLBACK', priority: 10 }),

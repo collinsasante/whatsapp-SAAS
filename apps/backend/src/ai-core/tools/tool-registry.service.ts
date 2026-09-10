@@ -1,5 +1,6 @@
 import { HttpException, Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { ChatToolDef } from '../providers/ai-provider.interface';
+import { PrismaService } from '../../prisma/prisma.service';
 import { ProductsService } from '../../commerce/products/products.service';
 import { OrdersService } from '../../commerce/orders/orders.service';
 import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
@@ -9,6 +10,7 @@ import { buildCommerceTools } from './commerce.tools';
 import { buildTaskTools } from './task.tools';
 import { buildMediaTools } from './media.tools';
 import { buildStateTools } from './state.tools';
+import { buildDeliveryTools } from './delivery.tools';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
 
 /**
@@ -35,6 +37,7 @@ export class ToolRegistryService implements OnModuleInit {
     @Inject(forwardRef(() => OrdersService)) private orders: OrdersService,
     private internalTasks: InternalTasksService,
     private conversationState: ConversationStateService,
+    private prisma: PrismaService,
   ) {}
 
   onModuleInit() {
@@ -44,6 +47,7 @@ export class ToolRegistryService implements OnModuleInit {
       ...buildTaskTools(this.internalTasks, this.orders),
       ...buildMediaTools(this.products),
       ...buildStateTools(this.conversationState),
+      ...buildDeliveryTools(this.prisma, this.internalTasks, this.orders),
     ]) {
       this.register(tool);
     }

@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
-import { ConversationsService } from '../../conversations/conversations.service';
 import { ConversationStateService } from '../../conversations/conversation-state.service';
 import { sanitizeForWhatsApp } from '../../ai-core/pipeline/whatsapp-format.util';
 import { detectHumanRequest } from '../../ai-core/pipeline/escalation-detector.util';
@@ -14,6 +13,7 @@ import { buildIdentityAndSafetyBlock } from '../../ai-core/prompts/shared-identi
 import { SHARED_STYLE_RULES } from '../../ai-core/prompts/shared-style-rules';
 import { formatBusinessInfoBlock } from '../../ai-core/prompts/business-info.util';
 import { formatStateBlock } from '../../ai-core/prompts/conversation-state.util';
+import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { DEEPSEEK_MODEL } from '../../common/deepseek';
 
 /**
@@ -43,6 +43,10 @@ const COMMERCE_TOOL_NAMES = [
   'qualify_lead',
   'send_product_image',
   'remember_conversation_facts',
+  'set_pending_action',
+  'clear_pending_action',
+  'check_delivery_info',
+  'arrange_delivery',
 ];
 
 /** Verz-AI unification, Phase C: offered instead of COMMERCE_TOOL_NAMES when the
@@ -51,7 +55,9 @@ const COMMERCE_TOOL_NAMES = [
  * order/task-mutating tools stay withheld until AUTO_REPLY or a human sends.
  * send_product_image is withheld too -- it has a real customer-visible side
  * effect (sending a WhatsApp media message), same category as add_item_to_order.
- * remember_conversation_facts has no customer-visible effect, so it's included. */
+ * remember_conversation_facts/set_pending_action/clear_pending_action have no
+ * customer-visible effect, so they're included -- a suggestion can still record
+ * what it proposed, so a human sending "okay" back later is resolvable too. */
 const READ_ONLY_COMMERCE_TOOL_NAMES = [
   'search_products',
   'get_product_details',
@@ -59,11 +65,20 @@ const READ_ONLY_COMMERCE_TOOL_NAMES = [
   'get_order_status',
   'qualify_lead',
   'remember_conversation_facts',
+  'set_pending_action',
+  'clear_pending_action',
+  'check_delivery_info',
 ];
 
 export interface CommerceAiResult {
   response: string;
   blocked: boolean;
+  /** Second hardening pass, Section 4: signals that this turn wants a real human
+   * handoff -- messages.service.ts is the single place that actually performs it
+   * (via ConversationsService.requestWithRetry) and decides the final customer-facing
+   * text based on whether it really succeeded, so this response's own text is only
+   * ever shown to the customer as-is when the handoff succeeds. */
+  shouldEscalate?: boolean;
   /** Populated unconditionally; only consumed by the AI evaluation harness today
    * (e.g. to verify get_order_status was actually invoked before a payment claim).
    * messages.service.ts destructures only response/blocked, so this is additive. */
@@ -81,7 +96,6 @@ export class CommerceAiService {
   constructor(
     private prisma: PrismaService,
     private knowledgeBase: KnowledgeBaseService,
-    private conversations: ConversationsService,
     private conversationState: ConversationStateService,
     private toolCalling: ToolCallingService,
   ) {}
@@ -106,12 +120,14 @@ export class CommerceAiService {
     // escalation mechanism at all -- the model would tell the customer "a team member
     // will reach out" while nothing actually happened (no status change, no
     // notification). Same detector the general pipeline uses; runs before generation
-    // so the AI's own reply and the real status change happen together.
-    if (detectHumanRequest(customerMessage)) {
-      await this.conversations
-        .request(tenantId, conversationId, 'Commerce AI escalation: customer asked to speak with a human')
-        .catch((err) => this.logger.warn(`Commerce AI: failed to escalate conversation ${conversationId}: ${String(err)}`));
-    }
+    // so the request for a human is known before the AI composes its reply.
+    //
+    // Second hardening pass, Section 4: this used to call conversations.request()
+    // directly, right here, with a swallowed failure -- messages.service.ts is now
+    // the single place that actually performs the handoff (with a real retry) and
+    // decides the final customer-facing text based on whether it truly succeeded, so
+    // this only ever sets the signal, never performs or narrates the action itself.
+    const explicitHumanRequest = detectHumanRequest(customerMessage);
 
     const [settings, conversation, aiState] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
@@ -154,6 +170,7 @@ export class CommerceAiService {
       `- Call qualify_lead once the customer has given you enough to judge (a quantity, a deadline, a budget, or clear buying intent) -- not on every message. Its result is for your own judgement only; never repeat its score, status, or reasoning back to the customer.`,
       `- If the customer asks to see a product, wants a picture, or asks "where's the photo" -- check get_product_details for hasImage, then call send_product_image if one exists. If there's no image, say so honestly rather than pretending you sent one.`,
       `- Call remember_conversation_facts once you've learned something worth keeping (what they want, quantity, a deadline, a delivery area) so you don't have to ask again if the conversation wanders and comes back.`,
+      `- Delivery: whenever delivery/shipping comes up, call check_delivery_info first -- never assume or guess. If it says delivery isn't available, say so plainly (don't say "I've flagged it"). If available but no location has been given, just ask which area/location, naturally -- that's a normal question, not something to hand off. Once you have a location (and a method, if this business offers more than one), confirm it back to the customer, and only once they've confirmed recipient name + phone + address do you call arrange_delivery. Don't tell the customer delivery is arranged until arrange_delivery has actually succeeded.`,
     ].join('\n');
 
     const systemPrompt = [
@@ -185,6 +202,14 @@ export class CommerceAiService {
       userMessage: userContent,
       toolNames: opts?.readOnlyTools ? READ_ONLY_COMMERCE_TOOL_NAMES : COMMERCE_TOOL_NAMES,
       toolContext: { tenantId, conversationId, contactId, customerPhone, dryRunPayment: evalContext?.dryRunPayment },
+      // Verz-AI unification, Phase N: the shared default (4) was tuned for the
+      // general pipeline's much smaller toolset. A real multi-item order (e.g.
+      // "350ml bottles x55 + C3 stickers x55, 500ml bottles x40 + C3 stickers x40")
+      // needs a search/add per distinct line -- four lines alone means 4+
+      // add_item_to_order calls before even reading back the order or checking
+      // out, with zero human-escalation intent from the customer. Hitting the
+      // ceiling mid-order used to look identical to "too complex for AI."
+      maxIterations: 10,
       modelKey: DEEPSEEK_MODEL,
       maxTokens: 900, // 500 was cutting off replies mid-sentence on longer, multi-item quotes
     });
@@ -194,17 +219,28 @@ export class CommerceAiService {
     // Never throws; failure here must not affect the reply itself.
     void this.conversationState.mergeState(tenantId, conversationId, deriveStateFromToolTrace(result.toolTrace));
 
-    if (result.failed) return { response: '', blocked: false, toolTrace: result.toolTrace };
+    if (result.failed) {
+      // Verz-AI unification, Phase L / second hardening pass Section 4: this text is
+      // now only ever shown to the customer once messages.service.ts has confirmed the
+      // handoff actually succeeded (via shouldEscalate + requestWithRetry) -- no
+      // conversations.request() call happens here anymore, so there's nothing to
+      // narrate before it's real.
+      this.logger.warn(`Commerce AI provider call failed for conversation ${conversationId}`);
+      return {
+        response: PROVIDER_FAILURE_FALLBACK_TEXT,
+        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace,
+      };
+    }
 
     if (result.hitMaxIterations) {
       this.logger.warn(`Commerce AI hit max tool-call iterations for conversation ${conversationId}`);
-      // Verz-AI unification, Phase I: previously this line said "let me get a team
-      // member" without actually escalating -- no task, no notification, no status
-      // change. Same real-escalation call detectHumanRequest already uses above.
-      await this.conversations
-        .request(tenantId, conversationId, 'Commerce AI escalation: hit max tool-call iterations without a final answer')
-        .catch((err) => this.logger.warn(`Commerce AI: failed to escalate conversation ${conversationId} after hitting max iterations: ${String(err)}`));
-      return { response: "Let me get a team member to help finish this up for you.", blocked: false, toolTrace: result.toolTrace };
+      // Verz-AI unification, Phase I / second hardening pass Section 4: same as above --
+      // the real handoff attempt (and the decision of what to actually tell the
+      // customer if it fails) now happens once, centrally, in messages.service.ts.
+      return {
+        response: MAX_ITERATIONS_FALLBACK_TEXT,
+        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace,
+      };
     }
 
     const content = result.content.trim();
@@ -214,6 +250,10 @@ export class CommerceAiService {
     return {
       response: content ? sanitizeForWhatsApp(content) : content,
       blocked: false,
+      // Second hardening pass, Section 4: the customer explicitly asked for a human
+      // (detected before generation, above) -- the model's own reply this turn may or
+      // may not mention it, but the real handoff must happen regardless of what it said.
+      shouldEscalate: explicitHumanRequest || undefined,
       toolTrace: result.toolTrace,
       mediaToSend: result.sideEffects,
     };

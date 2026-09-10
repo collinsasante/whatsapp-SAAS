@@ -22,7 +22,7 @@ function buildDeps() {
       sendMediaMessageById: jest.fn().mockResolvedValue('wamid.media'),
       sendMediaMessage: jest.fn().mockResolvedValue('wamid.media-fallback'),
     },
-    conversationsService: { request: jest.fn().mockResolvedValue(null) },
+    conversationsService: { request: jest.fn().mockResolvedValue(null), requestWithRetry: jest.fn().mockResolvedValue(true) },
     contactsService: {},
     realtimeService: { emitAiSuggestion: jest.fn(), emitNewMessage: jest.fn(), emitConversationUpdated: jest.fn() },
     storageService: { downloadBuffer: jest.fn().mockResolvedValue({ buffer: Buffer.from('img'), mimeType: 'image/jpeg' }) },
@@ -182,10 +182,10 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiSuggestion('t1', conversation, contact, 'hi', false);
 
-      expect(deps.conversationsService.request).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
     });
 
-    it('degrades gracefully when the generator rejects, without throwing', async () => {
+    it('escalates for real (but never auto-sends) when the generator rejects, instead of silently doing nothing', async () => {
       const deps = buildDeps();
       deps.commerceAiService.handleMessage.mockRejectedValue(new Error('provider down'));
       const service = buildService(deps);
@@ -193,6 +193,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiSuggestion('t1', conversation, contact, 'hi', true)).resolves.toBeUndefined();
       expect(deps.aiLogsService.create).not.toHaveBeenCalled();
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
     });
 
     it('degrades gracefully when aiLogsService.create rejects, without throwing', async () => {
@@ -306,17 +307,57 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
 
-      expect(deps.conversationsService.request).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
     });
 
-    it('degrades gracefully when the generator rejects, without throwing', async () => {
+    it('second hardening pass, Section 4: keeps the generator\'s own optimistic text when the handoff actually succeeds', async () => {
+      const deps = buildDeps();
+      deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "Sure, I'll get someone to help.", confidence: 20, blocked: false, shouldEscalate: true });
+      deps.conversationsService.requestWithRetry.mockResolvedValue(true);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, "Sure, I'll get someone to help.");
+    });
+
+    it('second hardening pass, Section 4: rewrites the response to an honest message when the handoff actually fails, instead of sending the generator\'s optimistic claim', async () => {
+      const deps = buildDeps();
+      deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "Sure, I'll get someone to help.", confidence: 20, blocked: false, shouldEscalate: true });
+      deps.conversationsService.requestWithRetry.mockResolvedValue(false);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+
+      const sentText = deps.whatsappService.sendTextMessage.mock.calls[0][2];
+      expect(sentText).not.toBe("Sure, I'll get someone to help.");
+      expect(sentText).toMatch(/trouble connecting|kept this conversation open/i);
+    });
+
+    it('sends a graceful fallback and escalates for real when the generator rejects, instead of leaving the customer with nothing', async () => {
       const deps = buildDeps();
       deps.commerceAiService.handleMessage.mockRejectedValue(new Error('provider down'));
       const service = buildService(deps);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null)).resolves.toBeUndefined();
-      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, expect.any(String));
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+    });
+
+    it('second hardening pass, Section 4: sends the honest "still having trouble" text (not the optimistic one) when the generator threw AND the real handoff also fails', async () => {
+      const deps = buildDeps();
+      deps.commerceAiService.handleMessage.mockRejectedValue(new Error('provider down'));
+      deps.conversationsService.requestWithRetry.mockResolvedValue(false);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null);
+
+      const sentText = deps.whatsappService.sendTextMessage.mock.calls[0][2];
+      expect(sentText).toMatch(/trouble connecting|kept this conversation open/i);
     });
 
     it('degrades gracefully when message persistence fails, without throwing or emitting', async () => {
@@ -327,6 +368,78 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null)).resolves.toBeUndefined();
       expect(deps.realtimeService.emitNewMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('runExclusiveForConversation (Verz-AI unification, Phase M)', () => {
+    it('runs same-conversation turns strictly one after another, never overlapping', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const order: string[] = [];
+      let concurrentCount = 0;
+      let maxConcurrent = 0;
+
+      const makeTurn = (label: string, delayMs: number) => async () => {
+        concurrentCount++;
+        maxConcurrent = Math.max(maxConcurrent, concurrentCount);
+        order.push(`start:${label}`);
+        await new Promise((r) => setTimeout(r, delayMs));
+        order.push(`end:${label}`);
+        concurrentCount--;
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const svc = service as any;
+      await Promise.all([
+        svc.runExclusiveForConversation('conv1', makeTurn('a', 20)),
+        svc.runExclusiveForConversation('conv1', makeTurn('b', 5)),
+      ]);
+
+      expect(maxConcurrent).toBe(1);
+      expect(order).toEqual(['start:a', 'end:a', 'start:b', 'end:b']);
+    });
+
+    it('lets different conversations run concurrently -- the lock is per-conversation, not global', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      let concurrentCount = 0;
+      let maxConcurrent = 0;
+
+      const makeTurn = (delayMs: number) => async () => {
+        concurrentCount++;
+        maxConcurrent = Math.max(maxConcurrent, concurrentCount);
+        await new Promise((r) => setTimeout(r, delayMs));
+        concurrentCount--;
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const svc = service as any;
+      await Promise.all([
+        svc.runExclusiveForConversation('conv1', makeTurn(20)),
+        svc.runExclusiveForConversation('conv2', makeTurn(20)),
+      ]);
+
+      expect(maxConcurrent).toBe(2);
+    });
+
+    it('still runs the next queued turn even if the previous one throws', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const ran: string[] = [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const svc = service as any;
+      const first = svc.runExclusiveForConversation('conv1', async () => {
+        ran.push('first');
+        throw new Error('boom');
+      });
+      const second = svc.runExclusiveForConversation('conv1', async () => {
+        ran.push('second');
+      });
+
+      await expect(first).rejects.toThrow('boom');
+      await expect(second).resolves.toBeUndefined();
+      expect(ran).toEqual(['first', 'second']);
     });
   });
 });

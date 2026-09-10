@@ -26,13 +26,48 @@ function buildPrismaMock(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function buildService(prisma: ReturnType<typeof buildPrismaMock>) {
+function buildService(prisma: ReturnType<typeof buildPrismaMock>, internalTasksOverride?: Record<string, unknown>) {
   const paystack = {};
   const leads = { markConverted: jest.fn().mockResolvedValue(undefined) };
   const webhookEventService = { findOne: jest.fn(), markReprocessed: jest.fn() };
+  const internalTasks = internalTasksOverride ?? { create: jest.fn().mockResolvedValue({ id: 'task-1' }) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceLedgerService(prisma as any, paystack as any, leads as any, webhookEventService as any);
+  return new CommerceLedgerService(prisma as any, paystack as any, leads as any, webhookEventService as any, internalTasks as any);
 }
+
+describe('CommerceLedgerService -- Verz-AI unification, Phase P: payment verification tasks', () => {
+  it('creates a staff-visible payment-verification task on successful payment by default (paymentVerificationRequired defaults to true)', async () => {
+    const prisma = buildPrismaMock();
+    const internalTasks = { create: jest.fn().mockResolvedValue({ id: 'task-1' }) };
+    const service = buildService(prisma, internalTasks);
+
+    await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+
+    expect(internalTasks.create).toHaveBeenCalledWith('t1', expect.objectContaining({
+      department: 'Payments',
+      orderId: 'order-1',
+    }));
+  });
+
+  it('does not create a task when the tenant has explicitly opted out (paymentVerificationRequired: false)', async () => {
+    const prisma = buildPrismaMock();
+    prisma.tenantSettings.findUnique.mockResolvedValue({ paymentVerificationRequired: false });
+    const internalTasks = { create: jest.fn().mockResolvedValue({ id: 'task-1' }) };
+    const service = buildService(prisma, internalTasks);
+
+    await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+
+    expect(internalTasks.create).not.toHaveBeenCalled();
+  });
+
+  it('never throws or blocks the payment result if task creation fails', async () => {
+    const prisma = buildPrismaMock();
+    const internalTasks = { create: jest.fn().mockRejectedValue(new Error('db down')) };
+    const service = buildService(prisma, internalTasks);
+
+    await expect(service.recordPaymentSuccess('order-1', 'evt-1', 100)).resolves.toBeTruthy();
+  });
+});
 
 describe('CommerceLedgerService -- commerce fee default', () => {
   describe('recordPaymentSuccess', () => {
@@ -98,8 +133,9 @@ describe('CommerceLedgerService.reprocessWebhookEvent', () => {
   function buildServiceWithWebhookEvents(prisma: ReturnType<typeof buildPrismaMock>, webhookEventService: { findOne: jest.Mock; markReprocessed: jest.Mock }) {
     const paystack = {};
     const leads = { markConverted: jest.fn().mockResolvedValue(undefined) };
+    const internalTasks = { create: jest.fn().mockResolvedValue({ id: 'task-1' }) };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new CommerceLedgerService(prisma as any, paystack as any, leads as any, webhookEventService as any);
+    return new CommerceLedgerService(prisma as any, paystack as any, leads as any, webhookEventService as any, internalTasks as any);
   }
 
   it('rejects a webhook event from a non-commerce source', async () => {

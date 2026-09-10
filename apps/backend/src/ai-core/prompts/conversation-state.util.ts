@@ -22,6 +22,18 @@ export function formatStateBlock(state: AiState | null | undefined): string {
     lines.push(`Still need from the customer: ${state.missingInfo.join(', ')}`);
   }
 
-  if (lines.length === 0) return '';
-  return `\n\nWHAT YOU ALREADY KNOW ABOUT THIS CONVERSATION (don't ask again for anything listed here; use it to resume a task after answering a tangent):\n${lines.join('\n')}`;
+  let block = '';
+  if (lines.length > 0) {
+    block += `\n\nWHAT YOU ALREADY KNOW ABOUT THIS CONVERSATION (don't ask again for anything listed here; use it to resume a task after answering a tangent):\n${lines.join('\n')}`;
+  }
+
+  // Verz-AI unification, Phase N: this is what set_pending_action/clear_pending_action
+  // (state.tools.ts) exist to populate -- rendered separately and more prominently
+  // than the general facts above because a bare "okay"/"yes"/"sure" needs to resolve
+  // against this specifically, not just inform general context.
+  if (state.pendingAction) {
+    block += `\n\nAWAITING CONFIRMATION: you just asked the customer -- "${state.pendingAction.description}" (${state.pendingAction.type}). If their next message is a plain confirmation ("okay", "yes", "sure", "go ahead", "do it", etc.) with nothing else, treat it as confirming THIS and act on it -- don't ask again or treat it as a new request. If they said something else instead (changed topic, asked a different question, gave a different answer), this no longer applies -- use judgement; if it's genuinely gone stale, call clear_pending_action.`;
+  }
+
+  return block;
 }

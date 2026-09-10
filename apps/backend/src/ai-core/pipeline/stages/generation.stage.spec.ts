@@ -61,7 +61,7 @@ describe('GenerationStage', () => {
       }));
     });
 
-    it('produces a PROVIDER_ERROR trace and empty response when the tool-calling call fails', async () => {
+    it('produces a PROVIDER_ERROR trace and a real fallback + escalation when the tool-calling call fails, instead of empty silence', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: '', toolTrace: [], failed: true, hitMaxIterations: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any);
@@ -69,7 +69,10 @@ describe('GenerationStage', () => {
 
       await stage.execute(ctx);
 
-      expect(ctx.result).toEqual({ response: '', confidence: null, blocked: false });
+      expect(ctx.result?.response).not.toBe('');
+      expect(ctx.result?.shouldEscalate).toBe(true);
+      expect(ctx.result?.confidence).toBeNull();
+      expect(ctx.result?.blocked).toBe(false);
       expect(ctx.trace.status).toBe('PROVIDER_ERROR');
     });
 

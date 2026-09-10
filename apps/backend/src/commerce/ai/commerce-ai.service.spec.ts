@@ -12,7 +12,6 @@ function buildDeps() {
   return {
     prisma: buildPrismaMock(),
     knowledgeBase: { getRelevant: jest.fn().mockResolvedValue([]) },
-    conversations: { request: jest.fn().mockResolvedValue(null) },
     conversationState: { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) },
     toolCalling: { complete: jest.fn() },
   };
@@ -20,7 +19,7 @@ function buildDeps() {
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceAiService(deps.prisma as any, deps.knowledgeBase as any, deps.conversations as any, deps.conversationState as any, deps.toolCalling as any);
+  return new CommerceAiService(deps.prisma as any, deps.knowledgeBase as any, deps.conversationState as any, deps.toolCalling as any);
 }
 
 function mockCompletion(overrides: Record<string, unknown> = {}) {
@@ -74,15 +73,15 @@ describe('CommerceAiService', () => {
     });
   });
 
-  describe('human escalation', () => {
-    it('flips the conversation to REQUESTED when the customer explicitly asks for a human', async () => {
+  describe('human escalation (second hardening pass, Section 4: signals shouldEscalate; messages.service.ts performs the real handoff)', () => {
+    it('sets shouldEscalate when the customer explicitly asks for a human', async () => {
       const deps = buildDeps();
       deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: "Sure, I'll get someone to help with that." }));
       const service = buildService(deps);
 
-      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'I need to speak with a human');
+      const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'I need to speak with a human');
 
-      expect(deps.conversations.request).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+      expect(result.shouldEscalate).toBe(true);
     });
 
     it('does not escalate a normal product question', async () => {
@@ -90,9 +89,9 @@ describe('CommerceAiService', () => {
       deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'Sure, we have that in stock.' }));
       const service = buildService(deps);
 
-      await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'do you have labels?');
+      const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'do you have labels?');
 
-      expect(deps.conversations.request).not.toHaveBeenCalled();
+      expect(result.shouldEscalate).toBeFalsy();
     });
   });
 
@@ -106,9 +105,9 @@ describe('CommerceAiService', () => {
 
       const sentReq = deps.toolCalling.complete.mock.calls[0][0];
       expect(sentReq.toolNames.sort()).toEqual([
-        'add_item_to_order', 'create_internal_task', 'get_current_order', 'get_order_status',
-        'get_product_details', 'qualify_lead', 'remember_conversation_facts', 'search_products',
-        'send_product_image', 'submit_order_for_payment',
+        'add_item_to_order', 'arrange_delivery', 'check_delivery_info', 'clear_pending_action', 'create_internal_task',
+        'get_current_order', 'get_order_status', 'get_product_details', 'qualify_lead', 'remember_conversation_facts',
+        'search_products', 'send_product_image', 'set_pending_action', 'submit_order_for_payment',
       ]);
       expect(sentReq.maxTokens).toBeGreaterThanOrEqual(900);
       expect(sentReq.toolContext).toEqual({ tenantId: 't1', conversationId: 'conv1', contactId: 'contact1', customerPhone: '+233555000111', dryRunPayment: undefined });
@@ -124,7 +123,7 @@ describe('CommerceAiService', () => {
       expect(deps.toolCalling.complete.mock.calls[0][0].toolContext.dryRunPayment).toBe(true);
     });
 
-    it('falls back to a "get a team member" message AND actually escalates when the loop hits max iterations', async () => {
+    it('falls back to a "get a team member" message AND sets shouldEscalate when the loop hits max iterations', async () => {
       const deps = buildDeps();
       deps.toolCalling.complete.mockResolvedValue(mockCompletion({ hitMaxIterations: true }));
       const service = buildService(deps);
@@ -132,20 +131,24 @@ describe('CommerceAiService', () => {
       const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'complex request');
 
       expect(result.response).toBe('Let me get a team member to help finish this up for you.');
-      // Verz-AI unification, Phase I: this used to be purely cosmetic text with no
-      // real side effect -- confirm the conversation is actually flipped to REQUESTED.
-      expect(deps.conversations.request).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+      // Verz-AI unification, Phase I / second hardening pass Section 4: this used to be
+      // purely cosmetic text with no real side effect, then it escalated directly from
+      // this service -- now it only signals shouldEscalate; messages.service.ts is the
+      // single place that actually performs the handoff (with a real retry) and decides
+      // the final customer-facing text based on whether it truly succeeded.
+      expect(result.shouldEscalate).toBe(true);
     });
 
-    it('returns an empty response without throwing on a provider failure', async () => {
+    it('gives a graceful fallback and sets shouldEscalate on a provider failure, instead of returning silently', async () => {
       const deps = buildDeps();
       deps.toolCalling.complete.mockResolvedValue(mockCompletion({ failed: true }));
       const service = buildService(deps);
 
       const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi');
 
-      expect(result.response).toBe('');
+      expect(result.response).not.toBe('');
       expect(result.blocked).toBe(false);
+      expect(result.shouldEscalate).toBe(true);
     });
 
     it('forwards mediaToSend side effects from the tool loop', async () => {
@@ -190,8 +193,8 @@ describe('CommerceAiService', () => {
 
       const sentReq = deps.toolCalling.complete.mock.calls[0][0];
       expect(sentReq.toolNames.sort()).toEqual([
-        'get_current_order', 'get_order_status', 'get_product_details', 'qualify_lead',
-        'remember_conversation_facts', 'search_products',
+        'check_delivery_info', 'clear_pending_action', 'get_current_order', 'get_order_status', 'get_product_details',
+        'qualify_lead', 'remember_conversation_facts', 'search_products', 'set_pending_action',
       ]);
       expect(sentReq.toolNames).not.toContain('add_item_to_order');
       expect(sentReq.toolNames).not.toContain('submit_order_for_payment');

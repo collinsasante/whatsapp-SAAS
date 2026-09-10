@@ -6,6 +6,7 @@ import { DEFAULT_MODEL_KEY, estimateCostUsd } from '../models/model-catalog';
 import { AiExecutionsService } from '../executions/ai-executions.service';
 import { ToolRegistryService } from './tool-registry.service';
 import { isToolResultEnvelope, ToolExecutionContext, ToolSideEffect } from './tool-registry.types';
+import { sanitizeToolTrace } from './tool-trace-sanitizer.util';
 
 const DEFAULT_MAX_ITERATIONS = 4;
 
@@ -32,6 +33,11 @@ export interface ToolCallTrace {
   name: string;
   args: unknown;
   result: unknown;
+  /** Second hardening pass, Section 2: wall-clock time for this one tool execution
+   * (this.tools.execute call below) -- not the whole turn's latency. Optional so
+   * existing test fixtures constructing a ToolCallTrace by hand don't all need
+   * updating; always populated on the real path. */
+  durationMs?: number;
 }
 
 export interface ToolCallingResult {
@@ -102,7 +108,7 @@ export class ToolCallingService {
             status: 'SUCCESS', provider: lastProvider, modelKey,
             latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
-          });
+          }, toolTrace);
           return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects };
         }
 
@@ -110,13 +116,14 @@ export class ToolCallingService {
         for (const call of completion.toolCalls) {
           let args: Record<string, unknown> = {};
           try { args = JSON.parse(call.arguments || '{}'); } catch { /* tool handler validates required fields */ }
+          const toolStartedAt = Date.now();
           const rawResult = await this.tools.execute(call.name, req.toolContext, args);
           // A tool may return a { forModel, sideEffect? } envelope instead of a bare
           // result -- only forModel goes back into the model's own context; the side
           // effect (e.g. "send this image") is pulled out for the caller to deliver.
           const forModel = isToolResultEnvelope(rawResult) ? rawResult.forModel : rawResult;
           if (isToolResultEnvelope(rawResult) && rawResult.sideEffect) sideEffects.push(rawResult.sideEffect);
-          toolTrace.push({ name: call.name, args, result: forModel });
+          toolTrace.push({ name: call.name, args, result: forModel, durationMs: Date.now() - toolStartedAt });
           messages.push({ role: 'tool', content: JSON.stringify(forModel), toolCallId: call.id });
         }
       }
@@ -126,7 +133,7 @@ export class ToolCallingService {
         status: 'SUCCESS', provider: lastProvider, modelKey,
         latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
         estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
-      });
+      }, toolTrace);
       return { content: '', toolTrace, failed: false, hitMaxIterations: true, sideEffects };
     } catch (err) {
       const providerErr = err instanceof AiProviderError ? err : new AiProviderError('network', String(err), false, err);
@@ -134,7 +141,7 @@ export class ToolCallingService {
       await this.trace(req, {
         status: 'PROVIDER_ERROR', provider: 'deepseek', modelKey,
         latencyMs: Date.now() - startedAt, errorCode: providerErr.code, errorMessage: providerErr.message,
-      });
+      }, toolTrace);
       return { content: '', toolTrace, failed: true, hitMaxIterations: false, sideEffects };
     }
   }
@@ -145,11 +152,15 @@ export class ToolCallingService {
       status: 'SUCCESS' | 'PROVIDER_ERROR'; provider: string; modelKey: string; latencyMs: number;
       inputTokens?: number; outputTokens?: number; estCostUsd?: number; errorCode?: string; errorMessage?: string;
     },
+    // Second hardening pass, Section 2: whatever tool calls actually ran before this
+    // trace point (empty array on a call that never invoked a tool) -- sanitized here,
+    // once, rather than at every call site.
+    toolTrace: ToolCallTrace[],
   ) {
     await this.executions
       .record(
         { tenantId: req.tenantId, agentId: req.agentId, conversationId: req.conversationId, taskType: req.taskType },
-        { ...trace, safetyFlags: {}, stageTimings: {} },
+        { ...trace, safetyFlags: {}, stageTimings: {}, toolTrace: toolTrace.length > 0 ? sanitizeToolTrace(toolTrace) : undefined },
       )
       .catch((err) => this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`));
   }

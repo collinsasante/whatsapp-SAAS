@@ -32,6 +32,31 @@ export function isOffHours(schedule: Record<string, OffHoursDay>, timezone: stri
   return currentMinutes < (startH * 60 + startM) || currentMinutes >= (endH * 60 + endM);
 }
 
+/**
+ * Verz-AI unification, Phase O: nothing previously put the current date/time
+ * into any prompt at all, so a greeting like "Good morning" was pure model
+ * invention with zero grounding -- it would say "Good morning" in the evening
+ * just as readily as in the morning. Uses the tenant's own timezone (already
+ * used by isOffHours above), falling back to UTC only if the tenant has none
+ * configured (TenantSettings.timezone defaults to 'UTC' at the schema level,
+ * so this fallback is a defensive belt-and-suspenders, not the expected path).
+ */
+export function formatCurrentTimeContext(timezone: string): string {
+  const now = new Date();
+  const hour24 = Number(new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: timezone }).format(now));
+  const dayPart = hour24 >= 5 && hour24 < 12 ? 'morning'
+    : hour24 >= 12 && hour24 < 17 ? 'afternoon'
+    : hour24 >= 17 && hour24 < 21 ? 'evening'
+    : 'night';
+  const friendly = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: timezone,
+  }).format(now);
+  const dayPartNote = dayPart === 'night'
+    ? `It's currently ${friendly} (late night/early hours) -- don't force a "good morning/afternoon/evening" greeting; just respond naturally without a time-based greeting.`
+    : `It's currently ${friendly} (${dayPart}) -- if you greet the customer, base it on this ("Good ${dayPart}"), never assume a fixed time of day.`;
+  return dayPartNote;
+}
+
 const DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const DAY_LABELS: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
 

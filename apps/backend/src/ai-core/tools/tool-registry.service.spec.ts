@@ -7,29 +7,32 @@ function buildDeps() {
     orders: { findMostRecentForConversation: jest.fn().mockResolvedValue(null) },
     internalTasks: { create: jest.fn() },
     conversationState: { getState: jest.fn(), mergeState: jest.fn().mockResolvedValue(undefined) },
+    prisma: { tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) } },
   };
 }
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = new ToolRegistryService(deps.products as any, deps.orders as any, deps.internalTasks as any, deps.conversationState as any);
+  const service = new ToolRegistryService(deps.products as any, deps.orders as any, deps.internalTasks as any, deps.conversationState as any, deps.prisma as any);
   service.onModuleInit();
   return service;
 }
 
 describe('ToolRegistryService', () => {
-  it('registers all commerce/catalogue/task/media/state tools on init', () => {
+  it('registers all commerce/catalogue/task/media/state/delivery tools on init', () => {
     const service = buildService(buildDeps());
 
     const defs = service.getDefs([
       'search_products', 'get_product_details', 'add_item_to_order',
       'get_current_order', 'submit_order_for_payment', 'get_order_status', 'create_internal_task',
-      'send_product_image', 'remember_conversation_facts',
+      'send_product_image', 'remember_conversation_facts', 'set_pending_action', 'clear_pending_action',
+      'check_delivery_info', 'arrange_delivery',
     ]);
 
     expect(defs.map((d) => d.name).sort()).toEqual([
-      'add_item_to_order', 'create_internal_task', 'get_current_order', 'get_order_status',
-      'get_product_details', 'remember_conversation_facts', 'search_products', 'send_product_image', 'submit_order_for_payment',
+      'add_item_to_order', 'arrange_delivery', 'check_delivery_info', 'clear_pending_action', 'create_internal_task',
+      'get_current_order', 'get_order_status', 'get_product_details', 'remember_conversation_facts', 'search_products',
+      'send_product_image', 'set_pending_action', 'submit_order_for_payment',
     ]);
   });
 

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AiState, mergeAiState } from '../ai-core/tools/state-derivation.util';
+import { AiState, AiStatePatch, mergeAiState } from '../ai-core/tools/state-derivation.util';
 
 /**
  * Verz-AI unification, Phase F: reads/writes Conversation.aiState. Kept as a
@@ -25,7 +25,7 @@ export class ConversationStateService {
   }
 
   /** Never throws -- state tracking must not break the conversation it's observing. */
-  async mergeState(tenantId: string, conversationId: string, patch: Partial<AiState>): Promise<void> {
+  async mergeState(tenantId: string, conversationId: string, patch: AiStatePatch): Promise<void> {
     if (Object.keys(patch).length === 0) return;
     try {
       const existing = await this.getState(tenantId, conversationId);
