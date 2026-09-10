@@ -582,6 +582,21 @@ export const aiExecutionsApi = {
   get: (id: string) => api.get(`/ai/executions/${id}`),
 };
 
+export const aiLearningApi = {
+  overview: (hours?: number) => api.get('/ai-learning/overview', { params: { hours } }),
+  listInteractions: (params?: { status?: string; severity?: string; needsHumanReview?: boolean; cursor?: string; limit?: number }) =>
+    api.get('/ai-learning/interactions', { params }),
+  getInteraction: (id: string) => api.get(`/ai-learning/interactions/${id}`),
+  submitFeedback: (id: string, data: { rating: 'GOOD' | 'BAD'; reason?: string; notes?: string; expectedAction?: string; expectedResponse?: string }) =>
+    api.post(`/ai-learning/interactions/${id}/feedback`, data),
+  createTrainingExample: (id: string) => api.post(`/ai-learning/interactions/${id}/training-example`),
+  listTrainingExamples: (status?: string) => api.get('/ai-learning/training-examples', { params: { status } }),
+  setTrainingExampleStatus: (id: string, status: string) => api.patch(`/ai-learning/training-examples/${id}/status`, { status }),
+  markRegressionCaseCreated: (id: string) => api.post(`/ai-learning/training-examples/${id}/regression-case`),
+  listFailures: () => api.get('/ai-learning/failures'),
+  listCorrections: () => api.get('/ai-learning/corrections'),
+};
+
 export const aiTestChatApi = {
   getState: () => api.get('/ai/test-chat'),
   send: (message: string) => api.post('/ai/test-chat', { message }),

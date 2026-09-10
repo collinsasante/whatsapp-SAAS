@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PipelineTrace } from '../pipeline/pipeline.types';
 import { AiCreditsService } from '../credits/ai-credits.service';
 import { AiPricingService } from '../pricing/ai-pricing.service';
+import { AiLearningTriggerService } from '../../ai-learning/ai-learning-trigger.service';
 
 /** agentId is optional here (unlike PipelineInput) -- non-pipeline callers
  * (summarize, KB-learn) have no AiAgent to attribute the call to. */
@@ -28,6 +29,7 @@ export class AiExecutionsService {
     private prisma: PrismaService,
     private credits: AiCreditsService,
     private pricing: AiPricingService,
+    private aiLearningTrigger: AiLearningTriggerService,
   ) {}
 
   /**
@@ -77,6 +79,17 @@ export class AiExecutionsService {
         this.logger.error(`Failed to settle credits for AiExecution ${execution.id}`, err instanceof Error ? err.stack : String(err));
       }
     }
+
+    // AI Learning & Evaluation System: fire-and-forget, tenant-gated (fails
+    // closed -- see AiLearningTriggerService), never blocks or fails the
+    // customer's response. Every real AI call already converges on this one
+    // record() call, so this is the single clean integration point.
+    void this.aiLearningTrigger.maybeEnqueue({
+      tenantId: input.tenantId,
+      aiExecutionId: execution.id,
+      taskType: input.taskType,
+      conversationId: input.conversationId,
+    });
 
     return execution;
   }

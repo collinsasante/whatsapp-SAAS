@@ -89,6 +89,11 @@ model Tenant {
   evaluationCases                 EvaluationCase[]
   aiAgents                        AiAgent[]
   aiExecutions                    AiExecution[]
+  aiInteractionEvaluations        AiInteractionEvaluation[]
+  aiEvaluationFeedback            AiEvaluationFeedback[]
+  aiTrainingExamples              AiTrainingExample[]
+  aiCustomerCorrections           AiCustomerCorrection[]
+  aiLearningAuditLogs             AiLearningAuditLog[]
   internalTasks                   InternalTask[]
   leads                           Lead[]
   aiCreditTransactions             AiCreditTransaction[]
@@ -338,6 +343,9 @@ model User {
   assignedTasks          InternalTask[] @relation("TaskAssignee")
   createdTasks           InternalTask[] @relation("TaskCreatedBy")
   resolvedTasks          InternalTask[] @relation("TaskResolvedBy")
+  aiEvaluationFeedbackGiven AiEvaluationFeedback[] @relation("AiEvaluationFeedbackReviewer")
+  aiTrainingExamplesApproved AiTrainingExample[]   @relation("AiTrainingExamplesApproved")
+  aiCorrectionsReviewed      AiCustomerCorrection[] @relation("AiCorrectionsReviewed")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -480,6 +488,7 @@ model Conversation {
   orders            Order[]
   internalTasks     InternalTask[]
   lead              Lead?
+  aiInteractionEvaluations AiInteractionEvaluation[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -2490,10 +2499,271 @@ model AiExecution {
   agent         AiAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   promptVersion AiPromptVersion? @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
   creditTransaction AiCreditTransaction?
+  interactionEvaluation AiInteractionEvaluation?
 
   @@index([tenantId, createdAt])
   @@index([conversationId])
   @@map("ai_executions")
+}
+
+// ── AI Learning & Evaluation System ─────────────────────────────────────────
+// Live conversations are learning data, not automatic production training data.
+// This models the controlled loop: AiExecution (what happened, already exists
+// above) -> AiInteractionEvaluation (how good was it, async/automatic) ->
+// AiEvaluationFeedback (what a human reviewer thinks) -> AiTrainingExample
+// (an approved, reviewed learning artifact) -> a regression case in the
+// existing commerce/evaluation scenario harness (EvaluationRun/EvaluationCase
+// above), promoted by an engineer, not auto-written into that git-controlled
+// scenario file from a live request. See implementation notes for the full
+// architecture; deliberately does not duplicate AiExecution/tool-trace
+// storage, and does not implement automatic production self-training.
+
+enum EvalQualityStatus {
+  PENDING       // queued, not yet evaluated
+  EVALUATED     // evaluator produced a result, no review needed
+  NEEDS_REVIEW  // below threshold or a critical signal was detected
+  APPROVED      // a human reviewer signed off
+  REJECTED      // a human reviewer marked it wrong/unusable
+  FAILED        // evaluator could not produce a valid result after retries
+}
+
+enum FailureCategory {
+  WRONG_INFORMATION
+  WRONG_PRODUCT
+  WRONG_PRICE
+  WRONG_QUANTITY
+  WRONG_SIZE
+  WRONG_COLOUR
+  WRONG_ORDER_STATE
+  WRONG_PAYMENT_STATE
+  WRONG_DELIVERY_STATE
+  MISUNDERSTOOD_INTENT
+  LOST_CONTEXT
+  UNNECESSARY_HANDOFF
+  FAILED_HANDOFF
+  WRONG_TOOL
+  TOOL_FAILURE
+  TOOL_RESULT_MISINTERPRETATION
+  UNNECESSARY_QUESTION
+  REPEATED_QUESTION
+  ROBOTIC_RESPONSE
+  TOO_VERBOSE
+  TOO_SHORT
+  CUSTOMER_CORRECTION
+  FALSE_ACTION_CLAIM
+  FALSE_SUCCESS_CLAIM
+  FUTURE_INTENT_MISINTERPRETED
+  MULTI_INTENT_FAILURE
+  TOPIC_SWITCH_FAILURE
+  TIMEOUT
+  OTHER
+}
+
+enum FailureSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TakeoverClassification {
+  AI_FAILED
+  HUMAN_REQUIRED
+  CUSTOMER_REQUESTED_HUMAN
+  OPERATIONAL_REASON
+  NOT_A_FAILURE
+  UNKNOWN
+}
+
+enum CorrectionCategory {
+  CUSTOMER_CORRECTION
+  CLARIFICATION
+  NORMAL_FOLLOW_UP
+  NOT_RELATED
+}
+
+enum TrainingExampleStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+// One row per evaluated AI turn. aiExecutionId is unique -- one evaluation
+// per execution is the idempotency key for the async evaluator queue.
+model AiInteractionEvaluation {
+  id             String  @id @default(uuid())
+  tenantId       String  @map("tenant_id")
+  conversationId String  @map("conversation_id")
+  messageId      String? @map("message_id")
+  aiExecutionId  String  @unique @map("ai_execution_id")
+  contactId      String? @map("contact_id")
+
+  status EvalQualityStatus @default(PENDING)
+
+  // Weighted overall, 0-5; null until evaluated. dimensions is a loose JSON map
+  // of only the applicable 0-5 sub-scores (contextUnderstanding, accuracy,
+  // naturalness, intentHandling, commerceReasoning, toolSelection,
+  // toolExecution, handoffQuality, conversationContinuity,
+  // responseAppropriateness) -- irrelevant dimensions are simply absent, never
+  // scored as 0, so they can't drag the weighted average down.
+  overallScore Float? @map("overall_score")
+  dimensions   Json?
+
+  failureCategories   FailureCategory[] @default([]) @map("failure_categories")
+  severity            FailureSeverity?
+  evaluatorReasoning  String?           @map("evaluator_reasoning") @db.Text
+  evaluatorConfidence Float?            @map("evaluator_confidence")
+
+  needsHumanReview           Boolean @default(false) @map("needs_human_review")
+  falseActionClaim           Boolean @default(false) @map("false_action_claim")
+  falseSuccessClaim          Boolean @default(false) @map("false_success_claim")
+  unnecessaryHandoff         Boolean @default(false) @map("unnecessary_handoff")
+  customerCorrectionDetected Boolean @default(false) @map("customer_correction_detected")
+  humanTakeoverFollowed      Boolean @default(false) @map("human_takeover_followed")
+  takeoverClassification     TakeoverClassification? @map("takeover_classification")
+
+  // Copied from AiExecution.promptVersionId at evaluation time -- the version
+  // attribution the spec asks for, without a separate versioning subsystem.
+  promptVersionId  String? @map("prompt_version_id")
+  evaluationSource String  @default("AUTOMATIC") @map("evaluation_source") // AUTOMATIC | MANUAL
+
+  evaluatedAt     DateTime? @map("evaluated_at")
+  evaluationError String?   @map("evaluation_error") @db.Text
+  retryCount      Int       @default(0) @map("retry_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  aiExecution  AiExecution  @relation(fields: [aiExecutionId], references: [id], onDelete: Cascade)
+
+  feedback         AiEvaluationFeedback?
+  trainingExamples AiTrainingExample[]
+  corrections      AiCustomerCorrection[]
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
+  @@index([tenantId, severity])
+  @@index([conversationId])
+  @@map("ai_interaction_evaluations")
+}
+
+// One row per evaluation a human has weighed in on. Separate from
+// AiInteractionEvaluation (the automatic result) per the spec's explicit
+// architectural separation: "AI Evaluation" (how good was it, automatic) vs
+// "Human Feedback" (what does the reviewer think) are different concepts.
+model AiEvaluationFeedback {
+  id           String @id @default(uuid())
+  evaluationId String @unique @map("evaluation_id")
+  tenantId     String @map("tenant_id")
+  reviewerId   String @map("reviewer_id")
+
+  rating           String  // GOOD | BAD
+  reason           String? // structured reason key, e.g. WRONG_PRODUCT, TOOL_FAILURE
+  notes            String? @db.Text
+  expectedAction   String? @map("expected_action") @db.Text
+  expectedResponse String? @map("expected_response") @db.Text
+
+  takeoverClassification TakeoverClassification? @map("takeover_classification")
+  correctionCategory     CorrectionCategory?      @map("correction_category")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  evaluation AiInteractionEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviewer   User                    @relation("AiEvaluationFeedbackReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("ai_evaluation_feedback")
+}
+
+// An approved-for-learning artifact. Only APPROVED examples ever feed the
+// golden/regression set -- promoting one into the existing
+// commerce/evaluation scenario files (EvaluationRun/EvaluationCase above) is
+// a deliberate, separate, human/engineer action (regressionCaseCreated just
+// records that it happened), not an automatic write to git-controlled source.
+model AiTrainingExample {
+  id                   String  @id @default(uuid())
+  tenantId             String  @map("tenant_id")
+  sourceEvaluationId   String  @map("source_evaluation_id")
+  sourceConversationId String  @map("source_conversation_id")
+  sourceMessageId      String? @map("source_message_id")
+
+  customerInput    String  @db.Text @map("customer_input")
+  relevantContext  Json?   @map("relevant_context")
+  actualResponse   String  @db.Text @map("actual_response")
+  expectedAction   String? @db.Text @map("expected_action")
+  expectedResponse String? @db.Text @map("expected_response")
+
+  failureCategories FailureCategory[]     @default([]) @map("failure_categories")
+  reviewerNotes     String?               @db.Text @map("reviewer_notes")
+  status            TrainingExampleStatus @default(DRAFT)
+
+  approvedById String?   @map("approved_by_id")
+  approvedAt   DateTime? @map("approved_at")
+
+  regressionCaseCreated Boolean @default(false) @map("regression_case_created")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  evaluation AiInteractionEvaluation @relation(fields: [sourceEvaluationId], references: [id], onDelete: Cascade)
+  approvedBy User?                   @relation("AiTrainingExamplesApproved", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@map("ai_training_examples")
+}
+
+// A customer's follow-up message that a reviewer classified in relation to
+// an earlier AI turn. Not auto-detected as authoritative -- per the spec,
+// "I said brown" is a signal, never treated as ground truth until a human
+// classifies it (a customer claiming something is wrong is not the same as
+// it actually being wrong).
+model AiCustomerCorrection {
+  id                     String  @id @default(uuid())
+  tenantId               String  @map("tenant_id")
+  evaluationId           String  @map("evaluation_id")
+  correctionMessageId    String  @map("correction_message_id")
+  category               CorrectionCategory @default(NORMAL_FOLLOW_UP)
+  reviewerId             String? @map("reviewer_id")
+  reviewerNotes          String? @db.Text @map("reviewer_notes")
+  expectedInterpretation String? @db.Text @map("expected_interpretation")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  evaluation AiInteractionEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  reviewer   User?                   @relation("AiCorrectionsReviewed", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("ai_customer_corrections")
+}
+
+// Append-only audit trail for AI Learning admin actions (spec section 58) --
+// separate from the platform's existing AuditLog model, which is scoped to
+// platform-admin actions, not tenant-level AI-review actions.
+model AiLearningAuditLog {
+  id            String  @id @default(uuid())
+  tenantId      String  @map("tenant_id")
+  actorId       String? @map("actor_id")
+  action        String
+  targetType    String  @map("target_type")
+  targetId      String  @map("target_id")
+  previousState Json?   @map("previous_state")
+  newState      Json?   @map("new_state")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([targetType, targetId])
+  @@map("ai_learning_audit_logs")
 }
 
 // ── Admin platform: error monitoring & webhook monitoring ──────────────────

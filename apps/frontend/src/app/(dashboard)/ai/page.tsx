@@ -5,13 +5,14 @@ import Link from 'next/link';
 import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
-  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield, Eraser, Activity,
+  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield, Eraser, Activity, GraduationCap,
 } from 'lucide-react';
 import { billingApi, knowledgeBaseApi, manageSettingsApi, aiLogsApi } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
 import AiActivityTab from './AiActivityTab';
+import AiLearningTab from './AiLearningTab';
 
 interface Article {
   id: string;
@@ -60,7 +61,7 @@ const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   learned: { label: 'AI-Learned', color: 'bg-teal-50 text-teal-600' },
 };
 
-type KbTab = 'kb' | 'learned' | 'analytics' | 'activity';
+type KbTab = 'kb' | 'learned' | 'analytics' | 'activity' | 'learning';
 
 export default function AiPage() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -633,10 +634,24 @@ export default function AiPage() {
                 <Activity size={14} />
                 AI Activity
               </button>
+              <button
+                onClick={() => setActiveTab('learning')}
+                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                  activeTab === 'learning'
+                    ? 'border-teal-500 text-teal-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <GraduationCap size={14} />
+                AI Learning
+              </button>
             </div>
 
             {/* ── AI ACTIVITY TAB (Verz-AI v2 execution traces) ── */}
             {activeTab === 'activity' && <AiActivityTab />}
+
+            {/* ── AI LEARNING TAB (evaluation, feedback, training examples) ── */}
+            {activeTab === 'learning' && <AiLearningTab />}
 
             {/* ── KNOWLEDGE BASE TAB ── */}
             {activeTab === 'kb' && (
