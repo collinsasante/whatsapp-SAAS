@@ -1,5 +1,6 @@
 import { EvaluationScenario } from '../evaluation.types';
 import { IDENTITY_EVAL_SCENARIOS } from './identity-eval-scenarios';
+import { REASONING_EVAL_SCENARIOS } from './reasoning-eval-scenarios';
 
 /**
  * ~15-20 realistic test conversations run against the real CommerceAiService
@@ -174,4 +175,7 @@ export const COMMERCE_EVAL_SCENARIOS: EvaluationScenario[] = [
 
   // ─── Verz-AI unification, Phase K: identity/handoff/hostility/media/promotion ──
   ...IDENTITY_EVAL_SCENARIOS,
+
+  // ─── Verz-AI unification, Phase N-Q: reasoning/confirmation/delivery/escalation ──
+  ...REASONING_EVAL_SCENARIOS,
 ];

@@ -26,6 +26,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
+import { HANDOFF_FAILED_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
 
 /**
  * Verz-AI unification, Phase C: the single result shape every AI generator
@@ -58,6 +59,27 @@ const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
 @Injectable()
 export class MessagesService {
   private readonly logger = new Logger(MessagesService.name);
+
+  // Verz-AI unification, Phase M: two inbound messages from the same customer
+  // arriving close together used to launch two fully independent, unsynchronized
+  // AI generations for the same conversation -- each re-reading conversation
+  // history and aiState at its own start, both able to self-assign the
+  // conversation and both able to send a WhatsApp message, racing on shared
+  // state. This map chains each conversation's AI turns strictly one after another.
+  // Known limitation: this is in-process only -- correct for the current single
+  // backend-replica-per-environment deployment, but would need a Redis-backed lock
+  // (no raw Redis client is wired into this app today, only BullMQ) if the backend
+  // is ever horizontally scaled to multiple replicas.
+  private readonly conversationAiLocks = new Map<string, Promise<void>>();
+
+  private runExclusiveForConversation(conversationId: string, fn: () => Promise<void>): Promise<void> {
+    const previous = this.conversationAiLocks.get(conversationId) ?? Promise.resolve();
+    const next = previous.then(fn, fn).finally(() => {
+      if (this.conversationAiLocks.get(conversationId) === next) this.conversationAiLocks.delete(conversationId);
+    });
+    this.conversationAiLocks.set(conversationId, next);
+    return next;
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -729,13 +751,23 @@ export class MessagesService {
       }
     }
 
+    // Verz-AI unification, Phase M: resolved before flow-matching now (used to be
+    // resolved after) so findMatchingFlow can know whether AI is actually switched on
+    // for this tenant -- see the comment on findMatchingFlow for why that matters.
+    const [commerceSettings, aiMode] = await Promise.all([
+      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null),
+      this.aiResponderService.getMode(tenantId).catch(() => null),
+    ]);
+    const commerceEnabled = !!commerceSettings?.commerceEnabled;
+    const aiActive = aiMode === 'SUGGESTION' || aiMode === 'AUTO_REPLY';
+
     // Trigger chatbot flow if one matches this message
     let flowMatched = false;
     if (content) {
       const priorInboundInConversation = await this.prisma.message.count({
         where: { tenantId, conversationId: conversation.id, direction: MessageDirection.INBOUND, id: { not: message.id } },
       });
-      const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content, priorInboundInConversation === 0);
+      const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content, priorInboundInConversation === 0, aiActive);
       if (flow) {
         flowMatched = true;
         void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[]);
@@ -755,11 +787,6 @@ export class MessagesService {
       // it's now just one more input into the generator choice, so a commerce-enabled
       // tenant gets the same SUGGESTION-mode human review, credit metering, and audit
       // trail every other tenant already has.
-      const [commerceSettings, aiMode] = await Promise.all([
-        this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null),
-        this.aiResponderService.getMode(tenantId).catch(() => null),
-      ]);
-      const commerceEnabled = !!commerceSettings?.commerceEnabled;
 
       if (aiMode === 'SUGGESTION') {
         // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
@@ -767,13 +794,18 @@ export class MessagesService {
         // ends up sending them, so they're gated the same way AUTO_REPLY already was.
         const hasCredits = await this.aiCreditsService.hasSufficientBalance(tenantId).catch(() => false);
         if (hasCredits) {
-          // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send
-          void this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled);
+          // SUGGESTION MODE: generate a response, store it, push to agents via socket — never auto-send.
+          // Verz-AI unification, Phase M: chained through the per-conversation lock so
+          // a second inbound message arriving before this one finishes doesn't launch
+          // a second, racing AI generation for the same conversation.
+          void this.runExclusiveForConversation(conversation.id, () =>
+            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled));
         }
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
-          void this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo);
+          void this.runExclusiveForConversation(conversation.id, () =>
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo));
         }
       }
     }
@@ -831,7 +863,14 @@ export class MessagesService {
         tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
         { readOnlyTools: opts.readOnlyTools },
       );
-      return { response: r.response, confidence: null, blocked: r.blocked, executionId: null, toolTrace: r.toolTrace, mediaToSend: r.mediaToSend };
+      // Second hardening pass, Section 4: r.shouldEscalate was never mapped through
+      // here before -- Commerce's own escalation branches called
+      // conversations.request() directly instead, so this field was always dropped.
+      // Now Commerce only signals the intent; this is the one place both orchestrators'
+      // results converge, so it's also the one place the real handoff (with a real
+      // retry, and an honest customer-facing text if it fails) happens -- see
+      // handleAiAutoReply/handleAiSuggestion below.
+      return { response: r.response, confidence: null, blocked: r.blocked, executionId: null, shouldEscalate: r.shouldEscalate, toolTrace: r.toolTrace, mediaToSend: r.mediaToSend };
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
@@ -883,10 +922,22 @@ export class MessagesService {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
     });
-    if (!result?.response) return;
+    if (!result?.response) {
+      // Verz-AI unification, Phase L: SUGGESTION mode never auto-sends to the
+      // customer (a human reviews first), so there's no message to send here --
+      // but silently doing nothing left the conversation stuck with no signal that
+      // the AI couldn't produce a suggestion at all. Escalate for real instead.
+      this.logger.warn(`AI suggestion generation produced no response at all for conversation ${conversation.id} -- escalating`);
+      await this.conversationsService.requestWithRetry(tenantId, conversation.id, 'AI escalation: suggestion generation threw before returning a response');
+      return;
+    }
 
     if (result.shouldEscalate) {
-      await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
+      // Second hardening pass, Section 4: SUGGESTION mode never auto-sends to the
+      // customer (a human reviews first), so there's no customer-facing text to keep
+      // honest here -- but the handoff itself should still be real and retried, not a
+      // swallowed .catch(() => null).
+      await this.conversationsService.requestWithRetry(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence');
     }
 
     const log = await this.aiLogsService.create({
@@ -936,10 +987,44 @@ export class MessagesService {
       }),
       this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
     ]);
-    if (!result?.response) return;
+    if (!result?.response) {
+      // Verz-AI unification, Phase L: this used to be a silent early return -- if
+      // generateAiReply() threw outright (rather than returning a handled failure
+      // result), the customer got nothing at all and nothing was logged as having
+      // gone wrong. generateAiReply()'s own failure branches now always return
+      // real text, so reaching here means the call threw before returning anything;
+      // still give the customer something and get a human involved for real.
+      this.logger.warn(`AI auto-reply produced no response at all for conversation ${conversation.id} -- sending fallback and escalating`);
+      // Second hardening pass, Section 4: attempt the real handoff first (with a real
+      // retry) so the text actually sent matches what really happened, instead of
+      // sending an optimistic line and separately hoping the handoff also worked.
+      const escalated = await this.conversationsService.requestWithRetry(
+        tenantId, conversation.id, 'AI escalation: AI reply generation threw before returning a response',
+      );
+      const fallbackText = escalated
+        ? PROVIDER_FAILURE_FALLBACK_TEXT
+        : HANDOFF_FAILED_TEXT;
+      await this.whatsappService
+        .sendTextMessage(tenantId, contact.phone, fallbackText)
+        .catch((err) => this.logger.warn(`Failed to send fallback message for conversation ${conversation.id}: ${String(err)}`));
+      return;
+    }
 
     if (result.shouldEscalate) {
-      await this.conversationsService.request(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence').catch(() => null);
+      // Second hardening pass, Section 4: backend-enforced handoff truth. The
+      // generator's own text for this turn may already say something like "I'll get
+      // someone to help" -- it was written without knowing whether the handoff would
+      // actually succeed. This performs the real handoff (with a real retry, not a
+      // swallowed .catch(() => null)) and only keeps that optimistic text if it's
+      // actually true; if the handoff genuinely fails, the text sent to the customer
+      // is rewritten to something honest instead of a claim that didn't happen.
+      const escalated = await this.conversationsService.requestWithRetry(
+        tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence',
+      );
+      if (!escalated) {
+        this.logger.warn(`Handoff failed (after retry) for conversation ${conversation.id} -- rewriting response to avoid a false claim`);
+        result.response = HANDOFF_FAILED_TEXT;
+      }
     }
 
     // Verz AI Credits: the flat -1-per-send decrement that used to live here is gone --

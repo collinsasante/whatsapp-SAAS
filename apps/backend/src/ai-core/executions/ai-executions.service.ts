@@ -58,6 +58,7 @@ export class AiExecutionsService {
         errorCode: trace.errorCode,
         errorMessage: trace.errorMessage,
         stageTimings: trace.stageTimings as Prisma.InputJsonValue,
+        toolTrace: trace.toolTrace as Prisma.InputJsonValue | undefined,
       },
     });
 

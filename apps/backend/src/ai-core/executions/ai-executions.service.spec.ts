@@ -39,6 +39,31 @@ describe('AiExecutionsService', () => {
       expect(deps.prisma.aiExecution.create).toHaveBeenCalled();
     });
 
+    it('second hardening pass, Section 2: persists toolTrace when the trace includes one', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const sanitizedTrace = [{ name: 'search_products', order: 0, input: { query: 'bag' }, result: [], success: true, durationMs: 12 }];
+      const trace = { ...newTrace(), status: 'SUCCESS' as const, toolTrace: sanitizedTrace };
+
+      await service.record({ tenantId: 't1', taskType: 'RESPONDER' }, trace);
+
+      expect(deps.prisma.aiExecution.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ toolTrace: sanitizedTrace }),
+      }));
+    });
+
+    it('leaves toolTrace undefined for a non-tool-calling turn', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const trace = { ...newTrace(), status: 'SUCCESS' as const };
+
+      await service.record({ tenantId: 't1', taskType: 'SUMMARIZE' }, trace);
+
+      expect(deps.prisma.aiExecution.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ toolTrace: undefined }),
+      }));
+    });
+
     it('settles credits for a RESPONDER trace using real token usage', async () => {
       const deps = buildDeps();
       const service = buildService(deps);

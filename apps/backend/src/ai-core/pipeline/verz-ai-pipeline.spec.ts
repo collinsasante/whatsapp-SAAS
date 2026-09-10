@@ -121,7 +121,7 @@ describe('VerzAiPipelineService (integration, MockProvider)', () => {
     expect(savedExecution.safetyFlags.injectionDetected).toBe(true);
   });
 
-  it('degrades gracefully on a provider error: empty result, traced as PROVIDER_ERROR, never throws', async () => {
+  it('degrades gracefully on a provider error: real fallback + escalation, traced as PROVIDER_ERROR, never throws', async () => {
     const provider = new MockProvider();
     (provider as { key: string }).key = 'deepseek';
     provider.nextError = new AiProviderError('timeout', 'DeepSeek request timed out', true);
@@ -130,7 +130,11 @@ describe('VerzAiPipelineService (integration, MockProvider)', () => {
 
     const result = await pipeline.run({ tenantId: 't1', agentId: 'agent-1', conversationId: 'c1', customerMessage: 'How much is delivery?', taskType: 'RESPONDER' });
 
-    expect(result.response).toBe('');
+    // Verz-AI unification, Phase L: an empty response here used to reach
+    // messages.service.ts's `if (!result?.response) return;` guard and leave the
+    // customer with total silence. Now a real fallback + shouldEscalate every time.
+    expect(result.response).not.toBe('');
+    expect(result.shouldEscalate).toBe(true);
     expect(result.confidence).toBeNull();
     expect(result.executionId).toBeTruthy(); // trace still persisted despite the failure
 

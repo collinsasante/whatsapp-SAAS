@@ -1,4 +1,4 @@
-import { formatHoursSummary, isOffHours, OffHoursDay } from './business-hours.util';
+import { formatCurrentTimeContext, formatHoursSummary, isOffHours, OffHoursDay } from './business-hours.util';
 
 export interface BusinessInfoSettings {
   businessAddress?: string | null;
@@ -22,12 +22,17 @@ export interface AdContext {
  */
 export function formatBusinessInfoBlock(settings: BusinessInfoSettings, conversation?: AdContext): string {
   const lines: string[] = [];
+  const timezone = settings.timezone ?? 'UTC';
+
+  // Verz-AI unification, Phase O: always included, not gated on other business info
+  // being set -- every conversation needs a grounded current time, not just ones
+  // where a tenant has filled in an address.
+  lines.push(formatCurrentTimeContext(timezone));
 
   if (settings.businessAddress) lines.push(`Address: ${settings.businessAddress}`);
   if (settings.businessPhone) lines.push(`Phone: ${settings.businessPhone}`);
 
   const schedule = settings.offHoursSchedule as Record<string, OffHoursDay> | undefined;
-  const timezone = settings.timezone ?? 'UTC';
   if (schedule && Object.keys(schedule).length > 0) {
     const summary = formatHoursSummary(schedule);
     if (summary) {

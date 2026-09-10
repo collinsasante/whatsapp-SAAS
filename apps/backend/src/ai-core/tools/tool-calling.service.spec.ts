@@ -67,7 +67,7 @@ describe('ToolCallingService', () => {
     const result = await service.complete(baseReq());
 
     expect(result.content).toBe('Yes, we have 95x175mm labels at GHS2.15 each.');
-    expect(result.toolTrace).toEqual([{ name: 'search_products', args: { query: 'labels' }, result: [{ id: 'p1', name: 'Label 95x175' }] }]);
+    expect(result.toolTrace).toEqual([{ name: 'search_products', args: { query: 'labels' }, result: [{ id: 'p1', name: 'Label 95x175' }], durationMs: expect.any(Number) }]);
     expect(deps.tools.execute).toHaveBeenCalledWith('search_products', baseReq().toolContext, { query: 'labels' });
     expect(deps.complete).toHaveBeenCalledTimes(2);
 

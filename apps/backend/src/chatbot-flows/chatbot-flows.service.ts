@@ -81,8 +81,19 @@ export class ChatbotFlowsService {
     return this.prisma.chatbotFlow.delete({ where: { id } });
   }
 
-  // Find matching flow for an incoming message
-  async findMatchingFlow(tenantId: string, messageText: string, isFirstMessage: boolean) {
+  // Find matching flow for an incoming message.
+  //
+  // Verz-AI unification, Phase M: `aiActive` tells this method whether the tenant
+  // currently has AI (SUGGESTION or AUTO_REPLY) switched on. A FALLBACK-trigger flow
+  // used to unconditionally win over AI for every message that didn't match a more
+  // specific KEYWORD/FIRST_MESSAGE flow -- for any tenant running both a FALLBACK
+  // flow and AI mode, this silently disabled AI entirely (every non-keyword message
+  // routed to the static flow instead), with nothing surfacing that conflict anywhere.
+  // KEYWORD and FIRST_MESSAGE still win unconditionally -- those represent deliberate,
+  // specific business logic a tenant configured on purpose. FALLBACK exists as a
+  // catch-all for tenants with no AI; it should defer to AI, not compete with it, once
+  // AI is switched on -- AI is strictly the more capable fallback.
+  async findMatchingFlow(tenantId: string, messageText: string, isFirstMessage: boolean, aiActive = false) {
     const flows = await this.prisma.chatbotFlow.findMany({
       where: { tenantId, isActive: true },
       orderBy: [{ priority: 'desc' }],
@@ -98,7 +109,7 @@ export class ChatbotFlowsService {
         if (match) return flow;
       } else if (flow.trigger === 'FIRST_MESSAGE') {
         if (isFirstMessage) return flow;
-      } else if (flow.trigger === 'FALLBACK') {
+      } else if (flow.trigger === 'FALLBACK' && !aiActive) {
         if (!fallback) fallback = flow;
       }
     }

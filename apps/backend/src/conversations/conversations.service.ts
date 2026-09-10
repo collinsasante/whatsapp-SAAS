@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -31,6 +31,8 @@ const SLA_MINUTES: Record<string, number> = {
 
 @Injectable()
 export class ConversationsService {
+  private readonly logger = new Logger(ConversationsService.name);
+
   constructor(
     private prisma: PrismaService,
     private activityLogService: ActivityLogService,
@@ -271,6 +273,32 @@ export class ConversationsService {
     // Notify all agents in this tenant
     await this.notifyAllAgents(tenantId, id, result, 'CONVERSATION_REQUESTED' as NotificationType);
     return result;
+  }
+
+  /**
+   * Verz-AI unification, second hardening pass, Section 4: backend-enforced handoff
+   * truth. Previously every AI escalation call site did `.request(...).catch(() => null)`
+   * and then unconditionally told the customer a human was being connected -- if the
+   * status update/notification actually failed, the customer was told a lie with no
+   * way for the caller to know. This gives every caller a real success/failure signal
+   * instead of a swallowed error, with one immediate retry (matching how a genuinely
+   * transient failure -- e.g. a momentary DB blip -- should be handled before telling
+   * the customer help isn't coming) before giving up.
+   */
+  async requestWithRetry(tenantId: string, id: string, reason?: string): Promise<boolean> {
+    try {
+      await this.request(tenantId, id, reason);
+      return true;
+    } catch (err) {
+      this.logger.warn(`requestWithRetry: first attempt failed for conversation ${id}, retrying once: ${String(err)}`);
+      try {
+        await this.request(tenantId, id, reason);
+        return true;
+      } catch (retryErr) {
+        this.logger.error(`requestWithRetry: retry also failed for conversation ${id}: ${String(retryErr)}`);
+        return false;
+      }
+    }
   }
 
   /** Agent takes over chat → REQUESTED → INTERVENED */

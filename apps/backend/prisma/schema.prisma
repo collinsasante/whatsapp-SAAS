@@ -264,6 +264,21 @@ model TenantSettings {
   // plan for full Phase 1 scope.
   commerceEnabled     Boolean  @default(false) @map("commerce_enabled")
   takeRatePct         Float?   @map("take_rate_pct")
+  // Verz-AI unification, Phase P: when true (the default), a successful commerce
+  // payment automatically creates a staff-visible InternalTask -- previously this
+  // only ever happened if the AI separately decided to call create_internal_task,
+  // so a successful payment could silently produce zero staff-visible task. Backend
+  // event drives task creation now, not AI wording -- see CommerceLedgerService.
+  paymentVerificationRequired Boolean @default(true) @map("payment_verification_required")
+  // Verz-AI unification, Phase Q: previously there was no delivery concept anywhere
+  // in the schema at all -- the AI's only move on a delivery question was a vague
+  // "I've flagged it" with no real action. No live courier API exists to book a real
+  // Yango/courier delivery automatically, so the honest scope is: let a tenant
+  // describe their real delivery capability in their own words (methods/areas/fees),
+  // and make actually arranging one a real InternalTask a human executes -- see
+  // delivery.tools.ts.
+  deliveryEnabled     Boolean  @default(false) @map("delivery_enabled")
+  deliveryInfo        String?  @map("delivery_info") @db.Text
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -2461,6 +2476,14 @@ model AiExecution {
   errorCode        String?  @map("error_code")
   errorMessage     String?  @map("error_message")
   stageTimings     Json?    @map("stage_timings") // {guard: 1, context: 42, generate: 1830, ...}
+  // Second hardening pass, Section 2: sanitized tool-call trace for this turn --
+  // [{name, order, input, result, success, errorMessage?, durationMs}]. Previously
+  // discarded after every turn (only ever used in-memory for state derivation and
+  // the eval harness), so staff had no way to see which tools ran/failed for a given
+  // AI Activity entry. Sanitized before write (see tool-trace-sanitizer.util.ts) --
+  // secret-shaped keys redacted, long values truncated -- never raw provider/API
+  // secrets. Null for non-tool-calling turns (legacy responder, KB-learn, etc).
+  toolTrace        Json?    @map("tool_trace")
   createdAt        DateTime @default(now()) @map("created_at")
 
   tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)

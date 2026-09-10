@@ -5,6 +5,7 @@ import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
 import { ParsedWebhookEvent } from '../../billing/gateways/gateway.interface';
 import { LeadsService } from '../../leads/leads.service';
 import { WebhookEventService } from '../../common/monitoring/webhook-event.service';
+import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
 
@@ -23,6 +24,7 @@ export class CommerceLedgerService {
     // see leads.module.ts for why.
     private leads: LeadsService,
     private webhookEventService: WebhookEventService,
+    private internalTasks: InternalTasksService,
   ) {}
 
   /** Verz AI Credits / commerce fee: platform-admin-configurable global default,
@@ -177,6 +179,24 @@ export class CommerceLedgerService {
       if (order.conversationId) {
         this.leads.markConverted(order.tenantId, order.conversationId)
           .catch((err) => this.logger.warn(`Failed to mark lead converted for order ${orderId}: ${String(err)}`));
+      }
+
+      // Verz-AI unification, Phase P: driven by the payment event itself, not by
+      // whether the AI happened to call create_internal_task -- a successful payment
+      // used to produce zero staff-visible task unless the AI separately decided to
+      // create one. This function only ever reaches this point once per real payment
+      // (guarded above by the "already PAID" early-return plus the unique
+      // (orderId,type,gatewayEventId) ledger constraint's catch block below), so this
+      // is idempotent by construction -- no separate dedup check needed here.
+      if (tenantSettings?.paymentVerificationRequired ?? true) {
+        this.internalTasks.create(order.tenantId, {
+          department: 'Payments',
+          title: `Payment received -- Order #${orderId.slice(0, 8)}`,
+          description: `${gmvAmount} ${order.currency} received via Paystack (ref: ${gatewayEventId}). Order is PAID; awaiting verification before fulfilment.`,
+          conversationId: order.conversationId ?? undefined,
+          orderId,
+          contactId: order.contactId ?? undefined,
+        }).catch((err) => this.logger.warn(`Failed to create payment-verification task for order ${orderId}: ${String(err)}`));
       }
 
       return result.gmvEntry;

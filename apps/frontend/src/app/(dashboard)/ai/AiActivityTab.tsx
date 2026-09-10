@@ -8,6 +8,19 @@ import toast from 'react-hot-toast';
 
 type ExecutionStatus = 'SUCCESS' | 'BLOCKED' | 'POLICY_REJECTED' | 'PROVIDER_ERROR' | 'EMPTY';
 
+/** Second hardening pass, Section 2/3: one tool call within a turn's toolTrace --
+ * sanitized server-side before persistence (see tool-trace-sanitizer.util.ts), so
+ * input/result here are always safe to render directly, no secrets. */
+interface SanitizedToolCall {
+  name: string;
+  order: number;
+  input: unknown;
+  result: unknown;
+  success: boolean;
+  errorMessage?: string;
+  durationMs: number | null;
+}
+
 interface Execution {
   id: string;
   taskType: string;
@@ -22,6 +35,7 @@ interface Execution {
   errorCode: string | null;
   errorMessage: string | null;
   stageTimings: Record<string, number> | null;
+  toolTrace: SanitizedToolCall[] | null;
   safetyFlags: { injectionDetected?: boolean; fallbackCapped?: boolean; emptyOutput?: boolean } | null;
   conversationId: string | null;
   createdAt: string;
@@ -47,6 +61,47 @@ function formatCost(estCostUsd: number | null): string {
   if (estCostUsd === null || estCostUsd === undefined) return '—';
   if (estCostUsd < 0.0001) return '<$0.0001';
   return `$${estCostUsd.toFixed(4)}`;
+}
+
+/** Second hardening pass, Section 2/3: renders one entry from a turn's persisted
+ * toolTrace -- collapsed to name/status/duration by default (matches the compact
+ * "catalogue_search SUCCESS 127ms" shape from the spec); expand for the sanitized
+ * input/result actually sent to and returned by the tool. */
+function ToolCallRow({ call }: { call: SanitizedToolCall }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-gray-100 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium',
+            call.success ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600',
+          )}>
+            {call.success ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
+            {call.success ? 'Success' : 'Failed'}
+          </span>
+          <span className="text-gray-700 font-mono">{call.name}</span>
+        </span>
+        <span className="text-gray-400">{call.durationMs !== null ? `${call.durationMs}ms` : '—'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2.5 space-y-2 text-[11px] font-mono">
+          {call.errorMessage && <div className="text-red-600">error: {call.errorMessage}</div>}
+          <div>
+            <div className="text-gray-400 mb-0.5">input</div>
+            <pre className="bg-gray-50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">{JSON.stringify(call.input, null, 2)}</pre>
+          </div>
+          <div>
+            <div className="text-gray-400 mb-0.5">result</div>
+            <pre className="bg-gray-50 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">{JSON.stringify(call.result, null, 2)}</pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AiActivityTab() {
@@ -219,6 +274,18 @@ export default function AiActivityTab() {
                             <span className="text-gray-500">{stage.replace(/_/g, ' ')}</span>
                             <span className="text-gray-700 font-medium">{ms}ms</span>
                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {selected.toolTrace && selected.toolTrace.length > 0 && (
+                    <div>
+                      <div className="text-[11px] text-gray-400 mb-1.5">
+                        Tools called ({selected.toolTrace.length}) -- why this turn behaved the way it did
+                      </div>
+                      <div className="space-y-2">
+                        {selected.toolTrace.map((call) => (
+                          <ToolCallRow key={call.order} call={call} />
                         ))}
                       </div>
                     </div>

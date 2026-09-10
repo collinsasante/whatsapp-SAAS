@@ -6,6 +6,7 @@ import { ToolCallingService } from '../../tools/tool-calling.service';
 import { deriveStateFromToolTrace } from '../../tools/state-derivation.util';
 import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
+import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../prompts/escalation-messages.util';
 
 interface ParsedGeneration {
   response?: string;
@@ -60,7 +61,17 @@ export class GenerationStage implements PipelineStage {
         void this.conversationState.mergeState(ctx.input.tenantId, ctx.input.conversationId, deriveStateFromToolTrace(result.toolTrace));
 
         if (result.failed) {
-          ctx.result = { response: '', confidence: null, blocked: false };
+          // Verz-AI unification, Phase L: previously this left response empty with no
+          // shouldEscalate -- messages.service.ts's `if (!result?.response) return;`
+          // then silently dropped the turn, so a genuine provider failure (the provider
+          // client has already retried once internally by this point) produced total
+          // silence for the customer. Same shouldEscalate mechanism the
+          // hitMaxIterations branch just below already relies on.
+          this.logger.warn(`Generation (tool-calling) provider call failed for conversation ${ctx.input.conversationId}`);
+          ctx.result = {
+            response: PROVIDER_FAILURE_FALLBACK_TEXT,
+            confidence: null, blocked: false, shouldEscalate: true,
+          };
           ctx.trace.status = 'PROVIDER_ERROR';
         } else if (result.hitMaxIterations) {
           // Verz-AI unification, Phase I: previously this branch returned an empty
@@ -72,7 +83,7 @@ export class GenerationStage implements PipelineStage {
           // handleAiAutoReply/handleAiSuggestion, and EscalationStage (which runs
           // right after this stage) only ever adds escalation, never clears it.
           ctx.result = {
-            response: "Let me get a team member to help finish this up for you.",
+            response: MAX_ITERATIONS_FALLBACK_TEXT,
             confidence: null, blocked: false, shouldEscalate: true,
           };
           ctx.trace.status = 'SUCCESS';
@@ -130,7 +141,13 @@ export class GenerationStage implements PipelineStage {
     } catch (err) {
       const providerErr = err instanceof AiProviderError ? err : new AiProviderError('network', String(err), false, err);
       this.logger.warn(`Generation failed (${providerErr.code}): ${providerErr.message}`);
-      ctx.result = { response: '', confidence: null, blocked: false };
+      // Verz-AI unification, Phase L: same silent-failure fix as the tool-calling
+      // branch above -- an empty response with no shouldEscalate meant the customer
+      // got nothing at all when the provider call itself threw.
+      ctx.result = {
+        response: PROVIDER_FAILURE_FALLBACK_TEXT,
+        confidence: null, blocked: false, shouldEscalate: true,
+      };
       ctx.trace.status = 'PROVIDER_ERROR';
       ctx.trace.errorCode = providerErr.code;
       ctx.trace.errorMessage = providerErr.message;
