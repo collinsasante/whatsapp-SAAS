@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   X, LayoutDashboard, MessageSquare, Megaphone, FileText, Zap, Bot,
   Globe, Settings, CreditCard, Images, Wrench, LogOut, BarChart3, Phone,
-  Users, Brain,
+  Users, Brain, Package, ClipboardCheck, ReceiptText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
@@ -38,6 +38,15 @@ const DRAWER_SECTIONS: { title: string; items: { href: string; icon: React.Eleme
       { href: '/automation', icon: Zap,       label: 'Automation' },
       { href: '/chatbot',    icon: Bot,       label: 'Chatbot Flows' },
       { href: '/ai',         icon: Brain,     label: 'Verz AI' },
+    ],
+  },
+  {
+    title: 'Commerce',
+    items: [
+      { href: '/commerce/products',   icon: Package,        label: 'Products' },
+      { href: '/commerce/orders',     icon: ReceiptText,    label: 'Orders' },
+      { href: '/commerce/chat',       icon: MessageSquare,  label: 'Test Chat' },
+      { href: '/commerce/evaluation', icon: ClipboardCheck, label: 'Evaluation Runs' },
     ],
   },
   {

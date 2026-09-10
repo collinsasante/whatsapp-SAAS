@@ -28,9 +28,14 @@ export class PaystackGateway implements IBillingGateway {
   }
 
   /**
-   * Initializes a transaction and returns an access_code for the Paystack Inline popup
-   * (`PaystackPop.resumeTransaction(accessCode)`) — no redirect, stays embedded in the page.
-   * Passing `planCode` makes Paystack auto-create a recurring subscription on first charge.
+   * Initializes a transaction. Returns both `accessCode` (for the Paystack Inline
+   * popup, `PaystackPop.resumeTransaction(accessCode)` -- no redirect, stays
+   * embedded in the page) and `authorizationUrl` (Paystack's own ready-to-use
+   * hosted checkout page -- this is NOT the same as `https://checkout.paystack.com/
+   * <reference>`, which is not a valid URL pattern; a caller building a checkout
+   * link must use `authorizationUrl` verbatim, never construct one from the
+   * reference or access code). Passing `planCode` makes Paystack auto-create a
+   * recurring subscription on first charge.
    */
   async initializeTransaction(opts: {
     email: string;
@@ -59,8 +64,29 @@ export class PaystackGateway implements IBillingGateway {
 
     return {
       accessCode: res.data.data.access_code as string,
+      authorizationUrl: res.data.data.authorization_url as string,
       gatewayReference: res.data.data.reference as string,
       gatewayCustomerId: '',
+    };
+  }
+
+  /**
+   * Asks Paystack directly whether a transaction succeeded. Used by the commerce
+   * verify-payment endpoint as a pull-based alternative to webhook delivery --
+   * the returned status/amount come from Paystack's API, never from the client.
+   */
+  async verifyTransaction(reference: string): Promise<{ status: string; amountMajorUnits: number; currency: string; transactionId: string } | null> {
+    const res = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: this.headers,
+      timeout: 10_000,
+    });
+    const tx = res.data?.data as { status?: string; amount?: number; currency?: string; id?: number } | undefined;
+    if (!tx?.status) return null;
+    return {
+      status: tx.status,
+      amountMajorUnits: (tx.amount ?? 0) / 100,
+      currency: tx.currency ?? '',
+      transactionId: String(tx.id ?? reference),
     };
   }
 

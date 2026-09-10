@@ -129,12 +129,65 @@ export class PlatformHealthService {
       .slice(0, 20);
   }
 
+  /** Real `SELECT 1` round-trip, not a fabricated "up" flag. */
+  private async getDbPing() {
+    const start = Date.now();
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      return { reachable: true, latencyMs: Date.now() - start };
+    } catch {
+      return { reachable: false, latencyMs: null };
+    }
+  }
+
+  /**
+   * "Reachable" here means "configured and has produced a real successful call
+   * recently" -- not a live network ping. A synthetic ping on every admin health-
+   * check load would add external-API latency/cost/flakiness to a hot path for a
+   * signal this codebase's own AiExecution log already gives us for free and more
+   * meaningfully (a stale "yes the API key works" ping says less than "it actually
+   * served a real request 4 minutes ago").
+   */
+  private async getAiProviderHealth() {
+    const configured = !!process.env['DEEPSEEK_API_KEY'];
+    const lastSuccess = await this.prisma.aiExecution.findFirst({
+      where: { status: 'SUCCESS' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true, provider: true },
+    });
+    return {
+      configured,
+      lastSuccessfulCallAt: lastSuccess?.createdAt.toISOString() ?? null,
+      provider: lastSuccess?.provider ?? null,
+    };
+  }
+
+  /** Same "configured + recent real activity" signal as getAiProviderHealth, applied to Stripe/Paystack. */
+  private async getPaymentGatewayHealth() {
+    const stripeConfigured = !!process.env['STRIPE_SECRET_KEY'];
+    const paystackConfigured = !!process.env['PAYSTACK_SECRET_KEY'];
+    const lastSuccess = await this.prisma.payment.findFirst({
+      where: { status: 'SUCCEEDED' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true, gateway: true },
+    });
+    return {
+      stripeConfigured,
+      paystackConfigured,
+      lastSuccessfulPaymentAt: lastSuccess?.createdAt.toISOString() ?? null,
+      gateway: lastSuccess?.gateway ?? null,
+    };
+  }
+
   async getPlatformHealth() {
-    const [queueHealth, whatsappQuality, errorRateTrend, costEstimates] = await Promise.all([
+    const [queueHealth, whatsappQuality, errorRateTrend, costEstimates, dbPing, aiProvider, paymentGateway] = await Promise.all([
       this.getQueueHealth(),
       this.getWhatsAppQualitySummary(),
       this.getErrorRateTrend(30),
       this.getCostEstimatePerTenant(),
+      this.getDbPing(),
+      this.getAiProviderHealth(),
+      this.getPaymentGatewayHealth(),
     ]);
 
     return {
@@ -142,10 +195,15 @@ export class PlatformHealthService {
       whatsappQuality,
       errorRateTrend,
       costEstimatePerTenant: costEstimates,
-      // Webhook processing lag and DB/slow-query signals aren't instrumented anywhere in the
-      // codebase today (no receipt-vs-processed timestamp is stored, no slow-query log exists) --
-      // omitted rather than fabricated, per "never fake historical numbers."
-      notInstrumented: ['webhookProcessingLag', 'dbSizeGrowth', 'slowQueryLog'],
+      dbPing,
+      aiProvider,
+      paymentGateway,
+      // Webhook processing lag and DB size-growth/slow-query signals aren't instrumented
+      // anywhere in the codebase today (no receipt-vs-processed timestamp is stored, no
+      // slow-query log exists) -- omitted rather than fabricated, per "never fake historical
+      // numbers." Webhook receipt-to-outcome latency is now derivable from WebhookEvent's
+      // createdAt/processedAt, but no trend rollup over it exists yet.
+      notInstrumented: ['webhookProcessingLagTrend', 'dbSizeGrowth', 'slowQueryLog'],
     };
   }
 }

@@ -80,6 +80,20 @@ model Tenant {
   analyticsDailyConversationStats AnalyticsDailyConversationStats[]
   analyticsDailyRevenueStats      AnalyticsDailyRevenueStats[]
   platformTenantMrrSnapshots      PlatformTenantMrrSnapshot[]
+  products                        Product[]
+  orders                          Order[]
+  orderEvents                     OrderEvent[]
+  commerceLedgerEntries           CommerceLedgerEntry[]
+  reconciliationExceptions        ReconciliationException[]
+  evaluationRuns                  EvaluationRun[]
+  evaluationCases                 EvaluationCase[]
+  aiAgents                        AiAgent[]
+  aiExecutions                    AiExecution[]
+  internalTasks                   InternalTask[]
+  leads                           Lead[]
+  aiCreditTransactions             AiCreditTransaction[]
+  errorLogs                        ErrorLog[]
+  webhookEvents                    WebhookEvent[]
 
   @@map("tenants")
 }
@@ -117,6 +131,7 @@ model Team {
 
   tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   members TeamMember[]
+  tasks   InternalTask[]
 
   @@index([tenantId])
   @@map("teams")
@@ -132,6 +147,61 @@ model TeamMember {
 
   @@unique([teamId, userId])
   @@map("team_members")
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+// Verz-AI Phase 2b: gives the AI a real way to hand work to a human team instead of
+// just reciting a phone number. `department` is free text matched case-insensitively
+// against Team.name (reusing the existing Team model as "department" rather than
+// inventing a parallel concept) -- if nothing matches, InternalTasksService falls back
+// to notifying all tenant ADMINs so a task is never silently dropped.
+model InternalTask {
+  id             String       @id @default(uuid())
+  tenantId       String       @map("tenant_id")
+  department     String
+  assignedTeamId String?      @map("assigned_team_id")
+  assigneeId     String?      @map("assignee_id")
+  title          String
+  description    String?
+  priority       TaskPriority @default(NORMAL)
+  status         TaskStatus   @default(OPEN)
+  conversationId String?      @map("conversation_id")
+  orderId        String?      @map("order_id")
+  contactId      String?      @map("contact_id")
+  createdById    String?      @map("created_by_id")
+  resolvedById   String?      @map("resolved_by_id")
+  resolvedAt     DateTime?    @map("resolved_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTeam Team?         @relation(fields: [assignedTeamId], references: [id], onDelete: SetNull)
+  assignee     User?         @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy    User?         @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  resolvedBy   User?         @relation("TaskResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  order        Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  contact      Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, assignedTeamId])
+  @@index([orderId])
+  @@index([conversationId])
+  @@map("internal_tasks")
 }
 
 model BillingInvoice {
@@ -187,6 +257,28 @@ model TenantSettings {
   airtableApiKey      String?  @map("airtable_api_key")
   airtableBaseId      String?  @map("airtable_base_id")
   airtableTableName   String?  @map("airtable_table_name")
+  // Managed Commerce (Phase 1, single-pilot-tenant): flips a tenant from flat-subscription
+  // billing into outcome-based GMV take-rate billing. takeRatePct is null (commerce off) until
+  // explicitly set. Payment collection reuses the existing Paystack gateway (mobile money is
+  // a Paystack checkout channel in Ghana, no separate MTN integration) -- see implementation
+  // plan for full Phase 1 scope.
+  commerceEnabled     Boolean  @default(false) @map("commerce_enabled")
+  takeRatePct         Float?   @map("take_rate_pct")
+  // Verz-AI unification, Phase P: when true (the default), a successful commerce
+  // payment automatically creates a staff-visible InternalTask -- previously this
+  // only ever happened if the AI separately decided to call create_internal_task,
+  // so a successful payment could silently produce zero staff-visible task. Backend
+  // event drives task creation now, not AI wording -- see CommerceLedgerService.
+  paymentVerificationRequired Boolean @default(true) @map("payment_verification_required")
+  // Verz-AI unification, Phase Q: previously there was no delivery concept anywhere
+  // in the schema at all -- the AI's only move on a delivery question was a vague
+  // "I've flagged it" with no real action. No live courier API exists to book a real
+  // Yango/courier delivery automatically, so the honest scope is: let a tenant
+  // describe their real delivery capability in their own words (methods/areas/fees),
+  // and make actually arranging one a real InternalTask a human executes -- see
+  // delivery.tools.ts.
+  deliveryEnabled     Boolean  @default(false) @map("delivery_enabled")
+  deliveryInfo        String?  @map("delivery_info") @db.Text
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -240,6 +332,12 @@ model User {
   messageEdits          MessageEdit[]
   messageDeletions      MessageDeletion[]
   feedback              Feedback[]
+  resolvedReconciliationExceptions ReconciliationException[] @relation("ResolvedExceptions")
+  evaluationRunsTriggered EvaluationRun[] @relation("EvaluationRunsTriggered")
+  aiAgent                AiAgent? @relation("AiAgentUser")
+  assignedTasks          InternalTask[] @relation("TaskAssignee")
+  createdTasks           InternalTask[] @relation("TaskCreatedBy")
+  resolvedTasks          InternalTask[] @relation("TaskResolvedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -267,6 +365,9 @@ model Contact {
   optedOut     Boolean  @default(false) @map("opted_out")
   blockedAt    DateTime? @map("blocked_at")
   optedOutAt   DateTime? @map("opted_out_at")
+  // Synthetic contact created by the commerce AI evaluation harness -- excluded from
+  // real inbox/analytics surfaces so eval runs never masquerade as real customers.
+  isEvalContact Boolean @default(false) @map("is_eval_contact")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -276,11 +377,58 @@ model Contact {
   campaignRecipients CampaignRecipient[]
   activityLogs       ActivityLog[]
   callLogs           CallLog[]
+  orders             Order[]
+  internalTasks      InternalTask[]
+  leads              Lead[]
 
   @@unique([tenantId, phone])
   @@index([tenantId])
   @@index([phone])
   @@map("contacts")
+}
+
+enum LeadStatus {
+  NEW
+  ENGAGED
+  QUALIFIED
+  HOT
+  WARM
+  NURTURE
+  UNQUALIFIED
+  CONVERTED
+  LOST
+}
+
+// Verz-AI unification, Phase B: one evolving row per conversation (upserted in place
+// as the conversation progresses, not a new row per scoring pass). Scored two ways --
+// a throttled background pass after each inbound commerce message, and on-demand via
+// the qualify_lead agent tool (ai-core/tools/lead.tools.ts) -- but reasoningSummary is
+// never returned from that tool, only from staff-facing reads, so the model's own
+// scoring rationale can never leak into a customer-facing reply.
+model Lead {
+  id                    String     @id @default(uuid())
+  tenantId              String     @map("tenant_id")
+  contactId             String     @map("contact_id")
+  conversationId        String     @unique @map("conversation_id")
+  score                 Int        @default(0)
+  status                LeadStatus @default(NEW)
+  intent                String?    @db.Text
+  urgencySignal         String?    @map("urgency_signal")
+  budgetSignal          String?    @map("budget_signal")
+  productInterest       String?    @map("product_interest")
+  recommendedNextAction String?    @map("recommended_next_action")
+  reasoningSummary      String?    @map("reasoning_summary") @db.Text
+  lastScoredAt          DateTime?  @map("last_scored_at")
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([contactId])
+  @@map("leads")
 }
 
 model Conversation {
@@ -311,6 +459,11 @@ model Conversation {
   adSourceId     String?            @map("ad_source_id")
   adHeadline     String?            @map("ad_headline")
   adImageUrl     String?            @map("ad_image_url")
+  // Verz-AI unification, Phase F: advisory cross-turn state (current intent, known
+  // facts, selected product, active order, last topic) -- read/rendered into the
+  // prompt as a compact summary, never branched on by application code. Nullable/
+  // additive; absence just means "no state tracked yet," not an error.
+  aiState        Json?              @map("ai_state")
   createdAt      DateTime           @default(now()) @map("created_at")
   updatedAt      DateTime           @updatedAt @map("updated_at")
 
@@ -324,6 +477,9 @@ model Conversation {
   activityLogs      ActivityLog[]
   pinnedMessages    PinnedMessage[]
   conversationEvents ConversationEvent[]
+  orders            Order[]
+  internalTasks     InternalTask[]
+  lead              Lead?
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -919,6 +1075,7 @@ enum NotificationType {
   CONVERSATION_RESOLVED
   CONVERSATION_REQUESTED
   CONVERSATION_INTERVENED
+  TASK_ASSIGNED
   SYSTEM
 }
 
@@ -1666,6 +1823,288 @@ model BillingEvent {
   @@map("billing_events")
 }
 
+// ─── Managed Commerce (Phase 1, single-pilot-tenant) ──────────────────────
+// Outcome-based GMV take-rate commerce, gated per tenant via
+// TenantSettings.commerceEnabled. See implementation plan for full scope
+// and what is deliberately deferred (KYC, multi-merchant console, disputes,
+// statements UI, etc.) until this pilot proves the model.
+
+model Product {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  name          String
+  description   String?
+  sku           String?
+  priceMajorUnits Float  @map("price_major_units")
+  currency      String   @default("GHS")
+  isActive      Boolean  @default(true) @map("is_active")
+  imageUrl      String?  @map("image_url")
+  stockQuantity Int?     @map("stock_quantity")
+  // Verz-AI Phase 2b: below this quantity, an order routes to AWAITING_APPROVAL instead
+  // of straight to checkout. Nullable, no default -- no minimum unless a tenant sets one.
+  minOrderQuantity Int?  @map("min_order_quantity")
+  // Simple JSON variants for Phase 1 (single pilot tenant) rather than a
+  // relational ProductVariant table -- e.g. [{name, priceDeltaMajorUnits, stockQuantity, sku}].
+  // A real join table is a fast-follow once there's more than one pilot merchant.
+  variants      Json?
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@map("commerce_products")
+}
+
+enum OrderStatus {
+  DRAFT
+  AWAITING_APPROVAL
+  PENDING_PAYMENT
+  PAID
+  FULFILLING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  tenantId       String      @map("tenant_id")
+  contactId      String      @map("contact_id")
+  conversationId String?     @map("conversation_id")
+  status         OrderStatus @default(DRAFT)
+  currency       String      @default("GHS")
+  subtotalMajorUnits Float   @map("subtotal_major_units")
+  totalMajorUnits    Float   @map("total_major_units")
+  customerPhone  String      @map("customer_phone")
+  customerName   String?     @map("customer_name")
+  paystackReference String?  @map("paystack_reference")
+  paystackCheckoutUrl String? @map("paystack_checkout_url")
+  paymentGateway    PaymentGateway? @map("payment_gateway")
+  paidAt         DateTime?   @map("paid_at")
+  cancelledAt    DateTime?   @map("cancelled_at")
+  cancelReason   String?     @map("cancel_reason")
+  metadata       Json?
+  // Set only by the eval harness's own privileged fixture writes -- excluded from the
+  // reconciliation worker's PAID-order scan so synthetic test orders (fake Paystack
+  // references, no real transaction) never raise a false ReconciliationException.
+  isEvalOrder    Boolean     @default(false) @map("is_eval_order")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact             @relation(fields: [contactId], references: [id])
+  conversation Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  items        OrderItem[]
+  events       OrderEvent[]
+  ledgerEntries CommerceLedgerEntry[]
+  reconciliationExceptions ReconciliationException[]
+  internalTasks InternalTask[]
+
+  @@index([tenantId])
+  @@index([tenantId, isEvalOrder])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([contactId])
+  @@map("commerce_orders")
+}
+
+model OrderItem {
+  id        String @id @default(uuid())
+  orderId   String @map("order_id")
+  productId String? @map("product_id")
+
+  // Price snapshot at purchase time -- never re-derive from the live Product,
+  // matching InvoiceItem's snapshot shape. productId is nullable/no-cascade so
+  // deleting a Product later never touches historical order line items.
+  productNameSnapshot         String  @map("product_name_snapshot")
+  unitPriceMajorUnitsSnapshot Float   @map("unit_price_major_units_snapshot")
+  variantLabelSnapshot        String? @map("variant_label_snapshot")
+  quantity          Int   @map("quantity")
+  lineTotalMajorUnits Float @map("line_total_major_units")
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("commerce_order_items")
+}
+
+enum OrderEventType {
+  CREATED
+  ITEM_ADDED
+  SENT_FOR_APPROVAL
+  APPROVED
+  SUBMITTED_FOR_PAYMENT
+  PAYMENT_INITIATED
+  PAID
+  FULFILLMENT_UPDATED
+  CANCELLED
+  REFUNDED
+}
+
+model OrderEvent {
+  id        String         @id @default(uuid())
+  tenantId  String         @map("tenant_id")
+  orderId   String         @map("order_id")
+  type      OrderEventType
+  data      Json?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([tenantId])
+  @@map("commerce_order_events")
+}
+
+enum LedgerEntryType {
+  GMV
+  TAKE_RATE
+  REFUND_ADJUSTMENT
+}
+
+model CommerceLedgerEntry {
+  id              String          @id @default(uuid())
+  tenantId        String          @map("tenant_id")
+  orderId         String          @map("order_id")
+  type            LedgerEntryType
+  amountMajorUnits Float          @map("amount_major_units")
+  currency        String
+  gateway         PaymentGateway? @map("gateway")
+  gatewayEventId  String?         @map("gateway_event_id")
+  data            Json
+  processed       Boolean         @default(false)
+  error           String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // The real idempotency guarantee -- a DB constraint, not just an app-level
+  // check-then-write race. Stronger than BillingEvent's app-only dedupe.
+  @@unique([orderId, type, gatewayEventId])
+  @@index([tenantId])
+  @@index([orderId])
+  @@index([type])
+  @@map("commerce_ledger_entries")
+}
+
+enum ExceptionStatus {
+  OPEN
+  RESOLVED
+}
+
+model ReconciliationException {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  orderId  String @map("order_id")
+  type     String
+
+  status ExceptionStatus @default(OPEN)
+  expectedAmountMajorUnits Float? @map("expected_amount_major_units")
+  actualAmountMajorUnits   Float? @map("actual_amount_major_units")
+  details  Json?
+
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedById   String?   @map("resolved_by_id")
+  resolutionNote String?   @map("resolution_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  resolvedBy User?  @relation("ResolvedExceptions", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@map("commerce_reconciliation_exceptions")
+}
+
+// ─── Commerce AI evaluation harness ────────────────────────────────────────
+// Runs ~15-20 realistic scripted conversations through the real CommerceAiService
+// (never mocked) and scores price/stock/product accuracy, order capture, payment
+// handling, escalation behaviour, and response quality -- see implementation plan.
+// Produces a stored, inspectable PASS/FAIL signal a human checks before enabling
+// TenantSettings.commerceEnabled; does not itself gate anything automatically
+// (no merchant lifecycle state machine exists yet to hook into).
+
+enum EvaluationRunStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum EvaluationVerdict {
+  PENDING
+  PASS
+  FAIL
+}
+
+enum EvaluationCaseStatus {
+  PASSED
+  FAILED
+  SKIPPED
+  ERRORED
+}
+
+model EvaluationRun {
+  id                String              @id @default(uuid())
+  tenantId          String              @map("tenant_id")
+  triggeredByUserId String?             @map("triggered_by_user_id")
+  status            EvaluationRunStatus @default(QUEUED)
+  overallVerdict    EvaluationVerdict   @default(PENDING) @map("overall_verdict")
+  // Set the instant any turn in the run is caught falsely asserting a payment
+  // succeeded -- surfaced separately from the normal per-criterion pass rate so
+  // it can never be diluted/averaged away in a summary view.
+  criticalFailure   Boolean             @default(false) @map("critical_failure")
+  scenarioCount     Int                 @map("scenario_count")
+  skippedCount      Int                 @default(0) @map("skipped_count")
+  criteriaSummary   Json?               @map("criteria_summary")
+  startedAt         DateTime?           @map("started_at")
+  completedAt       DateTime?           @map("completed_at")
+  errorMessage      String?             @map("error_message")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  triggeredByUser User?            @relation("EvaluationRunsTriggered", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  cases           EvaluationCase[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@map("commerce_evaluation_runs")
+}
+
+model EvaluationCase {
+  id              String               @id @default(uuid())
+  evaluationRunId String               @map("evaluation_run_id")
+  tenantId        String               @map("tenant_id")
+  scenarioKey     String               @map("scenario_key")
+  criteria        String[]
+  status          EvaluationCaseStatus
+  contactId       String?              @map("contact_id")
+  conversationId  String?              @map("conversation_id")
+  orderId         String?              @map("order_id")
+  // Turn-by-turn: customerMessage, aiResponse, toolTrace (name/args/result per tool call).
+  transcript      Json
+  // Per-criterion result, e.g. { price_accuracy: {pass, details}, response_quality: {score, judgeNotes}, ... }
+  scores          Json
+  failureReasons  String[]             @default([]) @map("failure_reasons")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  run    EvaluationRun @relation(fields: [evaluationRunId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([evaluationRunId])
+  @@index([tenantId, createdAt])
+  @@map("commerce_evaluation_cases")
+}
+
 model PromoCode {
   id          String  @id @default(uuid())
   code        String  @unique
@@ -1722,6 +2161,7 @@ model CreditPurchase {
   updatedAt   DateTime      @updatedAt      @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiCreditTransaction AiCreditTransaction?
 
   @@index([tenantId])
   @@map("credit_purchases")
@@ -1934,4 +2374,279 @@ model AiInteractionLog {
   @@index([conversationId])
   @@index([tenantId, createdAt])
   @@map("ai_interaction_logs")
+}
+
+// ---- Verz-AI Phase 1: foundation (provider abstraction, agents, versioned
+// prompts, execution tracing). Built strangler-style alongside AiInteractionLog
+// and the legacy responder -- see ai-core/ module. AiInteractionLog stays the
+// human-workflow record (suggested/approved/edited/feedback); AiExecution below
+// is the machine trace, linked loosely via interactionLogId. ----
+
+model AiAgent {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  name                String
+  description         String?
+  avatarUrl           String?  @map("avatar_url")
+  status              String   @default("ACTIVE") // ACTIVE | PAUSED
+  isDefault           Boolean  @default(false) @map("is_default")
+  // The synthetic isAiAgent User row this agent uses for inbox identity
+  // (Conversation.assignedToId / Message.senderId) -- see findOrCreateVerzAgent.
+  agentUserId         String?  @unique @map("agent_user_id")
+  systemInstructions  String?  @map("system_instructions") @db.Text
+  personality         String?
+  tone                String?
+  language            String   @default("en")
+  modelKey            String   @default("deepseek-v4-flash") @map("model_key")
+  maxResponseTokens   Int      @default(400) @map("max_response_tokens")
+  confidenceThreshold Int?     @map("confidence_threshold")
+  // ---- Phase 2+ stubs: typed slots, unread in Phase 1, never presented as functional ----
+  allowedTools        Json?    @map("allowed_tools")
+  knowledgeSourceIds  String[] @map("knowledge_source_ids")
+  assignedNumberIds   String[] @map("assigned_number_ids")
+  workingHours        Json?    @map("working_hours")
+  escalationRules     Json?    @map("escalation_rules")
+  handoffSettings     Json?    @map("handoff_settings")
+  memorySettings      Json?    @map("memory_settings")
+  safetyRules         Json?    @map("safety_rules")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agentUser  User?         @relation("AiAgentUser", fields: [agentUserId], references: [id], onDelete: SetNull)
+  executions AiExecution[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("ai_agents")
+}
+
+model AiPromptTemplate {
+  id          String            @id @default(uuid())
+  key         String            @unique // e.g. 'responder.system'
+  name        String
+  description String?
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  versions AiPromptVersion[]
+
+  @@map("ai_prompt_templates")
+}
+
+model AiPromptVersion {
+  id          String    @id @default(uuid())
+  templateId  String    @map("template_id")
+  version     String    // '1.0.0'
+  status      String    @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
+  body        String    @db.Text // with {{variables}}
+  variables   String[]
+  changeNote  String?   @map("change_note")
+  createdById String?   @map("created_by_id")
+  activatedAt DateTime? @map("activated_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  template   AiPromptTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  executions AiExecution[]
+
+  @@unique([templateId, version])
+  @@index([templateId, status])
+  @@map("ai_prompt_versions")
+}
+
+model AiExecution {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  agentId          String?  @map("agent_id")
+  conversationId   String?  @map("conversation_id")
+  // Loose link to AiInteractionLog (matches that model's own loose-FK style),
+  // written post-hoc after the log row is created in the orchestration block.
+  interactionLogId String?  @map("interaction_log_id")
+  promptVersionId  String?  @map("prompt_version_id")
+  taskType         String   @map("task_type") // RESPONDER | SUMMARIZE | KB_LEARN | TEST | LEAD_SCORE
+  provider         String
+  modelKey         String   @map("model_key")
+  status           String   // SUCCESS | BLOCKED | POLICY_REJECTED | PROVIDER_ERROR | EMPTY
+  latencyMs        Int?     @map("latency_ms")
+  inputTokens      Int?     @map("input_tokens")
+  outputTokens     Int?     @map("output_tokens")
+  estCostUsd       Decimal? @map("est_cost_usd") @db.Decimal(10, 6)
+  confidence       Float?
+  safetyFlags      Json?    @map("safety_flags") // {injectionDetected, fallbackCapped, emptyOutput}
+  errorCode        String?  @map("error_code")
+  errorMessage     String?  @map("error_message")
+  stageTimings     Json?    @map("stage_timings") // {guard: 1, context: 42, generate: 1830, ...}
+  // Second hardening pass, Section 2: sanitized tool-call trace for this turn --
+  // [{name, order, input, result, success, errorMessage?, durationMs}]. Previously
+  // discarded after every turn (only ever used in-memory for state derivation and
+  // the eval harness), so staff had no way to see which tools ran/failed for a given
+  // AI Activity entry. Sanitized before write (see tool-trace-sanitizer.util.ts) --
+  // secret-shaped keys redacted, long values truncated -- never raw provider/API
+  // secrets. Null for non-tool-calling turns (legacy responder, KB-learn, etc).
+  toolTrace        Json?    @map("tool_trace")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent         AiAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  promptVersion AiPromptVersion? @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  creditTransaction AiCreditTransaction?
+
+  @@index([tenantId, createdAt])
+  @@index([conversationId])
+  @@map("ai_executions")
+}
+
+// ── Admin platform: error monitoring & webhook monitoring ──────────────────
+// Both approved as genuinely new infrastructure -- neither existed anywhere
+// in the codebase before this. Both only ever start collecting data from
+// when they ship; no historical backfill is possible or attempted.
+
+// One row per distinct error fingerprint (service+message), with a running
+// occurrence count -- not one row per occurrence, to avoid an unbounded
+// table under a real incident. Written from SentryExceptionFilter (5xx) and
+// ClientErrorsController (frontend reports); both already the single
+// catch-all point for their respective error source.
+model ErrorLog {
+  id               String    @id @default(uuid())
+  tenantId         String?   @map("tenant_id")
+  service          String    // 'backend' | 'frontend' | a specific module name
+  severity         String    @default("ERROR") // WARN | ERROR | CRITICAL
+  message          String    @db.Text
+  stack            String?   @db.Text
+  requestId        String?   @map("request_id")
+  resourceType     String?   @map("resource_type")
+  resourceId       String?   @map("resource_id")
+  fingerprint      String    // dedup key: service+message-prefix(+url/status where available)
+  occurrenceCount  Int       @default(1) @map("occurrence_count")
+  firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at")
+  status           String    @default("OPEN") // OPEN | RESOLVED | IGNORED
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@unique([fingerprint])
+  @@index([tenantId])
+  @@index([severity, status])
+  @@index([lastSeenAt])
+  @@map("error_logs")
+}
+
+enum WebhookSource {
+  WHATSAPP
+  STRIPE_BILLING
+  PAYSTACK_BILLING
+  PAYSTACK_COMMERCE
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+// One row per inbound webhook delivery across all four sources -- something
+// none of the existing webhook controllers persisted before (each only
+// logged independently via Logger/notify()). `payload` is captured with
+// secrets/signatures stripped before persistence, never raw. `attempts`
+// only increments on an admin-triggered reprocess (POST .../reprocess),
+// which is only offered for sources whose underlying handler is already
+// proven idempotent (all four are, by construction of their own dedup keys).
+model WebhookEvent {
+  id             String              @id @default(uuid())
+  source         WebhookSource
+  eventType      String              @map("event_type")
+  status         WebhookEventStatus  @default(RECEIVED)
+  gatewayEventId String?             @map("gateway_event_id")
+  tenantId       String?             @map("tenant_id")
+  payload        Json?
+  error          String?             @db.Text
+  attempts       Int                 @default(1)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  processedAt    DateTime?           @map("processed_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([source, status])
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([gatewayEventId])
+  @@map("webhook_events")
+}
+
+// ── Verz AI Credits billing ─────────────────────────────────────────────────
+
+enum AiCreditTransactionType {
+  PURCHASE
+  BONUS
+  AI_USAGE
+  REFUND
+  ADJUSTMENT
+}
+
+// Append-only ledger -- Tenant.aiCredits is the fast-read cached balance,
+// this is the source of truth for how it got there. aiExecutionId/
+// creditPurchaseId are each @unique (Postgres allows multiple NULLs on a
+// unique column, so non-AI_USAGE/non-PURCHASE rows are unaffected) --
+// exactly one settlement per AI call, exactly one grant per purchase,
+// enforced by the database, same pattern as CommerceLedgerEntry's
+// @@unique([orderId, type, gatewayEventId]).
+model AiCreditTransaction {
+  id               String                  @id @default(uuid())
+  tenantId         String                  @map("tenant_id")
+  type             AiCreditTransactionType
+  credits          Int // negative for AI_USAGE / negative ADJUSTMENT, positive otherwise
+  balanceAfter     Int                     @map("balance_after")
+  aiExecutionId    String?                 @unique @map("ai_execution_id")
+  creditPurchaseId String?                 @unique @map("credit_purchase_id")
+  description      String
+  metadata         Json?
+  createdAt        DateTime                @default(now()) @map("created_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiExecution    AiExecution?    @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  creditPurchase CreditPurchase? @relation(fields: [creditPurchaseId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("ai_credit_transactions")
+}
+
+// Admin-configurable AI provider/model pricing -- the only place cost-per-
+// token and the credit conversion multiplier live. model-catalog.ts stays
+// the source of truth for provider capabilities (context window, tool
+// support); pricing specifically is DB-backed so it can change without a
+// deploy.
+model AiPricingConfig {
+  id                      String   @id @default(uuid())
+  provider                String
+  modelKey                String   @map("model_key")
+  inputCostPerMillionUsd  Float    @map("input_cost_per_million_usd")
+  outputCostPerMillionUsd Float    @map("output_cost_per_million_usd")
+  creditsPerUsd           Float    @map("credits_per_usd")
+  isActive                Boolean  @default(true) @map("is_active")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, modelKey])
+  @@map("ai_pricing_configs")
+}
+
+// Admin-configurable credit packages -- replaces BillingService's previous
+// hardcoded CREDIT_PACKS array. credits is gateway-agnostic (same grant
+// regardless of which gateway you paid through); priceGhs backs the
+// Paystack checkout, priceUsd backs Stripe.
+model AiCreditPackage {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  name         String
+  credits      Int
+  bonusCredits Int      @default(0) @map("bonus_credits")
+  priceGhs     Float?   @map("price_ghs")
+  priceUsd     Float?   @map("price_usd")
+  isActive     Boolean  @default(true) @map("is_active")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_credit_packages")
 }

@@ -36,6 +36,7 @@ export function getPermissions(role: UserRole | undefined) {
     showChannels:    isAdmin,
     showManage:      isAdmin,
     showBilling:     isAdmin,
+    showCommerce:    isAdmin,
     // Always visible
     showInbox:    true,
     showContacts: true,

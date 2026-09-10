@@ -120,6 +120,13 @@ export class ConversationsController {
     return this.conversationsService.takeover(tenantId, id, user.sub);
   }
 
+  @Post(':id/release-to-ai')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Hand a human-owned conversation back to Verz AI' })
+  releaseToAi(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.conversationsService.releaseToAi(tenantId, id, user.sub);
+  }
+
   @Post(':id/reopen')
   @ApiOperation({ summary: 'Reopen a resolved conversation (→ OPEN)' })
   reopen(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {

@@ -1,6 +1,7 @@
 import { Controller, Post, Body, HttpCode } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { notify } from '../common/notifier';
+import { ErrorLogService } from '../common/monitoring/error-log.service';
 
 interface ClientErrorDto {
   message: string;
@@ -13,6 +14,8 @@ interface ClientErrorDto {
 
 @Controller('client-errors')
 export class ClientErrorsController {
+  constructor(private readonly errorLogService: ErrorLogService) {}
+
   @Public()
   @Post()
   @HttpCode(204)
@@ -25,6 +28,14 @@ export class ClientErrorsController {
       stack: body.stack,
       tenantId: body.tenantId,
       extra: { userAgent: body.userAgent, userId: body.userId },
+    });
+    await this.errorLogService.record({
+      service: 'frontend',
+      message: body.message,
+      stack: body.stack,
+      tenantId: body.tenantId,
+      resourceType: 'client_url',
+      resourceId: body.url,
     });
   }
 }

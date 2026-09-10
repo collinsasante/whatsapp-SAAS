@@ -1,6 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { AiCreditTransactionType, WebhookSource, WebhookEventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreatePlanDto, TenantsQueryDto, UpdatePlanDto, UpdateWorkspaceDto } from './dto/platform-admin.dto';
+import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
+import { CommerceLedgerService } from '../commerce/ledger/commerce-ledger.service';
+import { ErrorLogService } from '../common/monitoring/error-log.service';
+import { WebhookEventService } from '../common/monitoring/webhook-event.service';
+import {
+  CreateAiCreditPackageDto, CreateAiPricingConfigDto, CreatePlanDto, GrantCreditsDto,
+  TenantsQueryDto, UpdateAdminRoleDto, UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto,
+  UpdatePlanDto, UpdateWorkspaceDto, ErrorLogsQueryDto, WebhookEventsQueryDto, UpdateErrorLogStatusDto,
+} from './dto/platform-admin.dto';
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
 import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
@@ -24,7 +33,13 @@ function toCsvRow(fields: unknown[]): string {
 
 @Injectable()
 export class PlatformAdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private aiCreditsService: AiCreditsService,
+    private commerceLedgerService: CommerceLedgerService,
+    private errorLogService: ErrorLogService,
+    private webhookEventService: WebhookEventService,
+  ) {}
 
   async getDashboard() {
     const now = new Date();
@@ -622,6 +637,7 @@ export class PlatformAdminService {
           select: { id: true, invoiceNumber: true, status: true, total: true, currency: true, createdAt: true, paidAt: true },
         },
         creditPurchases: { orderBy: { createdAt: 'desc' }, take: 10 },
+        settings: { select: { commerceEnabled: true, takeRatePct: true } },
       },
     });
     if (!tenant) throw new NotFoundException('Workspace not found');
@@ -751,6 +767,119 @@ export class PlatformAdminService {
     return this.prisma.plan.update({ where: { id }, data });
   }
 
+  // ── Verz AI Credits admin config ──────────────────────────────────────────
+
+  async listAiPricingConfigs() {
+    return this.prisma.aiPricingConfig.findMany({ orderBy: [{ provider: 'asc' }, { modelKey: 'asc' }] });
+  }
+
+  async createAiPricingConfig(data: CreateAiPricingConfigDto) {
+    return this.prisma.aiPricingConfig.create({ data });
+  }
+
+  async updateAiPricingConfig(id: string, data: UpdateAiPricingConfigDto) {
+    return this.prisma.aiPricingConfig.update({ where: { id }, data });
+  }
+
+  async listAiCreditPackages() {
+    return this.prisma.aiCreditPackage.findMany({ orderBy: { displayOrder: 'asc' } });
+  }
+
+  async createAiCreditPackage(data: CreateAiCreditPackageDto) {
+    return this.prisma.aiCreditPackage.create({ data });
+  }
+
+  async updateAiCreditPackage(id: string, data: UpdateAiCreditPackageDto) {
+    return this.prisma.aiCreditPackage.update({ where: { id }, data });
+  }
+
+  async getDefaultCommerceFeePct() {
+    const row = await this.prisma.platformSettings.findUnique({ where: { key: 'default_commerce_fee_pct' } });
+    return { defaultCommerceFeePct: typeof row?.value === 'number' ? row.value : 0 };
+  }
+
+  async setDefaultCommerceFeePct(data: UpdateCommerceFeeDefaultDto, adminId: string) {
+    await this.prisma.platformSettings.upsert({
+      where: { key: 'default_commerce_fee_pct' },
+      create: { key: 'default_commerce_fee_pct', value: data.defaultCommerceFeePct, description: 'Global default commerce fee %, applied when a tenant has no explicit takeRatePct', updatedBy: adminId },
+      update: { value: data.defaultCommerceFeePct, updatedBy: adminId },
+    });
+    return { defaultCommerceFeePct: data.defaultCommerceFeePct };
+  }
+
+  // ── Admin platform: RBAC ───────────────────────────────────────────────────
+
+  async listAdmins() {
+    return this.prisma.platformAdmin.findMany({
+      select: { id: true, email: true, name: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** SUPER_ADMIN-gated at the route; also blocks an admin from changing
+   * their own role here specifically, so a single-admin system can't lock
+   * itself out by accident (self-service role changes have no upside worth
+   * that risk). */
+  async updateAdminRole(id: string, data: UpdateAdminRoleDto, actingAdminId: string) {
+    if (id === actingAdminId) throw new BadRequestException('Cannot change your own role -- ask another SUPER_ADMIN');
+    const admin = await this.prisma.platformAdmin.findUnique({ where: { id } });
+    if (!admin) throw new NotFoundException('Admin not found');
+    return this.prisma.platformAdmin.update({
+      where: { id },
+      data: { role: data.role },
+      select: { id: true, email: true, name: true, role: true },
+    });
+  }
+
+  // ── Monitoring: error logs ──────────────────────────────────────────────
+
+  async listErrors(query: ErrorLogsQueryDto) {
+    return this.errorLogService.list(query);
+  }
+
+  async getError(id: string) {
+    const row = await this.errorLogService.findOne(id);
+    if (!row) throw new NotFoundException('Error log not found');
+    return row;
+  }
+
+  async updateErrorStatus(id: string, data: UpdateErrorLogStatusDto) {
+    const row = await this.errorLogService.findOne(id);
+    if (!row) throw new NotFoundException('Error log not found');
+    return this.errorLogService.updateStatus(id, data.status);
+  }
+
+  // ── Monitoring: webhook events ──────────────────────────────────────────
+
+  async listWebhookEvents(query: WebhookEventsQueryDto) {
+    return this.webhookEventService.list({
+      source: query.source as WebhookSource | undefined,
+      status: query.status as WebhookEventStatus | undefined,
+      tenantId: query.tenantId,
+      limit: query.limit,
+      offset: query.offset,
+    });
+  }
+
+  async getWebhookEvent(id: string) {
+    const row = await this.webhookEventService.findOne(id);
+    if (!row) throw new NotFoundException('Webhook event not found');
+    return row;
+  }
+
+  /** Only PAYSTACK_COMMERCE is currently replayable -- see CommerceLedgerService.reprocessWebhookEvent. */
+  async reprocessWebhookEvent(id: string) {
+    return this.commerceLedgerService.reprocessWebhookEvent(id);
+  }
+
+  async grantCredits(tenantId: string, data: GrantCreditsDto) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    const type = data.type === 'ADJUSTMENT' ? AiCreditTransactionType.ADJUSTMENT : AiCreditTransactionType.BONUS;
+    const result = await this.aiCreditsService.grant(tenantId, type, data.credits, data.description);
+    return { success: result.settled, transaction: result.transaction };
+  }
+
   async getWorkspaceTemplates(tenantId: string) {
     return this.prisma.template.findMany({
       where: { tenantId },
@@ -817,5 +946,28 @@ export class PlatformAdminService {
     });
 
     return { success: true, tenantId, plan: plan.name, periodEnd };
+  }
+
+  /**
+   * Managed Commerce is deliberately platform-admin-only to configure (see the
+   * TenantSettings.takeRatePct schema comment): the take rate is VerzChat's own
+   * cut of a merchant's sales, not something a tenant should be able to set for
+   * themselves. commerceEnabled and takeRatePct are set together so a tenant can
+   * never end up commerce-enabled with no rate configured (which would silently
+   * bill them 0%).
+   */
+  async setCommerceConfig(tenantId: string, commerceEnabled: boolean, takeRatePct: number) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    if (takeRatePct < 0 || takeRatePct > 100) throw new BadRequestException('takeRatePct must be between 0 and 100');
+
+    const settings = await this.prisma.tenantSettings.upsert({
+      where: { tenantId },
+      create: { tenantId, commerceEnabled, takeRatePct },
+      update: { commerceEnabled, takeRatePct },
+      select: { commerceEnabled: true, takeRatePct: true },
+    });
+
+    return { success: true, tenantId, ...settings };
   }
 }

@@ -1,0 +1,45 @@
+import { Injectable } from '@nestjs/common';
+import { PipelineContext, PipelineStage } from '../pipeline.types';
+import { sanitizeForWhatsApp } from '../whatsapp-format.util';
+
+// Fallback responses are knowledge gaps -- cap confidence so they correctly
+// surface as low-confidence and trigger human review. Ported verbatim from
+// the legacy responder's post-processing.
+const FALLBACK_SIGNALS = ['team will follow up', 'team member will assist', 'great question'];
+
+@Injectable()
+export class PolicyStage implements PipelineStage {
+  readonly name = 'policy';
+
+  async execute(ctx: PipelineContext): Promise<void> {
+    const startedAt = Date.now();
+
+    if (ctx.shortCircuit || !ctx.result) {
+      ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
+      return;
+    }
+
+    // The prompt says "don't use markdown", but the model doesn't reliably comply --
+    // convert what it sends anyway into WhatsApp's own formatting syntax rather than
+    // depend on prompt compliance for something customers see literally.
+    let { response } = ctx.result;
+    const { confidence } = ctx.result;
+    if (response) response = sanitizeForWhatsApp(response);
+
+    if (confidence !== null && FALLBACK_SIGNALS.some((s) => response.toLowerCase().includes(s))) {
+      const capped = Math.min(confidence, 40);
+      ctx.result = { ...ctx.result, response, confidence: capped };
+      ctx.trace.confidence = capped;
+      ctx.trace.safetyFlags.fallbackCapped = true;
+    } else {
+      ctx.result = { ...ctx.result, response };
+    }
+
+    if (!response && ctx.trace.status === 'SUCCESS') {
+      ctx.trace.status = 'EMPTY';
+      ctx.trace.safetyFlags.emptyOutput = true;
+    }
+
+    ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
+  }
+}

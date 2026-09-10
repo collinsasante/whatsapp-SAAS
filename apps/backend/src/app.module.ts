@@ -5,6 +5,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
+import { ConversationStateModule } from './conversations/conversation-state.module';
+import { MonitoringModule } from './common/monitoring/monitoring.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { TenantMiddleware } from './common/middleware/tenant.middleware';
 import { AuthModule } from './auth/auth.module';
@@ -33,7 +35,11 @@ import { WebhooksModule } from './manage/webhooks/webhooks.module';
 import { ManageSettingsModule } from './manage/settings/manage-settings.module';
 import { SegmentsModule } from './segments/segments.module';
 import { BillingModule } from './billing/billing.module';
+import { CommerceModule } from './commerce/commerce.module';
+import { LeadsModule } from './leads/leads.module';
+import { EvaluationModule } from './commerce/evaluation/evaluation.module';
 import { TeamsModule } from './teams/teams.module';
+import { InternalTasksModule } from './internal-tasks/internal-tasks.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 
@@ -48,7 +54,10 @@ import { ReportsModule } from './reports/reports.module';
 import { InboundModule } from './inbound/inbound.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { AiLogsModule } from './ai-logs/ai-logs.module';
+import { AiCoreModule } from './ai-core/ai-core.module';
+import { AiTestChatModule } from './ai-core/test-chat/ai-test-chat.module';
 import { ClientErrorsModule } from './client-errors/client-errors.module';
+import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
 import appConfig from './config/app.config';
 
 @Module({
@@ -80,6 +89,8 @@ import appConfig from './config/app.config';
       }),
     }),
     PrismaModule,
+    ConversationStateModule,
+    MonitoringModule,
     RealtimeModule,
     AuthModule,
     TenantModule,
@@ -107,7 +118,11 @@ import appConfig from './config/app.config';
     ManageSettingsModule,
     SegmentsModule,
     BillingModule,
+    CommerceModule,
+    LeadsModule,
+    EvaluationModule,
     TeamsModule,
+    InternalTasksModule,
     WorkspaceModule,
     AnalyticsModule,
 
@@ -122,10 +137,13 @@ import appConfig from './config/app.config';
     InboundModule,
     PlatformAdminModule,
     AiLogsModule,
+    AiCoreModule,
+    AiTestChatModule,
     ClientErrorsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    SentryExceptionFilter,
   ],
 })
 export class AppModule implements NestModule {

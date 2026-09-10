@@ -20,6 +20,17 @@ import { AuthTokens, JwtPayload } from '@whatsapp-platform/shared-types';
 import { UpdateProfileDto, ChangePasswordDto } from './dto/update-profile.dto';
 import { workspaceRoleToUserRole } from './strategies/jwt.strategy';
 
+// jwtExpiresIn/jwtRefreshExpiresIn are always simple '<n><s|m|h|d>' strings (see
+// app.config.ts's defaults and the staging/production env overrides) -- no need for a
+// full ms()-style parser. Falls back to treating an unrecognized value as already-seconds.
+export function parseDurationToSeconds(duration: string): number {
+  const match = /^(\d+)(s|m|h|d)$/.exec(duration);
+  if (!match) return Number(duration) || 30 * 24 * 60 * 60;
+  const value = Number(match[1]);
+  const unitSeconds = { s: 1, m: 60, h: 3600, d: 86400 }[match[2] as 's' | 'm' | 'h' | 'd'];
+  return value * unitSeconds;
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -783,11 +794,12 @@ export class AuthService {
 
   private async generateTokens(userId: string, email: string, tenantId: string, role: string): Promise<AuthTokens> {
     const payload: JwtPayload = { sub: userId, email, tenantId, role: role as JwtPayload['role'] };
+    const accessExpiry = this.configService.get<string>('app.jwtExpiresIn', '30d');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('app.jwtSecret'),
-        expiresIn: this.configService.get<string>('app.jwtExpiresIn', '30d'),
+        expiresIn: accessExpiry,
       }),
       this.jwtService.signAsync(payload, {
         secret: this.configService.get<string>('app.jwtRefreshSecret'),
@@ -795,7 +807,9 @@ export class AuthService {
       }),
     ]);
 
-    return { accessToken, refreshToken, expiresIn: 30 * 24 * 60 * 60 };
+    // Previously hardcoded to 30 days regardless of the actual configured expiry (e.g.
+    // staging's 15m) -- unused by the frontend today, but a misleading value to hand back.
+    return { accessToken, refreshToken, expiresIn: parseDurationToSeconds(accessExpiry) };
   }
 
   private async updateRefreshToken(userId: string, refreshToken: string) {

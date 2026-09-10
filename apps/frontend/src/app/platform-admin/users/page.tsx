@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Search, ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon, CheckCircle2, XCircle, User, Loader2, ArrowUpRight } from 'lucide-react';
 import { adminApi, type AdminUser, type TenantTableRow } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
+import { showConfirm } from '@/store/confirm.store';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
 import { LiveBadge } from '../_components/LiveBadge';
 
@@ -34,6 +35,10 @@ function WorkspaceUsers({ tenantId }: { tenantId: string }) {
   useEffect(() => { void load(); }, [load]);
 
   const toggleActive = async (user: AdminUser) => {
+    if (!await showConfirm(`${user.isActive ? 'Deactivate' : 'Activate'} ${user.name ?? user.email}?`, {
+      subtext: user.isActive ? 'This blocks them from logging in until reactivated.' : undefined,
+      danger: user.isActive,
+    })) return;
     setToggling(user.id);
     try {
       const res = await adminApi.toggleUserActive(user.id);

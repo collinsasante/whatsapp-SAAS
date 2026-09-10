@@ -25,9 +25,35 @@ export interface UpdateFlagDto {
   killSwitch?: boolean;
 }
 
+const CACHE_TTL_MS = 30_000;
+
+interface CachedFlagResult {
+  value: boolean;
+  cachedAt: number;
+}
+
 @Injectable()
 export class FeatureFlagsService {
+  private readonly cache = new Map<string, CachedFlagResult>();
+
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Cached wrapper around isEnabled() for hot paths (e.g. the inbound message
+   * pipeline) that can't afford an uncached findUnique per message. 30s TTL,
+   * in-memory per-process (matches PromptsService's cache) -- fine at this read
+   * rate; Redis would be overkill for a flag that changes rarely. Fails closed:
+   * any lookup error is the caller's responsibility to catch, not this method's.
+   */
+  async isEnabledCached(key: string, tenantId?: string): Promise<boolean> {
+    const cacheKey = `${key}:${tenantId ?? ''}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) return cached.value;
+
+    const value = await this.isEnabled(key, tenantId);
+    this.cache.set(cacheKey, { value, cachedAt: Date.now() });
+    return value;
+  }
 
   list() {
     return this.prisma.featureFlag.findMany({

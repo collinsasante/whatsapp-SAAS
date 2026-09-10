@@ -5,7 +5,11 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../common/email.service';
-import { AdminLoginDto, AdminSetupDto } from './dto/platform-admin.dto';
+import { AdminLoginDto, AdminSetupDto, InviteAdminDto } from './dto/platform-admin.dto';
+
+/** How long an invite link stays valid -- longer than the 1h password-reset
+ * window since an invitee may not see the email right away. */
+const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class PlatformAdminAuthService {
@@ -102,6 +106,46 @@ export class PlatformAdminAuthService {
     });
 
     return { message: 'Password updated successfully' };
+  }
+
+  /**
+   * Creates a new PlatformAdmin with no usable password (a random hash
+   * nobody has) and immediately generates a reset-token link, reusing the
+   * exact same requestPasswordReset/resetPassword machinery and
+   * /platform-admin/reset-password page an existing admin already uses --
+   * "invite" is just "create the account, then make them set their own
+   * password via the flow that already exists," no new token field needed.
+   */
+  async inviteAdmin(dto: InviteAdminDto) {
+    const existing = await this.prisma.platformAdmin.findUnique({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('Admin with this email already exists');
+
+    const unusablePassword = crypto.randomBytes(32).toString('hex');
+    const passwordHash = await bcrypt.hash(unusablePassword, 12);
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + INVITE_EXPIRY_MS);
+
+    const admin = await this.prisma.platformAdmin.create({
+      data: { email: dto.email, name: dto.name, role: dto.role, passwordHash, resetToken: token, resetTokenExpiresAt: expiresAt },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://verzchat.com');
+    const inviteUrl = `${frontendUrl}/platform-admin/reset-password?token=${token}`;
+    this.logger.log(`Admin invite created for ${dto.email} (role ${dto.role}) -- invite URL: ${inviteUrl}`);
+
+    await this.emailService.sendRaw({
+      to: dto.email,
+      subject: 'You’ve been invited to VerzChat Platform Admin',
+      html: `
+        <p>Hi ${dto.name},</p>
+        <p>You've been invited to the VerzChat platform-admin console as <strong>${dto.role}</strong>.</p>
+        <p><a href="${inviteUrl}" style="color:#0d9488;font-weight:600">Set your password to get started</a></p>
+        <p>This link expires in 7 days.</p>
+      `,
+    }).catch((err) => this.logger.warn(`Failed to send invite email to ${dto.email}: ${String(err)}`));
+
+    return admin;
   }
 
   async me(adminId: string) {

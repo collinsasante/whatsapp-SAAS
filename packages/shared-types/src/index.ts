@@ -13,3 +13,4 @@ export * from './queue-jobs';
 export * from './activity-log';
 export * from './channel';
 export * from './call';
+export * from './ai';

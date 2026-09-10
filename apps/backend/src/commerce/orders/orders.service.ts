@@ -1,0 +1,301 @@
+import { ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { OrderStatus, Order } from '@prisma/client';
+import * as crypto from 'crypto';
+import { PrismaService } from '../../prisma/prisma.service';
+import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
+import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
+import { isValidOrderTransition } from './order-state.util';
+
+interface AddOrderItemInput {
+  productId: string;
+  quantity: number;
+  variantLabel?: string;
+}
+
+@Injectable()
+export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private paystack: PaystackGateway,
+    private internalTasks: InternalTasksService,
+  ) {}
+
+  async createDraft(tenantId: string, opts: { contactId: string; conversationId?: string; customerPhone: string; customerName?: string; currency?: string }) {
+    const order = await this.prisma.order.create({
+      data: {
+        tenantId,
+        contactId: opts.contactId,
+        conversationId: opts.conversationId,
+        customerPhone: opts.customerPhone,
+        customerName: opts.customerName,
+        currency: opts.currency ?? 'GHS',
+        status: OrderStatus.DRAFT,
+        subtotalMajorUnits: 0,
+        totalMajorUnits: 0,
+      },
+    });
+    await this.recordEvent(tenantId, order.id, 'CREATED');
+    return order;
+  }
+
+  /**
+   * Verz-AI unification, Phase H: two real correctness fixes.
+   * 1. Calling this twice for the same product+variant now increments the
+   *    existing line's quantity instead of creating a duplicate line item --
+   *    the two known callers (this REST endpoint's manual order-builder UI,
+   *    and the add_item_to_order AI tool) both expect "add N more of this"
+   *    to behave like a running cart, not accumulate separate lines silently.
+   * 2. Variant price deltas (Product.variants[].priceDeltaMajorUnits) are now
+   *    actually applied to the charged price -- previously get_product_details
+   *    surfaced them to the AI/customer but nothing here ever honored them, a
+   *    real gap between what could be quoted and what would actually be charged.
+   */
+  async addItem(tenantId: string, orderId: string, item: AddOrderItemInput) {
+    const order = await this.getOwned(tenantId, orderId);
+    if (order.status !== OrderStatus.DRAFT) {
+      throw new ConflictException('Items can only be added to a DRAFT order');
+    }
+    const product = await this.prisma.product.findFirst({ where: { id: item.productId, tenantId, isActive: true } });
+    if (!product) throw new NotFoundException('Product not found or inactive');
+    if (item.quantity < 1) throw new ConflictException('Quantity must be at least 1');
+
+    const variants = (product.variants as { name: string; priceDeltaMajorUnits?: number }[] | null) ?? [];
+    const matchedVariant = item.variantLabel ? variants.find((v) => v.name === item.variantLabel) : undefined;
+    const unitPrice = product.priceMajorUnits + (matchedVariant?.priceDeltaMajorUnits ?? 0);
+
+    const existing = await this.prisma.orderItem.findFirst({
+      where: { orderId, productId: product.id, variantLabelSnapshot: item.variantLabel ?? null },
+    });
+
+    if (existing) {
+      const newQuantity = existing.quantity + item.quantity;
+      const newLineTotal = Math.round(unitPrice * newQuantity * 100) / 100;
+      await this.prisma.orderItem.update({
+        where: { id: existing.id },
+        data: { quantity: newQuantity, lineTotalMajorUnits: newLineTotal, unitPriceMajorUnitsSnapshot: unitPrice },
+      });
+    } else {
+      const lineTotal = Math.round(unitPrice * item.quantity * 100) / 100;
+      await this.prisma.orderItem.create({
+        data: {
+          orderId,
+          productId: product.id,
+          productNameSnapshot: product.name,
+          unitPriceMajorUnitsSnapshot: unitPrice,
+          variantLabelSnapshot: item.variantLabel,
+          quantity: item.quantity,
+          lineTotalMajorUnits: lineTotal,
+        },
+      });
+    }
+
+    await this.recalculateTotals(orderId);
+    await this.recordEvent(tenantId, orderId, 'ITEM_ADDED', { productId: product.id, quantity: item.quantity });
+    return this.getOwned(tenantId, orderId);
+  }
+
+  /** Initiates payment collection via Paystack (mobile money is a Paystack checkout channel in Ghana -- no separate MTN integration needed). */
+  async submitForPayment(tenantId: string, orderId: string, customerEmail?: string, opts?: { dryRun?: boolean }) {
+    const order = await this.getOwned(tenantId, orderId);
+
+    // Business-rule enforcement lives in code, not AI judgment: a DRAFT order with any
+    // item below its product's minOrderQuantity is routed to a human for approval
+    // instead of being rejected outright or silently allowed. Only checked when
+    // transitioning FROM DRAFT -- an approval-flow re-entry (AWAITING_APPROVAL ->
+    // PENDING_PAYMENT via approveOrder) never re-triggers this, since a human already
+    // made the call.
+    if (order.status === OrderStatus.DRAFT) {
+      const belowMinimum = await this.getItemsBelowMinimum(orderId);
+      if (belowMinimum.length > 0) {
+        return this.sendForApproval(tenantId, order, belowMinimum);
+      }
+    }
+
+    this.assertTransition(order.status, OrderStatus.PENDING_PAYMENT);
+    if (order.totalMajorUnits <= 0) throw new ConflictException('Cannot submit an empty order for payment');
+
+    // Paystack requires an email on transaction init; WhatsApp commerce customers are
+    // identified by phone, not email, so synthesize a stable placeholder tied to their
+    // number -- a well-established pattern for phone-first Paystack integrations.
+    const email = customerEmail ?? `${order.customerPhone.replace(/[^0-9]/g, '')}@customer.verzchat.com`;
+
+    // dryRun (used only by the AI evaluation harness): skip the real Paystack API call
+    // entirely -- no live row is created in the merchant's actual Paystack account --
+    // while exercising identical state-transition logic with a synthetic reference.
+    const { gatewayReference, authorizationUrl } = opts?.dryRun
+      ? { gatewayReference: `EVAL-${crypto.randomUUID()}`, authorizationUrl: null as string | null }
+      : await this.paystack.initializeTransaction({
+          email,
+          amountMajorUnits: order.totalMajorUnits,
+          currency: order.currency,
+          tenantId,
+          metadata: { orderId: order.id, source: 'managed-commerce' },
+        });
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.PENDING_PAYMENT, paystackReference: gatewayReference, paystackCheckoutUrl: authorizationUrl },
+    });
+    await this.recordEvent(tenantId, orderId, 'SUBMITTED_FOR_PAYMENT');
+    await this.recordEvent(tenantId, orderId, 'PAYMENT_INITIATED', { gatewayReference });
+    return updated;
+  }
+
+  async cancel(tenantId: string, orderId: string, reason?: string) {
+    const order = await this.getOwned(tenantId, orderId);
+    this.assertTransition(order.status, OrderStatus.CANCELLED);
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.CANCELLED, cancelledAt: new Date(), cancelReason: reason },
+    });
+    await this.recordEvent(tenantId, orderId, 'CANCELLED', { reason });
+    return updated;
+  }
+
+  /** Human approves an AWAITING_APPROVAL order -- reuses submitForPayment() unchanged
+   * (real Paystack init, same as a normal checkout) since a human has already made the
+   * exception call; the below-minimum check only ever fires when entering from DRAFT. */
+  async approveOrder(tenantId: string, orderId: string, approvedByUserId: string, customerEmail?: string) {
+    const order = await this.getOwned(tenantId, orderId);
+    if (order.status !== OrderStatus.AWAITING_APPROVAL) {
+      throw new ConflictException('Only AWAITING_APPROVAL orders can be approved');
+    }
+    const updated = await this.submitForPayment(tenantId, orderId, customerEmail);
+    await this.recordEvent(tenantId, orderId, 'APPROVED', { approvedByUserId });
+    await this.internalTasks
+      .resolveByOrderId(tenantId, orderId, approvedByUserId, 'DONE')
+      .catch((err) => this.logger.warn(`Failed to resolve task for approved order ${orderId}: ${String(err)}`));
+    return updated;
+  }
+
+  async rejectOrder(tenantId: string, orderId: string, rejectedByUserId: string, reason?: string) {
+    const order = await this.getOwned(tenantId, orderId);
+    if (order.status !== OrderStatus.AWAITING_APPROVAL) {
+      throw new ConflictException('Only AWAITING_APPROVAL orders can be rejected');
+    }
+    const updated = await this.cancel(tenantId, orderId, reason ?? 'Rejected: below minimum order quantity');
+    await this.internalTasks
+      .resolveByOrderId(tenantId, orderId, rejectedByUserId, 'CANCELLED')
+      .catch((err) => this.logger.warn(`Failed to resolve task for rejected order ${orderId}: ${String(err)}`));
+    return updated;
+  }
+
+  async updateFulfillmentStatus(tenantId: string, orderId: string, to: OrderStatus) {
+    // The one hard rule of the whole module: nothing routed through this generic
+    // setter may ever set PAID. That transition exists in exactly one place --
+    // CommerceLedgerService.recordPaymentSuccess -- gated behind a verified
+    // gateway webhook/poll result, never an admin action or AI tool call.
+    if (to === OrderStatus.PAID) {
+      throw new ForbiddenException('PAID can only be set via a verified payment webhook, not this endpoint');
+    }
+    const order = await this.getOwned(tenantId, orderId);
+    this.assertTransition(order.status, to);
+    const updated = await this.prisma.order.update({ where: { id: orderId }, data: { status: to } });
+    await this.recordEvent(tenantId, orderId, 'FULFILLMENT_UPDATED', { to });
+    return updated;
+  }
+
+  async getOwned(tenantId: string, orderId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
+  /** The DRAFT order currently being built in this conversation, if any -- used by
+   * CommerceAiService so the AI's tools operate on "the order we're building right
+   * now" without the AI needing to track or pass an order ID itself. */
+  findActiveDraftForConversation(tenantId: string, conversationId: string) {
+    return this.prisma.order.findFirst({
+      where: { tenantId, conversationId, status: OrderStatus.DRAFT },
+      orderBy: { createdAt: 'desc' },
+      include: { items: true },
+    });
+  }
+
+  /** The most recent order in this conversation regardless of status -- used by
+   * get_order_status, which must still find a PAID (or any other non-draft) order
+   * to check on, unlike findActiveDraftForConversation. */
+  findMostRecentForConversation(tenantId: string, conversationId: string) {
+    return this.prisma.order.findFirst({
+      where: { tenantId, conversationId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findOneWithDetails(tenantId: string, orderId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+      include: {
+        items: true,
+        events: { orderBy: { createdAt: 'asc' } },
+        ledgerEntries: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
+  findAll(tenantId: string, status?: OrderStatus, contactId?: string) {
+    return this.prisma.order.findMany({
+      where: { tenantId, ...(status ? { status } : {}), ...(contactId ? { contactId } : {}) },
+      orderBy: { createdAt: 'desc' },
+      include: { items: true },
+    });
+  }
+
+  private assertTransition(from: OrderStatus, to: OrderStatus) {
+    if (!isValidOrderTransition(from, to)) {
+      throw new ConflictException(`Invalid order transition: ${from} -> ${to}`);
+    }
+  }
+
+  /** Order items whose quantity is below their product's configured minOrderQuantity --
+   * items without a product (deleted) or without a minimum set are never flagged. */
+  private async getItemsBelowMinimum(orderId: string) {
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId },
+      include: { product: { select: { minOrderQuantity: true } } },
+    });
+    return items.filter((i) => i.product?.minOrderQuantity != null && i.quantity < i.product.minOrderQuantity);
+  }
+
+  private async sendForApproval(
+    tenantId: string,
+    order: Order,
+    belowMinimum: { productId: string | null; productNameSnapshot: string; quantity: number; product: { minOrderQuantity: number | null } | null }[],
+  ) {
+    this.assertTransition(order.status, OrderStatus.AWAITING_APPROVAL);
+    const updated = await this.prisma.order.update({ where: { id: order.id }, data: { status: OrderStatus.AWAITING_APPROVAL } });
+    const summary = belowMinimum.map((i) => `${i.productNameSnapshot} (qty ${i.quantity}, min ${i.product?.minOrderQuantity})`).join(', ');
+    await this.recordEvent(tenantId, order.id, 'SENT_FOR_APPROVAL', {
+      items: belowMinimum.map((i) => ({ productId: i.productId, quantity: i.quantity, minOrderQuantity: i.product?.minOrderQuantity })),
+    });
+    await this.internalTasks
+      .create(tenantId, {
+        department: 'Orders',
+        title: `Order below minimum quantity -- ${order.customerName ?? order.customerPhone}`,
+        description: `Order ${order.id} has item(s) below the configured minimum order quantity: ${summary}. Approve to send the customer a payment link, or reject.`,
+        orderId: order.id,
+        conversationId: order.conversationId ?? undefined,
+        contactId: order.contactId,
+        createdById: null,
+      })
+      .catch((err) => this.logger.warn(`Failed to create approval task for order ${order.id}: ${String(err)}`));
+    return updated;
+  }
+
+  private async recalculateTotals(orderId: string) {
+    const items = await this.prisma.orderItem.findMany({ where: { orderId } });
+    const subtotal = Math.round(items.reduce((sum, i) => sum + i.lineTotalMajorUnits, 0) * 100) / 100;
+    // Phase 1: no separate delivery-fee/discount line -- total mirrors subtotal.
+    await this.prisma.order.update({ where: { id: orderId }, data: { subtotalMajorUnits: subtotal, totalMajorUnits: subtotal } });
+  }
+
+  private async recordEvent(tenantId: string, orderId: string, type: string, data?: Record<string, unknown>) {
+    await this.prisma.orderEvent.create({
+      data: { tenantId, orderId, type: type as never, data: data as never },
+    }).catch((err) => this.logger.warn(`Failed to record order event ${type} for ${orderId}: ${String(err)}`));
+  }
+}
