@@ -1898,6 +1898,10 @@ model Order {
   customerName   String?     @map("customer_name")
   paystackReference String?  @map("paystack_reference")
   paystackCheckoutUrl String? @map("paystack_checkout_url")
+  // Needed for the branded checkout page's Paystack Inline popup
+  // (PaystackPop.resumeTransaction(accessCode)) -- previously only the hosted
+  // authorizationUrl was persisted, since nothing rendered a custom checkout UI.
+  paystackAccessCode String? @map("paystack_access_code")
   paymentGateway    PaymentGateway? @map("payment_gateway")
   paidAt         DateTime?   @map("paid_at")
   cancelledAt    DateTime?   @map("cancelled_at")
@@ -1924,6 +1928,7 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([contactId])
+  @@index([paystackReference])
   @@map("commerce_orders")
 }
 
