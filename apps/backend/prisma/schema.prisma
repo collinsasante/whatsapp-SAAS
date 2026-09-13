@@ -279,6 +279,12 @@ model TenantSettings {
   // delivery.tools.ts.
   deliveryEnabled     Boolean  @default(false) @map("delivery_enabled")
   deliveryInfo        String?  @map("delivery_info") @db.Text
+  // When true, a conversation already owned by a human agent (INTERVENED, assigned
+  // to a real, non-AI user) reverts to AI auto-reply if that agent hasn't been seen
+  // in 15 minutes -- see AI_TAKEOVER_AWAY_MS in messages.service.ts. Off by default;
+  // an explicit product decision to never leave a customer message unanswered
+  // indefinitely, not the default SUGGESTION-mode safety behavior.
+  aiTakeoverWhenAgentAway Boolean @default(false) @map("ai_takeover_when_agent_away")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)

@@ -27,6 +27,7 @@ import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import { HANDOFF_FAILED_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { isAgentAway } from './ai-takeover.util';
 
 /**
  * Verz-AI unification, Phase C: the single result shape every AI generator
@@ -771,11 +772,12 @@ export class MessagesService {
     // Verz-AI unification, Phase M: resolved before flow-matching now (used to be
     // resolved after) so findMatchingFlow can know whether AI is actually switched on
     // for this tenant -- see the comment on findMatchingFlow for why that matters.
-    const [commerceSettings, aiMode] = await Promise.all([
-      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true } }).catch(() => null),
+    const [tenantSettings, aiMode] = await Promise.all([
+      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true, aiTakeoverWhenAgentAway: true } }).catch(() => null),
       this.aiResponderService.getMode(tenantId).catch(() => null),
     ]);
-    const commerceEnabled = !!commerceSettings?.commerceEnabled;
+    const commerceEnabled = !!tenantSettings?.commerceEnabled;
+    const takeoverEnabled = !!tenantSettings?.aiTakeoverWhenAgentAway;
     const aiActive = aiMode === 'SUGGESTION' || aiMode === 'AUTO_REPLY';
 
     // Trigger chatbot flow if one matches this message
@@ -792,10 +794,12 @@ export class MessagesService {
     }
 
     // AI responder: suggestion mode or auto-reply (only if no chatbot flow matched)
-    // Skip if a human agent has taken over (assignedTo exists and is not an AI agent)
-    const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean } | null }).assignedTo;
+    // Skip if a human agent has taken over (assignedTo exists and is not an AI agent) --
+    // UNLESS that agent has gone quiet and this tenant has opted into takeover (below).
+    const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
-    if (content && !flowMatched && !humanOwned) {
+    const agentAway = isAgentAway(assignedTo, takeoverEnabled, !!aiMode);
+    if (content && !flowMatched && (!humanOwned || agentAway)) {
       // Verz-AI unification, Phase C: commerceEnabled and aiMode are resolved once,
       // together, so every tenant -- commerce-enabled or not -- goes through the same
       // SUGGESTION/AUTO_REPLY dispatch below. Commerce used to be checked here and
@@ -805,7 +809,18 @@ export class MessagesService {
       // tenant gets the same SUGGESTION-mode human review, credit metering, and audit
       // trail every other tenant already has.
 
-      if (aiMode === 'SUGGESTION') {
+      if (agentAway) {
+        // Takeover: the point is not leaving the customer's message unanswered while
+        // their assigned agent isn't around -- so this sends directly, regardless of
+        // the tenant's configured aiMode, rather than adding another SUGGESTION nobody
+        // is currently there to review. Conversation stays assigned to the human
+        // (handleAiAutoReply's self-assign branch only fires when assignedTo is null).
+        const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
+        if (shouldAi) {
+          void this.runExclusiveForConversation(conversation.id, () =>
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo));
+        }
+      } else if (aiMode === 'SUGGESTION') {
         // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
         // behavior change) -- they cost real provider spend whether or not a human
         // ends up sending them, so they're gated the same way AUTO_REPLY already was.
