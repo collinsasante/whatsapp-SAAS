@@ -44,6 +44,14 @@ export interface AiEvalRunJob {
   tenantId: string;
 }
 
+/** AI Learning & Evaluation System: enqueued right after an AiExecution is
+ * recorded for a customer-facing turn, so the automatic evaluator can score
+ * it without adding latency to the customer's response. */
+export interface AiInteractionEvalJob {
+  aiExecutionId: string;
+  tenantId: string;
+}
+
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
   MESSAGE_RETRY = 'message-retry',
@@ -58,4 +66,5 @@ export enum QueueName {
   WHATSAPP_QUALITY_SYNC = 'whatsapp-quality-sync',
   COMMERCE_RECONCILIATION = 'commerce-reconciliation',
   AI_EVAL_RUN = 'ai-eval-run',
+  AI_INTERACTION_EVAL = 'ai-interaction-eval',
 }

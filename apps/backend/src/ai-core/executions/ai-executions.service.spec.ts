@@ -18,12 +18,13 @@ function buildDeps() {
     prisma: buildPrismaMock(),
     credits: { settleForExecution: jest.fn().mockResolvedValue({ settled: true, transaction: { id: 'txn-1' } }) },
     pricing: { getCreditsForUsage: jest.fn().mockResolvedValue(42) },
+    aiLearningTrigger: { maybeEnqueue: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new AiExecutionsService(deps.prisma as any, deps.credits as any, deps.pricing as any);
+  return new AiExecutionsService(deps.prisma as any, deps.credits as any, deps.pricing as any, deps.aiLearningTrigger as any);
 }
 
 describe('AiExecutionsService', () => {

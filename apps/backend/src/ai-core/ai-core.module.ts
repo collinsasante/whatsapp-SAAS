@@ -4,6 +4,7 @@ import { AiModule } from '../ai/ai.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { InternalTasksModule } from '../internal-tasks/internal-tasks.module';
 import { CommerceModule } from '../commerce/commerce.module';
+import { AiLearningModule } from '../ai-learning/ai-learning.module';
 import { DeepSeekProvider } from './providers/deepseek.provider';
 import { ProviderRegistryService } from './providers/provider-registry.service';
 import { PromptsService } from './prompts/prompts.service';
@@ -44,6 +45,7 @@ import { AiPricingService } from './pricing/ai-pricing.service';
     // so this is a genuine two-way edge, same forwardRef() pattern already established for
     // KnowledgeBaseModule <-> AiCoreModule above.
     forwardRef(() => CommerceModule),
+    AiLearningModule,
   ],
   controllers: [AiAgentsController, AiExecutionsController],
   providers: [
