@@ -19,6 +19,8 @@ import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { CommerceAiService } from './ai/commerce-ai.service';
 import { CommerceTestChatController } from './test-chat/commerce-test-chat.controller';
 import { CommerceTestChatService } from './test-chat/commerce-test-chat.service';
+import { PublicCheckoutController } from './public-checkout/public-checkout.controller';
+import { PublicCheckoutService } from './public-checkout/public-checkout.service';
 
 // Managed Commerce (Phase 1, single-pilot-tenant). Sibling to BillingModule --
 // commerce has its own domain objects (Order/Product/CommerceLedgerEntry, not
@@ -42,8 +44,8 @@ import { CommerceTestChatService } from './test-chat/commerce-test-chat.service'
     InternalTasksModule,
     forwardRef(() => AiCoreModule),
   ],
-  controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController],
-  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService, CommerceTestChatService],
+  controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController, PublicCheckoutController],
+  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService, CommerceTestChatService, PublicCheckoutService],
   exports: [CommerceLedgerService, OrdersService, CommerceAiService, ProductsService],
 })
 export class CommerceModule {}
