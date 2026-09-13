@@ -290,6 +290,14 @@ model TenantSettings {
   // an explicit product decision to never leave a customer message unanswered
   // indefinitely, not the default SUGGESTION-mode safety behavior.
   aiTakeoverWhenAgentAway Boolean @default(false) @map("ai_takeover_when_agent_away")
+  // Pilot-testing restriction: when set, AI responds ONLY to this one phone
+  // number for the tenant -- every other contact gets no AI at all (full
+  // human-only), regardless of aiEnabled/aiMode/takeover settings. Null
+  // (the default) means no restriction -- zero behavior change for every
+  // tenant until this is explicitly set. Stored normalized (E.164-ish,
+  // digits + leading '+') via shared-utils normalizePhone, matching
+  // Contact.phone's own storage format.
+  aiRestrictedToPhone String? @map("ai_restricted_to_phone")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)

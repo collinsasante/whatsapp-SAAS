@@ -26,6 +26,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
+import { isAiAllowedForContact } from './ai-contact-restriction.util';
 import { HANDOFF_FAILED_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
 import { isAgentAway } from './ai-takeover.util';
 
@@ -773,12 +774,17 @@ export class MessagesService {
     // resolved after) so findMatchingFlow can know whether AI is actually switched on
     // for this tenant -- see the comment on findMatchingFlow for why that matters.
     const [tenantSettings, aiMode] = await Promise.all([
-      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true, aiTakeoverWhenAgentAway: true } }).catch(() => null),
+      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { commerceEnabled: true, aiTakeoverWhenAgentAway: true, aiRestrictedToPhone: true } }).catch(() => null),
       this.aiResponderService.getMode(tenantId).catch(() => null),
     ]);
     const commerceEnabled = !!tenantSettings?.commerceEnabled;
     const takeoverEnabled = !!tenantSettings?.aiTakeoverWhenAgentAway;
-    const aiActive = aiMode === 'SUGGESTION' || aiMode === 'AUTO_REPLY';
+    // Pilot-testing restriction: when set, AI is available to this one contact
+    // only -- every other contact on the tenant is treated as if AI were off
+    // entirely (fed into aiActive too, so chatbot-flow-matching doesn't think
+    // AI is live for a contact it will never actually respond to).
+    const aiAllowedForThisContact = isAiAllowedForContact(tenantSettings?.aiRestrictedToPhone, contact.phone);
+    const aiActive = (aiMode === 'SUGGESTION' || aiMode === 'AUTO_REPLY') && aiAllowedForThisContact;
 
     // Trigger chatbot flow if one matches this message
     let flowMatched = false;
@@ -799,7 +805,7 @@ export class MessagesService {
     const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null }).assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     const agentAway = isAgentAway(assignedTo, takeoverEnabled, !!aiMode);
-    if (content && !flowMatched && (!humanOwned || agentAway)) {
+    if (content && !flowMatched && aiAllowedForThisContact && (!humanOwned || agentAway)) {
       // Verz-AI unification, Phase C: commerceEnabled and aiMode are resolved once,
       // together, so every tenant -- commerce-enabled or not -- goes through the same
       // SUGGESTION/AUTO_REPLY dispatch below. Commerce used to be checked here and
