@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import * as WebBrowser from 'expo-web-browser';
 import { apiClient } from '../../../src/lib/api';
 
 interface Plan {
@@ -175,14 +176,24 @@ export default function BillingScreen() {
 
   const checkoutMutation = useMutation({
     mutationFn: (data: { planSlug: string; cycle: string; billingEmail?: string }) =>
-      apiClient.billing.initiateCheckout(data),
-    onSuccess: (res) => {
+      apiClient.billing.initiatePaystackCheckout(data),
+    onSuccess: async (res) => {
       setShowCheckoutModal(false);
-      const ref = (res.data as { reference?: string })?.reference;
-      Alert.alert(
-        'Payment Initiated',
-        ref ? `Your reference: ${ref}\nMake payment and confirm.` : 'Contact support to complete payment.',
-      );
+      const data = res.data as { free?: boolean; authorizationUrl?: string };
+
+      if (data.free) {
+        qc.invalidateQueries({ queryKey: ['billing'] });
+        Alert.alert('You’re all set', 'Your plan is now active.');
+        return;
+      }
+
+      if (!data.authorizationUrl) {
+        Alert.alert('Error', 'Could not start checkout. Please try again.');
+        return;
+      }
+
+      await WebBrowser.openBrowserAsync(data.authorizationUrl);
+      qc.invalidateQueries({ queryKey: ['billing'] });
     },
     onError: () => Alert.alert('Error', 'Failed to initiate checkout.'),
   });
@@ -197,10 +208,15 @@ export default function BillingScreen() {
   });
 
   const creditPurchaseMutation = useMutation({
-    mutationFn: (slug: string) => apiClient.billing.initializeCreditPurchase(slug),
-    onSuccess: (res) => {
-      const ref = (res.data as { reference?: string })?.reference;
-      Alert.alert('Credit Purchase', ref ? `Reference: ${ref}\nComplete payment to add credits.` : 'Contact support.');
+    mutationFn: (packSlug: string) => apiClient.billing.initiatePaystackCreditCheckout({ packSlug }),
+    onSuccess: async (res) => {
+      const data = res.data as { authorizationUrl?: string };
+      if (!data.authorizationUrl) {
+        Alert.alert('Error', 'Could not start checkout. Please try again.');
+        return;
+      }
+      await WebBrowser.openBrowserAsync(data.authorizationUrl);
+      qc.invalidateQueries({ queryKey: ['billing'] });
     },
     onError: () => Alert.alert('Error', 'Failed to initiate credit purchase.'),
   });

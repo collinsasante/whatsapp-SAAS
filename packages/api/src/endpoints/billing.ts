@@ -8,23 +8,17 @@ export function createBillingApi(client: AxiosInstance) {
     getInvoices: () => client.get('/billing/invoices'),
     getAiCredits: () => client.get('/billing/credits/balance'),
     getCreditPacks: () => client.get('/billing/credits/packs'),
-    initiateCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string }) =>
-      client.post('/billing/checkout', data),
-    initializeCreditPurchase: (packSlug: string) =>
-      client.post('/billing/credits/initialize', { packSlug }),
+    // NOTE: matches apps/backend/src/billing/billing.controller.ts's actual
+    // routes -- /billing/checkout and /billing/credits/initialize (and the
+    // momo/payment-confirmed methods removed below) do not exist on the
+    // backend and were always 404ing.
+    initiatePaystackCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
+      client.post('/billing/checkout/paystack', data),
+    initiatePaystackCreditCheckout: (data: { packSlug: string; billingEmail?: string }) =>
+      client.post('/billing/credits/checkout/paystack', data),
     cancelSubscription: (immediately?: boolean) =>
       client.delete('/billing/cancel', { data: { immediately } }),
     updateBillingEmail: (billingEmail: string) =>
       client.post('/billing/email', { billingEmail }),
-    notifyPaymentConfirmed: (reference: string) =>
-      client.post('/billing/payment-confirmed', { reference }),
-    initiateMomoCheckout: (data: {
-      planSlug: string;
-      cycle: string;
-      momoPhone: string;
-      billingEmail?: string;
-    }) => client.post('/billing/momo/request', data),
-    getMomoStatus: (referenceId: string) =>
-      client.get(`/billing/momo/status/${referenceId}`),
   };
 }
