@@ -192,6 +192,7 @@ export class BillingService {
     return {
       free: false,
       accessCode: checkout.accessCode,
+      authorizationUrl: checkout.authorizationUrl,
       reference: checkout.gatewayReference,
       publicKey: this.config.get<string>('PAYSTACK_PUBLIC_KEY', ''),
       amount: ghsAmount,
@@ -363,6 +364,7 @@ export class BillingService {
 
     return {
       accessCode: checkout.accessCode,
+      authorizationUrl: checkout.authorizationUrl,
       reference: checkout.gatewayReference,
       publicKey: this.config.get<string>('PAYSTACK_PUBLIC_KEY', ''),
       amount: pack.priceGhs,
