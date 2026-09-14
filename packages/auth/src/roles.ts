@@ -30,3 +30,41 @@ export function canViewAnalytics(role: UserRole): boolean {
 export function canSendMessages(role: UserRole): boolean {
   return hasRole(role, UserRole.AGENT);
 }
+
+/**
+ * Mirrors apps/frontend/src/lib/permissions.ts's getPermissions() exactly --
+ * same flag names, same isAdmin-gated set. Keep the two in sync; this is the
+ * source shared clients (mobile) should use instead of re-deriving role
+ * checks locally.
+ */
+export function getPermissions(role: UserRole | undefined) {
+  const admin = role != null && isAdmin(role);
+  const agent = role === UserRole.AGENT || role === UserRole.VIEWER;
+  const canAssign = admin;
+
+  return {
+    showDashboard: admin,
+    showCampaigns: admin,
+    showTemplates: admin,
+    showAutomation: admin,
+    showChatbot: admin,
+    showAI: admin,
+    showAnalytics: true,
+    showSettings: admin,
+    showChannels: admin,
+    showManage: admin,
+    showBilling: admin,
+    showInbox: true,
+    showContacts: true,
+    showCalls: true,
+    showLibrary: true,
+    canAssign,
+    canDeleteCampaign: admin,
+    canManageTeam: admin,
+    canViewAnalytics: true,
+    isAdmin: admin,
+    isAgent: agent,
+  };
+}
+
+export type Permissions = ReturnType<typeof getPermissions>;

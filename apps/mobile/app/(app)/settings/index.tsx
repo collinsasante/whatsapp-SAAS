@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { getPermissions } from '@whatsapp-platform/auth';
 import { useAuthStore } from '../../../src/store/auth.store';
 import { apiClient } from '../../../src/lib/api';
 import { useQuery } from '@tanstack/react-query';
@@ -11,6 +12,7 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 export default function SettingsScreen() {
   const { user, tenant, clearAuth } = useAuthStore();
+  const permissions = getPermissions(user?.role);
 
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications', 'unread'],
@@ -92,24 +94,28 @@ export default function SettingsScreen() {
             label="Change PIN"
             onPress={() => router.push('/(app)/settings/change-pin')}
           />
-          <SettingRow
-            icon="card-outline"
-            label="Billing & Subscription"
-            onPress={() => router.push('/(app)/billing')}
-            accent
-          />
+          {permissions.showBilling && (
+            <SettingRow
+              icon="card-outline"
+              label="Billing & Subscription"
+              onPress={() => router.push('/(app)/billing')}
+              accent
+            />
+          )}
         </View>
 
         {/* Channels & Integrations */}
         <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
           <SectionHeader title="Channels & Integrations" />
-          <SettingRow
-            icon="logo-whatsapp"
-            iconColor="#25D366"
-            label="Channels"
-            description="Manage WhatsApp, Telegram & more"
-            onPress={() => router.push('/(app)/channels')}
-          />
+          {permissions.showChannels && (
+            <SettingRow
+              icon="logo-whatsapp"
+              iconColor="#25D366"
+              label="Channels"
+              description="Manage WhatsApp, Telegram & more"
+              onPress={() => router.push('/(app)/channels')}
+            />
+          )}
           <SettingRow
             icon="call-outline"
             iconColor="#3b82f6"
@@ -120,30 +126,38 @@ export default function SettingsScreen() {
         </View>
 
         {/* AI & Automation */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="AI & Automation" />
-          <SettingRow
-            icon="sparkles"
-            iconColor="#a855f7"
-            label="Verz AI"
-            description="Configure AI & knowledge base"
-            onPress={() => router.push('/(app)/ai')}
-          />
-          <SettingRow
-            icon="flash-outline"
-            iconColor="#f97316"
-            label="Automation"
-            description="Rules & workflow automation"
-            onPress={() => router.push('/(app)/automation')}
-          />
-          <SettingRow
-            icon="git-network-outline"
-            iconColor="#06b6d4"
-            label="Chatbot Flows"
-            description="Manage conversational flows"
-            onPress={() => router.push('/(app)/chatbot')}
-          />
-        </View>
+        {(permissions.showAI || permissions.showAutomation || permissions.showChatbot) && (
+          <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
+            <SectionHeader title="AI & Automation" />
+            {permissions.showAI && (
+              <SettingRow
+                icon="sparkles"
+                iconColor="#a855f7"
+                label="Verz AI"
+                description="Configure AI & knowledge base"
+                onPress={() => router.push('/(app)/ai')}
+              />
+            )}
+            {permissions.showAutomation && (
+              <SettingRow
+                icon="flash-outline"
+                iconColor="#f97316"
+                label="Automation"
+                description="Rules & workflow automation"
+                onPress={() => router.push('/(app)/automation')}
+              />
+            )}
+            {permissions.showChatbot && (
+              <SettingRow
+                icon="git-network-outline"
+                iconColor="#06b6d4"
+                label="Chatbot Flows"
+                description="Manage conversational flows"
+                onPress={() => router.push('/(app)/chatbot')}
+              />
+            )}
+          </View>
+        )}
 
         {/* Content */}
         <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
@@ -155,12 +169,14 @@ export default function SettingsScreen() {
             description="Team & customer files"
             onPress={() => router.push('/(app)/library')}
           />
-          <SettingRow
-            icon="document-text-outline"
-            label="Message Templates"
-            description="WhatsApp approved templates"
-            onPress={() => router.push('/(app)/settings/templates')}
-          />
+          {permissions.showTemplates && (
+            <SettingRow
+              icon="document-text-outline"
+              label="Message Templates"
+              description="WhatsApp approved templates"
+              onPress={() => router.push('/(app)/settings/templates')}
+            />
+          )}
         </View>
 
         {/* Reports */}
