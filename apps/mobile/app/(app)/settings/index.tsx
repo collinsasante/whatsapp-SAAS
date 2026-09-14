@@ -94,6 +94,15 @@ export default function SettingsScreen() {
             label="Change PIN"
             onPress={() => router.push('/(app)/settings/change-pin')}
           />
+          {permissions.showManage && (
+            <SettingRow
+              icon="people-outline"
+              iconColor="#25D366"
+              label="Team"
+              description="Manage agents, roles & invites"
+              onPress={() => router.push('/(app)/settings/team')}
+            />
+          )}
           {permissions.showBilling && (
             <SettingRow
               icon="card-outline"

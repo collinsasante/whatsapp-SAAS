@@ -26,6 +26,7 @@ function TabIcon({
 // consistent with web's.
 const GATED_ROUTES: Array<{ prefix: string; allowed: (p: Permissions) => boolean }> = [
   { prefix: '/settings/templates', allowed: (p) => p.showTemplates },
+  { prefix: '/settings/team', allowed: (p) => p.showManage },
   { prefix: '/campaigns', allowed: (p) => p.showCampaigns },
   { prefix: '/channels', allowed: (p) => p.showChannels },
   { prefix: '/ai', allowed: (p) => p.showAI },

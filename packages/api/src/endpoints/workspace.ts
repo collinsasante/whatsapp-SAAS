@@ -14,6 +14,10 @@ export function createWorkspaceApi(client: AxiosInstance) {
     removeMember: (id: string, reassignToId?: string) =>
       client.delete(`/workspace/members/${id}`, { data: { reassignToId } }),
     getMemberActivity: (id: string) => client.get(`/workspace/members/${id}/activity`),
+    getMemberConversations: (id: string) => client.get(`/workspace/members/${id}/conversations`),
+    forceLogout: (id: string) => client.post(`/workspace/members/${id}/force-logout`),
+    resetPassword: (id: string, newPassword: string) =>
+      client.post(`/workspace/members/${id}/reset-password`, { newPassword }),
   };
 }
 
