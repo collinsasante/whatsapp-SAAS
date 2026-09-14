@@ -49,6 +49,7 @@ model Tenant {
   pinnedMessages      PinnedMessage[]
   callLogs            CallLog[]
   notifications       Notification[]
+  pushTokens          PushToken[]
   cannedResponses          CannedResponse[]
   cannedResponseCategories CannedResponseCategory[]
   cannedResponseUsages     CannedResponseUsage[]
@@ -341,6 +342,7 @@ model User {
   callLogs              CallLog[]
   callNotes             CallNote[]
   notifications         Notification[]
+  pushTokens            PushToken[]
   cannedResponses          CannedResponse[]
   favoriteResponses        UserFavoriteResponse[]
   cannedResponseUsages     CannedResponseUsage[]
@@ -1121,6 +1123,28 @@ model Notification {
   @@index([userId, isRead])
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("notifications")
+}
+
+// One row per device -- a user can be logged in on more than one phone.
+// Unique on token (not on [userId, token]): the same physical device token
+// re-registering under a different user (e.g. a shared/reassigned phone)
+// should move to the new owner, not create a stale duplicate row still
+// pointed at the previous user.
+model PushToken {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  token     String   @unique
+  platform  String   // "ios" | "android"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("push_tokens")
 }
 
 model CannedResponseCategory {
