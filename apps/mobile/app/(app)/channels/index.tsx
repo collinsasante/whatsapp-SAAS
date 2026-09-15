@@ -31,8 +31,8 @@ const CHANNEL_DEFS = [
     name: 'Facebook Messenger',
     icon: 'logo-facebook' as const,
     color: '#1877F2',
-    badge: 'Popular',
-    description: 'Manage all Facebook Page messages in one inbox.',
+    badge: 'Coming Soon',
+    description: 'Connect your Page now to reserve it. Inbox messaging is coming soon.',
     connectType: 'oauth' as const,
   },
   {
@@ -40,7 +40,8 @@ const CHANNEL_DEFS = [
     name: 'Instagram',
     icon: 'logo-instagram' as const,
     color: '#E1306C',
-    description: 'Manage DMs, story replies and mention interactions.',
+    badge: 'Coming Soon',
+    description: 'Connect your account now to reserve it. DM management is coming soon.',
     connectType: 'oauth' as const,
   },
   {
@@ -49,7 +50,7 @@ const CHANNEL_DEFS = [
     icon: 'musical-notes' as const,
     color: '#010101',
     badge: 'Beta',
-    description: 'Engage TikTok audience through Business Messaging.',
+    description: "Connect to verify your account. Business Messaging requires TikTok's own approval, not yet complete.",
     connectType: 'oauth' as const,
   },
   {
@@ -57,7 +58,8 @@ const CHANNEL_DEFS = [
     name: 'Telegram',
     icon: 'paper-plane' as const,
     color: '#2CA5E0',
-    description: 'Connect a Telegram Bot for customer support at scale.',
+    badge: 'Coming Soon',
+    description: "Connect a bot to verify it's live now. Full messaging is coming soon.",
     connectType: 'api' as const,
   },
 ];
@@ -96,13 +98,23 @@ export default function ChannelsScreen() {
     onError: () => Alert.alert('Error', 'Failed to connect channel. Check your credentials.'),
   });
 
+  const telegramMutation = useMutation({
+    mutationFn: (botToken: string) => apiClient.channels.connectTelegram(botToken),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['channels'] });
+      setShowConnectModal(false);
+      setForm({ name: '', phoneNumberId: '', wabaId: '', accessToken: '', botToken: '' });
+    },
+    onError: () => Alert.alert('Error', 'Invalid bot token, or Telegram could not verify this bot.'),
+  });
+
   const handleConnect = () => {
     if (!connectTarget) return;
-    if (!form.name.trim()) {
-      Alert.alert('Required', 'Please enter a channel name.');
-      return;
-    }
     if (connectTarget.id === 'whatsapp-api') {
+      if (!form.name.trim()) {
+        Alert.alert('Required', 'Please enter a channel name.');
+        return;
+      }
       if (!form.phoneNumberId || !form.wabaId || !form.accessToken) {
         Alert.alert('Required', 'All WhatsApp API fields are required.');
         return;
@@ -119,7 +131,11 @@ export default function ChannelsScreen() {
         Alert.alert('Required', 'Bot token is required.');
         return;
       }
-      createMutation.mutate({ name: form.name, type: 'TELEGRAM', botToken: form.botToken });
+      // Routes to the dedicated /channels/telegram/connect endpoint, which
+      // validates the token against Telegram's own getMe API and derives the
+      // channel name from the bot itself -- the generic /channels endpoint
+      // doesn't accept a botToken field at all and would always 400.
+      telegramMutation.mutate(form.botToken);
     } else {
       Alert.alert('Coming Soon', 'OAuth-based channels must be connected from the web app.');
     }
@@ -325,9 +341,9 @@ export default function ChannelsScreen() {
             <TouchableOpacity
               className="bg-green rounded-2xl py-4 items-center mt-6"
               onPress={handleConnect}
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || telegramMutation.isPending}
             >
-              {createMutation.isPending ? (
+              {createMutation.isPending || telegramMutation.isPending ? (
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text className="text-white font-bold text-base">Connect Channel</Text>

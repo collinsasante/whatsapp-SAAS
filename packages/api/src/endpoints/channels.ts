@@ -8,5 +8,6 @@ export function createChannelsApi(client: AxiosInstance) {
     update: (id: string, data: Record<string, unknown>) => client.patch(`/channels/${id}`, data),
     toggle: (id: string) => client.patch(`/channels/${id}/toggle`),
     delete: (id: string) => client.delete(`/channels/${id}`),
+    connectTelegram: (botToken: string) => client.post('/channels/telegram/connect', { botToken }),
   };
 }

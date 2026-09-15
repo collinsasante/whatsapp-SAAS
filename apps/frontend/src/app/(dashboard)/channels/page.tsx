@@ -26,7 +26,7 @@ interface ChannelDef {
   id: string;
   name: string;
   description: string;
-  badge?: 'Popular' | 'Beta' | 'New';
+  badge?: 'Popular' | 'Beta' | 'New' | 'Coming Soon';
   connectType: 'api' | 'oauth';
   oauthProvider?: 'facebook' | 'instagram' | 'tiktok';
   accentClass: string;
@@ -52,32 +52,33 @@ const CHANNELS: ChannelDef[] = [
   {
     id: 'facebook',
     name: 'Facebook Messenger',
-    description: 'Reply to Messenger conversations directly from your inbox. Manage all Facebook Page interactions in one place.',
-    badge: 'Popular',
+    description: 'Connect your Facebook Page now to reserve it. Inbox messaging, auto-replies, and AI support for Messenger are coming soon.',
+    badge: 'Coming Soon',
     connectType: 'oauth',
     oauthProvider: 'facebook',
     accentClass: 'border-l-blue-600',
     accentBg: 'bg-blue-600',
     btnClass: 'bg-[#1877F2] hover:bg-[#166FE5] text-white',
     btnLabel: 'Continue with Facebook',
-    features: ['Auto-reply to page messages', 'Shared team inbox', 'Message labels & assignment'],
+    features: ['Page connection available now', 'Inbox messaging — coming soon', 'AI & automation — coming soon'],
   },
   {
     id: 'instagram',
     name: 'Instagram',
-    description: 'Manage DMs, story replies, and mention interactions. Convert followers into customers from one inbox.',
+    description: 'Connect your Instagram professional account now to reserve it. DM and story-reply management are coming soon.',
+    badge: 'Coming Soon',
     connectType: 'oauth',
     oauthProvider: 'instagram',
     accentClass: 'border-l-pink-500',
     accentBg: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400',
     btnClass: 'bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 hover:opacity-90 text-white',
     btnLabel: 'Continue with Instagram',
-    features: ['DMs & story reply management', 'Comment-to-DM automation', 'Influencer workflow tools'],
+    features: ['Account connection available now', 'DM inbox — coming soon', 'Story & comment tools — coming soon'],
   },
   {
     id: 'tiktok',
     name: 'TikTok',
-    description: 'Engage your TikTok audience through Business Messaging. Reply to DMs and automate follower conversations.',
+    description: "Connect your TikTok account now to verify it. Business Messaging requires TikTok's own platform approval, which isn't complete yet — connecting today only verifies your account, it doesn't yet enable sending or receiving DMs.",
     badge: 'Beta',
     connectType: 'oauth',
     oauthProvider: 'tiktok',
@@ -85,18 +86,19 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-slate-900',
     btnClass: 'bg-slate-900 hover:bg-slate-800 text-white',
     btnLabel: 'Continue with TikTok',
-    features: ['Business DM management', 'Automated follower replies', 'Campaign conversation routing'],
+    features: ['Account verification available now', 'Business Messaging — pending TikTok approval', 'DM automation — not yet available'],
   },
   {
     id: 'telegram',
     name: 'Telegram',
-    description: 'Connect a Telegram Bot to handle customer support at scale. Full automation and team routing supported.',
+    description: "Connect a Telegram Bot to verify it's live now. Full inbox messaging, group support, and automation are coming soon.",
+    badge: 'Coming Soon',
     connectType: 'api',
     accentClass: 'border-l-sky-500',
     accentBg: 'bg-sky-500',
     btnClass: 'bg-sky-500 hover:bg-sky-600 text-white',
     btnLabel: 'Connect Bot',
-    features: ['Custom bot integration', 'Group & private chat support', 'Instant message routing'],
+    features: ['Bot token verified on connect', 'Message inbox — coming soon', 'Automation & routing — coming soon'],
   },
 ];
 
@@ -185,10 +187,12 @@ function LiveDot({ color = 'emerald' }: { color?: 'emerald' | 'amber' | 'red' | 
 
 // ─── Modals ───────────────────────────────────────────────────────────────────
 
+// Reflects exactly what's requested in the real OAuth scope (channels.controller.ts) --
+// not what the eventual messaging feature will need once it's built.
 const OAUTH_INFO: Record<string, { permissions: string[] }> = {
-  facebook: { permissions: ['Manage your Pages', 'Read and send Messenger messages', 'View Page insights'] },
-  instagram: { permissions: ['Read and reply to Direct Messages', 'Manage story mentions', 'Access business profile'] },
-  tiktok: { permissions: ['Access TikTok Business Messaging', 'Read and reply to messages', 'View message analytics'] },
+  facebook: { permissions: ['See which Pages you manage', 'Read basic Page engagement info'] },
+  instagram: { permissions: ['View your linked Instagram professional account', 'See which Pages you manage'] },
+  tiktok: { permissions: ['View your public TikTok profile (name, avatar)'] },
 };
 
 function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
@@ -231,9 +235,9 @@ function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => 
       </div>
       <div className="px-6 py-4 space-y-4">
         <p className="text-sm text-gray-600 leading-relaxed">
-          {provider === 'facebook' && "You'll be redirected to Facebook to authorize access to your Pages and Messenger inbox."}
-          {provider === 'instagram' && "You'll sign in with Instagram Business to enable DM and story reply management."}
-          {provider === 'tiktok' && "You'll be redirected to TikTok to authorize your Business account for messaging."}
+          {provider === 'facebook' && "You'll be redirected to Facebook to connect and reserve your Page. Messenger inbox support is coming soon."}
+          {provider === 'instagram' && "You'll sign in with Instagram Business to connect and reserve your account. DM and story reply support is coming soon."}
+          {provider === 'tiktok' && "You'll be redirected to TikTok to verify your account. This does not yet enable Business Messaging, which requires TikTok's own platform approval."}
         </p>
         <div className="bg-gray-50 rounded-xl p-4 space-y-2.5">
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Permissions requested</p>
@@ -541,6 +545,7 @@ function ChannelCard({
                       ch.badge === 'Popular' && 'bg-amber-50 text-amber-700 border-amber-200',
                       ch.badge === 'Beta' && 'bg-purple-50 text-purple-700 border-purple-200',
                       ch.badge === 'New' && 'bg-teal-50 text-teal-700 border-teal-200',
+                      ch.badge === 'Coming Soon' && 'bg-gray-50 text-gray-600 border-gray-200',
                     )}>
                       {ch.badge}
                     </span>
