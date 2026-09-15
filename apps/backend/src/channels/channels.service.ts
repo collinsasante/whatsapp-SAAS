@@ -156,13 +156,20 @@ export class ChannelsService {
     tokenUrl.searchParams.set('code', code);
 
     const tokenRes = await fetch(tokenUrl.toString());
-    const tokenData = await tokenRes.json() as { access_token?: string; error?: { message: string } };
+    const tokenData = await tokenRes.json() as { access_token?: string; expires_in?: number; error?: { message: string } };
 
     if (!tokenData.access_token) {
       throw new Error(`Token exchange failed: ${tokenData.error?.message ?? 'unknown error'}`);
     }
 
     const userToken = tokenData.access_token;
+    // This is the short-lived USER token's expiry, not necessarily the page
+    // token's own expiry (Facebook page tokens are commonly long-lived/
+    // non-expiring) -- stored under a name that makes that distinction clear
+    // rather than implying it's authoritative for the page token itself.
+    const userTokenExpiresAt = tokenData.expires_in
+      ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+      : undefined;
 
     if (provider === 'facebook') {
       const pagesRes = await fetch(
@@ -176,7 +183,8 @@ export class ChannelsService {
         await this.upsertOAuthChannel(tenantId, ChannelType.FACEBOOK_MESSENGER, page.name, {
           accessToken: page.access_token,
           pageId: page.id,
-        });
+          ...(userTokenExpiresAt && { userTokenExpiresAt }),
+        }, page.id);
       }
 
       if (!pagesData.data?.length) {
@@ -210,7 +218,8 @@ export class ChannelsService {
           accessToken: page.access_token,
           pageId: page.id,
           igAccountId: igId,
-        });
+          ...(userTokenExpiresAt && { userTokenExpiresAt }),
+        }, igId);
         connected++;
       }
 
@@ -237,7 +246,7 @@ export class ChannelsService {
     });
 
     const tokenData = await tokenRes.json() as {
-      data?: { access_token: string; open_id: string; refresh_token: string };
+      data?: { access_token: string; open_id: string; refresh_token: string; expires_in?: number };
       error?: { code: string; message: string };
     };
 
@@ -245,7 +254,8 @@ export class ChannelsService {
       throw new Error(`TikTok token exchange failed: ${tokenData.error?.message ?? 'unknown'}`);
     }
 
-    const { access_token, open_id, refresh_token } = tokenData.data;
+    const { access_token, open_id, refresh_token, expires_in } = tokenData.data;
+    const tokenExpiresAt = expires_in ? new Date(Date.now() + expires_in * 1000).toISOString() : undefined;
 
     const userRes = await fetch(
       'https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url',
@@ -262,14 +272,15 @@ export class ChannelsService {
       accessToken: access_token,
       openId: open_id,
       refreshToken: refresh_token,
-    });
+      ...(tokenExpiresAt && { tokenExpiresAt }),
+    }, open_id);
   }
 
   async connectTelegramBot(tenantId: string, botToken: string) {
     const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
     const verifyData = await verifyRes.json() as {
       ok: boolean;
-      result?: { username?: string; first_name?: string };
+      result?: { id?: number; username?: string; first_name?: string };
       description?: string;
     };
 
@@ -281,30 +292,56 @@ export class ChannelsService {
       ? `@${verifyData.result.username}`
       : (verifyData.result?.first_name ?? 'Telegram Bot');
 
-    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken });
+    // Telegram's own numeric bot ID (from getMe) is the stable identity for
+    // this bot -- using it (not just tenantId+type) lets a tenant connect a
+    // second, third bot without silently overwriting the first.
+    const botId = String(verifyData.result?.id ?? botToken);
+
+    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken }, botId);
   }
 
+  // Keyed on tenantId + type + externalId (the provider's own stable account/
+  // page/bot identifier, stored in credentials.externalId) rather than just
+  // tenantId + type -- otherwise connecting a second Facebook Page, Instagram
+  // account, or Telegram bot for the same tenant silently overwrites the
+  // first instead of creating a second Channel row.
   private async upsertOAuthChannel(
     tenantId: string,
     type: ChannelType,
     name: string,
     credentials: Record<string, string>,
+    externalId: string,
   ) {
-    const existing = await this.prisma.channel.findFirst({ where: { tenantId, type } });
+    const existing = await this.prisma.channel.findFirst({
+      where: { tenantId, type, credentials: { path: ['externalId'], equals: externalId } },
+    });
+
+    const credentialsWithId = { ...credentials, externalId };
 
     if (existing) {
       return this.prisma.channel.update({
         where: { id: existing.id },
-        data: { name, credentials: credentials as Prisma.InputJsonValue, isActive: true },
+        data: { name, credentials: credentialsWithId as Prisma.InputJsonValue, isActive: true },
       });
+    }
+
+    // [tenantId, type, name] is a real DB unique constraint -- two distinct
+    // external accounts with the same display name (e.g. two Pages both
+    // named "My Business") would otherwise throw on create. Disambiguate
+    // deterministically rather than let the insert fail.
+    let candidateName = name;
+    let suffix = 1;
+    while (await this.prisma.channel.findFirst({ where: { tenantId, type, name: candidateName } })) {
+      suffix += 1;
+      candidateName = `${name} ${suffix}`;
     }
 
     return this.prisma.channel.create({
       data: {
         tenantId,
         type,
-        name,
-        credentials: credentials as Prisma.InputJsonValue,
+        name: candidateName,
+        credentials: credentialsWithId as Prisma.InputJsonValue,
         metadata: {} as Prisma.InputJsonValue,
         isActive: true,
       },
