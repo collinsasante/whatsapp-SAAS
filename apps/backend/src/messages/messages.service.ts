@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -114,6 +114,22 @@ export class MessagesService {
       throw new NotFoundException('Cannot send message to this contact');
     }
 
+    // WhatsApp only allows free-form (non-template) sends within 24h of the
+    // customer's last inbound message; outside that window Meta accepts a
+    // non-template send then asynchronously rejects it (error 131047,
+    // "Re-engagement message"). Reject synchronously here instead of
+    // creating a message that silently flips from sent to failed a moment
+    // later -- the agent needs to know immediately, before they walk away
+    // thinking it went through.
+    if (dto.type !== MessageType.TEMPLATE) {
+      const lastInboundAt = conversation.lastMessageAt;
+      const windowClosed = !lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000;
+      if (windowClosed) {
+        throw new BadRequestException(
+          "This contact hasn't messaged in over 24 hours. WhatsApp requires an approved template message to re-engage them — free-form messages will be rejected.",
+        );
+      }
+    }
 
     // Auto-reopen resolved conversation when agent sends a message
     if (conversation.status === 'RESOLVED') {

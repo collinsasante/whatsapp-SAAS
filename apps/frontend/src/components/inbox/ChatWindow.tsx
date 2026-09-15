@@ -75,6 +75,17 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   [MessageStatus.FAILED]: <XCircle size={11} className="text-red-300" />,
 };
 
+// WhatsApp's raw failure titles, re-labeled for agents. "Re-engagement
+// message" is Meta's own literal error title for code 131047/470 (sent
+// outside the 24-hour customer service window) -- confusing as-is, since it
+// reads like a description of what was sent rather than why it failed.
+const FAILURE_REASON_LABELS: Record<string, string> = {
+  'Re-engagement message': "24-hour window expired — send a template message to re-engage",
+};
+function formatFailureReason(reason: string): string {
+  return FAILURE_REASON_LABELS[reason] ?? reason;
+}
+
 
 const LOCATION_DURATIONS = [
   { label: '15 minutes', minutes: 15 },
@@ -3048,7 +3059,7 @@ const MessageBubble = memo(function MessageBubble({
                 {message.deliveredAt && <p>Delivered: {new Date(message.deliveredAt).toLocaleString()}</p>}
                 {message.readAt && <p>Read: {new Date(message.readAt).toLocaleString()}</p>}
                 {message.failedAt && <p className="text-red-500">Failed: {new Date(message.failedAt).toLocaleString()}</p>}
-                {message.failureReason && <p className="text-red-500 text-xs">{message.failureReason}</p>}
+                {message.failureReason && <p className="text-red-500 text-xs">{formatFailureReason(message.failureReason)}</p>}
               </div>
             )}
           </div>
