@@ -107,6 +107,7 @@ model Tenant {
 model WhatsAppNumber {
   id            String   @id @default(uuid())
   tenantId      String   @map("tenant_id")
+  channelId     String?  @unique @map("channel_id")
   label         String
   phoneNumberId String   @map("phone_number_id")
   wabaId        String   @map("waba_id")
@@ -116,11 +117,16 @@ model WhatsAppNumber {
   qualityRating       String?   @map("quality_rating")
   messagingLimitTier  String?   @map("messaging_limit_tier")
   qualitySyncedAt     DateTime? @map("quality_synced_at")
+  lastError     String?   @map("last_error")
+  lastErrorAt   DateTime? @map("last_error_at")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt      @map("updated_at")
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel       Channel?       @relation(fields: [channelId], references: [id], onDelete: SetNull)
   conversations Conversation[]
+  messages      Message[]
+  campaigns     Campaign[]
 
   @@unique([tenantId, phoneNumberId])
   @@index([tenantId])
@@ -509,6 +515,7 @@ model Conversation {
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, contactId])
+  @@index([tenantId, contactId, whatsappNumberId])
   @@index([tenantId, assignedToId])
   @@index([tenantId, lastMessageAt])
   @@index([tenantId, status, lastMessageAt])
@@ -584,6 +591,7 @@ model Message {
   senderId          String?          @map("sender_id")
   replyToId         String?          @map("reply_to_id")
   whatsappMessageId String?          @map("whatsapp_message_id")
+  whatsappNumberId  String?          @map("whatsapp_number_id")
   direction         MessageDirection
   type              MessageType      @default(TEXT)
   status            MessageStatus    @default(QUEUED)
@@ -609,16 +617,17 @@ model Message {
   errorCode         Int?             @map("error_code")
   createdAt         DateTime         @default(now()) @map("created_at")
 
-  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  contact      Contact           @relation(fields: [contactId], references: [id])
-  sender       User?             @relation("MessageSender", fields: [senderId], references: [id])
-  replyTo      Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies      Message[]         @relation("MessageReplies")
-  reactions    MessageReaction[]
-  pinnedIn     PinnedMessage[]
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contact        Contact           @relation(fields: [contactId], references: [id])
+  sender         User?             @relation("MessageSender", fields: [senderId], references: [id])
+  replyTo        Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies        Message[]         @relation("MessageReplies")
+  reactions      MessageReaction[]
+  pinnedIn       PinnedMessage[]
   editHistory      MessageEdit[]
   messageDeletions MessageDeletion[]
+  whatsappNumber WhatsAppNumber?   @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, whatsappMessageId])
   @@index([tenantId])
@@ -627,6 +636,7 @@ model Message {
   @@index([whatsappMessageId])
   @@index([tenantId, createdAt])
   @@index([tenantId, mediaUrl])
+  @@index([whatsappNumberId])
   @@map("messages")
 }
 
@@ -701,8 +711,9 @@ model Channel {
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  whatsAppNumber WhatsAppNumber?
 
   @@unique([tenantId, type, name])
   @@index([tenantId])
@@ -922,6 +933,7 @@ model Campaign {
   status            CampaignStatus @default(DRAFT)
   templateId        String         @map("template_id")
   templateVariables Json?          @map("template_variables")
+  whatsappNumberId  String?        @map("whatsapp_number_id")
   scheduledAt       DateTime?      @map("scheduled_at")
   startedAt         DateTime?      @map("started_at")
   completedAt       DateTime?      @map("completed_at")
@@ -937,11 +949,12 @@ model Campaign {
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
-  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  template   Template            @relation(fields: [templateId], references: [id])
-  createdBy  User                @relation("CampaignCreator", fields: [createdById], references: [id])
-  recipients CampaignRecipient[]
-  clicks     CampaignClick[]
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template       Template            @relation(fields: [templateId], references: [id])
+  createdBy      User                @relation("CampaignCreator", fields: [createdById], references: [id])
+  recipients     CampaignRecipient[]
+  clicks         CampaignClick[]
+  whatsappNumber WhatsAppNumber?     @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([tenantId, status])
