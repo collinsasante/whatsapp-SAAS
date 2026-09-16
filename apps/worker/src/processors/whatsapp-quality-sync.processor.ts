@@ -1,9 +1,11 @@
 import { Worker, Queue, Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import { decryptCredential, parseEncryptionKey } from '@whatsapp-platform/shared-utils';
+import { GRAPH_API_BASE } from '../lib/whatsapp-credentials';
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // every 6 hours -- quality rating changes rarely
-const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
+const ENCRYPTION_KEY = parseEncryptionKey(process.env['CREDENTIALS_ENCRYPTION_KEY']);
 
 /**
  * WhatsApp Quality Sync -- periodically fetches each active WhatsAppNumber's
@@ -61,9 +63,10 @@ export class WhatsAppQualitySyncWorker {
 
     for (const number of numbers) {
       try {
+        const accessToken = decryptCredential(number.accessToken, ENCRYPTION_KEY);
         const res = await axios.get(`${GRAPH_API_BASE}/${number.phoneNumberId}`, {
           params: { fields: 'quality_rating,messaging_limit_tier' },
-          headers: { Authorization: `Bearer ${number.accessToken}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
           timeout: 10_000,
         });
 

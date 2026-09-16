@@ -3,8 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { MessageDirection, MessageType, MessageStatus } from '@whatsapp-platform/shared-types';
 import axios from 'axios';
 import { QueueName, AutomationTriggerJob, AutomationActionConfig, AutomationAction } from '@whatsapp-platform/shared-types';
-
-const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
+import { resolveWhatsAppCredentials, GRAPH_API_BASE, WhatsAppCredentials } from '../lib/whatsapp-credentials';
 
 export class AutomationWorker {
   private worker?: Worker;
@@ -45,17 +44,18 @@ export class AutomationWorker {
     if (!rule) return;
 
     const actions = rule.actions as unknown as AutomationActionConfig[];
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { phoneNumberId: true, accessToken: true },
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { whatsappNumberId: true },
     });
+    const credentials = await resolveWhatsAppCredentials(this.prisma, tenantId, conversation?.whatsappNumberId);
 
     const contact = await this.prisma.contact.findUnique({ where: { id: contactId } });
     if (!contact) return;
 
     for (const action of actions) {
       try {
-        await this.executeAction(action, { tenantId, conversationId, contactId, contact, tenant });
+        await this.executeAction(action, { tenantId, conversationId, contactId, contact, credentials, whatsappNumberId: conversation?.whatsappNumberId ?? null });
       } catch (error) {
         console.error(`Failed to execute action ${action.type}:`, error instanceof Error ? error.message : String(error));
       }
@@ -74,23 +74,24 @@ export class AutomationWorker {
       conversationId: string;
       contactId: string;
       contact: { phone: string; name: string | null };
-      tenant: { phoneNumberId: string | null; accessToken: string | null } | null;
+      credentials: WhatsAppCredentials | null;
+      whatsappNumberId: string | null;
     },
   ) {
     const payload = action.payload as Record<string, string>;
 
     switch (action.type) {
       case AutomationAction.SEND_MESSAGE: {
-        if (!ctx.tenant?.phoneNumberId || !ctx.tenant.accessToken) break;
+        if (!ctx.credentials) break;
         const response = await axios.post(
-          `${GRAPH_API_BASE}/${ctx.tenant.phoneNumberId}/messages`,
+          `${GRAPH_API_BASE}/${ctx.credentials.phoneNumberId}/messages`,
           {
             messaging_product: 'whatsapp',
             to: ctx.contact.phone,
             type: 'text',
             text: { body: payload['message'] ?? 'Hello!' },
           },
-          { headers: { Authorization: `Bearer ${ctx.tenant.accessToken}` }, timeout: 15000 },
+          { headers: { Authorization: `Bearer ${ctx.credentials.accessToken}` }, timeout: 15000 },
         );
         await this.prisma.message.create({
           data: {
@@ -98,6 +99,7 @@ export class AutomationWorker {
             conversationId: ctx.conversationId,
             contactId: ctx.contactId,
             whatsappMessageId: response.data.messages[0].id as string,
+            whatsappNumberId: ctx.whatsappNumberId,
             direction: MessageDirection.OUTBOUND,
             type: MessageType.TEXT,
             status: MessageStatus.SENT,
@@ -205,7 +207,7 @@ export class AutomationWorker {
 
       case AutomationAction.SEND_TEMPLATE: {
         const templateId = payload['templateId'];
-        if (!templateId || !ctx.tenant?.phoneNumberId || !ctx.tenant.accessToken) break;
+        if (!templateId || !ctx.credentials) break;
         const template = await this.prisma.template.findUnique({ where: { id: templateId } });
         if (!template) break;
         const variables = payload as Record<string, string>;
@@ -218,14 +220,14 @@ export class AutomationWorker {
           });
         }
         const response = await axios.post(
-          `${GRAPH_API_BASE}/${ctx.tenant.phoneNumberId}/messages`,
+          `${GRAPH_API_BASE}/${ctx.credentials.phoneNumberId}/messages`,
           {
             messaging_product: 'whatsapp',
             to: ctx.contact.phone,
             type: 'template',
             template: { name: template.name, language: { code: template.language }, components },
           },
-          { headers: { Authorization: `Bearer ${ctx.tenant.accessToken}` }, timeout: 15000 },
+          { headers: { Authorization: `Bearer ${ctx.credentials.accessToken}` }, timeout: 15000 },
         );
         await this.prisma.message.create({
           data: {
@@ -233,6 +235,7 @@ export class AutomationWorker {
             conversationId: ctx.conversationId,
             contactId: ctx.contactId,
             whatsappMessageId: response.data.messages[0].id as string,
+            whatsappNumberId: ctx.whatsappNumberId,
             direction: MessageDirection.OUTBOUND,
             type: MessageType.TEMPLATE,
             status: MessageStatus.SENT,
