@@ -27,10 +27,29 @@ export class TenantService {
     // dedicated /whatsapp-numbers and /channels write paths.
     const { phoneNumberId, wabaId, accessToken, ...rest } = dto;
 
+    // Caller is allowed to send just one of these three fields (e.g. "paste a
+    // fresh access token" without re-entering phoneNumberId/wabaId) -- a
+    // previous version of this sync only fired when all three were present
+    // together, which silently let WhatsAppNumber.accessToken go stale on
+    // any single-field update and broke real sends once WhatsAppNumber
+    // became the thing actually used to send. Merge with the tenant's
+    // current values first so any partial update still keeps the linked
+    // WhatsAppNumber row in sync.
+    const existing = (phoneNumberId || wabaId || accessToken)
+      ? await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } })
+      : null;
+
     await this.prisma.tenant.update({ where: { id: tenantId }, data: rest });
 
-    if (phoneNumberId && wabaId && accessToken) {
-      await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, { phoneNumberId, wabaId, accessToken });
+    if (existing) {
+      const mergedPhoneNumberId = phoneNumberId ?? existing.phoneNumberId;
+      const mergedWabaId = wabaId ?? existing.wabaId;
+      const mergedAccessToken = accessToken ?? existing.accessToken;
+      if (mergedPhoneNumberId && mergedWabaId && mergedAccessToken) {
+        await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, {
+          phoneNumberId: mergedPhoneNumberId, wabaId: mergedWabaId, accessToken: mergedAccessToken,
+        });
+      }
     }
 
     return this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
@@ -62,6 +81,13 @@ export class TenantService {
   }) {
     const { phoneNumberId, wabaId, accessToken, ...rest } = data;
 
+    // Same merge-with-existing-values rationale as update() above -- see its
+    // comment for why a strict "all three or none" guard silently let
+    // WhatsAppNumber.accessToken go stale on a partial update.
+    const existing = (phoneNumberId || wabaId || accessToken)
+      ? await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } })
+      : null;
+
     await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
@@ -81,8 +107,15 @@ export class TenantService {
 
     // Same WhatsAppNumbersService delegation as update() above -- onboarding
     // is the other place a tenant can set WhatsApp credentials directly.
-    if (phoneNumberId && wabaId && accessToken) {
-      await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, { phoneNumberId, wabaId, accessToken });
+    if (existing) {
+      const mergedPhoneNumberId = phoneNumberId ?? existing.phoneNumberId;
+      const mergedWabaId = wabaId ?? existing.wabaId;
+      const mergedAccessToken = accessToken ?? existing.accessToken;
+      if (mergedPhoneNumberId && mergedWabaId && mergedAccessToken) {
+        await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, {
+          phoneNumberId: mergedPhoneNumberId, wabaId: mergedWabaId, accessToken: mergedAccessToken,
+        });
+      }
     }
 
     return this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
