@@ -14,6 +14,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts",
     "billing:setup-plans": "ts-node scripts/setup-billing-plans.ts",
+    "whatsapp:resync-tokens": "ts-node scripts/resync-whatsapp-number-tokens.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
