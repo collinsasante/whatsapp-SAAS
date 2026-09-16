@@ -153,10 +153,21 @@ export class WhatsAppNumbersService {
   async reconnect(tenantId: string, id: string, dto: UpdateWhatsAppNumberDto, actorId?: string) {
     await this.findOne(tenantId, id);
 
+    // If disconnecting this number left the tenant with no active default at
+    // all (remove() only promotes a *different* number to default when one
+    // exists -- it never un-disconnects this one), reconnecting it should
+    // restore that default status. Otherwise the tenant is left with zero
+    // default numbers and Tenant's legacy fallback fields go stale exactly
+    // the way that caused the 2026-09-16 incident.
+    const hasActiveDefault = await this.prisma.whatsAppNumber.findFirst({
+      where: { tenantId, isDefault: true, isActive: true },
+    });
+
     const updated = await this.applyPatch(tenantId, id, dto, {
       isActive: true,
       lastError: null,
       lastErrorAt: null,
+      ...(!hasActiveDefault && { isDefault: true }),
     });
 
     void this.audit.log({
@@ -308,8 +319,12 @@ export class WhatsAppNumbersService {
       select: PUBLIC_SELECT,
     });
 
-    // Keep tenant creds in sync if this is the default number
-    if (updated.isDefault && (dto.phoneNumberId || dto.wabaId || dto.accessToken)) {
+    // Keep tenant creds in sync if this is the default number -- either
+    // because a field on it changed, or because this call just made it the
+    // default (extraData.isDefault, from reconnect() restoring default
+    // status). Both are cases where Tenant's denormalized fields could now
+    // be stale relative to this row.
+    if (updated.isDefault && (dto.phoneNumberId || dto.wabaId || dto.accessToken || extraData.isDefault)) {
       const full = await this.prisma.whatsAppNumber.findUniqueOrThrow({ where: { id } });
       await this.syncDefaultToTenant(tenantId, full.phoneNumberId, full.wabaId, this.encryption.decrypt(full.accessToken));
     }

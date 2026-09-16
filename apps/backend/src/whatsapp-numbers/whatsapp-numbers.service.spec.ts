@@ -129,6 +129,47 @@ describe('WhatsAppNumbersService', () => {
         data: { phoneNumberId: 'pn-1', wabaId: 'waba-1', accessToken: 'fresh-token' },
       }));
     });
+
+    it('restores isDefault when disconnecting this number left the tenant with no active default at all', async () => {
+      // Regression test: remove() clears isDefault on disconnect and only
+      // promotes a DIFFERENT number to default when one exists -- it never
+      // un-disconnects this row. A prior version of reconnect() never put
+      // isDefault back, so a tenant with only one number could disconnect
+      // and reconnect it and be left with zero default numbers, leaving
+      // Tenant's legacy fallback fields permanently stale (the same class
+      // of bug as the 2026-09-16 incident).
+      const deps = buildDeps();
+      deps.prisma.whatsAppNumber.findFirst
+        .mockResolvedValueOnce({ id: 'n1', tenantId: 't1', isActive: false, lastError: null }) // findOne() existence check
+        .mockResolvedValueOnce(null); // no active default exists anywhere for this tenant
+      deps.prisma.whatsAppNumber.update.mockResolvedValue({ id: 'n1', isDefault: true, isActive: true, lastError: null });
+      deps.prisma.whatsAppNumber.findUniqueOrThrow.mockResolvedValue({ id: 'n1', phoneNumberId: 'pn-1', wabaId: 'waba-1', accessToken: 'enc:recovered-token' });
+      const service = buildService(deps);
+
+      await service.reconnect('t1', 'n1', { accessToken: 'recovered-token' });
+
+      expect(deps.prisma.whatsAppNumber.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ isDefault: true }),
+      }));
+      expect(deps.prisma.tenant.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: { phoneNumberId: 'pn-1', wabaId: 'waba-1', accessToken: 'recovered-token' },
+      }));
+    });
+
+    it('does not steal default status back when the tenant already has a different active default', async () => {
+      const deps = buildDeps();
+      deps.prisma.whatsAppNumber.findFirst
+        .mockResolvedValueOnce({ id: 'n1', tenantId: 't1', isActive: false, lastError: null })
+        .mockResolvedValueOnce({ id: 'n2', tenantId: 't1', isDefault: true, isActive: true }); // a different number is already default
+      deps.prisma.whatsAppNumber.update.mockResolvedValue({ id: 'n1', isDefault: false, isActive: true, lastError: null });
+      const service = buildService(deps);
+
+      await service.reconnect('t1', 'n1', { accessToken: 'recovered-token' });
+
+      expect(deps.prisma.whatsAppNumber.update).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.not.objectContaining({ isDefault: true }),
+      }));
+    });
   });
 
   describe('testConnection', () => {
