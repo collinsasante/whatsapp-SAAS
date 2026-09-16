@@ -714,6 +714,7 @@ export class MessagesService {
             tenantId,
             conversationId: conversation.id,
             contactId: contact.id,
+            whatsappNumberId: conversation.whatsappNumberId,
             whatsappMessageId: waMessage.id,
             replyToId,
             direction: MessageDirection.INBOUND,
