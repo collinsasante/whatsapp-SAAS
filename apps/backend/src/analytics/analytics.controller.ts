@@ -47,6 +47,12 @@ export class AnalyticsController {
     return this.analyticsService.getHealth(tenantId);
   }
 
+  @Get('channels')
+  @ApiOperation({ summary: 'Live message-volume breakdown per WhatsApp number' })
+  getChannelBreakdown(@CurrentTenant() tenantId: string, @Query() query: DateRangeQueryDto) {
+    return this.analyticsService.getChannelBreakdown(tenantId, query);
+  }
+
   @Get('revenue')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'VerzChat subscription revenue by gateway (admin/owner only)' })
