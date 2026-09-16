@@ -11,6 +11,7 @@ export * from './endpoints/templates';
 export * from './endpoints/workspace';
 export * from './endpoints/ai';
 export * from './endpoints/channels';
+export * from './endpoints/whatsapp-numbers';
 export * from './endpoints/calls';
 export * from './endpoints/automation';
 export * from './endpoints/chatbot';
@@ -31,6 +32,7 @@ import { createTemplatesApi } from './endpoints/templates';
 import { createWorkspaceApi, createTenantApi } from './endpoints/workspace';
 import { createAiApi, createKnowledgeBaseApi } from './endpoints/ai';
 import { createChannelsApi } from './endpoints/channels';
+import { createWhatsAppNumbersApi } from './endpoints/whatsapp-numbers';
 import { createCallsApi } from './endpoints/calls';
 import { createAutomationApi } from './endpoints/automation';
 import { createChatbotFlowsApi } from './endpoints/chatbot';
@@ -53,6 +55,7 @@ export interface VerzChatApiClient {
   ai: ReturnType<typeof createAiApi>;
   knowledgeBase: ReturnType<typeof createKnowledgeBaseApi>;
   channels: ReturnType<typeof createChannelsApi>;
+  whatsappNumbers: ReturnType<typeof createWhatsAppNumbersApi>;
   calls: ReturnType<typeof createCallsApi>;
   automation: ReturnType<typeof createAutomationApi>;
   chatbotFlows: ReturnType<typeof createChatbotFlowsApi>;
@@ -78,6 +81,7 @@ export function createVerzChatApi(config: ApiClientConfig): VerzChatApiClient {
     ai: createAiApi(http),
     knowledgeBase: createKnowledgeBaseApi(http),
     channels: createChannelsApi(http),
+    whatsappNumbers: createWhatsAppNumbersApi(http),
     calls: createCallsApi(http),
     automation: createAutomationApi(http),
     chatbotFlows: createChatbotFlowsApi(http),

@@ -502,6 +502,9 @@ export const whatsappNumbersApi = {
     api.patch(`/whatsapp-numbers/${id}`, data),
   setDefault: (id: string) => api.patch(`/whatsapp-numbers/${id}/set-default`),
   delete: (id: string) => api.delete(`/whatsapp-numbers/${id}`),
+  reconnect: (id: string, data?: { label?: string; phoneNumberId?: string; wabaId?: string; accessToken?: string }) =>
+    api.patch(`/whatsapp-numbers/${id}/reconnect`, data ?? {}),
+  testConnection: (id: string) => api.post(`/whatsapp-numbers/${id}/test-connection`),
 };
 
 export const knowledgeBaseApi = {

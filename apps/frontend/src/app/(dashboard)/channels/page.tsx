@@ -3,14 +3,15 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Search, X, CheckCircle2, AlertCircle, RefreshCw, Clock,
-  Settings, ChevronDown, Radio, Zap, Activity, Shield,
-  Plug2, PlugZap,
+  Search, X, CheckCircle2, AlertCircle, AlertTriangle, RefreshCw, Clock,
+  Settings, Radio, Zap, Activity, Shield,
+  Plug2, PlugZap, Plus, Edit2, Unplug, Loader2, Wifi,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { channelsApi } from '@/lib/api';
+import { channelsApi, whatsappNumbersApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
+import { showConfirm } from '@/store/confirm.store';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,21 @@ interface ConnectedChannel {
   type: string;
   isActive: boolean;
   phoneNumber?: string;
+}
+
+type WhatsAppNumberStatus = 'CONNECTED' | 'NEEDS_ATTENTION' | 'DISCONNECTED';
+
+interface WhatsAppNumber {
+  id: string;
+  label: string;
+  phoneNumberId: string;
+  wabaId: string;
+  isDefault: boolean;
+  isActive: boolean;
+  status: WhatsAppNumberStatus;
+  lastError: string | null;
+  qualityRating: string | null;
+  createdAt: string;
 }
 
 interface ChannelDef {
@@ -264,77 +280,6 @@ function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => 
   );
 }
 
-function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ name: '', phoneNumberId: '', wabaId: '', accessToken: '' });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const waDef = CHANNELS[0];
-
-  const handleSave = async () => {
-    if (!form.name || !form.phoneNumberId || !form.wabaId || !form.accessToken) {
-      setError('All fields are required.');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      await channelsApi.create({ name: form.name, type: 'WHATSAPP', phoneNumberId: form.phoneNumberId, wabaId: form.wabaId, accessToken: form.accessToken });
-      onSaved();
-      onClose();
-    } catch (e) {
-      const msg = e && typeof e === 'object' && 'response' in e ? (e as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
-      setError(typeof msg === 'string' ? msg : 'Failed to connect.');
-    } finally { setSaving(false); }
-  };
-
-  const fields = [
-    { key: 'name' as const, label: 'Channel Name', placeholder: 'e.g. My WhatsApp Business' },
-    { key: 'phoneNumberId' as const, label: 'Phone Number ID', placeholder: 'From Meta Business Manager' },
-    { key: 'wabaId' as const, label: 'WABA ID', placeholder: 'WhatsApp Business Account ID' },
-    { key: 'accessToken' as const, label: 'Access Token', placeholder: 'Meta system user access token', secret: true },
-  ];
-
-  return (
-    <ModalShell onClose={onClose}>
-      <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <ChannelIcon ch={waDef} size="lg" />
-            <div>
-              <h2 className="text-base font-bold text-gray-900">Connect WhatsApp Business API</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Enter your Meta credentials</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
-        </div>
-      </div>
-      <div className="px-6 py-4 space-y-3">
-        {fields.map(f => (
-          <div key={f.key}>
-            <label className="text-xs font-semibold text-gray-500 block mb-1.5">{f.label}</label>
-            <input
-              type={f.secret ? 'password' : 'text'} placeholder={f.placeholder}
-              value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-            />
-          </div>
-        ))}
-        {error && (
-          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl">
-            <AlertCircle size={12} className="flex-shrink-0" />{error}
-          </div>
-        )}
-      </div>
-      <div className="px-6 pb-6 flex gap-2.5">
-        <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Cancel</button>
-        <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
-          {saving ? 'Connecting…' : 'Connect'}
-        </button>
-      </div>
-    </ModalShell>
-  );
-}
-
 function TelegramModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [botToken, setBotToken] = useState('');
   const [saving, setSaving] = useState(false);
@@ -406,10 +351,293 @@ function TelegramModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   );
 }
 
+// ─── WhatsApp multi-number management ──────────────────────────────────────────
+
+const WA_STATUS_STYLES: Record<WhatsAppNumberStatus, { dot: string; badge: string; label: string }> = {
+  CONNECTED: { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'Connected' },
+  NEEDS_ATTENTION: { dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Needs attention' },
+  DISCONNECTED: { dot: 'bg-gray-300', badge: 'bg-gray-50 text-gray-500 border-gray-200', label: 'Disconnected' },
+};
+
+function WhatsAppNumberModal({
+  number,
+  onClose,
+  onSaved,
+}: {
+  number: WhatsAppNumber | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isEdit = !!number;
+  const isReconnect = !!number && !number.isActive;
+  const [form, setForm] = useState({
+    label: number?.label ?? '', phoneNumberId: number?.phoneNumberId ?? '', wabaId: number?.wabaId ?? '', accessToken: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const waDef = CHANNELS[0];
+
+  const handleSave = async () => {
+    if (!form.label.trim() || !form.phoneNumberId.trim() || !form.wabaId.trim()) {
+      setError('Label, Phone Number ID, and WABA ID are required.');
+      return;
+    }
+    if (!isEdit && !form.accessToken.trim()) {
+      setError('Access token is required.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      if (isReconnect) {
+        await whatsappNumbersApi.reconnect(number.id, {
+          label: form.label, phoneNumberId: form.phoneNumberId, wabaId: form.wabaId,
+          ...(form.accessToken.trim() && { accessToken: form.accessToken.trim() }),
+        });
+        toast.success(`${form.label} reconnected`);
+      } else if (isEdit) {
+        await whatsappNumbersApi.update(number.id, {
+          label: form.label, phoneNumberId: form.phoneNumberId, wabaId: form.wabaId,
+          ...(form.accessToken.trim() && { accessToken: form.accessToken.trim() }),
+        });
+        toast.success(`${form.label} updated`);
+      } else {
+        await whatsappNumbersApi.create({ ...form, accessToken: form.accessToken.trim() });
+        toast.success(`${form.label} connected`);
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'response' in e ? (e as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
+      setError(typeof msg === 'string' ? msg : 'Failed to save this number.');
+    } finally { setSaving(false); }
+  };
+
+  const fields = [
+    { key: 'label' as const, label: 'Label', placeholder: 'e.g. Sales, Support' },
+    { key: 'phoneNumberId' as const, label: 'Phone Number ID', placeholder: 'From Meta Business Manager' },
+    { key: 'wabaId' as const, label: 'WABA ID', placeholder: 'WhatsApp Business Account ID' },
+    { key: 'accessToken' as const, label: `Access Token${isEdit ? ' (leave blank to keep existing)' : ''}`, placeholder: isEdit ? 'Leave blank to keep existing' : 'Meta system user access token', secret: true },
+  ];
+
+  return (
+    <ModalShell onClose={onClose}>
+      <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <ChannelIcon ch={waDef} size="lg" />
+            <div>
+              <h2 className="text-base font-bold text-gray-900">
+                {isReconnect ? 'Reconnect WhatsApp Number' : isEdit ? 'Edit WhatsApp Number' : 'Add WhatsApp Number'}
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {isReconnect ? 'Confirm or update credentials to bring this number back online' : 'Enter your Meta credentials'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+        </div>
+      </div>
+      <div className="px-6 py-4 space-y-3">
+        {fields.map(f => (
+          <div key={f.key}>
+            <label className="text-xs font-semibold text-gray-500 block mb-1.5">{f.label}</label>
+            <input
+              type={f.secret ? 'password' : 'text'} placeholder={f.placeholder}
+              value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
+            />
+          </div>
+        ))}
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl">
+            <AlertCircle size={12} className="flex-shrink-0" />{error}
+          </div>
+        )}
+      </div>
+      <div className="px-6 pb-6 flex gap-2.5">
+        <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Cancel</button>
+        <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
+          {saving ? 'Saving…' : isReconnect ? 'Reconnect' : isEdit ? 'Save changes' : 'Connect'}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function WhatsAppNumberRow({
+  num,
+  onChanged,
+  onEdit,
+}: {
+  num: WhatsAppNumber;
+  onChanged: () => void;
+  onEdit: () => void;
+}) {
+  const [testing, setTesting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const style = WA_STATUS_STYLES[num.status];
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await whatsappNumbersApi.testConnection(num.id);
+      const data = res.data as { success: boolean; error?: string };
+      if (data.success) toast.success(`${num.label}: connection is healthy`);
+      else toast.error(`${num.label}: ${data.error ?? 'connection test failed'}`);
+      onChanged();
+    } catch {
+      toast.error('Could not reach the server to test this connection.');
+    } finally { setTesting(false); }
+  };
+
+  const handleSetDefault = async () => {
+    setBusy(true);
+    try {
+      await whatsappNumbersApi.setDefault(num.id);
+      toast.success(`${num.label} is now the default number`);
+      onChanged();
+    } catch { toast.error('Failed to set default number'); }
+    finally { setBusy(false); }
+  };
+
+  const handleDisconnect = async () => {
+    if (!await showConfirm(`Disconnect "${num.label}"?`, {
+      subtext: 'Conversations, messages, and analytics for this number are preserved. You can reconnect it later.',
+      confirmLabel: 'Disconnect', danger: true,
+    })) return;
+    setBusy(true);
+    try {
+      await whatsappNumbersApi.delete(num.id);
+      toast.success(`${num.label} disconnected`);
+      onChanged();
+    } catch { toast.error('Failed to disconnect this number'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors',
+      num.isDefault ? 'bg-emerald-50/50 border-emerald-200' : 'bg-white border-gray-100')}>
+      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', style.dot)} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-gray-800 truncate">{num.label}</span>
+          {num.isDefault && <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">Default</span>}
+          <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full border', style.badge)}>{style.label}</span>
+        </div>
+        <p className="text-xs text-gray-400 font-mono mt-0.5 truncate">ID: {num.phoneNumberId} · WABA: {num.wabaId}</p>
+        {num.status === 'NEEDS_ATTENTION' && num.lastError && (
+          <p className="text-xs text-amber-600 mt-1 flex items-center gap-1"><AlertTriangle size={11} className="flex-shrink-0" />{num.lastError}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {num.isActive && (
+          <button onClick={() => { void handleTest(); }} disabled={testing} title="Test connection"
+            className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50">
+            {testing ? <Loader2 size={13} className="animate-spin" /> : <Wifi size={13} />}
+          </button>
+        )}
+        {num.isActive && !num.isDefault && (
+          <button onClick={() => { void handleSetDefault(); }} disabled={busy}
+            className="text-xs text-emerald-600 hover:text-emerald-800 px-2 py-1 rounded-lg hover:bg-emerald-50 transition-colors font-medium disabled:opacity-50">
+            Set default
+          </button>
+        )}
+        <button onClick={onEdit} title="Edit" className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+          <Edit2 size={13} />
+        </button>
+        {num.isActive ? (
+          <button onClick={() => { void handleDisconnect(); }} disabled={busy} title="Disconnect"
+            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50">
+            <Unplug size={13} />
+          </button>
+        ) : (
+          <button onClick={onEdit} className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors">
+            <RefreshCw size={11} />Reconnect
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WhatsAppSection({
+  numbers,
+  onChanged,
+}: {
+  numbers: WhatsAppNumber[];
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState<WhatsAppNumber | 'new' | null>(null);
+  const waDef = CHANNELS[0];
+  const activeCount = numbers.filter(n => n.isActive).length;
+
+  return (
+    <div className="relative bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl bg-emerald-500" />
+      <div className="pl-5 pr-5 py-5">
+        <div className="flex items-start gap-4">
+          <ChannelIcon ch={waDef} size="md" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-gray-900 text-sm">{waDef.name}</h3>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">Popular</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {numbers.length === 0
+                    ? 'Connect a number to start sending and receiving on WhatsApp.'
+                    : `${numbers.length} number${numbers.length === 1 ? '' : 's'} connected · ${activeCount} active`}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditing('new')}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all shadow-sm hover:shadow bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <Plus size={13} />
+                {numbers.length === 0 ? 'Connect' : 'Add another number'}
+              </button>
+            </div>
+
+            {numbers.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {numbers.map(num => (
+                  <WhatsAppNumberRow key={num.id} num={num} onChanged={onChanged} onEdit={() => setEditing(num)} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {editing && (
+        <WhatsAppNumberModal
+          number={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={onChanged}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Hero Section ─────────────────────────────────────────────────────────────
 
-function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
-  const activeCount = connected.filter(c => c.isActive).length;
+// Channel rows for type WHATSAPP have isActive fixed true at creation and
+// never updated by WhatsAppNumbersService.remove()/reconnect() (only the
+// WhatsAppNumber row's own isActive changes) -- so counts here are built
+// from `connected` filtered to non-WhatsApp types, combined with
+// `waNumbers` (always current) for WhatsApp, rather than trusting a
+// Channel.isActive that can silently go stale.
+function otherConnected(connected: ConnectedChannel[]): ConnectedChannel[] {
+  return connected.filter(c => c.type?.toUpperCase() !== 'WHATSAPP');
+}
+
+function HeroSection({ connected, waNumbers }: { connected: ConnectedChannel[]; waNumbers: WhatsAppNumber[] }) {
+  const others = otherConnected(connected);
+  const totalConnected = others.length + waNumbers.length;
+  const activeCount = others.filter(c => c.isActive).length + waNumbers.filter(n => n.isActive).length;
 
   return (
     <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-teal-950">
@@ -443,7 +671,7 @@ function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
                 <Plug2 size={15} className="text-white" />
               </div>
               <div>
-                <p className="text-xl font-bold text-white leading-none">{connected.length}</p>
+                <p className="text-xl font-bold text-white leading-none">{totalConnected}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">Connected</p>
               </div>
             </div>
@@ -474,13 +702,20 @@ function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
 
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 
-function StatsBar({ connected }: { connected: ConnectedChannel[] }) {
-  const activeCount = connected.filter(c => c.isActive).length;
-  const notConnected = CHANNELS.length - connected.length;
+function StatsBar({ connected, waNumbers }: { connected: ConnectedChannel[]; waNumbers: WhatsAppNumber[] }) {
+  const others = otherConnected(connected);
+  const totalConnected = others.length + waNumbers.length;
+  const activeCount = others.filter(c => c.isActive).length + waNumbers.filter(n => n.isActive).length;
+  // Platforms with zero connections, not a raw subtraction -- a platform
+  // (WhatsApp) can now have more than one connection, so CHANNELS.length
+  // minus a raw count can go negative once multi-account is in play.
+  const connectedTypes = new Set(others.map(c => c.type?.toUpperCase()));
+  if (waNumbers.length > 0) connectedTypes.add('WHATSAPP');
+  const notConnected = CHANNELS.length - connectedTypes.size;
 
   const stats = [
     { label: 'Total Platforms', value: CHANNELS.length, icon: <Shield size={16} className="text-slate-500" />, bg: 'bg-slate-50', border: 'border-slate-200' },
-    { label: 'Connected', value: connected.length, icon: <Plug2 size={16} className="text-teal-600" />, bg: 'bg-teal-50', border: 'border-teal-200', highlight: true },
+    { label: 'Connected', value: totalConnected, icon: <Plug2 size={16} className="text-teal-600" />, bg: 'bg-teal-50', border: 'border-teal-200', highlight: true },
     { label: 'Active & Syncing', value: activeCount, icon: <Activity size={16} className="text-emerald-600" />, bg: 'bg-emerald-50', border: 'border-emerald-200' },
     { label: 'Not Connected', value: notConnected, icon: <PlugZap size={16} className="text-amber-600" />, bg: 'bg-amber-50', border: 'border-amber-200' },
   ];
@@ -659,7 +894,7 @@ function ChannelsPageInner() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'connected' | 'disconnected'>('all');
   const [connected, setConnected] = useState<ConnectedChannel[]>([]);
-  const [showWhatsApp, setShowWhatsApp] = useState(false);
+  const [waNumbers, setWaNumbers] = useState<WhatsAppNumber[]>([]);
   const [showTelegram, setShowTelegram] = useState(false);
   const [oauthChannel, setOauthChannel] = useState<ChannelDef | null>(null);
 
@@ -670,7 +905,14 @@ function ChannelsPageInner() {
     } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => { void loadConnected(); }, [loadConnected]);
+  const loadWaNumbers = useCallback(async () => {
+    try {
+      const res = await whatsappNumbersApi.list();
+      setWaNumbers(res.data as WhatsAppNumber[]);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { void loadConnected(); void loadWaNumbers(); }, [loadConnected, loadWaNumbers]);
 
   useEffect(() => {
     if (!searchParams) return;
@@ -699,7 +941,11 @@ function ChannelsPageInner() {
   const getConnectedData = (ch: ChannelDef): ConnectedChannel | undefined =>
     connected.find(c => c.type?.toUpperCase() === TYPE_MAP[ch.id]);
 
-  const filtered = CHANNELS.filter(ch => {
+  // WhatsApp renders as its own multi-number section below, not a generic
+  // ChannelCard -- excluded here so it isn't shown twice.
+  const otherChannels = CHANNELS.filter(ch => ch.id !== 'whatsapp-api');
+
+  const filtered = otherChannels.filter(ch => {
     const isConn = !!getConnectedData(ch);
     if (statusFilter === 'connected' && !isConn) return false;
     if (statusFilter === 'disconnected' && isConn) return false;
@@ -719,7 +965,6 @@ function ChannelsPageInner() {
   const handleConnect = (ch: ChannelDef) => {
     if (ch.connectType === 'api') {
       if (ch.id === 'telegram') { setShowTelegram(true); return; }
-      setShowWhatsApp(true);
       return;
     }
     if (ch.connectType === 'oauth') { setOauthChannel(ch); }
@@ -729,10 +974,10 @@ function ChannelsPageInner() {
     <div className="h-full flex flex-col overflow-hidden bg-gray-50">
       <div className="flex-1 overflow-y-auto">
         {/* Hero */}
-        <HeroSection connected={connected} />
+        <HeroSection connected={connected} waNumbers={waNumbers} />
 
         {/* Stats */}
-        <StatsBar connected={connected} />
+        <StatsBar connected={connected} waNumbers={waNumbers} />
 
         {/* Toolbar */}
         <div className="px-8 pt-5 pb-4 bg-gray-50">
@@ -766,11 +1011,16 @@ function ChannelsPageInner() {
                       : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
                   )}
                 >
-                  {f === 'all' ? 'All' : f === 'connected' ? `Connected (${connected.length})` : 'Not Connected'}
+                  {f === 'all' ? 'All' : f === 'connected' ? `Connected (${otherConnected(connected).length})` : 'Not Connected'}
                 </button>
               ))}
             </div>
           </div>
+        </div>
+
+        {/* WhatsApp -- the one fully-functional, multi-account channel */}
+        <div className="px-8 pb-3">
+          <WhatsAppSection numbers={waNumbers} onChanged={() => { void loadWaNumbers(); void loadConnected(); }} />
         </div>
 
         {/* Channel list */}
@@ -797,7 +1047,6 @@ function ChannelsPageInner() {
       </div>
 
       {/* Modals */}
-      {showWhatsApp && <WhatsAppModal onClose={() => setShowWhatsApp(false)} onSaved={() => { void loadConnected(); }} />}
       {showTelegram && <TelegramModal onClose={() => setShowTelegram(false)} onSaved={() => { void loadConnected(); }} />}
       {oauthChannel && <OAuthModal channel={oauthChannel} onClose={() => setOauthChannel(null)} />}
     </div>

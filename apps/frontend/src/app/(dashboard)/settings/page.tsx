@@ -1,16 +1,16 @@
 'use client';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import {
   Building2, Phone, MapPin, Globe, FileText, Mail, Zap, Copy, Check,
-  Plus, Trash2, Edit2, Eye, EyeOff, Key, Users, MessageSquare,
+  Trash2, Eye, EyeOff, Key, Users, MessageSquare,
   Shield, RefreshCw, AlertTriangle, X, Save,
 } from 'lucide-react';
-import { tenantApi, cannedResponsesApi, apiKeysApi, whatsappNumbersApi } from '@/lib/api';
+import { tenantApi, cannedResponsesApi, apiKeysApi } from '@/lib/api';
 import { TeamManagement } from '@/components/shared/TeamManagement';
 import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
-import { showConfirm } from '@/store/confirm.store';
 
 interface TenantData {
   id: string; name: string;
@@ -38,10 +38,6 @@ interface ApiKey {
   createdBy: { id: string; name: string };
 }
 
-interface WhatsAppNumber {
-  id: string; label: string; phoneNumberId: string; wabaId: string;
-  isDefault: boolean; isActive: boolean; createdAt: string;
-}
 
 function CopyButton({ value, size = 'sm' }: { value: string; size?: 'sm' | 'xs' }) {
   const [copied, setCopied] = useState(false);
@@ -86,7 +82,6 @@ export default function SettingsPage() {
   const [workspaceName, setWorkspaceName] = useState('');
 
   // Forms
-  const [waForm, setWaForm] = useState({ phoneNumberId: '', wabaId: '', accessToken: '' });
   const [profileForm, setProfileForm] = useState({
     businessName: '', businessEmail: '', businessPhone: '',
     businessDescription: '', businessAddress: '', businessWebsite: '',
@@ -106,17 +101,8 @@ export default function SettingsPage() {
   const [newKeyName, setNewKeyName] = useState('');
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [showNewKey, setShowNewKey] = useState(false);
-  const [showPhoneId, setShowPhoneId] = useState(false);
   const [showWebhookUrl, setShowWebhookUrl] = useState(false);
   const [showVerifyToken, setShowVerifyToken] = useState(false);
-
-  // WhatsApp numbers management
-  const [waNumbers, setWaNumbers] = useState<WhatsAppNumber[]>([]);
-  const [waNumsLoading, setWaNumsLoading] = useState(false);
-  const [showAddNumber, setShowAddNumber] = useState(false);
-  const [editingNumber, setEditingNumber] = useState<WhatsAppNumber | null>(null);
-  const [numForm, setNumForm] = useState({ label: '', phoneNumberId: '', wabaId: '', accessToken: '' });
-  const [numSaving, setNumSaving] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -125,7 +111,6 @@ export default function SettingsPage() {
         const data = res.data as TenantData;
         setTenant(data);
         setWorkspaceName(data.name ?? '');
-        setWaForm({ phoneNumberId: data.phoneNumberId ?? '', wabaId: data.wabaId ?? '', accessToken: '' });
         if (data.settings) {
           setProfileForm({
             businessName: data.settings.businessName ?? '',
@@ -160,89 +145,10 @@ export default function SettingsPage() {
     if (activeTab === 'API Keys') void loadApiKeys();
   }, [activeTab, loadApiKeys]);
 
-  const loadWaNumbers = useCallback(async () => {
-    setWaNumsLoading(true);
-    try {
-      const res = await whatsappNumbersApi.list();
-      setWaNumbers(res.data as WhatsAppNumber[]);
-    } catch { /* ignore */ }
-    finally { setWaNumsLoading(false); }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'WhatsApp Business API') void loadWaNumbers();
-  }, [activeTab, loadWaNumbers]);
-
-  const openAddNumber = () => {
-    setEditingNumber(null);
-    setNumForm({ label: '', phoneNumberId: '', wabaId: '', accessToken: '' });
-    setShowAddNumber(true);
-  };
-
-  const openEditNumber = (num: WhatsAppNumber) => {
-    setEditingNumber(num);
-    setNumForm({ label: num.label, phoneNumberId: num.phoneNumberId, wabaId: num.wabaId, accessToken: '' });
-    setShowAddNumber(true);
-  };
-
-  const saveNumber = async () => {
-    if (!numForm.label.trim() || !numForm.phoneNumberId.trim() || !numForm.wabaId.trim()) {
-      toast.error('Label, Phone Number ID and WABA ID are required');
-      return;
-    }
-    if (!editingNumber && !numForm.accessToken.trim()) {
-      toast.error('Access token is required for new numbers');
-      return;
-    }
-    setNumSaving(true);
-    try {
-      if (editingNumber) {
-        const payload = { label: numForm.label, phoneNumberId: numForm.phoneNumberId, wabaId: numForm.wabaId, ...(numForm.accessToken && { accessToken: numForm.accessToken }) };
-        await whatsappNumbersApi.update(editingNumber.id, payload);
-        toast.success('Number updated');
-      } else {
-        await whatsappNumbersApi.create({ ...numForm });
-        toast.success('Number added');
-      }
-      setShowAddNumber(false);
-      void loadWaNumbers();
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save number';
-      toast.error(msg);
-    } finally { setNumSaving(false); }
-  };
-
-  const setDefaultNumber = async (id: string) => {
-    try {
-      await whatsappNumbersApi.setDefault(id);
-      toast.success('Default number updated');
-      void loadWaNumbers();
-    } catch { toast.error('Failed to update default'); }
-  };
-
-  const deleteNumber = async (id: string, label: string) => {
-    if (!await showConfirm(`Delete "${label}"?`, { subtext: 'This cannot be undone.' })) return;
-    try {
-      await whatsappNumbersApi.delete(id);
-      toast.success('Number deleted');
-      void loadWaNumbers();
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to delete number';
-      toast.error(msg);
-    }
-  };
-
   const saveProfile = async () => {
     setSaving(true);
     try { await tenantApi.updateSettings(profileForm); toast.success('Business profile saved'); }
     catch { toast.error('Failed to save profile'); }
-    finally { setSaving(false); }
-  };
-
-  const saveWaConfig = async () => {
-    setSaving(true);
-    try { await tenantApi.update(waForm); toast.success('WhatsApp configuration saved'); }
-    catch { toast.error('Failed to save configuration'); }
     finally { setSaving(false); }
   };
 
@@ -414,124 +320,36 @@ export default function SettingsPage() {
             {/* ── WhatsApp API ── */}
             {activeTab === 'WhatsApp Business API' && (
               <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                <h2 className="text-base font-semibold text-gray-900 mb-1">WhatsApp API Configuration</h2>
-                <p className="text-sm text-gray-500 mb-5">Connect your WhatsApp Business API via Meta Business Manager.</p>
-                <div className="space-y-4">
-                  <Field label="Phone Number ID">
-                    <div className="relative">
-                      <input type={showPhoneId ? 'text' : 'password'} value={waForm.phoneNumberId} placeholder="From Meta Business Manager" onChange={(e) => setWaForm((f) => ({ ...f, phoneNumberId: e.target.value }))} className={cn(INPUT, 'pr-10')} />
-                      <button type="button" onClick={() => setShowPhoneId(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        {showPhoneId ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </div>
-                  </Field>
-                  <Field label="WABA ID">
-                    <input type="text" value={waForm.wabaId} placeholder="WhatsApp Business Account ID" onChange={(e) => setWaForm((f) => ({ ...f, wabaId: e.target.value }))} className={INPUT} />
-                  </Field>
-                  <Field label="Permanent Access Token">
-                    <input type="password" value={waForm.accessToken} placeholder="Leave blank to keep existing" onChange={(e) => setWaForm((f) => ({ ...f, accessToken: e.target.value }))} className={INPUT} />
-                  </Field>
-                  <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 space-y-2">
-                    <p className="text-xs font-semibold text-teal-700">Webhook URL</p>
-                    <div className="flex items-center gap-2">
-                      <code className="text-xs text-teal-800 break-all flex-1 font-mono">{showWebhookUrl ? webhookUrl : '••••••••••••••••••••••••••••••••'}</code>
-                      <button type="button" onClick={() => setShowWebhookUrl(v => !v)} className="text-teal-500 hover:text-teal-700 flex-shrink-0">
-                        {showWebhookUrl ? <EyeOff size={13} /> : <Eye size={13} />}
-                      </button>
-                      {showWebhookUrl && <CopyButton value={webhookUrl} />}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-teal-600">Verify token:</span>
-                      <code className="bg-teal-100 px-1.5 py-0.5 rounded text-xs font-mono text-teal-800">{showVerifyToken ? tenant?.webhookVerifyToken : '••••••••'}</code>
-                      <button type="button" onClick={() => setShowVerifyToken(v => !v)} className="text-teal-500 hover:text-teal-700">
-                        {showVerifyToken ? <EyeOff size={12} /> : <Eye size={12} />}
-                      </button>
-                      {showVerifyToken && <CopyButton value={tenant?.webhookVerifyToken ?? ''} size="xs" />}
-                    </div>
+                <h2 className="text-base font-semibold text-gray-900 mb-1">WhatsApp Business API</h2>
+                <p className="text-sm text-gray-500 mb-5">
+                  Connect and manage your WhatsApp numbers, test connections, and reconnect after a credential change from the Channels page.
+                </p>
+                <Link
+                  href="/channels"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white text-sm rounded-xl font-semibold hover:bg-teal-700 transition-colors"
+                >
+                  <MessageSquare size={15} />
+                  Manage WhatsApp numbers
+                </Link>
+
+                <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 space-y-2 mt-5">
+                  <p className="text-xs font-semibold text-teal-700">Webhook URL</p>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs text-teal-800 break-all flex-1 font-mono">{showWebhookUrl ? webhookUrl : '••••••••••••••••••••••••••••••••'}</code>
+                    <button type="button" onClick={() => setShowWebhookUrl(v => !v)} className="text-teal-500 hover:text-teal-700 flex-shrink-0">
+                      {showWebhookUrl ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                    {showWebhookUrl && <CopyButton value={webhookUrl} />}
                   </div>
-                  <button onClick={() => { void saveWaConfig(); }} disabled={saving} className={BTN_PRIMARY}>
-                    {saving ? 'Saving…' : 'Save Configuration'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-teal-600">Verify token:</span>
+                    <code className="bg-teal-100 px-1.5 py-0.5 rounded text-xs font-mono text-teal-800">{showVerifyToken ? tenant?.webhookVerifyToken : '••••••••'}</code>
+                    <button type="button" onClick={() => setShowVerifyToken(v => !v)} className="text-teal-500 hover:text-teal-700">
+                      {showVerifyToken ? <EyeOff size={12} /> : <Eye size={12} />}
+                    </button>
+                    {showVerifyToken && <CopyButton value={tenant?.webhookVerifyToken ?? ''} size="xs" />}
+                  </div>
                 </div>
-              </section>
-            )}
-
-            {/* ── WhatsApp Numbers ── */}
-            {activeTab === 'WhatsApp Business API' && (
-              <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-1">
-                  <h2 className="text-base font-semibold text-gray-900">WhatsApp Numbers</h2>
-                  <button onClick={openAddNumber} className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white text-xs rounded-lg font-semibold hover:bg-teal-700 transition-colors">
-                    <Plus size={13} /> Add Number
-                  </button>
-                </div>
-                <p className="text-sm text-gray-500 mb-4">Manage multiple WhatsApp numbers for this workspace. The default number is used for outgoing messages.</p>
-
-                {/* Add/Edit form */}
-                {showAddNumber && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 space-y-3">
-                    <p className="text-sm font-semibold text-gray-800">{editingNumber ? 'Edit Number' : 'Add New Number'}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Label</label>
-                        <input type="text" value={numForm.label} onChange={(e) => setNumForm(f => ({ ...f, label: e.target.value }))} placeholder="e.g. Main, Support, Sales" className={INPUT} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number ID</label>
-                        <input type="text" value={numForm.phoneNumberId} onChange={(e) => setNumForm(f => ({ ...f, phoneNumberId: e.target.value }))} placeholder="From Meta Business Manager" className={INPUT} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">WABA ID</label>
-                        <input type="text" value={numForm.wabaId} onChange={(e) => setNumForm(f => ({ ...f, wabaId: e.target.value }))} placeholder="WhatsApp Business Account ID" className={INPUT} />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Access Token{editingNumber && ' (leave blank to keep existing)'}</label>
-                        <input type="password" value={numForm.accessToken} onChange={(e) => setNumForm(f => ({ ...f, accessToken: e.target.value }))} placeholder={editingNumber ? 'Leave blank to keep existing' : 'Permanent access token'} className={INPUT} />
-                      </div>
-                    </div>
-                    <div className="flex gap-2 pt-1">
-                      <button onClick={() => { void saveNumber(); }} disabled={numSaving} className={BTN_PRIMARY}>
-                        {numSaving ? 'Saving…' : editingNumber ? 'Update' : 'Add Number'}
-                      </button>
-                      <button onClick={() => setShowAddNumber(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors">Cancel</button>
-                    </div>
-                  </div>
-                )}
-
-                {waNumsLoading ? (
-                  <div className="flex justify-center py-6"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-teal-600" /></div>
-                ) : waNumbers.length === 0 ? (
-                  <div className="text-center py-6 text-sm text-gray-400">No numbers yet. Add one above or save credentials in WhatsApp API Configuration.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {waNumbers.map((num) => (
-                      <div key={num.id} className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors', num.isDefault ? 'bg-teal-50 border-teal-200' : 'bg-white border-gray-100')}>
-                        <div className={cn('w-2 h-2 rounded-full flex-shrink-0', num.isActive ? 'bg-teal-500' : 'bg-gray-300')} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-800 truncate">{num.label}</span>
-                            {num.isDefault && <span className="text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded font-medium">Default</span>}
-                            {!num.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Inactive</span>}
-                          </div>
-                          <p className="text-xs text-gray-400 font-mono mt-0.5 truncate">ID: {num.phoneNumberId} · WABA: {num.wabaId}</p>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {!num.isDefault && (
-                            <button onClick={() => { void setDefaultNumber(num.id); }} className="text-xs text-teal-600 hover:text-teal-800 px-2 py-1 rounded-lg hover:bg-teal-50 transition-colors font-medium">
-                              Set default
-                            </button>
-                          )}
-                          <button onClick={() => openEditNumber(num)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-                            <Edit2 size={13} />
-                          </button>
-                          <button onClick={() => { void deleteNumber(num.id, num.label); }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </section>
             )}
 
