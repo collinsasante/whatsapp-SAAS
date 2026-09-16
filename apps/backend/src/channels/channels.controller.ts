@@ -9,7 +9,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
-import { UserRole } from '@whatsapp-platform/shared-types';
+import { CurrentUser } from '../common/decorators/user.decorator';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Channels')
 @ApiBearerAuth()
@@ -130,8 +131,8 @@ export class ChannelsController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create a new channel' })
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateChannelDto) {
-    return this.channelsService.create(tenantId, dto);
+  create(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: CreateChannelDto) {
+    return this.channelsService.create(tenantId, dto, user.sub);
   }
 
   @Patch(':id')
@@ -139,10 +140,11 @@ export class ChannelsController {
   @ApiOperation({ summary: 'Update a channel' })
   update(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateChannelDto,
   ) {
-    return this.channelsService.update(tenantId, id, dto);
+    return this.channelsService.update(tenantId, id, dto, user.sub);
   }
 
   @Patch(':id/toggle')

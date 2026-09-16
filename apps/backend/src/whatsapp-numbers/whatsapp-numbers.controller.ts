@@ -17,7 +17,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
-import { UserRole } from '@whatsapp-platform/shared-types';
+import { CurrentUser } from '../common/decorators/user.decorator';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 
 @ApiTags('WhatsApp Numbers')
 @ApiBearerAuth()
@@ -35,8 +36,8 @@ export class WhatsAppNumbersController {
   @Post()
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Add a new WhatsApp number to the workspace' })
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateWhatsAppNumberDto) {
-    return this.service.create(tenantId, dto);
+  create(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: CreateWhatsAppNumberDto) {
+    return this.service.create(tenantId, dto, user.sub);
   }
 
   @Patch(':id')
@@ -44,24 +45,25 @@ export class WhatsAppNumbersController {
   @ApiOperation({ summary: 'Update a WhatsApp number' })
   update(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateWhatsAppNumberDto,
   ) {
-    return this.service.update(tenantId, id, dto);
+    return this.service.update(tenantId, id, dto, user.sub);
   }
 
   @Patch(':id/set-default')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Set a number as the default for outgoing messages' })
-  setDefault(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.service.setDefault(tenantId, id);
+  setDefault(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.setDefault(tenantId, id, user.sub);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Delete a WhatsApp number' })
-  remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.service.remove(tenantId, id);
+  @ApiOperation({ summary: 'Disconnect a WhatsApp number (soft -- conversations/messages/analytics are preserved)' })
+  remove(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.remove(tenantId, id, user.sub);
   }
 }

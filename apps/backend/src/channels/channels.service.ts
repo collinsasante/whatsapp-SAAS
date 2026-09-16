@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
 
@@ -9,6 +10,7 @@ export class ChannelsService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private whatsAppNumbers: WhatsAppNumbersService,
   ) {}
 
   async findAll(tenantId: string) {
@@ -24,14 +26,29 @@ export class ChannelsService {
     return channel;
   }
 
-  async create(tenantId: string, dto: CreateChannelDto) {
-    // Merge top-level WhatsApp fields into credentials for storage
-    const mergedCredentials: Record<string, unknown> = { ...(dto.credentials ?? {}) };
-    if (dto.phoneNumberId) mergedCredentials.phoneNumberId = dto.phoneNumberId;
-    if (dto.wabaId)        mergedCredentials.wabaId        = dto.wabaId;
-    if (dto.accessToken)   mergedCredentials.accessToken   = dto.accessToken;
+  // WhatsApp channels are created/updated entirely through
+  // WhatsAppNumbersService (single write path -- encrypts the token,
+  // links/creates the Channel row, keeps Tenant's denormalized default in
+  // sync, and audit-logs) rather than writing Channel.credentials directly
+  // here. This method still returns a Channel-shaped object either way, so
+  // existing callers of POST/PATCH /channels see no contract change.
+  async create(tenantId: string, dto: CreateChannelDto, actorId?: string) {
+    if (dto.type === ChannelType.WHATSAPP) {
+      if (!dto.phoneNumberId || !dto.wabaId || !dto.accessToken) {
+        throw new BadRequestException('WhatsApp channels require phoneNumberId, wabaId, and accessToken');
+      }
+      const num = await this.whatsAppNumbers.create(tenantId, {
+        label: dto.name,
+        phoneNumberId: dto.phoneNumberId,
+        wabaId: dto.wabaId,
+        accessToken: dto.accessToken,
+      }, actorId);
+      if (!num.channelId) throw new Error('WhatsApp number was created without a linked channel');
+      return this.findOne(tenantId, num.channelId);
+    }
 
-    const channel = await this.prisma.channel.create({
+    const mergedCredentials: Record<string, unknown> = { ...(dto.credentials ?? {}) };
+    return this.prisma.channel.create({
       data: {
         tenantId,
         type: dto.type as ChannelType,
@@ -40,19 +57,27 @@ export class ChannelsService {
         metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
-
-    // Keep tenant WhatsApp fields in sync so all features (templates, messaging) use the same creds
-    if (dto.type === ChannelType.WHATSAPP) {
-      await this.syncWhatsAppToTenant(tenantId, dto.phoneNumberId, dto.wabaId, dto.accessToken);
-    }
-
-    return channel;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateChannelDto) {
+  async update(tenantId: string, id: string, dto: UpdateChannelDto, actorId?: string) {
     const existing = await this.findOne(tenantId, id);
 
-    // Merge top-level WhatsApp fields into credentials
+    if (existing.type === ChannelType.WHATSAPP) {
+      const num = await this.prisma.whatsAppNumber.findFirst({ where: { tenantId, channelId: id } });
+      if (num) {
+        await this.whatsAppNumbers.update(tenantId, num.id, {
+          label: dto.name,
+          phoneNumberId: dto.phoneNumberId,
+          wabaId: dto.wabaId,
+          accessToken: dto.accessToken,
+          isActive: dto.isActive,
+        }, actorId);
+        return this.findOne(tenantId, id);
+      }
+      // No linked WhatsAppNumber (shouldn't happen after the Phase 1
+      // backfill, but fall through to the generic path rather than error).
+    }
+
     let credentialsUpdate: Prisma.InputJsonValue | undefined;
     if (dto.credentials || dto.phoneNumberId || dto.wabaId || dto.accessToken) {
       const base = (existing.credentials as Record<string, unknown>) ?? {};
@@ -65,7 +90,7 @@ export class ChannelsService {
       } as Prisma.InputJsonValue;
     }
 
-    const channel = await this.prisma.channel.update({
+    return this.prisma.channel.update({
       where: { id },
       data: {
         ...(dto.name       !== undefined && { name:      dto.name }),
@@ -74,56 +99,6 @@ export class ChannelsService {
         ...(dto.metadata                 && { metadata:  dto.metadata as Prisma.InputJsonValue }),
       },
     });
-
-    // Sync WhatsApp fields to tenant whenever they're provided
-    if (existing.type === ChannelType.WHATSAPP) {
-      await this.syncWhatsAppToTenant(tenantId, dto.phoneNumberId, dto.wabaId, dto.accessToken);
-    }
-
-    return channel;
-  }
-
-  private async syncWhatsAppToTenant(
-    tenantId: string,
-    phoneNumberId?: string,
-    wabaId?: string,
-    accessToken?: string,
-  ) {
-    if (!phoneNumberId && !wabaId && !accessToken) return;
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        ...(phoneNumberId && { phoneNumberId }),
-        ...(wabaId        && { wabaId }),
-        ...(accessToken   && { accessToken }),
-      },
-    });
-
-    // Keep whatsapp_numbers table in sync — upsert the entry for this phoneNumberId
-    if (phoneNumberId && wabaId && accessToken) {
-      const existing = await this.prisma.whatsAppNumber.findUnique({
-        where: { tenantId_phoneNumberId: { tenantId, phoneNumberId } },
-      });
-      if (existing) {
-        await this.prisma.whatsAppNumber.update({
-          where: { id: existing.id },
-          data: { wabaId, accessToken },
-        });
-      } else {
-        // First number for this tenant → make it the default
-        const hasDefault = await this.prisma.whatsAppNumber.findFirst({ where: { tenantId, isDefault: true } });
-        await this.prisma.whatsAppNumber.create({
-          data: {
-            tenantId,
-            label: 'Default',
-            phoneNumberId,
-            wabaId,
-            accessToken,
-            isDefault: !hasDefault,
-          },
-        });
-      }
-    }
   }
 
   async toggle(tenantId: string, id: string) {

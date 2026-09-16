@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
 import { UpdateTenantDto, UpdateTenantSettingsDto } from './dto/update-tenant.dto';
 
 @Injectable()
 export class TenantService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsAppNumbers: WhatsAppNumbersService,
+  ) {}
 
   async findById(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({
@@ -16,32 +20,20 @@ export class TenantService {
   }
 
   async update(tenantId: string, dto: UpdateTenantDto) {
-    const tenant = await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: dto,
-    });
+    // WhatsApp credentials go through WhatsAppNumbersService (single write
+    // path -- encrypts the token, links/creates the Channel row, audit-logs)
+    // instead of being written onto Tenant/Channel directly here, which is
+    // what this "legacy quick-save" path used to do independently of the
+    // dedicated /whatsapp-numbers and /channels write paths.
+    const { phoneNumberId, wabaId, accessToken, ...rest } = dto;
 
-    // Sync a Channel record so the Channels page reflects the connected WhatsApp
-    if (dto.phoneNumberId || dto.wabaId || dto.accessToken) {
-      const existing = await this.prisma.channel.findFirst({ where: { tenantId, type: 'WHATSAPP' } });
-      if (existing) {
-        await this.prisma.channel.update({
-          where: { id: existing.id },
-          data: { isActive: true },
-        });
-      } else if (tenant.phoneNumberId && tenant.wabaId && tenant.accessToken) {
-        await this.prisma.channel.create({
-          data: {
-            tenantId,
-            type: 'WHATSAPP',
-            name: 'WhatsApp Business',
-            isActive: true,
-          },
-        }).catch(() => {/* ignore unique constraint on duplicate saves */});
-      }
+    await this.prisma.tenant.update({ where: { id: tenantId }, data: rest });
+
+    if (phoneNumberId && wabaId && accessToken) {
+      await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, { phoneNumberId, wabaId, accessToken });
     }
 
-    return tenant;
+    return this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
   }
 
   async updateSettings(tenantId: string, dto: UpdateTenantSettingsDto) {
@@ -68,25 +60,32 @@ export class TenantService {
     accessToken?: string;
     plan?: string;
   }) {
-    return this.prisma.tenant.update({
+    const { phoneNumberId, wabaId, accessToken, ...rest } = data;
+
+    await this.prisma.tenant.update({
       where: { id: tenantId },
       data: {
-        ...(data.step !== undefined && { onboardingStep: data.step }),
-        ...(data.completed !== undefined && { onboardingCompleted: data.completed }),
-        ...(data.industry && { industry: data.industry }),
-        ...(data.teamSize && { teamSize: data.teamSize }),
-        ...(data.country && { country: data.country }),
-        ...(data.logoUrl && { logoUrl: data.logoUrl }),
-        ...(data.businessCategory && { businessCategory: data.businessCategory }),
-        ...(data.businessDescription !== undefined && { businessDescription: data.businessDescription }),
-        ...(data.businessAddress !== undefined && { businessAddress: data.businessAddress }),
-        ...(data.businessWebsite !== undefined && { businessWebsite: data.businessWebsite }),
-        ...(data.phoneNumberId && { phoneNumberId: data.phoneNumberId }),
-        ...(data.wabaId && { wabaId: data.wabaId }),
-        ...(data.accessToken && { accessToken: data.accessToken }),
-        ...(data.plan && { plan: data.plan }),
+        ...(rest.step !== undefined && { onboardingStep: rest.step }),
+        ...(rest.completed !== undefined && { onboardingCompleted: rest.completed }),
+        ...(rest.industry && { industry: rest.industry }),
+        ...(rest.teamSize && { teamSize: rest.teamSize }),
+        ...(rest.country && { country: rest.country }),
+        ...(rest.logoUrl && { logoUrl: rest.logoUrl }),
+        ...(rest.businessCategory && { businessCategory: rest.businessCategory }),
+        ...(rest.businessDescription !== undefined && { businessDescription: rest.businessDescription }),
+        ...(rest.businessAddress !== undefined && { businessAddress: rest.businessAddress }),
+        ...(rest.businessWebsite !== undefined && { businessWebsite: rest.businessWebsite }),
+        ...(rest.plan && { plan: rest.plan }),
       },
     });
+
+    // Same WhatsAppNumbersService delegation as update() above -- onboarding
+    // is the other place a tenant can set WhatsApp credentials directly.
+    if (phoneNumberId && wabaId && accessToken) {
+      await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, { phoneNumberId, wabaId, accessToken });
+    }
+
+    return this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
   }
 
   async getStats(tenantId: string) {

@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
+import { CredentialsEncryptionModule } from './common/crypto/credentials-encryption.module';
 import { ConversationStateModule } from './conversations/conversation-state.module';
 import { MonitoringModule } from './common/monitoring/monitoring.module';
 import { RealtimeModule } from './realtime/realtime.module';
@@ -89,6 +90,7 @@ import appConfig from './config/app.config';
       }),
     }),
     PrismaModule,
+    CredentialsEncryptionModule,
     ConversationStateModule,
     MonitoringModule,
     RealtimeModule,
