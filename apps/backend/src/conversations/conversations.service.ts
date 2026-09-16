@@ -52,10 +52,21 @@ export class ConversationsService {
     tenantId: string,
     contactId: string,
     source?: { contactSource?: string; adSourceId?: string; adHeadline?: string; adImageUrl?: string },
+    incomingNumberId?: string | null,
   ) {
-    // Prefer active (non-resolved) conversation
+    // Prefer active (non-resolved) conversation. When the inbound message's
+    // WhatsApp number is known, match either that number's own open
+    // conversation or a legacy one with no number tagged yet (predates
+    // multi-account support) -- never someone else's number's open
+    // conversation, so a contact messaging two different numbers gets two
+    // separate threads instead of silently merging into one.
     const existing = await this.prisma.conversation.findFirst({
-      where: { tenantId, contactId, status: { not: 'RESOLVED' } },
+      where: {
+        tenantId,
+        contactId,
+        status: { not: 'RESOLVED' },
+        ...(incomingNumberId && { OR: [{ whatsappNumberId: incomingNumberId }, { whatsappNumberId: null }] }),
+      },
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });
     if (existing) {
