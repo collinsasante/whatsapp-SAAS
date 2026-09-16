@@ -5,8 +5,8 @@ import axios from 'axios';
 import { QueueName, CampaignSendJob } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
 import { randomBytes } from 'crypto';
+import { resolveWhatsAppCredentials, GRAPH_API_BASE } from '../lib/whatsapp-credentials';
 
-const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
 const RATE_LIMIT_DELAY_MS = 1000;
 const PUBLIC_BASE_URL = process.env['PUBLIC_BASE_URL'] ?? 'https://verzchat.com/api/v1';
 
@@ -57,12 +57,12 @@ export class CampaignSendWorker {
       return;
     }
 
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { phoneNumberId: true, accessToken: true },
-    });
+    // null whatsappNumberId means "use the tenant's default number" --
+    // backward compatible with every campaign created before multi-account
+    // support existed.
+    const credentials = await resolveWhatsAppCredentials(this.prisma, tenantId, campaign.whatsappNumberId);
 
-    if (!tenant?.phoneNumberId || !tenant?.accessToken) {
+    if (!credentials) {
       throw new Error('WhatsApp not configured for tenant');
     }
 
@@ -101,7 +101,7 @@ export class CampaignSendWorker {
         const components = buildTemplateComponents(campaign.template.components as never, templateVariables);
 
         const response = await axios.post(
-          `${GRAPH_API_BASE}/${tenant.phoneNumberId}/messages`,
+          `${GRAPH_API_BASE}/${credentials.phoneNumberId}/messages`,
           {
             messaging_product: 'whatsapp',
             to: recipient.contact.phone,
@@ -114,7 +114,7 @@ export class CampaignSendWorker {
           },
           {
             headers: {
-              Authorization: `Bearer ${tenant.accessToken}`,
+              Authorization: `Bearer ${credentials.accessToken}`,
               'Content-Type': 'application/json',
             },
             timeout: 15000,
@@ -126,9 +126,10 @@ export class CampaignSendWorker {
         const message = await this.prisma.message.create({
           data: {
             tenantId,
-            conversationId: await this.getOrCreateConversation(tenantId, recipient.contactId),
+            conversationId: await this.getOrCreateConversation(tenantId, recipient.contactId, campaign.whatsappNumberId),
             contactId: recipient.contactId,
             whatsappMessageId,
+            whatsappNumberId: campaign.whatsappNumberId,
             direction: MessageDirection.OUTBOUND,
             type: MessageType.TEMPLATE,
             status: MessageStatus.SENT,
@@ -171,15 +172,29 @@ export class CampaignSendWorker {
     await this.checkAndCompleteIfDone(campaignId);
   }
 
-  private async getOrCreateConversation(tenantId: string, contactId: string): Promise<string> {
+  private async getOrCreateConversation(tenantId: string, contactId: string, whatsappNumberId?: string | null): Promise<string> {
+    // Same dedup rule as ConversationsService.findOrCreate (apps/backend): match
+    // this number's own open conversation or a legacy untagged one, never a
+    // different number's -- so a campaign sent from "Sales" doesn't land in a
+    // thread the contact has open with "Support".
     const existing = await this.prisma.conversation.findFirst({
-      where: { tenantId, contactId, status: { not: 'RESOLVED' } },
+      where: {
+        tenantId,
+        contactId,
+        status: { not: 'RESOLVED' },
+        ...(whatsappNumberId && { OR: [{ whatsappNumberId }, { whatsappNumberId: null }] }),
+      },
     });
 
-    if (existing) return existing.id;
+    if (existing) {
+      if (whatsappNumberId && !existing.whatsappNumberId) {
+        await this.prisma.conversation.update({ where: { id: existing.id }, data: { whatsappNumberId } });
+      }
+      return existing.id;
+    }
 
     const created = await this.prisma.conversation.create({
-      data: { tenantId, contactId },
+      data: { tenantId, contactId, whatsappNumberId },
     });
 
     return created.id;

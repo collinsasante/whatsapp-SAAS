@@ -216,7 +216,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null);
 
       expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: false });
-      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'We have that in stock.');
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'We have that in stock.', undefined, undefined);
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, commerce: true } }) }));
       expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
     });
@@ -267,9 +267,9 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'send me a pic', true, null);
 
-      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'Here you go');
-      expect(deps.whatsappService.uploadMediaToMeta).toHaveBeenCalledWith('t1', Buffer.from('img'), 'image/jpeg', expect.any(String));
-      expect(deps.whatsappService.sendMediaMessageById).toHaveBeenCalledWith('t1', '+233555000111', 'image', 'meta-media-id', 'Shrink Film', undefined);
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'Here you go', undefined, undefined);
+      expect(deps.whatsappService.uploadMediaToMeta).toHaveBeenCalledWith('t1', Buffer.from('img'), 'image/jpeg', expect.any(String), undefined);
+      expect(deps.whatsappService.sendMediaMessageById).toHaveBeenCalledWith('t1', '+233555000111', 'image', 'meta-media-id', 'Shrink Film', undefined, undefined);
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ type: 'IMAGE', status: 'SENT', mediaUrl: '/api/v1/media/serve/products/x.jpg', metadata: { aiGenerated: true, productId: 'p1' } }),
       }));
@@ -319,7 +319,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
 
-      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, "Sure, I'll get someone to help.");
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, "Sure, I'll get someone to help.", undefined, undefined);
     });
 
     it('second hardening pass, Section 4: rewrites the response to an honest message when the handoff actually fails, instead of sending the generator\'s optimistic claim', async () => {
@@ -343,7 +343,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null)).resolves.toBeUndefined();
-      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, expect.any(String));
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, expect.any(String), undefined, undefined);
       expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
     });
 
