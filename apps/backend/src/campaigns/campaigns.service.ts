@@ -33,6 +33,8 @@ export class CampaignsService {
     });
     if (!template) throw new BadRequestException('Template not found or not approved');
 
+    if (dto.whatsappNumberId) await this.validateWhatsappNumber(tenantId, dto.whatsappNumberId);
+
     let contactIds = dto.contactIds ?? [];
 
     if (dto.apiOnly) {
@@ -87,6 +89,7 @@ export class CampaignsService {
         templateVariables: dto.templateVariables ?? undefined,
         scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
         trackingUrl: dto.trackingUrl ?? undefined,
+        whatsappNumberId: dto.whatsappNumberId ?? undefined,
         totalRecipients: contactIds.length,
         status: dto.scheduledAt ? CampaignStatus.SCHEDULED : CampaignStatus.DRAFT,
       },
@@ -203,7 +206,16 @@ export class CampaignsService {
     if (campaign.status !== CampaignStatus.DRAFT) {
       throw new BadRequestException('Only draft campaigns can be updated');
     }
+    if (dto.whatsappNumberId) await this.validateWhatsappNumber(tenantId, dto.whatsappNumberId);
     return this.prisma.campaign.update({ where: { id }, data: dto });
+  }
+
+  /** Confirms a WhatsApp number belongs to this tenant and can actually be sent from before a campaign is tied to it. */
+  private async validateWhatsappNumber(tenantId: string, whatsappNumberId: string) {
+    const number = await this.prisma.whatsAppNumber.findFirst({
+      where: { id: whatsappNumberId, tenantId, isActive: true },
+    });
+    if (!number) throw new BadRequestException('WhatsApp number not found or not active for this workspace');
   }
 
   async launch(tenantId: string, campaignId: string) {

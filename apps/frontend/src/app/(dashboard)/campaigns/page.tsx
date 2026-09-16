@@ -6,7 +6,7 @@ import {
   Filter, Upload, Tag, Layers, Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { campaignsApi, templatesApi, segmentsApi, apiKeysApi } from '@/lib/api';
+import { campaignsApi, templatesApi, segmentsApi, apiKeysApi, whatsappNumbersApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
 import { cn, formatRelativeTime, getApiError } from '@/lib/utils';
@@ -49,6 +49,13 @@ interface Segment {
   id: string;
   name: string;
   contactCount: number;
+}
+
+interface WhatsAppNumber {
+  id: string;
+  label: string;
+  isDefault: boolean;
+  isActive: boolean;
 }
 
 type AudienceMode = 'all' | 'segment' | 'label' | 'csv';
@@ -109,6 +116,7 @@ export default function CampaignsPage() {
   const [total, setTotal] = useState(0);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [waNumbers, setWaNumbers] = useState<WhatsAppNumber[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -129,6 +137,7 @@ export default function CampaignsPage() {
     segmentId: '',
     csvPhones: [] as string[],
     csvFileName: '',
+    whatsappNumberId: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [step, setStep] = useState(1);
@@ -151,10 +160,11 @@ export default function CampaignsPage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [camRes, tplRes, segRes] = await Promise.allSettled([
+      const [camRes, tplRes, segRes, waRes] = await Promise.allSettled([
         campaignsApi.list({ limit: 100 }),
         templatesApi.list({ status: 'APPROVED', limit: 100 }),
         segmentsApi.list(),
+        whatsappNumbersApi.list(),
       ]);
       if (camRes.status === 'fulfilled') {
         setCampaigns((camRes.value.data as { data: Campaign[] }).data ?? []);
@@ -165,6 +175,9 @@ export default function CampaignsPage() {
       }
       if (segRes.status === 'fulfilled') {
         setSegments((segRes.value.data as Segment[]) ?? []);
+      }
+      if (waRes.status === 'fulfilled') {
+        setWaNumbers((waRes.value.data as WhatsAppNumber[]).filter((n) => n.isActive));
       }
     } finally { if (!silent) setLoading(false); }
   }, []);
@@ -210,7 +223,7 @@ export default function CampaignsPage() {
   }, [step, audienceMode, form.segmentId, form.labels, form.csvPhones]);
 
   const resetForm = () => {
-    setForm({ name: '', templateId: '', labels: '', scheduledAt: '', templateVariables: {}, segmentId: '', csvPhones: [], csvFileName: '' });
+    setForm({ name: '', templateId: '', labels: '', scheduledAt: '', templateVariables: {}, segmentId: '', csvPhones: [], csvFileName: '', whatsappNumberId: '' });
     setErrors({});
     setStep(1);
     setAudienceMode('all');
@@ -252,6 +265,7 @@ export default function CampaignsPage() {
             csvPhones: form.csvPhones.length ? form.csvPhones : undefined,
             scheduledAt: form.scheduledAt || undefined,
             templateVariables: Object.keys(form.templateVariables).length ? form.templateVariables : undefined,
+            whatsappNumberId: form.whatsappNumberId || undefined,
           },
           createdAt: new Date().toISOString(),
         });
@@ -280,6 +294,7 @@ export default function CampaignsPage() {
         ...audiencePayload,
         scheduledAt: form.scheduledAt || undefined,
         templateVariables: Object.keys(form.templateVariables).length ? form.templateVariables : undefined,
+        whatsappNumberId: form.whatsappNumberId || undefined,
       });
     } catch (err) {
       toast.error(getApiError(err, 'Failed to create campaign'));
@@ -736,6 +751,17 @@ export default function CampaignsPage() {
                     {errors['templateId'] && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={11} />{errors['templateId']}</p>}
                     {templates.length === 0 && <p className="text-xs text-amber-600 mt-1.5 bg-amber-50 p-2 rounded-lg">No approved templates. Go to Templates page and sync from Meta first.</p>}
                   </div>
+                  {/* Send-from number -- only shown once there's an actual choice to make */}
+                  {waNumbers.length >= 2 && (
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Send From</label>
+                      <select value={form.whatsappNumberId} onChange={(e) => setForm((f) => ({ ...f, whatsappNumberId: e.target.value }))}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                        <option value="">Default number ({waNumbers.find((n) => n.isDefault)?.label ?? 'workspace default'})</option>
+                        {waNumbers.map((n) => <option key={n.id} value={n.id}>{n.label}{n.isDefault ? ' (default)' : ''}</option>)}
+                      </select>
+                    </div>
+                  )}
                   {/* Campaign type derived from template */}
                   {selectedTemplate && selectedTemplate.category && (
                     <div>

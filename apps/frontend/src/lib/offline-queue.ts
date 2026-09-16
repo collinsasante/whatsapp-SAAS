@@ -28,6 +28,7 @@ export interface QueuedCampaignDraft {
     csvPhones?: string[];
     scheduledAt?: string;
     templateVariables?: Record<string, string>;
+    whatsappNumberId?: string;
   };
   createdAt: string;
 }

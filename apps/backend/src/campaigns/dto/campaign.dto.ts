@@ -52,6 +52,11 @@ export class CreateCampaignDto {
   @IsOptional()
   @IsString()
   trackingUrl?: string;
+
+  @ApiProperty({ required: false, description: 'Send from this specific WhatsApp number instead of the workspace default' })
+  @IsOptional()
+  @IsString()
+  whatsappNumberId?: string;
 }
 
 export class UpdateCampaignDto {
@@ -69,4 +74,9 @@ export class UpdateCampaignDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+
+  @ApiProperty({ required: false, description: 'Send from this specific WhatsApp number instead of the workspace default' })
+  @IsOptional()
+  @IsString()
+  whatsappNumberId?: string;
 }

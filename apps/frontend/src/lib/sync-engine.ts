@@ -67,6 +67,7 @@ export async function flushOfflineQueue(): Promise<void> {
             draft.form.templateVariables && Object.keys(draft.form.templateVariables).length
               ? draft.form.templateVariables
               : undefined,
+          whatsappNumberId: draft.form.whatsappNumberId || undefined,
         });
         await offlineQueue.dequeueDraft(draft.id);
         synced++;
