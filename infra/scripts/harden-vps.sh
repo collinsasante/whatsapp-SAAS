@@ -139,7 +139,16 @@ else
 fi
 
 # ── 7. Health-monitor cron ────────────────────────────────────────────────────
-# Pings the health endpoint every 5 minutes; emails on failure
+# Pings the health endpoint every 5 minutes. On failure: pushes an ntfy.sh
+# alert (not email -- this box has no MTA configured, so the previous
+# `mail`-based alert silently never sent a single notification across ~20
+# real outages over 4 months of history in /var/log/verzchat-health.log,
+# including a 7-hour undetected outage on 2026-09-16 where wa_nginx had been
+# killed and nothing brought it back), then attempts to self-heal by
+# restarting any core container found stopped, and re-alerts with the
+# outcome. NTFY_TOPIC is a random, unguessable string, not a secret exchanged
+# with any third party -- treat it like a private URL (don't post it
+# publicly), but it isn't a credential.
 
 MONITOR_FILE="/etc/cron.d/verzchat-health"
 cat > "$MONITOR_FILE" << 'CRONEOF'
@@ -150,35 +159,65 @@ chmod 644 "$MONITOR_FILE"
 cat > /usr/local/bin/verzchat-healthcheck.sh << 'SCRIPTEOF'
 #!/bin/bash
 ENDPOINT="https://verzchat.com/api/v1/health"
-ALERT_EMAIL="support@verzchat.com"
+NTFY_TOPIC="verzchat-prod-710a3201ca35"
+CORE_CONTAINERS=(wa_nginx wa_backend wa_frontend wa_worker wa_realtime)
 LOCK_FILE="/tmp/verzchat-health-down"
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
-STATUS=$(curl -sf --max-time 10 --retry 2 "$ENDPOINT" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null || echo "unreachable")
+notify() {
+  local title="$1" message="$2" priority="$3"
+  curl -s -m 10 -H "Title: $title" -H "Priority: $priority" -d "$message" \
+    "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1
+}
+
+check_status() {
+  curl -sf --max-time 10 --retry 2 "$ENDPOINT" 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status',''))" 2>/dev/null \
+    || echo "unreachable"
+}
+
+STATUS=$(check_status)
 
 if [[ "$STATUS" != "ok" ]]; then
   if [[ ! -f "$LOCK_FILE" ]]; then
     touch "$LOCK_FILE"
     echo "[$TIMESTAMP] ALERT: Health check failed ($STATUS)" >&2
-    if command -v mail &>/dev/null; then
-      echo "VerzChat health check failed at $TIMESTAMP. Status: $STATUS. Check https://verzchat.com" \
-        | mail -s "[VerzChat ALERT] Production down" "$ALERT_EMAIL"
+    notify "VerzChat DOWN" "Health check failed at $TIMESTAMP (status: $STATUS). Attempting auto-recovery..." "urgent"
+  fi
+
+  RESTARTED=()
+  for CTR in "${CORE_CONTAINERS[@]}"; do
+    STATE=$(docker inspect --format '{{.State.Status}}' "$CTR" 2>/dev/null || echo "missing")
+    if [[ "$STATE" != "running" ]]; then
+      echo "[$TIMESTAMP] Found $CTR in state '$STATE' -- attempting docker start" >&2
+      if docker start "$CTR" >/dev/null 2>&1; then
+        RESTARTED+=("$CTR")
+      fi
+    fi
+  done
+
+  if [[ ${#RESTARTED[@]} -gt 0 ]]; then
+    sleep 5
+    if [[ "$(check_status)" == "ok" ]]; then
+      rm -f "$LOCK_FILE"
+      echo "[$TIMESTAMP] AUTO-RECOVERED: restarted ${RESTARTED[*]}, health check now passing"
+      notify "VerzChat auto-recovered" "Restarted: ${RESTARTED[*]}. Site is back up." "default"
+    else
+      echo "[$TIMESTAMP] Restarted ${RESTARTED[*]} but health check still failing" >&2
+      notify "VerzChat still down" "Restarted ${RESTARTED[*]} but health check is still failing -- needs a manual look." "urgent"
     fi
   fi
 else
   if [[ -f "$LOCK_FILE" ]]; then
     rm -f "$LOCK_FILE"
     echo "[$TIMESTAMP] RECOVERED: Health check passed"
-    if command -v mail &>/dev/null; then
-      echo "VerzChat is back online at $TIMESTAMP." \
-        | mail -s "[VerzChat RECOVERED] Production back up" "$ALERT_EMAIL"
-    fi
+    notify "VerzChat back up" "Health check passed again at $TIMESTAMP." "default"
   fi
 fi
 SCRIPTEOF
 chmod +x /usr/local/bin/verzchat-healthcheck.sh
 
-log "Health-monitor cron installed (every 5 min)."
+log "Health-monitor cron installed (every 5 min, ntfy.sh alerts + container self-heal)."
 
 # ── 8. Kernel hardening via sysctl ───────────────────────────────────────────
 
