@@ -66,4 +66,24 @@ export class WhatsAppNumbersController {
   remove(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
     return this.service.remove(tenantId, id, user.sub);
   }
+
+  @Patch(':id/reconnect')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Re-activate a disconnected WhatsApp number, optionally with fresh credentials' })
+  reconnect(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateWhatsAppNumberDto,
+  ) {
+    return this.service.reconnect(tenantId, id, dto, user.sub);
+  }
+
+  @Post(':id/test-connection')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Verify this number's stored credentials still work against the Meta Graph API" })
+  testConnection(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.service.testConnection(tenantId, id, user.sub);
+  }
 }

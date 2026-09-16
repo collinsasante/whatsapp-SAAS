@@ -2,13 +2,22 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import axios, { AxiosError } from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateWhatsAppNumberDto, UpdateWhatsAppNumberDto } from './dto/whatsapp-number.dto';
+import { mapWhatsAppErrorCode, FailureCategory } from '../common/utils/whatsapp-error.util';
 import { Prisma } from '@prisma/client';
+
+// Kept in sync with WhatsAppService.graphBaseUrl -- this file makes its own
+// direct Graph API call for testConnection() rather than depending on
+// WhatsAppService, since neither module currently imports the other and a
+// single read-only status-check call isn't worth introducing that coupling.
+const GRAPH_API_BASE = 'https://graph.facebook.com/v23.0';
 
 // Fields never returned to the frontend -- accessToken is write-only from the
 // API's perspective (the settings/channels UI already treats it that way:
@@ -32,8 +41,33 @@ const PUBLIC_SELECT = {
   updatedAt: true,
 } satisfies Prisma.WhatsAppNumberSelect;
 
+export type WhatsAppNumberStatus = 'CONNECTED' | 'NEEDS_ATTENTION' | 'DISCONNECTED';
+
+type PublicNumber = Prisma.WhatsAppNumberGetPayload<{ select: typeof PUBLIC_SELECT }>;
+
+/**
+ * Computed, not a stored enum -- avoids a second source of truth that could
+ * drift from isActive/lastError. DISCONNECTED wins over any lingering error
+ * (a disconnected number's old error is no longer the actionable fact);
+ * NEEDS_ATTENTION covers both an explicit testConnection() failure and a
+ * real send failure recorded elsewhere, since from the user's perspective
+ * both mean "this number needs a look" with no meaningful behavioral
+ * difference between them.
+ */
+function computeStatus(num: Pick<PublicNumber, 'isActive' | 'lastError'>): WhatsAppNumberStatus {
+  if (!num.isActive) return 'DISCONNECTED';
+  if (num.lastError) return 'NEEDS_ATTENTION';
+  return 'CONNECTED';
+}
+
+function withStatus<T extends Pick<PublicNumber, 'isActive' | 'lastError'>>(num: T): T & { status: WhatsAppNumberStatus } {
+  return { ...num, status: computeStatus(num) };
+}
+
 @Injectable()
 export class WhatsAppNumbersService {
+  private readonly logger = new Logger(WhatsAppNumbersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: CredentialsEncryptionService,
@@ -41,17 +75,18 @@ export class WhatsAppNumbersService {
   ) {}
 
   async findAll(tenantId: string) {
-    return this.prisma.whatsAppNumber.findMany({
+    const numbers = await this.prisma.whatsAppNumber.findMany({
       where: { tenantId },
       select: PUBLIC_SELECT,
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
     });
+    return numbers.map(withStatus);
   }
 
   async findOne(tenantId: string, id: string) {
     const num = await this.prisma.whatsAppNumber.findFirst({ where: { id, tenantId }, select: PUBLIC_SELECT });
     if (!num) throw new NotFoundException('WhatsApp number not found');
-    return num;
+    return withStatus(num);
   }
 
   async create(tenantId: string, dto: CreateWhatsAppNumberDto, actorId?: string) {
@@ -98,39 +133,82 @@ export class WhatsAppNumbersService {
   async update(tenantId: string, id: string, dto: UpdateWhatsAppNumberDto, actorId?: string) {
     await this.findOne(tenantId, id); // existence + tenant-ownership check
 
-    if (dto.phoneNumberId) {
-      const conflict = await this.prisma.whatsAppNumber.findFirst({
-        where: { tenantId, phoneNumberId: dto.phoneNumberId, NOT: { id } },
-      });
-      if (conflict) {
-        throw new ConflictException(`Phone number ID ${dto.phoneNumberId} is already registered for this workspace`);
-      }
-    }
-
-    const updated = await this.prisma.whatsAppNumber.update({
-      where: { id },
-      data: {
-        ...(dto.label         !== undefined && { label:         dto.label }),
-        ...(dto.phoneNumberId !== undefined && { phoneNumberId: dto.phoneNumberId }),
-        ...(dto.wabaId        !== undefined && { wabaId:        dto.wabaId }),
-        ...(dto.accessToken   !== undefined && { accessToken:   this.encryption.encrypt(dto.accessToken) }),
-        ...(dto.isActive      !== undefined && { isActive:      dto.isActive }),
-      },
-      select: PUBLIC_SELECT,
-    });
-
-    // Keep tenant creds in sync if this is the default number
-    if (updated.isDefault && (dto.phoneNumberId || dto.wabaId || dto.accessToken)) {
-      const full = await this.prisma.whatsAppNumber.findUniqueOrThrow({ where: { id } });
-      await this.syncDefaultToTenant(tenantId, full.phoneNumberId, full.wabaId, this.encryption.decrypt(full.accessToken));
-    }
+    const updated = await this.applyPatch(tenantId, id, dto, {});
 
     void this.audit.log({
       tenantId, userId: actorId, action: 'UPDATE', resource: 'whatsapp_number', resourceId: id,
       metadata: { changes: Object.keys(dto).filter((k) => k !== 'accessToken') },
     });
 
-    return updated;
+    return withStatus(updated);
+  }
+
+  /**
+   * Re-activates a disconnected number, optionally alongside a credential
+   * update (the common real case: a token expired, disconnect happened,
+   * paste a fresh one to bring it back). Distinct from update() so it always
+   * forces isActive:true and clears any recorded error regardless of what's
+   * in dto, and gets its own audit action for a clear history.
+   */
+  async reconnect(tenantId: string, id: string, dto: UpdateWhatsAppNumberDto, actorId?: string) {
+    await this.findOne(tenantId, id);
+
+    const updated = await this.applyPatch(tenantId, id, dto, {
+      isActive: true,
+      lastError: null,
+      lastErrorAt: null,
+    });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'UPDATE', resource: 'whatsapp_number', resourceId: id,
+      metadata: { action: 'RECONNECT', changes: Object.keys(dto).filter((k) => k !== 'accessToken') },
+    });
+
+    return withStatus(updated);
+  }
+
+  /**
+   * Calls Meta's Graph API with this number's stored (decrypted) token to
+   * confirm it's actually still valid, rather than waiting for it to fail
+   * silently on the next real send. Updates lastError/lastErrorAt so the
+   * computed status (and the next real send, which surfaces the same
+   * lastError) reflects the result; success clears any prior error.
+   */
+  async testConnection(tenantId: string, id: string, actorId?: string) {
+    const num = await this.prisma.whatsAppNumber.findFirst({ where: { id, tenantId } });
+    if (!num) throw new NotFoundException('WhatsApp number not found');
+
+    const accessToken = this.encryption.decrypt(num.accessToken);
+
+    try {
+      await axios.get(`${GRAPH_API_BASE}/${num.phoneNumberId}`, {
+        params: { fields: 'verified_name' },
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 15_000,
+      });
+
+      await this.prisma.whatsAppNumber.update({ where: { id }, data: { lastError: null, lastErrorAt: null } });
+
+      void this.audit.log({
+        tenantId, userId: actorId, action: 'UPDATE', resource: 'whatsapp_number', resourceId: id,
+        metadata: { action: 'TEST_CONNECTION', result: 'success' },
+      });
+
+      return { success: true as const };
+    } catch (error) {
+      const message = this.describeMetaError(error);
+      const category = this.categorizeMetaError(error);
+
+      await this.prisma.whatsAppNumber.update({ where: { id }, data: { lastError: message, lastErrorAt: new Date() } });
+
+      this.logger.warn(`Test connection failed for WhatsAppNumber ${id}: ${message}`);
+      void this.audit.log({
+        tenantId, userId: actorId, action: 'UPDATE', resource: 'whatsapp_number', resourceId: id,
+        metadata: { action: 'TEST_CONNECTION', result: 'failure', category },
+      });
+
+      return { success: false as const, error: message, category };
+    }
   }
 
   async setDefault(tenantId: string, id: string, actorId?: string) {
@@ -155,7 +233,7 @@ export class WhatsAppNumbersService {
       metadata: { action: 'SET_DEFAULT' },
     });
 
-    return updated;
+    return withStatus(updated);
   }
 
   /**
@@ -194,6 +272,66 @@ export class WhatsAppNumbersService {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Shared write path for update() and reconnect() -- both patch the same
+   * set of DTO fields and both need to keep Tenant in sync when the default
+   * number's identity/token changes; extraData lets each caller force its
+   * own additional fields (reconnect forces isActive/lastError) without
+   * duplicating the conflict-check + sync logic.
+   */
+  private async applyPatch(
+    tenantId: string,
+    id: string,
+    dto: UpdateWhatsAppNumberDto,
+    extraData: Partial<Prisma.WhatsAppNumberUpdateInput>,
+  ) {
+    if (dto.phoneNumberId) {
+      const conflict = await this.prisma.whatsAppNumber.findFirst({
+        where: { tenantId, phoneNumberId: dto.phoneNumberId, NOT: { id } },
+      });
+      if (conflict) {
+        throw new ConflictException(`Phone number ID ${dto.phoneNumberId} is already registered for this workspace`);
+      }
+    }
+
+    const updated = await this.prisma.whatsAppNumber.update({
+      where: { id },
+      data: {
+        ...(dto.label         !== undefined && { label:         dto.label }),
+        ...(dto.phoneNumberId !== undefined && { phoneNumberId: dto.phoneNumberId }),
+        ...(dto.wabaId        !== undefined && { wabaId:        dto.wabaId }),
+        ...(dto.accessToken   !== undefined && { accessToken:   this.encryption.encrypt(dto.accessToken) }),
+        ...(dto.isActive      !== undefined && { isActive:      dto.isActive }),
+        ...extraData,
+      },
+      select: PUBLIC_SELECT,
+    });
+
+    // Keep tenant creds in sync if this is the default number
+    if (updated.isDefault && (dto.phoneNumberId || dto.wabaId || dto.accessToken)) {
+      const full = await this.prisma.whatsAppNumber.findUniqueOrThrow({ where: { id } });
+      await this.syncDefaultToTenant(tenantId, full.phoneNumberId, full.wabaId, this.encryption.decrypt(full.accessToken));
+    }
+
+    return updated;
+  }
+
+  private describeMetaError(error: unknown): string {
+    if (error instanceof AxiosError && error.response) {
+      const data = error.response.data as { error?: { message?: string; error_user_msg?: string } };
+      return data?.error?.error_user_msg ?? data?.error?.message ?? JSON.stringify(data);
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private categorizeMetaError(error: unknown): FailureCategory {
+    if (error instanceof AxiosError && error.response) {
+      const data = error.response.data as { error?: { code?: number } };
+      return mapWhatsAppErrorCode(data?.error?.code);
+    }
+    return 'other';
+  }
 
   /**
    * Links a newly-created WhatsAppNumber to a generic Channel row so it
