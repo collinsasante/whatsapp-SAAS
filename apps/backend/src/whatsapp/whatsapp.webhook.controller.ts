@@ -175,21 +175,15 @@ export class WhatsAppWebhookController {
       }
     }
 
-    // Find every active tenant that owns any of these phone numbers, via
-    // WhatsAppNumber (the source of truth for multi-account routing) rather
-    // than the legacy Tenant.phoneNumberId column -- a tenant with more than
-    // one connected number would otherwise only ever match on whichever
-    // number happens to be its (single) denormalized Tenant field.
+    // Find every active tenant that owns any of these phone numbers.
     // This is the fan-out: if tenant A and tenant B both configured the same
     // phoneNumberId, both will receive and process this webhook.
     let tenants: Array<{ id: string }> = [];
     if (phoneNumberIds.size > 0) {
-      const numbers = await this.prisma.whatsAppNumber.findMany({
-        where: { phoneNumberId: { in: [...phoneNumberIds] }, isActive: true, tenant: { isActive: true } },
-        select: { tenantId: true },
-        distinct: ['tenantId'],
+      tenants = await this.prisma.tenant.findMany({
+        where: { phoneNumberId: { in: [...phoneNumberIds] }, isActive: true },
+        select: { id: true },
       });
-      tenants = numbers.map((n) => ({ id: n.tenantId }));
       this.logger.debug(
         `Webhook phone_number_ids [${[...phoneNumberIds].join(', ')}] → ${tenants.length} matching tenant(s)`,
       );

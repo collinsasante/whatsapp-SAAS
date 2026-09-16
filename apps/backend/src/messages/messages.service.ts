@@ -196,7 +196,6 @@ export class MessagesService {
         templateId: dto.templateId,
         templateVariables: dto.templateVariables ?? undefined,
         metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
-        whatsappNumberId: conversation.whatsappNumberId,
       },
       include: {
         replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
@@ -207,10 +206,10 @@ export class MessagesService {
 
     try {
       if (dto.type === MessageType.TEXT || !dto.type) {
-        whatsappMessageId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, dto.content!, replyToWaMessageId, conversation.whatsappNumberId);
+        whatsappMessageId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, dto.content!, replyToWaMessageId);
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
         if (dto.mediaUrl) {
-          whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, dto.type as MessageType, dto.mediaUrl, dto.mediaCaption, replyToWaMessageId, conversation.whatsappNumberId);
+          whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, dto.type as MessageType, dto.mediaUrl, dto.mediaCaption, replyToWaMessageId);
         }
       } else if (dto.type === MessageType.TEMPLATE && dto.templateId) {
         const template = await this.prisma.template.findFirst({
@@ -224,7 +223,6 @@ export class MessagesService {
             template.language,
             template.components as never,
             dto.templateVariables ?? {},
-            conversation.whatsappNumberId,
           );
         }
       } else if (dto.type === MessageType.LOCATION && dto.locationLatitude != null && dto.locationLongitude != null) {
@@ -235,7 +233,6 @@ export class MessagesService {
           dto.locationLongitude,
           dto.locationName,
           dto.locationAddress,
-          conversation.whatsappNumberId,
         );
       } else if (dto.type === MessageType.CONTACTS && dto.contactName && dto.contactPhone) {
         whatsappMessageId = await this.whatsappService.sendContactMessage(
@@ -243,7 +240,6 @@ export class MessagesService {
           contact.phone,
           dto.contactName,
           dto.contactPhone,
-          conversation.whatsappNumberId,
         );
       }
 
@@ -299,7 +295,6 @@ export class MessagesService {
    */
   private async deliverMedia(
     tenantId: string, toPhone: string, type: MessageType, mediaUrl: string, caption?: string, replyToWaMessageId?: string,
-    whatsappNumberId?: string | null,
   ): Promise<string | undefined> {
     const defaultMime: Record<string, string> = {
       [MessageType.AUDIO]: 'audio/ogg',
@@ -328,11 +323,11 @@ export class MessagesService {
       }
 
       const ext = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
-      const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, mediaBuffer, mimeType, `media.${ext}`, whatsappNumberId);
-      return await this.whatsappService.sendMediaMessageById(tenantId, toPhone, type.toLowerCase(), metaMediaId, caption, replyToWaMessageId, whatsappNumberId);
+      const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, mediaBuffer, mimeType, `media.${ext}`);
+      return await this.whatsappService.sendMediaMessageById(tenantId, toPhone, type.toLowerCase(), metaMediaId, caption, replyToWaMessageId);
     } catch {
       // fallback to link-based send
-      return this.whatsappService.sendMediaMessage(tenantId, toPhone, type.toLowerCase(), mediaUrl, caption, replyToWaMessageId, whatsappNumberId);
+      return this.whatsappService.sendMediaMessage(tenantId, toPhone, type.toLowerCase(), mediaUrl, caption, replyToWaMessageId);
     }
   }
 
@@ -444,7 +439,7 @@ export class MessagesService {
           const resolvedConv = await this.prisma.conversation.findFirst({
             where: { tenantId, contactId: contact.id, csatScore: null, resolvedAt: { not: null } },
             orderBy: { resolvedAt: 'desc' },
-            select: { id: true, whatsappNumberId: true },
+            select: { id: true },
           });
           if (resolvedConv) {
             // Atomic update — only one concurrent webhook delivery wins; prevents duplicate sends
@@ -470,10 +465,9 @@ export class MessagesService {
                   type: MessageType.TEXT,
                   status: MessageStatus.QUEUED,
                   content: thankYouText,
-                  whatsappNumberId: resolvedConv.whatsappNumberId,
                 },
               });
-              const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, thankYouText, undefined, resolvedConv.whatsappNumberId).catch(() => null);
+              const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, thankYouText).catch(() => null);
               const sentMsg = await this.prisma.message.update({
                 where: { id: msg.id },
                 data: {
@@ -537,16 +531,6 @@ export class MessagesService {
       }
     }
 
-    // Resolved up front (rather than after findOrCreate, as before) so it can be
-    // used to keep this contact's conversations on different numbers separate --
-    // see the dedup comment on findOrCreate itself.
-    const incomingWaNum = incomingPhoneNumberId
-      ? await this.prisma.whatsAppNumber.findUnique({
-          where: { tenantId_phoneNumberId: { tenantId, phoneNumberId: incomingPhoneNumberId } },
-          select: { id: true },
-        })
-      : null;
-
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, referral
       ? {
           contactSource: referral.source_type ?? 'ad',
@@ -555,16 +539,21 @@ export class MessagesService {
           adImageUrl: permanentAdImageUrl,
         }
       : undefined,
-      incomingWaNum?.id,
     );
 
     // Tag conversation with which WhatsApp number received this message (first time only)
-    if (incomingWaNum && !conversation.whatsappNumberId) {
-      await this.prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { whatsappNumberId: incomingWaNum.id },
+    if (incomingPhoneNumberId && !conversation.whatsappNumberId) {
+      const waNum = await this.prisma.whatsAppNumber.findUnique({
+        where: { tenantId_phoneNumberId: { tenantId, phoneNumberId: incomingPhoneNumberId } },
+        select: { id: true },
       });
-      (conversation as { whatsappNumberId?: string }).whatsappNumberId = incomingWaNum.id;
+      if (waNum) {
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { whatsappNumberId: waNum.id },
+        });
+        (conversation as { whatsappNumberId?: string }).whatsappNumberId = waNum.id;
+      }
     }
 
     // Handle customer-deleted message — mark it deleted in our DB
@@ -664,7 +653,7 @@ export class MessagesService {
       else if (waMessage.document) { mediaType = waMessage.document.mime_type; mediaCaption = waMessage.document.filename; filename = waMessage.document.filename ?? 'document'; }
       else if (waMessage.sticker) { mediaType = waMessage.sticker.mime_type; filename = 'sticker'; }
 
-      const downloaded = await this.whatsappService.downloadMetaMedia(tenantId, mediaId, conversation.whatsappNumberId);
+      const downloaded = await this.whatsappService.downloadMetaMedia(tenantId, mediaId);
       if (downloaded.ok) {
         const ext = downloaded.mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
         const uploadResult = await this.storageService.uploadRaw(
@@ -700,51 +689,34 @@ export class MessagesService {
       replyToId = contextMsg?.id ?? null;
     }
 
-    // Atomic: create message and increment conversation unread count together.
-    // The alreadyProcessed check above is a fast pre-check, not a lock -- two
-    // concurrent deliveries of the same Meta webhook retry can both pass it and
-    // race to create here. The whatsappMessageId+tenantId unique constraint is
-    // the real guard; on P2002 the other delivery won the race, so fetch and
-    // return what it created instead of erroring the whole webhook out.
-    let message: Prisma.MessageGetPayload<{ include: { replyTo: { select: { id: true; content: true; type: true; direction: true; mediaCaption: true } } } }>;
-    try {
-      [message] = await this.prisma.$transaction([
-        this.prisma.message.create({
-          data: {
-            tenantId,
-            conversationId: conversation.id,
-            contactId: contact.id,
-            whatsappMessageId: waMessage.id,
-            replyToId,
-            direction: MessageDirection.INBOUND,
-            type: msgType,
-            status: MessageStatus.DELIVERED,
-            content,
-            mediaUrl,
-            mediaType,
-            mediaCaption,
-            metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
-            deliveredAt: new Date(),
-          },
-          include: {
-            replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
-          },
-        }),
-        this.prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
-        }),
-      ]);
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        const raced = await this.prisma.message.findFirst({
-          where: { whatsappMessageId: waMessage.id, tenantId },
-          include: { replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } } },
-        });
-        if (raced) return raced;
-      }
-      throw err;
-    }
+    // Atomic: create message and increment conversation unread count together
+    const [message] = await this.prisma.$transaction([
+      this.prisma.message.create({
+        data: {
+          tenantId,
+          conversationId: conversation.id,
+          contactId: contact.id,
+          whatsappMessageId: waMessage.id,
+          replyToId,
+          direction: MessageDirection.INBOUND,
+          type: msgType,
+          status: MessageStatus.DELIVERED,
+          content,
+          mediaUrl,
+          mediaType,
+          mediaCaption,
+          metadata: Object.keys(messageMetadata).length > 0 ? (messageMetadata as Prisma.InputJsonValue) : undefined,
+          deliveredAt: new Date(),
+        },
+        include: {
+          replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
+        },
+      }),
+      this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
+      }),
+    ]);
     this.realtimeService.emitNewMessage(tenantId, conversation.id, message);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
@@ -796,9 +768,9 @@ export class MessagesService {
           try {
             const welcomeText = tenantSettings.welcomeMessage!;
             const draft = await this.prisma.message.create({
-              data: { tenantId, conversationId: conversation.id, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content: welcomeText, whatsappNumberId: conversation.whatsappNumberId, metadata: { isAutoReply: true } as never },
+              data: { tenantId, conversationId: conversation.id, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content: welcomeText, metadata: { isAutoReply: true } as never },
             });
-            const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, welcomeText, undefined, conversation.whatsappNumberId).catch(() => null);
+            const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, welcomeText).catch(() => null);
             const sent = await this.prisma.message.update({
               where: { id: draft.id },
               data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined },
@@ -839,7 +811,7 @@ export class MessagesService {
       const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content, priorInboundInConversation === 0, aiActive);
       if (flow) {
         flowMatched = true;
-        void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[], conversation.whatsappNumberId);
+        void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[]);
       }
     }
 
@@ -1050,7 +1022,7 @@ export class MessagesService {
 
   private async handleAiAutoReply(
     tenantId: string,
-    conversation: { id: string; whatsappNumberId?: string | null },
+    conversation: { id: string },
     contact: { id: string; phone: string; name: string | null },
     content: string,
     commerceEnabled: boolean,
@@ -1087,7 +1059,7 @@ export class MessagesService {
         ? PROVIDER_FAILURE_FALLBACK_TEXT
         : HANDOFF_FAILED_TEXT;
       await this.whatsappService
-        .sendTextMessage(tenantId, contact.phone, fallbackText, undefined, conversation.whatsappNumberId)
+        .sendTextMessage(tenantId, contact.phone, fallbackText)
         .catch((err) => this.logger.warn(`Failed to send fallback message for conversation ${conversation.id}: ${String(err)}`));
       return;
     }
@@ -1116,7 +1088,7 @@ export class MessagesService {
     // time we're here the AI call already happened and already cost real money; there's
     // no additional gate before sending -- withholding an already-generated, already-
     // charged-for reply would waste the spend without helping the customer.
-    await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response, undefined, conversation.whatsappNumberId).catch(() => null);
+    await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response).catch(() => null);
 
     const log = await this.aiLogsService.create({
       tenantId,
@@ -1146,7 +1118,6 @@ export class MessagesService {
         type: 'TEXT' as const,
         status: 'SENT' as const,
         content: result.response,
-        whatsappNumberId: conversation.whatsappNumberId,
         // commerce:true is preserved from the pre-unification Commerce branch's own
         // message metadata, so anything already keying off it keeps working.
         metadata: commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true },
@@ -1164,7 +1135,7 @@ export class MessagesService {
     // so images follow it -- matches natural WhatsApp UX. Persisted as its own
     // Message row so it's visible in the inbox like any other outbound message.
     for (const effect of result.mediaToSend ?? []) {
-      const whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, 'IMAGE' as MessageType, effect.mediaUrl, effect.caption, undefined, conversation.whatsappNumberId).catch((err) => {
+      const whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, 'IMAGE' as MessageType, effect.mediaUrl, effect.caption).catch((err) => {
         this.logger.warn(`Failed to deliver AI-triggered media for conversation ${conversation.id}: ${String(err)}`);
         return undefined;
       });
@@ -1180,7 +1151,6 @@ export class MessagesService {
           mediaUrl: effect.mediaUrl,
           mediaCaption: effect.caption,
           whatsappMessageId,
-          whatsappNumberId: conversation.whatsappNumberId,
           sentAt: whatsappMessageId ? new Date() : undefined,
           metadata: { aiGenerated: true, productId: effect.productId },
         },
@@ -1210,7 +1180,7 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
   }
 
-  private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>, whatsappNumberId?: string | null) {
+  private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>) {
     if (!rawNodes) return;
 
     // Support both simple FlowNode[] and ReactFlow {nodes,edges} format
@@ -1252,16 +1222,16 @@ export class MessagesService {
 
         if (node.type === 'text' && content) {
           const msg = await this.prisma.message.create({
-            data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content, whatsappNumberId },
+            data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content },
           });
-          const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, content, undefined, whatsappNumberId).catch(() => null);
+          const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, content).catch(() => null);
           const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
           this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
         } else if (node.type === 'image' && mediaUrl) {
           const msg = await this.prisma.message.create({
-            data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.IMAGE, status: MessageStatus.QUEUED, mediaUrl, mediaCaption: content ?? null, whatsappNumberId },
+            data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.IMAGE, status: MessageStatus.QUEUED, mediaUrl, mediaCaption: content ?? null },
           });
-          const waId = await this.whatsappService.sendMediaMessage(tenantId, contact.phone, 'image', mediaUrl, content, undefined, whatsappNumberId).catch(() => null);
+          const waId = await this.whatsappService.sendMediaMessage(tenantId, contact.phone, 'image', mediaUrl, content).catch(() => null);
           const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
           this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
         } else if (node.type === 'delay' && delaySec) {
@@ -1286,7 +1256,7 @@ export class MessagesService {
       include: { conversation: { include: { contact: true } } },
     });
     if (msg?.whatsappMessageId && msg.conversation?.contact?.phone) {
-      await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, emoji, msg.whatsappNumberId).catch(() => null);
+      await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, emoji).catch(() => null);
     }
 
     const reactions = await this.prisma.messageReaction.findMany({
@@ -1309,7 +1279,7 @@ export class MessagesService {
       include: { conversation: { include: { contact: true } } },
     });
     if (msg?.whatsappMessageId && msg.conversation?.contact?.phone) {
-      await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, '', msg.whatsappNumberId).catch(() => null);
+      await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, '').catch(() => null);
     }
 
     const reactions = await this.prisma.messageReaction.findMany({

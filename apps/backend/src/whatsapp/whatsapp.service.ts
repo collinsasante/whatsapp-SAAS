@@ -8,7 +8,6 @@ import * as crypto from 'crypto';
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import * as FormData from 'form-data';
 import { PrismaService } from '../prisma/prisma.service';
-import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
 
@@ -99,7 +98,6 @@ export class WhatsAppService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
-    private encryption: CredentialsEncryptionService,
   ) {}
 
   private getClient(accessToken: string): AxiosInstance {
@@ -111,38 +109,6 @@ export class WhatsAppService {
       },
       timeout: 30000,
     });
-  }
-
-  /**
-   * Resolves send credentials for a tenant, optionally scoped to a specific
-   * WhatsAppNumber. Conversation-scoped send methods pass whatsappNumberId
-   * (via Conversation.whatsappNumberId) so a reply always goes out from the
-   * exact number the conversation actually belongs to -- never a global/
-   * default account. When a number IS specified but can't be used (deleted,
-   * or soft-disconnected via WhatsAppNumbersService.remove()), this throws
-   * rather than silently falling back to a different number, since sending
-   * from the wrong WhatsApp identity is worse than failing loudly. Falling
-   * back to the tenant's legacy default fields only happens when no number
-   * is specified at all (callers that are deliberately tenant-level, or not
-   * yet updated to pass one).
-   */
-  private async resolveCredentials(tenantId: string, whatsappNumberId?: string | null) {
-    if (whatsappNumberId) {
-      const num = await this.prisma.whatsAppNumber.findFirst({ where: { id: whatsappNumberId, tenantId } });
-      if (!num) {
-        throw new BadRequestException('The WhatsApp number for this conversation could not be found.');
-      }
-      if (!num.isActive) {
-        throw new BadRequestException('This conversation\'s WhatsApp number has been disconnected. Reconnect it in Settings to send messages.');
-      }
-      return {
-        phoneNumberId: num.phoneNumberId,
-        accessToken: this.encryption.decrypt(num.accessToken),
-        wabaId: num.wabaId,
-      };
-    }
-
-    return this.getTenantCredentials(tenantId);
   }
 
   private async getTenantCredentials(tenantId: string) {
@@ -158,8 +124,8 @@ export class WhatsAppService {
     return tenant;
   }
 
-  async sendTextMessage(tenantId: string, to: string, text: string, contextMessageId?: string, whatsappNumberId?: string | null): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+  async sendTextMessage(tenantId: string, to: string, text: string, contextMessageId?: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
 
     try {
@@ -188,9 +154,8 @@ export class WhatsAppService {
     mediaUrl: string,
     caption?: string,
     contextMessageId?: string,
-    whatsappNumberId?: string | null,
   ): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
 
     const mediaTypeKey = mediaType.toLowerCase();
@@ -223,13 +188,11 @@ export class WhatsAppService {
     language: string,
     components: TemplateComponent[],
     variables: Record<string, string>,
-    whatsappNumberId?: string | null,
-    urlVariables?: Record<string, string>,
   ): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
 
-    const builtComponents = buildTemplateComponents(components, variables, urlVariables);
+    const builtComponents = buildTemplateComponents(components, variables);
 
     try {
       const response = await client.post(`/${phoneNumberId}/messages`, {
@@ -313,9 +276,8 @@ export class WhatsAppService {
     longitude: number,
     name?: string,
     address?: string,
-    whatsappNumberId?: string | null,
   ): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
     try {
       const response = await client.post(`/${phoneNumberId}/messages`, {
@@ -333,8 +295,8 @@ export class WhatsAppService {
     }
   }
 
-  async sendContactMessage(tenantId: string, to: string, name: string, phone: string, whatsappNumberId?: string | null): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+  async sendContactMessage(tenantId: string, to: string, name: string, phone: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
     try {
       const response = await client.post(`/${phoneNumberId}/messages`, {
@@ -355,11 +317,11 @@ export class WhatsAppService {
     }
   }
 
-  async downloadMetaMedia(tenantId: string, mediaId: string, whatsappNumberId?: string | null): Promise<
+  async downloadMetaMedia(tenantId: string, mediaId: string): Promise<
     { ok: true; buffer: Buffer; mimeType: string; filename?: string } | { ok: false; reason: string }
   > {
     try {
-      const { accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+      const { accessToken } = await this.getTenantCredentials(tenantId);
       const client = this.getClient(accessToken!);
       const infoRes = await client.get<{ url: string; mime_type: string; id: string }>(`/${mediaId}`);
       const { url, mime_type } = infoRes.data;
@@ -376,8 +338,8 @@ export class WhatsAppService {
     }
   }
 
-  async uploadMediaToMeta(tenantId: string, buffer: Buffer, mimeType: string, filename: string, whatsappNumberId?: string | null): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+  async uploadMediaToMeta(tenantId: string, buffer: Buffer, mimeType: string, filename: string): Promise<string> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
 
     let effectiveBuffer = buffer;
     let effectiveMime = mimeType;
@@ -430,9 +392,8 @@ export class WhatsAppService {
     mediaId: string,
     caption?: string,
     contextMessageId?: string,
-    whatsappNumberId?: string | null,
   ): Promise<string> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
     const mediaTypeKey = mediaType.toLowerCase();
     const mediaPayload: Record<string, unknown> = { id: mediaId };
@@ -457,8 +418,8 @@ export class WhatsAppService {
     }
   }
 
-  async sendReaction(tenantId: string, to: string, waMessageId: string, emoji: string, whatsappNumberId?: string | null): Promise<void> {
-    const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
+  async sendReaction(tenantId: string, to: string, waMessageId: string, emoji: string): Promise<void> {
+    const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
     try {
       await client.post(`/${phoneNumberId}/messages`, {

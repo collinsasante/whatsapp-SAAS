@@ -3,8 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
 import axios from 'axios';
 import { QueueName, MessageRetryJob } from '@whatsapp-platform/shared-types';
-import { resolveWhatsAppCredentials, GRAPH_API_BASE } from '../lib/whatsapp-credentials';
 
+const GRAPH_API_BASE = 'https://graph.facebook.com/v20.0';
 const MAX_RETRIES = 3;
 
 export class MessageRetryWorker {
@@ -58,17 +58,16 @@ export class MessageRetryWorker {
 
     if (!message || message.status !== MessageStatus.FAILED) return;
 
-    // Retry from the exact number the original send used, not whichever
-    // number happens to be the tenant's current default -- otherwise a
-    // retry could go out under a completely different WhatsApp identity
-    // than the one the customer actually messaged.
-    const credentials = await resolveWhatsAppCredentials(this.prisma, tenantId, message.whatsappNumberId);
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { phoneNumberId: true, accessToken: true },
+    });
 
-    if (!credentials) return;
+    if (!tenant?.phoneNumberId || !tenant.accessToken) return;
 
     try {
       const response = await axios.post(
-        `${GRAPH_API_BASE}/${credentials.phoneNumberId}/messages`,
+        `${GRAPH_API_BASE}/${tenant.phoneNumberId}/messages`,
         {
           messaging_product: 'whatsapp',
           to: message.contact.phone,
@@ -76,7 +75,7 @@ export class MessageRetryWorker {
           text: { body: message.content ?? '' },
         },
         {
-          headers: { Authorization: `Bearer ${credentials.accessToken}` },
+          headers: { Authorization: `Bearer ${tenant.accessToken}` },
           timeout: 15000,
         },
       );
