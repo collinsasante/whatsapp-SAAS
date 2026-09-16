@@ -868,15 +868,18 @@ export class MessagesService {
   }
 
   /**
-   * Resolves the tenant's default AiAgent (lazily backfilled, shares the same
-   * synthetic isAiAgent user the legacy responder uses) and runs the Verz-AI
-   * v2 pipeline. Only called when the verz_ai_v2 feature flag is on.
+   * Resolves which AiAgent should answer -- the one explicitly assigned to
+   * this WhatsApp number if any, else the tenant's default (lazily
+   * backfilled, shares the same synthetic isAiAgent user the legacy
+   * responder uses) -- and runs the Verz-AI v2 pipeline. Only called when
+   * the verz_ai_v2 feature flag is on.
    */
   private runVerzAiV2(
     tenantId: string, conversationId: string, contactId: string, customerPhone: string,
     customerMessage: string, contactName: string | undefined, readOnlyTools: boolean,
+    whatsappNumberId?: string | null,
   ) {
-    return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
+    return this.aiAgentsService.resolveAgentForNumber(tenantId, whatsappNumberId).then((agent) =>
       this.verzAiPipeline.run({
         tenantId,
         agentId: agent.id,
@@ -890,6 +893,7 @@ export class MessagesService {
         contactId,
         customerPhone,
         readOnlyTools,
+        whatsappNumberId,
       }),
     );
   }
@@ -910,7 +914,7 @@ export class MessagesService {
     customerPhone: string,
     content: string,
     contactName: string | undefined,
-    opts: { commerceEnabled: boolean; readOnlyTools: boolean },
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean; whatsappNumberId?: string | null },
   ): Promise<UnifiedAiResult> {
     if (opts.commerceEnabled) {
       const r = await this.commerceAiService.handleMessage(
@@ -928,7 +932,7 @@ export class MessagesService {
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.whatsappNumberId);
 
     const legacy = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contactName);
     // The legacy responder calls DeepSeek via raw axios with no token tracking, so it
@@ -956,7 +960,7 @@ export class MessagesService {
 
   private async handleAiSuggestion(
     tenantId: string,
-    conversation: { id: string },
+    conversation: { id: string; whatsappNumberId?: string | null },
     contact: { id: string; phone: string; name: string | null },
     content: string,
     commerceEnabled: boolean,
@@ -971,7 +975,7 @@ export class MessagesService {
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
       tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
-      { commerceEnabled, readOnlyTools: true },
+      { commerceEnabled, readOnlyTools: true, whatsappNumberId: conversation.whatsappNumberId },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1022,7 +1026,7 @@ export class MessagesService {
 
   private async handleAiAutoReply(
     tenantId: string,
-    conversation: { id: string },
+    conversation: { id: string; whatsappNumberId?: string | null },
     contact: { id: string; phone: string; name: string | null },
     content: string,
     commerceEnabled: boolean,
@@ -1034,7 +1038,7 @@ export class MessagesService {
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
         tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
-        { commerceEnabled, readOnlyTools: false },
+        { commerceEnabled, readOnlyTools: false, whatsappNumberId: conversation.whatsappNumberId },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
         return null;

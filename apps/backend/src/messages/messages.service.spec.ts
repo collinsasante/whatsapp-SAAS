@@ -40,7 +40,10 @@ function buildDeps() {
       handleMessage: jest.fn().mockResolvedValue({ response: 'We have that in stock.', blocked: false, toolTrace: [] }),
     },
     featureFlagsService: { isEnabledCached: jest.fn().mockResolvedValue(false) },
-    aiAgentsService: { findOrCreateDefaultAgent: jest.fn().mockResolvedValue({ id: 'agent-2' }) },
+    aiAgentsService: {
+      findOrCreateDefaultAgent: jest.fn().mockResolvedValue({ id: 'agent-2' }),
+      resolveAgentForNumber: jest.fn().mockResolvedValue({ id: 'agent-2' }),
+    },
     verzAiPipeline: { run: jest.fn().mockResolvedValue({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' }) },
     aiExecutionsService: { linkInteractionLog: jest.fn().mockResolvedValue(null) },
     leadsService: { scoreConversation: jest.fn().mockResolvedValue(null) },
@@ -89,7 +92,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
-      expect(deps.aiAgentsService.findOrCreateDefaultAgent).toHaveBeenCalledWith('t1');
+      expect(deps.aiAgentsService.resolveAgentForNumber).toHaveBeenCalledWith('t1', undefined);
       expect(deps.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't1', conversationId: 'conv1', taskType: 'RESPONDER' }));
       expect(result).toEqual({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' });
     });

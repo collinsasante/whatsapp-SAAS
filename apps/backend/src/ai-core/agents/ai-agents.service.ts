@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiResponderService } from '../../ai/ai-responder.service';
 import { DEFAULT_MODEL_KEY } from '../models/model-catalog';
@@ -14,6 +14,7 @@ export interface CreateAiAgentDto {
   modelKey?: string;
   maxResponseTokens?: number;
   systemInstructions?: string;
+  assignedNumberIds?: string[];
 }
 
 export type UpdateAiAgentDto = Partial<CreateAiAgentDto> & { status?: 'ACTIVE' | 'PAUSED' };
@@ -39,6 +40,8 @@ export class AiAgentsService {
     const existing = await this.prisma.aiAgent.findUnique({ where: { tenantId_name: { tenantId, name: dto.name } } });
     if (existing) throw new ConflictException(`An AI agent named "${dto.name}" already exists`);
 
+    if (dto.assignedNumberIds?.length) await this.validateAssignedNumbers(tenantId, dto.assignedNumberIds);
+
     return this.prisma.aiAgent.create({
       data: {
         tenantId,
@@ -50,12 +53,14 @@ export class AiAgentsService {
         modelKey: dto.modelKey ?? DEFAULT_MODEL_KEY,
         maxResponseTokens: dto.maxResponseTokens ?? 400,
         systemInstructions: dto.systemInstructions,
+        assignedNumberIds: dto.assignedNumberIds ?? [],
       },
     });
   }
 
   async update(tenantId: string, id: string, dto: UpdateAiAgentDto) {
     await this.findOne(tenantId, id); // tenant-scoped existence check before the write
+    if (dto.assignedNumberIds?.length) await this.validateAssignedNumbers(tenantId, dto.assignedNumberIds);
     return this.prisma.aiAgent.update({
       where: { id },
       data: {
@@ -68,8 +73,20 @@ export class AiAgentsService {
         ...(dto.maxResponseTokens !== undefined && { maxResponseTokens: dto.maxResponseTokens }),
         ...(dto.systemInstructions !== undefined && { systemInstructions: dto.systemInstructions }),
         ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.assignedNumberIds !== undefined && { assignedNumberIds: dto.assignedNumberIds }),
       },
     });
+  }
+
+  /** Confirms every assigned WhatsApp number id actually belongs to this tenant before an agent can claim it. */
+  private async validateAssignedNumbers(tenantId: string, numberIds: string[]) {
+    const found = await this.prisma.whatsAppNumber.findMany({
+      where: { id: { in: numberIds }, tenantId },
+      select: { id: true },
+    });
+    if (found.length !== new Set(numberIds).size) {
+      throw new BadRequestException('One or more assigned WhatsApp numbers were not found for this workspace');
+    }
   }
 
   /**
@@ -98,5 +115,24 @@ export class AiAgentsService {
         modelKey: DEFAULT_MODEL_KEY,
       },
     });
+  }
+
+  /**
+   * Picks the agent that should answer for a specific WhatsApp number, so a
+   * tenant with e.g. a Sales and a Support number can run two differently-
+   * configured agents. Falls back to the tenant's default agent whenever no
+   * number is known (legacy callers, non-WhatsApp channels) or no agent has
+   * explicitly claimed this number yet -- unchanged behavior for every tenant
+   * with a single number/single agent, which is every tenant today.
+   */
+  async resolveAgentForNumber(tenantId: string, whatsappNumberId?: string | null) {
+    if (whatsappNumberId) {
+      const assigned = await this.prisma.aiAgent.findFirst({
+        where: { tenantId, status: 'ACTIVE', assignedNumberIds: { has: whatsappNumberId } },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (assigned) return assigned;
+    }
+    return this.findOrCreateDefaultAgent(tenantId);
   }
 }

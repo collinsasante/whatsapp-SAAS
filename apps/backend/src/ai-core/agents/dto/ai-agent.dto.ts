@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class CreateAiAgentDto {
   @IsString()
@@ -38,6 +38,11 @@ export class CreateAiAgentDto {
   @IsString()
   @MaxLength(4000)
   systemInstructions?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assignedNumberIds?: string[];
 }
 
 export class UpdateAiAgentDto {
@@ -83,4 +88,9 @@ export class UpdateAiAgentDto {
   @IsOptional()
   @IsIn(['ACTIVE', 'PAUSED'])
   status?: 'ACTIVE' | 'PAUSED';
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assignedNumberIds?: string[];
 }

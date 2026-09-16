@@ -40,6 +40,12 @@ export interface PipelineInput {
    * flag -- true in SUGGESTION mode, withholds state-changing tools until a human
    * has reviewed/sent the reply or AUTO_REPLY sends it directly. */
   readOnlyTools?: boolean;
+  /** Which of the tenant's WhatsApp numbers this conversation belongs to, when
+   * known -- purely additive (not read by any stage yet); lets a future prompt-
+   * building step reference channel-specific context if a tenant wants
+   * per-number instructions. Already what agentId was resolved against, see
+   * AiAgentsService.resolveAgentForNumber. */
+  whatsappNumberId?: string | null;
 }
 
 export interface PipelineTrace {

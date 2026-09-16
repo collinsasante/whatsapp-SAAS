@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { AiAgentsService } from './ai-agents.service';
 import { DEFAULT_MODEL_KEY } from '../models/model-catalog';
 
@@ -13,6 +13,9 @@ function buildPrismaMock() {
     },
     tenantSettings: {
       findUnique: jest.fn(),
+    },
+    whatsAppNumber: {
+      findMany: jest.fn(),
     },
   };
 }
@@ -99,6 +102,78 @@ describe('AiAgentsService', () => {
       expect(prisma.aiAgent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ personality: null }),
       });
+    });
+  });
+
+  describe('create -- assignedNumberIds validation', () => {
+    it('rejects a WhatsApp number id that does not belong to this tenant', async () => {
+      prisma.aiAgent.findUnique.mockResolvedValue(null);
+      prisma.whatsAppNumber.findMany.mockResolvedValue([]); // none found for this tenant
+
+      await expect(service.create('tenant-1', { name: 'Sales Bot', assignedNumberIds: ['num-1'] }))
+        .rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.aiAgent.create).not.toHaveBeenCalled();
+    });
+
+    it('stores assignedNumberIds once every id is confirmed to belong to the tenant', async () => {
+      prisma.aiAgent.findUnique.mockResolvedValue(null);
+      prisma.whatsAppNumber.findMany.mockResolvedValue([{ id: 'num-1' }, { id: 'num-2' }]);
+      prisma.aiAgent.create.mockResolvedValue({ id: 'a1' });
+
+      await service.create('tenant-1', { name: 'Sales Bot', assignedNumberIds: ['num-1', 'num-2'] });
+
+      expect(prisma.whatsAppNumber.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['num-1', 'num-2'] }, tenantId: 'tenant-1' },
+        select: { id: true },
+      });
+      expect(prisma.aiAgent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ assignedNumberIds: ['num-1', 'num-2'] }),
+      });
+    });
+  });
+
+  describe('update -- assignedNumberIds validation', () => {
+    it('rejects reassigning to a WhatsApp number from a different tenant', async () => {
+      prisma.aiAgent.findFirst.mockResolvedValue({ id: 'agent-1', tenantId: 'tenant-1' }); // findOne()
+      prisma.whatsAppNumber.findMany.mockResolvedValue([]);
+
+      await expect(service.update('tenant-1', 'agent-1', { assignedNumberIds: ['someone-elses-number'] }))
+        .rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.aiAgent.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolveAgentForNumber', () => {
+    it('returns the agent explicitly assigned to this WhatsApp number', async () => {
+      prisma.aiAgent.findFirst.mockResolvedValue({ id: 'support-agent', assignedNumberIds: ['num-support'] });
+
+      const result = await service.resolveAgentForNumber('tenant-1', 'num-support');
+
+      expect(result).toEqual({ id: 'support-agent', assignedNumberIds: ['num-support'] });
+      expect(prisma.aiAgent.findFirst).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', status: 'ACTIVE', assignedNumberIds: { has: 'num-support' } },
+        orderBy: { createdAt: 'asc' },
+      });
+    });
+
+    it('falls back to the default agent when no agent claims this number', async () => {
+      prisma.aiAgent.findFirst
+        .mockResolvedValueOnce(null) // assigned-agent lookup finds nothing
+        .mockResolvedValueOnce({ id: 'default-agent', isDefault: true }); // findOrCreateDefaultAgent's own lookup
+
+      const result = await service.resolveAgentForNumber('tenant-1', 'num-unclaimed');
+
+      expect(result).toEqual({ id: 'default-agent', isDefault: true });
+    });
+
+    it('goes straight to the default agent when no whatsappNumberId is given at all', async () => {
+      prisma.aiAgent.findFirst.mockResolvedValue({ id: 'default-agent', isDefault: true });
+
+      await service.resolveAgentForNumber('tenant-1', null);
+
+      // Only the default-agent lookup should run -- never the assigned-number query.
+      expect(prisma.aiAgent.findFirst).toHaveBeenCalledTimes(1);
+      expect(prisma.aiAgent.findFirst).toHaveBeenCalledWith({ where: { tenantId: 'tenant-1', isDefault: true } });
     });
   });
 });
