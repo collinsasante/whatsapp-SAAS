@@ -28,6 +28,7 @@ export interface MobileConversation {
   lastMessage?: { content: string | null; type: string; direction: string } | null;
   labels: string[];
   channel?: { id: string; type: string; name: string };
+  whatsappNumber?: { id: string; label: string } | null;
   snoozedUntil?: string | null;
 }
 

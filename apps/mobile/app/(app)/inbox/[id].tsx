@@ -443,13 +443,18 @@ export default function ChatScreen() {
 
         <View className="flex-1 min-w-0">
           <Text className="text-white font-semibold text-base" numberOfLines={1}>{contactName}</Text>
-          {typingUsers.length > 0 ? (
-            <Text className="text-green text-xs">typing...</Text>
-          ) : assignedName ? (
-            <Text className="text-white/40 text-xs" numberOfLines={1}>Assigned to {assignedName}</Text>
-          ) : (
-            <Text className="text-white/30 text-xs">Unassigned</Text>
-          )}
+          <View className="flex-row items-center gap-1.5">
+            {typingUsers.length > 0 ? (
+              <Text className="text-green text-xs">typing...</Text>
+            ) : assignedName ? (
+              <Text className="text-white/40 text-xs" numberOfLines={1}>Assigned to {assignedName}</Text>
+            ) : (
+              <Text className="text-white/30 text-xs">Unassigned</Text>
+            )}
+            {conversation?.whatsappNumber?.label && (
+              <Text className="text-white/25 text-xs" numberOfLines={1}>· {conversation.whatsappNumber.label}</Text>
+            )}
+          </View>
         </View>
 
         {/* Status badge */}

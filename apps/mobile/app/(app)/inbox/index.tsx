@@ -208,6 +208,13 @@ function ConversationRow({
               : (conversation.channel?.name ?? 'WhatsApp')}
           </Text>
           <View className="flex-row items-center gap-1.5">
+            {conversation.whatsappNumber?.label && (
+              <View className="bg-white/5 rounded-full px-1.5 py-0.5">
+                <Text className="text-white/40 text-[9px] font-semibold" numberOfLines={1}>
+                  {conversation.whatsappNumber.label}
+                </Text>
+              </View>
+            )}
             {conversation.status === 'PENDING' && (
               <View className="w-2 h-2 rounded-full bg-orange-400" />
             )}

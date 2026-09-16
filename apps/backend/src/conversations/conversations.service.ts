@@ -16,6 +16,10 @@ import { ActivityAction, ConversationStatus, MessageDirection, MessageStatus, Me
 import { NotificationType, ConversationEventType } from '@prisma/client';
 
 const CHANNEL_SELECT = { select: { id: true, type: true, name: true } } as const;
+// Which specific WhatsApp number this conversation belongs to (for
+// multi-account tenants) -- distinct from `channel`, which only says the
+// platform is WhatsApp, not which of the tenant's numbers.
+const WHATSAPP_NUMBER_SELECT = { select: { id: true, label: true } } as const;
 // lastSeenAt added for the AI-takeover-when-agent-away check in messages.service.ts --
 // lets handleInbound tell whether the assigned human has actually been active recently.
 const ASSIGNED_SELECT = { select: { id: true, name: true, avatarUrl: true, isAiAgent: true, lastSeenAt: true } } as const;
@@ -23,6 +27,7 @@ const CONV_INCLUDE = {
   contact: true,
   assignedTo: ASSIGNED_SELECT,
   channel: CHANNEL_SELECT,
+  whatsappNumber: WHATSAPP_NUMBER_SELECT,
 } as const;
 
 // SLA deadlines: minutes until breach per status
@@ -56,7 +61,7 @@ export class ConversationsService {
     // Prefer active (non-resolved) conversation
     const existing = await this.prisma.conversation.findFirst({
       where: { tenantId, contactId, status: { not: 'RESOLVED' } },
-      include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
+      include: CONV_INCLUDE,
     });
     if (existing) {
       // Backfill any ad fields a new referral brought that we don't have yet
@@ -69,7 +74,7 @@ export class ConversationsService {
         const updated = await this.prisma.conversation.update({
           where: { id: existing.id },
           data: adUpdates,
-          include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
+          include: CONV_INCLUDE,
         });
         this.realtimeService.emitConversationStateChanged(tenantId, existing.id, updated);
         return updated;
@@ -100,7 +105,7 @@ export class ConversationsService {
           ...(source?.adSourceId && !resolved.adSourceId && { adSourceId: source.adSourceId }),
           ...(source?.adHeadline && !resolved.adHeadline && { adHeadline: source.adHeadline }),
         },
-        include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
+        include: CONV_INCLUDE,
       });
       await this.recordEvent(tenantId, resolved.id, ConversationEventType.REQUESTED);
       void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_REQUESTED, conversationId: resolved.id, contactId });
@@ -119,7 +124,7 @@ export class ConversationsService {
         ...(source?.adHeadline && { adHeadline: source.adHeadline }),
         ...(source?.adImageUrl && { adImageUrl: source.adImageUrl }),
       },
-      include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
+      include: CONV_INCLUDE,
     });
     await this.recordEvent(tenantId, newConv.id, ConversationEventType.REQUESTED);
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_REQUESTED, conversationId: newConv.id, contactId });
@@ -132,7 +137,7 @@ export class ConversationsService {
   async create(tenantId: string, dto: CreateConversationDto, userId?: string) {
     const conversation = await this.prisma.conversation.create({
       data: { tenantId, contactId: dto.contactId, assignedToId: dto.assignedToId },
-      include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
+      include: CONV_INCLUDE,
     });
     await this.recordEvent(tenantId, conversation.id, ConversationEventType.OPENED, userId);
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_CREATED, conversationId: conversation.id, contactId: conversation.contactId, userId });
@@ -182,6 +187,7 @@ export class ConversationsService {
           contact: true,
           assignedTo: ASSIGNED_SELECT,
           channel: CHANNEL_SELECT,
+          whatsappNumber: WHATSAPP_NUMBER_SELECT,
           messages: {
             take: 1,
             orderBy: { createdAt: 'desc' },
@@ -239,6 +245,7 @@ export class ConversationsService {
         contact: true,
         assignedTo: ASSIGNED_SELECT,
         channel: CHANNEL_SELECT,
+        whatsappNumber: WHATSAPP_NUMBER_SELECT,
         notes: {
           include: { author: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'desc' },
