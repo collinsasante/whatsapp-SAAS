@@ -364,6 +364,63 @@ export class AnalyticsService {
     return { from, to, campaigns: campaignsWithFailures, templatePerformance, meta: { total, limit, offset } };
   }
 
+  // ─── Per-channel breakdown ───────────────────────────────────────────────
+
+  /**
+   * Live message-volume breakdown per WhatsApp number, for multi-account
+   * tenants. Deliberately a live query, not a rollup table -- per-channel
+   * breakdowns are a new, current/recent-period view, not a historical
+   * migration (the same "skip the historical rollup backfill" decision
+   * made for the rest of this multi-account work).
+   */
+  async getChannelBreakdown(tenantId: string, query: DateRangeQueryDto) {
+    const timezone = await this.getTenantTimezone(tenantId);
+    const { from, to } = resolveDateRange(query.from, query.to, timezone);
+    const { start, end } = getTenantDateRangeBoundaries(from, to, timezone);
+
+    const [numbers, rows] = await Promise.all([
+      this.prisma.whatsAppNumber.findMany({
+        where: { tenantId },
+        select: { id: true, label: true, isDefault: true, isActive: true },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      }),
+      this.prisma.message.groupBy({
+        by: ['whatsappNumberId', 'direction'],
+        where: { tenantId, createdAt: { gte: start, lt: end } },
+        _count: { id: true },
+      }),
+    ]);
+
+    const byNumber = new Map<string | null, { sent: number; received: number }>();
+    for (const row of rows) {
+      const entry = byNumber.get(row.whatsappNumberId) ?? { sent: 0, received: 0 };
+      if (row.direction === 'OUTBOUND') entry.sent += row._count.id;
+      else entry.received += row._count.id;
+      byNumber.set(row.whatsappNumberId, entry);
+    }
+
+    const channels = numbers.map((n) => {
+      const counts = byNumber.get(n.id) ?? { sent: 0, received: 0 };
+      return {
+        whatsappNumberId: n.id, label: n.label, isDefault: n.isDefault, isActive: n.isActive,
+        sent: counts.sent, received: counts.received, total: counts.sent + counts.received,
+      };
+    });
+
+    // Messages with no whatsappNumberId -- sent before this conversation was
+    // ever tagged with a number (predates the multi-account tagging logic,
+    // or the routing fix that keeps it populated going forward). Surfaced
+    // separately rather than silently dropped or misattributed to a number.
+    const unattributedCounts = byNumber.get(null);
+    const unattributed = {
+      sent: unattributedCounts?.sent ?? 0,
+      received: unattributedCounts?.received ?? 0,
+      total: (unattributedCounts?.sent ?? 0) + (unattributedCounts?.received ?? 0),
+    };
+
+    return { from, to, channels, unattributed };
+  }
+
   // ─── WhatsApp account health ─────────────────────────────────────────────
 
   async getHealth(tenantId: string) {

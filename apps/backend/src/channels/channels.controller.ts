@@ -117,9 +117,10 @@ export class ChannelsController {
   @ApiOperation({ summary: 'Connect a Telegram bot via token' })
   async connectTelegram(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
     @Body() body: { botToken: string },
   ) {
-    return this.channelsService.connectTelegramBot(tenantId, body.botToken);
+    return this.channelsService.connectTelegramBot(tenantId, body.botToken, user.sub);
   }
 
   @Get(':id')
@@ -150,14 +151,14 @@ export class ChannelsController {
   @Patch(':id/toggle')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Toggle channel active status' })
-  toggle(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.channelsService.toggle(tenantId, id);
+  toggle(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.channelsService.toggle(tenantId, id, user.sub);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Delete a channel' })
-  remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.channelsService.remove(tenantId, id);
+  remove(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.channelsService.remove(tenantId, id, user.sub);
   }
 }

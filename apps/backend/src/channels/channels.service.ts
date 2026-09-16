@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
+import { AuditService } from '../audit/audit.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
 
@@ -11,6 +12,7 @@ export class ChannelsService {
     private prisma: PrismaService,
     private config: ConfigService,
     private whatsAppNumbers: WhatsAppNumbersService,
+    private audit: AuditService,
   ) {}
 
   async findAll(tenantId: string) {
@@ -48,7 +50,7 @@ export class ChannelsService {
     }
 
     const mergedCredentials: Record<string, unknown> = { ...(dto.credentials ?? {}) };
-    return this.prisma.channel.create({
+    const created = await this.prisma.channel.create({
       data: {
         tenantId,
         type: dto.type as ChannelType,
@@ -57,6 +59,13 @@ export class ChannelsService {
         metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'CREATE', resource: 'channel', resourceId: created.id,
+      metadata: { type: created.type, name: created.name },
+    });
+
+    return created;
   }
 
   async update(tenantId: string, id: string, dto: UpdateChannelDto, actorId?: string) {
@@ -90,7 +99,7 @@ export class ChannelsService {
       } as Prisma.InputJsonValue;
     }
 
-    return this.prisma.channel.update({
+    const updated = await this.prisma.channel.update({
       where: { id },
       data: {
         ...(dto.name       !== undefined && { name:      dto.name }),
@@ -99,19 +108,39 @@ export class ChannelsService {
         ...(dto.metadata                 && { metadata:  dto.metadata as Prisma.InputJsonValue }),
       },
     });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: id,
+      metadata: { changes: Object.keys(dto).filter((k) => k !== 'accessToken' && k !== 'credentials') },
+    });
+
+    return updated;
   }
 
-  async toggle(tenantId: string, id: string) {
+  async toggle(tenantId: string, id: string, actorId?: string) {
     const channel = await this.findOne(tenantId, id);
-    return this.prisma.channel.update({
+    const updated = await this.prisma.channel.update({
       where: { id },
       data: { isActive: !channel.isActive },
     });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: id,
+      metadata: { action: 'TOGGLE', isActive: updated.isActive },
+    });
+
+    return updated;
   }
 
-  async remove(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
+  async remove(tenantId: string, id: string, actorId?: string) {
+    const channel = await this.findOne(tenantId, id);
     await this.prisma.channel.delete({ where: { id } });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'DELETE', resource: 'channel', resourceId: id,
+      metadata: { type: channel.type, name: channel.name },
+    });
+
     return { success: true };
   }
 
@@ -251,7 +280,7 @@ export class ChannelsService {
     }, open_id);
   }
 
-  async connectTelegramBot(tenantId: string, botToken: string) {
+  async connectTelegramBot(tenantId: string, botToken: string, actorId?: string) {
     const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
     const verifyData = await verifyRes.json() as {
       ok: boolean;
@@ -272,7 +301,7 @@ export class ChannelsService {
     // second, third bot without silently overwriting the first.
     const botId = String(verifyData.result?.id ?? botToken);
 
-    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken }, botId);
+    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken }, botId, actorId);
   }
 
   // Keyed on tenantId + type + externalId (the provider's own stable account/
@@ -286,6 +315,7 @@ export class ChannelsService {
     name: string,
     credentials: Record<string, string>,
     externalId: string,
+    actorId?: string,
   ) {
     const existing = await this.prisma.channel.findFirst({
       where: { tenantId, type, credentials: { path: ['externalId'], equals: externalId } },
@@ -294,10 +324,17 @@ export class ChannelsService {
     const credentialsWithId = { ...credentials, externalId };
 
     if (existing) {
-      return this.prisma.channel.update({
+      const updated = await this.prisma.channel.update({
         where: { id: existing.id },
         data: { name, credentials: credentialsWithId as Prisma.InputJsonValue, isActive: true },
       });
+
+      void this.audit.log({
+        tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: updated.id,
+        metadata: { action: 'OAUTH_RECONNECT', type, name },
+      });
+
+      return updated;
     }
 
     // [tenantId, type, name] is a real DB unique constraint -- two distinct
@@ -311,7 +348,7 @@ export class ChannelsService {
       candidateName = `${name} ${suffix}`;
     }
 
-    return this.prisma.channel.create({
+    const created = await this.prisma.channel.create({
       data: {
         tenantId,
         type,
@@ -321,5 +358,12 @@ export class ChannelsService {
         isActive: true,
       },
     });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'CREATE', resource: 'channel', resourceId: created.id,
+      metadata: { action: 'OAUTH_CONNECT', type, name: candidateName },
+    });
+
+    return created;
   }
 }
