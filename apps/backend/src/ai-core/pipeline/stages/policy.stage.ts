@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
-import { sanitizeForWhatsApp } from '../whatsapp-format.util';
+import { sanitizeForWhatsApp, sanitizeForMessenger } from '../whatsapp-format.util';
 
 // Fallback responses are knowledge gaps -- cap confidence so they correctly
 // surface as low-confidence and trigger human review. Ported verbatim from
@@ -20,11 +20,13 @@ export class PolicyStage implements PipelineStage {
     }
 
     // The prompt says "don't use markdown", but the model doesn't reliably comply --
-    // convert what it sends anyway into WhatsApp's own formatting syntax rather than
-    // depend on prompt compliance for something customers see literally.
+    // convert what it sends anyway into the destination channel's own formatting
+    // rather than depend on prompt compliance for something customers see literally.
     let { response } = ctx.result;
     const { confidence } = ctx.result;
-    if (response) response = sanitizeForWhatsApp(response);
+    if (response) {
+      response = ctx.input.channelType === 'FACEBOOK_MESSENGER' ? sanitizeForMessenger(response) : sanitizeForWhatsApp(response);
+    }
 
     if (confidence !== null && FALLBACK_SIGNALS.some((s) => response.toLowerCase().includes(s))) {
       const capped = Math.min(confidence, 40);

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { ConversationStateService } from '../../conversations/conversation-state.service';
-import { sanitizeForWhatsApp } from '../../ai-core/pipeline/whatsapp-format.util';
+import { sanitizeForWhatsApp, sanitizeForMessenger } from '../../ai-core/pipeline/whatsapp-format.util';
 import { detectHumanRequest } from '../../ai-core/pipeline/escalation-detector.util';
 import { detectInjection } from '../../ai-core/guards/injection-patterns';
 import { ToolCallingService, ToolCallTrace } from '../../ai-core/tools/tool-calling.service';
@@ -108,7 +108,7 @@ export class CommerceAiService {
     customerMessage: string,
     contactName?: string,
     evalContext?: { dryRunPayment: boolean },
-    opts?: { readOnlyTools?: boolean },
+    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER' },
   ): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
       return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
@@ -247,8 +247,9 @@ export class CommerceAiService {
     if (!content) {
       this.logger.warn(`Commerce AI: empty content and no tool calls for conversation ${conversationId}`);
     }
+    const sanitize = opts?.channelType === 'FACEBOOK_MESSENGER' ? sanitizeForMessenger : sanitizeForWhatsApp;
     return {
-      response: content ? sanitizeForWhatsApp(content) : content,
+      response: content ? sanitize(content) : content,
       blocked: false,
       // Second hardening pass, Section 4: the customer explicitly asked for a human
       // (detected before generation, above) -- the model's own reply this turn may or

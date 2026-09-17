@@ -1066,6 +1066,7 @@ export class MessagesService {
   private runVerzAiV2(
     tenantId: string, conversationId: string, contactId: string, customerPhone: string,
     customerMessage: string, contactName: string | undefined, readOnlyTools: boolean,
+    channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER',
   ) {
     return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
       this.verzAiPipeline.run({
@@ -1081,6 +1082,7 @@ export class MessagesService {
         contactId,
         customerPhone,
         readOnlyTools,
+        channelType,
       }),
     );
   }
@@ -1101,12 +1103,12 @@ export class MessagesService {
     customerPhone: string,
     content: string,
     contactName: string | undefined,
-    opts: { commerceEnabled: boolean; readOnlyTools: boolean },
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER' },
   ): Promise<UnifiedAiResult> {
     if (opts.commerceEnabled) {
       const r = await this.commerceAiService.handleMessage(
         tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
-        { readOnlyTools: opts.readOnlyTools },
+        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType },
       );
       // Second hardening pass, Section 4: r.shouldEscalate was never mapped through
       // here before -- Commerce's own escalation branches called
@@ -1119,7 +1121,7 @@ export class MessagesService {
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType);
 
     const legacy = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contactName);
     // The legacy responder calls DeepSeek via raw axios with no token tracking, so it
