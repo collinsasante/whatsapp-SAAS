@@ -1,4 +1,4 @@
-import { IsEnum, IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
+import { IsEnum, IsString, IsOptional, IsBoolean, IsObject, IsArray, ArrayMinSize } from 'class-validator';
 import { ChannelType } from '@whatsapp-platform/shared-types';
 
 export class CreateChannelDto {
@@ -57,4 +57,11 @@ export class UpdateChannelDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+}
+
+export class SelectFacebookPagesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  pageIds: string[];
 }

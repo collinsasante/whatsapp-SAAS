@@ -2,8 +2,17 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
+import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
+
+const GRAPH_API_BASE = 'https://graph.facebook.com/v19.0';
+
+interface FacebookCandidatePage {
+  id: string;
+  name: string;
+  access_token: string;
+}
 
 @Injectable()
 export class ChannelsService {
@@ -11,6 +20,7 @@ export class ChannelsService {
     private prisma: PrismaService,
     private config: ConfigService,
     private whatsAppNumbers: WhatsAppNumbersService,
+    private encryption: CredentialsEncryptionService,
   ) {}
 
   async findAll(tenantId: string) {
@@ -287,8 +297,15 @@ export class ChannelsService {
     credentials: Record<string, string>,
     externalId: string,
   ) {
+    // Prefer the real, indexed externalId column now that it exists; still
+    // check the legacy JSON-path match too so a row upserted before this
+    // column existed (externalId only inside credentials) is found and
+    // backfilled rather than duplicated.
     const existing = await this.prisma.channel.findFirst({
-      where: { tenantId, type, credentials: { path: ['externalId'], equals: externalId } },
+      where: {
+        tenantId, type,
+        OR: [{ externalId }, { credentials: { path: ['externalId'], equals: externalId } }],
+      },
     });
 
     const credentialsWithId = { ...credentials, externalId };
@@ -296,7 +313,7 @@ export class ChannelsService {
     if (existing) {
       return this.prisma.channel.update({
         where: { id: existing.id },
-        data: { name, credentials: credentialsWithId as Prisma.InputJsonValue, isActive: true },
+        data: { name, externalId, credentials: credentialsWithId as Prisma.InputJsonValue, isActive: true },
       });
     }
 
@@ -316,10 +333,186 @@ export class ChannelsService {
         tenantId,
         type,
         name: candidateName,
+        externalId,
         credentials: credentialsWithId as Prisma.InputJsonValue,
         metadata: {} as Prisma.InputJsonValue,
         isActive: true,
       },
     });
+  }
+
+  // ─── Facebook Messenger: real Page-selection flow ─────────────────────────
+  // Replaces the old behavior (connectOAuth's facebook branch auto-connected
+  // every Page the authorizing user manages). The OAuth callback now stops
+  // at fetching the candidate Page list and stashes it server-side in a
+  // short-lived OAuthConnectSession; nothing is actually connected until the
+  // user explicitly selects which Page(s) via selectFacebookPages below.
+
+  private async exchangeFacebookCode(code: string, redirectUri: string): Promise<string> {
+    const appId = this.config.get<string>('FACEBOOK_APP_ID');
+    const appSecret = this.config.get<string>('FACEBOOK_APP_SECRET');
+
+    const tokenUrl = new URL(`${GRAPH_API_BASE}/oauth/access_token`);
+    tokenUrl.searchParams.set('client_id', appId!);
+    tokenUrl.searchParams.set('client_secret', appSecret!);
+    tokenUrl.searchParams.set('redirect_uri', redirectUri);
+    tokenUrl.searchParams.set('code', code);
+
+    const tokenRes = await fetch(tokenUrl.toString());
+    const tokenData = await tokenRes.json() as { access_token?: string; error?: { message: string } };
+    if (!tokenData.access_token) {
+      throw new Error(`Token exchange failed: ${tokenData.error?.message ?? 'unknown error'}`);
+    }
+    return tokenData.access_token;
+  }
+
+  // Page tokens minted from a short-lived user token inherit that ~1-2hr
+  // lease. Exchanging for a long-lived user token first (Meta's documented
+  // flow) means the resulting Page tokens are the long-lived/non-expiring
+  // kind instead.
+  private async exchangeForLongLivedToken(shortLivedToken: string): Promise<string> {
+    const appId = this.config.get<string>('FACEBOOK_APP_ID');
+    const appSecret = this.config.get<string>('FACEBOOK_APP_SECRET');
+
+    const url = new URL(`${GRAPH_API_BASE}/oauth/access_token`);
+    url.searchParams.set('grant_type', 'fb_exchange_token');
+    url.searchParams.set('client_id', appId!);
+    url.searchParams.set('client_secret', appSecret!);
+    url.searchParams.set('fb_exchange_token', shortLivedToken);
+
+    const res = await fetch(url.toString());
+    const data = await res.json() as { access_token?: string; error?: { message: string } };
+    if (!data.access_token) {
+      throw new Error(`Long-lived token exchange failed: ${data.error?.message ?? 'unknown error'}`);
+    }
+    return data.access_token;
+  }
+
+  private async fetchFacebookPages(userToken: string): Promise<FacebookCandidatePage[]> {
+    const res = await fetch(`${GRAPH_API_BASE}/me/accounts?access_token=${userToken}&fields=id,name,access_token`);
+    const data = await res.json() as { data?: FacebookCandidatePage[]; error?: { message: string } };
+    if (data.error) throw new Error(`Failed to list Facebook Pages: ${data.error.message}`);
+    return data.data ?? [];
+  }
+
+  /**
+   * Called from the OAuth callback for provider=facebook. Exchanges the
+   * auth code, fetches the user's manageable Pages, and stashes everything
+   * needed to actually connect a subset of them in a short-lived session --
+   * the Facebook user token is encrypted at rest and never reaches the
+   * frontend, only the returned sessionId does.
+   */
+  async startFacebookPageSelection(tenantId: string, userId: string, code: string, redirectUri: string): Promise<{ sessionId: string; pageCount: number }> {
+    // Opportunistic cleanup -- no cron/scheduler exists in this backend, so
+    // expired sessions are swept lazily on the next OAuth-init rather than
+    // accumulating indefinitely.
+    void this.prisma.oAuthConnectSession.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+
+    const shortLivedToken = await this.exchangeFacebookCode(code, redirectUri);
+    const longLivedToken = await this.exchangeForLongLivedToken(shortLivedToken);
+    const pages = await this.fetchFacebookPages(longLivedToken);
+
+    if (pages.length === 0) {
+      throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
+    }
+
+    const session = await this.prisma.oAuthConnectSession.create({
+      data: {
+        tenantId,
+        createdByUserId: userId,
+        provider: 'facebook',
+        userAccessToken: this.encryption.encrypt(longLivedToken),
+        candidatePages: pages.map((p) => ({ id: p.id, name: p.name })) as Prisma.InputJsonValue,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      },
+    });
+
+    return { sessionId: session.id, pageCount: pages.length };
+  }
+
+  /** Candidate Page list for a pending selection session -- never the token. */
+  async getFacebookConnectSession(tenantId: string, sessionId: string) {
+    const session = await this.prisma.oAuthConnectSession.findFirst({
+      where: { id: sessionId, tenantId, provider: 'facebook', expiresAt: { gt: new Date() } },
+    });
+    if (!session) throw new NotFoundException('This connection session has expired or does not exist. Please reconnect.');
+
+    const candidatePages = session.candidatePages as unknown as Array<{ id: string; name: string }>;
+    const existingChannels = await this.prisma.channel.findMany({
+      where: { tenantId, type: ChannelType.FACEBOOK_MESSENGER, externalId: { in: candidatePages.map((p) => p.id) } },
+      select: { externalId: true },
+    });
+    const alreadyConnectedIds = new Set(existingChannels.map((c) => c.externalId));
+
+    return {
+      candidatePages: candidatePages.map((p) => ({ ...p, alreadyConnected: alreadyConnectedIds.has(p.id) })),
+    };
+  }
+
+  /**
+   * Connects the selected Page(s): subscribes each Page's Messenger webhook
+   * fields, then upserts the Channel + FacebookPageConnection rows. Fails
+   * loudly per-page (not silently skipping) if the webhook subscription
+   * call itself fails, since a Page without a real subscription would
+   * appear connected while never actually receiving messages.
+   */
+  async selectFacebookPages(tenantId: string, userId: string, sessionId: string, pageIds: string[]) {
+    const session = await this.prisma.oAuthConnectSession.findFirst({
+      where: { id: sessionId, tenantId, provider: 'facebook', expiresAt: { gt: new Date() } },
+    });
+    if (!session) throw new NotFoundException('This connection session has expired or does not exist. Please reconnect.');
+
+    const candidatePages = session.candidatePages as unknown as Array<{ id: string; name: string }>;
+    const validIds = new Set(candidatePages.map((p) => p.id));
+    if (!pageIds.every((id) => validIds.has(id))) {
+      throw new BadRequestException('One or more selected Pages were not in the original candidate list.');
+    }
+
+    // Re-fetch page tokens fresh from the stored (decrypted) long-lived user
+    // token rather than caching per-page tokens in the session row -- avoids
+    // a second encrypted-blob-inside-JSON scheme, and a token fetched at
+    // the moment of connecting is no less correct than one cached minutes
+    // earlier during the initial candidate-list fetch.
+    const userToken = this.encryption.decrypt(session.userAccessToken);
+    const freshPages = await this.fetchFacebookPages(userToken);
+    const selected = freshPages.filter((p) => pageIds.includes(p.id));
+    if (selected.length === 0) {
+      throw new BadRequestException('No valid Pages selected.');
+    }
+
+    const connected: Array<{ channelId: string; pageId: string; pageName: string }> = [];
+    for (const page of selected) {
+      const subscribeRes = await fetch(
+        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
+        { method: 'POST' },
+      );
+      const subscribeData = await subscribeRes.json() as { success?: boolean; error?: { message: string } };
+      if (!subscribeData.success) {
+        throw new BadRequestException(`Failed to subscribe "${page.name}" to Messenger webhooks: ${subscribeData.error?.message ?? 'unknown error'}`);
+      }
+
+      const channel = await this.upsertOAuthChannel(tenantId, ChannelType.FACEBOOK_MESSENGER, page.name, { pageId: page.id }, page.id);
+
+      await this.prisma.facebookPageConnection.upsert({
+        where: { tenantId_pageId: { tenantId, pageId: page.id } },
+        update: {
+          channelId: channel.id, pageName: page.name, pageAccessToken: this.encryption.encrypt(page.access_token),
+          subscribedFields: ['messages', 'messaging_postbacks'], webhookVerified: true, isActive: true,
+          connectedByUserId: userId, lastError: null, lastErrorAt: null,
+        },
+        create: {
+          tenantId, channelId: channel.id, pageId: page.id, pageName: page.name,
+          pageAccessToken: this.encryption.encrypt(page.access_token),
+          subscribedFields: ['messages', 'messaging_postbacks'], webhookVerified: true,
+          connectedByUserId: userId,
+        },
+      });
+
+      connected.push({ channelId: channel.id, pageId: page.id, pageName: page.name });
+    }
+
+    await this.prisma.oAuthConnectSession.delete({ where: { id: sessionId } });
+
+    return { connected };
   }
 }
