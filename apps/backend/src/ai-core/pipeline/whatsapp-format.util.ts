@@ -38,6 +38,10 @@ export function sanitizeForMessenger(text: string): string {
     // leftover malformed runs) -> plain
     .replace(/\*(.+?)\*/g, '$1')
     .replace(/\*{2,}/g, '')
+    // WhatsApp-style _italic_ (single underscore) -> plain. Without this,
+    // a model that emits standard markdown italics leaks literal
+    // underscores into a Messenger customer's message.
+    .replace(/(?<![a-zA-Z0-9])_(.+?)_(?![a-zA-Z0-9])/g, '$1')
     // Markdown links [text](url) -> "text: url" (same fallback as WhatsApp --
     // Messenger's plain-text messages have no link syntax either)
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1: $2')

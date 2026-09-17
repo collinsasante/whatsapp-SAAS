@@ -61,6 +61,14 @@ describe('sanitizeForMessenger', () => {
     expect(sanitizeForMessenger('This is *emphasized* text')).toBe('This is emphasized text');
   });
 
+  it('strips WhatsApp-style single-underscore italic too', () => {
+    expect(sanitizeForMessenger('This is _emphasized_ text')).toBe('This is emphasized text');
+  });
+
+  it('does not touch underscores inside identifiers (e.g. snake_case or order_123_confirmed)', () => {
+    expect(sanitizeForMessenger('Your order_123_confirmed code is ready')).toBe('Your order_123_confirmed code is ready');
+  });
+
   it('converts a markdown link to plain "text: url"', () => {
     expect(sanitizeForMessenger('Check our [website](https://example.com) for more')).toBe('Check our website: https://example.com for more');
   });
