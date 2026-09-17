@@ -226,6 +226,32 @@ export class ContactsService {
     return contact as Contact & { phone: string };
   }
 
+  // Non-phone platform identity (Messenger's PSID, etc.). Mirrors
+  // findOrCreate's upsert-not-find-then-create race-safety reasoning above.
+  // Return type narrows externalId/externalIdType back to `string` for the
+  // same reason findOrCreate narrows phone -- this method's where/create
+  // clauses are both scoped to a real (externalIdType, externalId) pair.
+  async findOrCreateByExternalId(
+    tenantId: string,
+    externalIdType: string,
+    externalId: string,
+    name?: string,
+  ): Promise<Contact & { externalId: string; externalIdType: string }> {
+    const contact = await this.prisma.contact.upsert({
+      where: { tenantId_externalIdType_externalId: { tenantId, externalIdType, externalId } },
+      update: {},
+      create: { tenantId, externalIdType, externalId, phone: null, name: name ?? null },
+    });
+
+    if (name && !contact.name) {
+      return this.prisma.contact.update({
+        where: { id: contact.id },
+        data: { name },
+      }) as Promise<Contact & { externalId: string; externalIdType: string }>;
+    }
+    return contact as Contact & { externalId: string; externalIdType: string };
+  }
+
   async update(tenantId: string, id: string, dto: UpdateContactDto) {
     await this.findOne(tenantId, id);
     return this.prisma.contact.update({ where: { id }, data: dto });

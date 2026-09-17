@@ -52,10 +52,21 @@ export class ConversationsService {
     tenantId: string,
     contactId: string,
     source?: { contactSource?: string; adSourceId?: string; adHeadline?: string; adImageUrl?: string },
+    // Disambiguates which channel's open conversation to reuse -- when given,
+    // matches either that channel's own open conversation or a legacy one
+    // with no channel tagged yet (predates multi-channel support), never a
+    // DIFFERENT channel's open conversation. Mirrors the equivalent
+    // whatsappNumberId-based dedup used for multi-WhatsApp-number routing.
+    // Omitted entirely (undefined) preserves the exact prior behavior --
+    // every existing caller that doesn't pass this sees zero change.
+    channelId?: string,
   ) {
     // Prefer active (non-resolved) conversation
     const existing = await this.prisma.conversation.findFirst({
-      where: { tenantId, contactId, status: { not: 'RESOLVED' } },
+      where: {
+        tenantId, contactId, status: { not: 'RESOLVED' },
+        ...(channelId && { OR: [{ channelId }, { channelId: null }] }),
+      },
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });
     if (existing) {

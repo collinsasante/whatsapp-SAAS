@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import axios from 'axios';
-import { Prisma } from '@prisma/client';
+import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -57,6 +57,21 @@ interface UnifiedAiResult {
  * the admin pricing API alongside AiPricingConfig.creditsPerUsd once real usage
  * data exists, not a final business decision baked into code. */
 const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
+
+// Messenger's Send/Receive API attachment `type` values -- 'file' covers
+// documents generically (no separate 'document' type the way WhatsApp has).
+const MESSENGER_ATTACHMENT_TYPE_MAP: Record<string, MessageType> = {
+  image: MessageType.IMAGE,
+  video: MessageType.VIDEO,
+  audio: MessageType.AUDIO,
+  file: MessageType.DOCUMENT,
+};
+const MESSENGER_ATTACHMENT_FALLBACK_MIME: Record<string, string> = {
+  image: 'image/jpeg',
+  video: 'video/mp4',
+  audio: 'audio/mpeg',
+  file: 'application/octet-stream',
+};
 
 @Injectable()
 export class MessagesService {
@@ -389,20 +404,118 @@ export class MessagesService {
     return { data: data.reverse(), hasMore: total > limit, meta: buildPaginationMeta(total, 1, limit) };
   }
 
-  // Stub for the Messenger webhook contract (Phase 3 of the Messenger channel
-  // work) -- signature verification, Page-ID fan-out, and per-message
-  // dispatch are already real; PSID-based Contact/Conversation creation and
-  // actual Message persistence land in a later phase. Throwing here is
-  // caught by the webhook controller's per-message try/catch (same pattern
-  // as handleInbound's callers), so it fails loudly per-message without
-  // taking down the rest of the webhook batch.
+  // Messenger's own inbound entry point -- deliberately separate from
+  // handleInbound below rather than a shared method with branching:
+  // handleInbound's ~450 lines are WhatsApp-payload-shaped throughout (CSAT/
+  // call-permission interactive replies, ad-referral image mirroring,
+  // WhatsApp's two-step media download), none of which apply to Messenger's
+  // differently-shaped payload. What IS genuinely shared (channel-agnostic
+  // media storage, realtime emit, the idempotency pattern) is reused as-is.
+  //
+  // AI auto-reply / welcome-message / bot-flow triggering intentionally NOT
+  // wired up here yet -- those all currently call WhatsAppService directly;
+  // hooking Messenger into them is the channel-aware outbound dispatcher's
+  // job (a later phase), not this one. This phase only gets inbound
+  // messages correctly persisted with real PSID-based Contact/Conversation
+  // identity and visible in the inbox.
   async handleInboundMessenger(
-    _tenantId: string,
-    _channelId: string,
-    _senderPsid: string,
-    _message: { mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }> },
-  ): Promise<never> {
-    throw new Error('Messenger inbound message handling is not yet implemented.');
+    tenantId: string,
+    channelId: string,
+    senderPsid: string,
+    message: { mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }> },
+  ) {
+    // Pre-check (mirrors handleInbound's) plus a P2002 catch around the
+    // actual create below -- defense-in-depth against the race between two
+    // concurrent webhook deliveries both passing this check before either
+    // commits (Meta retries webhooks; this codebase doesn't otherwise use
+    // find-then-skip alone as its only idempotency guard for new work).
+    const alreadyProcessed = await this.prisma.message.findFirst({
+      where: { whatsappMessageId: message.mid, tenantId },
+      select: { id: true },
+    });
+    if (alreadyProcessed) return alreadyProcessed;
+
+    const contact = await this.contactsService.findOrCreateByExternalId(tenantId, 'MESSENGER_PSID', senderPsid);
+    const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, channelId);
+
+    // Tag conversation with the receiving channel the first time only,
+    // mirroring handleInbound's whatsappNumberId backfill below.
+    if (!conversation.channelId) {
+      await this.prisma.conversation.update({ where: { id: conversation.id }, data: { channelId } });
+      (conversation as { channelId?: string | null }).channelId = channelId;
+    }
+
+    if (conversation.status === 'OPEN') {
+      await this.conversationsService.request(tenantId, conversation.id);
+    }
+
+    let content: string | undefined = message.text;
+    let mediaUrl: string | undefined;
+    let mediaType: string | undefined;
+    let msgType: MessageType = MessageType.TEXT;
+
+    const attachment = message.attachments?.[0];
+    if (attachment?.payload?.url) {
+      // Messenger's webhook payload already includes a fetchable CDN URL per
+      // attachment -- unlike WhatsApp's Graph API, there's no separate
+      // metadata-lookup-by-id step before the actual download.
+      try {
+        const mediaRes = await axios.get<ArrayBuffer>(attachment.payload.url, { responseType: 'arraybuffer', timeout: 30_000 });
+        const contentType = (mediaRes.headers['content-type'] as string | undefined) ?? MESSENGER_ATTACHMENT_FALLBACK_MIME[attachment.type] ?? 'application/octet-stream';
+        const ext = contentType.split('/')[1]?.split(';')[0] ?? 'bin';
+        const uploadResult = await this.storageService.uploadRaw(Buffer.from(mediaRes.data), contentType, tenantId, `${attachment.type}.${ext}`);
+        mediaUrl = uploadResult.fileUrl;
+        mediaType = contentType;
+        msgType = MESSENGER_ATTACHMENT_TYPE_MAP[attachment.type] ?? MessageType.DOCUMENT;
+      } catch (err) {
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Inbound Messenger media download failed for attachment type "${attachment.type}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+        }).catch(() => {});
+      }
+    }
+
+    if (!content && !mediaUrl) {
+      content = '[Sent a message type we can\'t display yet]';
+    }
+
+    let created: Message;
+    try {
+      const [msg] = await this.prisma.$transaction([
+        this.prisma.message.create({
+          data: {
+            tenantId, conversationId: conversation.id, contactId: contact.id,
+            whatsappMessageId: message.mid, channelId,
+            direction: MessageDirection.INBOUND, type: msgType, status: MessageStatus.DELIVERED,
+            content, mediaUrl, mediaType, deliveredAt: new Date(),
+          },
+        }),
+        this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
+        }),
+      ]);
+      created = msg;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: message.mid, tenantId } });
+        if (raced) return raced;
+      }
+      throw err;
+    }
+
+    this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
+    this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+      id: conversation.id,
+      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      lastMessageAt: created.createdAt,
+      lastInboundAt: created.createdAt,
+      contact: (conversation as Record<string, unknown>)['contact'],
+      status: conversation.status,
+    });
+
+    return created;
   }
 
   async handleInbound(tenantId: string, waMessage: {
