@@ -114,6 +114,15 @@ export class MessagesService {
       throw new NotFoundException('Cannot send message to this contact');
     }
 
+    // sendMessage() is WhatsApp-only today (see the dispatchOutbound() work
+    // planned for a later phase, which will branch on conversation.channel
+    // instead of always calling WhatsAppService directly). A contact with no
+    // phone number (e.g. reached via a non-WhatsApp platform identifier) has
+    // nothing this method can currently deliver to.
+    if (!contact.phone) {
+      throw new BadRequestException('Sending from this channel is not yet supported.');
+    }
+
     // WhatsApp only allows free-form (non-template) sends within 24h of the
     // customer's last inbound message; outside that window Meta accepts a
     // non-template send then asynchronously rejects it (error 131047,

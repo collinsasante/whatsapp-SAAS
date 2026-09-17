@@ -125,7 +125,11 @@ export class ConversationsService {
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_REQUESTED, conversationId: newConv.id, contactId });
     this.realtimeService.emitConversationStateChanged(tenantId, newConv.id, newConv);
     void this.notifyAllAgents(tenantId, newConv.id, newConv as unknown as Record<string, unknown>, 'CONVERSATION_REQUESTED' as NotificationType);
-    void this.airtableService.pushNewLead(tenantId, { name: newConv.contact.name, phone: newConv.contact.phone });
+    // Airtable lead sync is phone-centric -- a contact reached via a non-phone
+    // platform identifier (e.g. Messenger PSID) has nothing to push yet.
+    if (newConv.contact.phone) {
+      void this.airtableService.pushNewLead(tenantId, { name: newConv.contact.name, phone: newConv.contact.phone });
+    }
     return newConv;
   }
 

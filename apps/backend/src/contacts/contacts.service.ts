@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConversationStatus } from '@prisma/client';
+import { ConversationStatus, Contact } from '@prisma/client';
 import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/contact.dto';
 import { normalizePhone, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
@@ -200,7 +200,11 @@ export class ContactsService {
     });
   }
 
-  async findOrCreate(tenantId: string, phone: string, name?: string) {
+  // Return type narrows `phone` back to `string` (Prisma's generated type is
+  // `string | null` post-Messenger-channel work) -- this method's where/create
+  // clauses are both scoped to a normalized phone value, so it can never
+  // resolve to a Messenger-style (phone: null) contact by construction.
+  async findOrCreate(tenantId: string, phone: string, name?: string): Promise<Contact & { phone: string }> {
     const normalized = normalizePhone(phone);
     // upsert (not find-then-create) -- two concurrent inbound webhooks for the same
     // phone number can both pass a plain existence check before either commits,
@@ -217,9 +221,9 @@ export class ContactsService {
       return this.prisma.contact.update({
         where: { id: contact.id },
         data: { name },
-      });
+      }) as Promise<Contact & { phone: string }>;
     }
-    return contact;
+    return contact as Contact & { phone: string };
   }
 
   async update(tenantId: string, id: string, dto: UpdateContactDto) {

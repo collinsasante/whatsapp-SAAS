@@ -51,11 +51,16 @@ export class AutomationWorker {
     });
 
     const contact = await this.prisma.contact.findUnique({ where: { id: contactId } });
-    if (!contact) return;
+    // This processor is WhatsApp-only (see the ctx.contact.phone-shaped actions
+    // below) -- a contact reached via a non-phone platform identifier has
+    // nothing this worker can currently act on.
+    if (!contact || !contact.phone) return;
 
     for (const action of actions) {
       try {
-        await this.executeAction(action, { tenantId, conversationId, contactId, contact, tenant });
+        // Non-null assertion is safe here -- the guard above already returned
+        // for any contact with no phone.
+        await this.executeAction(action, { tenantId, conversationId, contactId, contact: { ...contact, phone: contact.phone! }, tenant });
       } catch (error) {
         console.error(`Failed to execute action ${action.type}:`, error instanceof Error ? error.message : String(error));
       }
