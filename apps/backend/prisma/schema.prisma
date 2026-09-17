@@ -2948,6 +2948,7 @@ enum WebhookSource {
   STRIPE_BILLING
   PAYSTACK_BILLING
   PAYSTACK_COMMERCE
+  MESSENGER
 }
 
 enum WebhookEventStatus {

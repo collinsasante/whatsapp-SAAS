@@ -22,6 +22,7 @@ import { AutomationModule } from './automation/automation.module';
 import { MediaModule } from './media/media.module';
 import { AuditModule } from './audit/audit.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { MessengerWebhookModule } from './facebook-messenger/messenger-webhook.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ActivityLogModule } from './activity-log/activity-log.module';
 import { ChannelsModule } from './channels/channels.module';
@@ -106,6 +107,7 @@ import appConfig from './config/app.config';
     MediaModule,
     AuditModule,
     WhatsappModule,
+    MessengerWebhookModule,
     DashboardModule,
     ActivityLogModule,
     ChannelsModule,

@@ -389,6 +389,22 @@ export class MessagesService {
     return { data: data.reverse(), hasMore: total > limit, meta: buildPaginationMeta(total, 1, limit) };
   }
 
+  // Stub for the Messenger webhook contract (Phase 3 of the Messenger channel
+  // work) -- signature verification, Page-ID fan-out, and per-message
+  // dispatch are already real; PSID-based Contact/Conversation creation and
+  // actual Message persistence land in a later phase. Throwing here is
+  // caught by the webhook controller's per-message try/catch (same pattern
+  // as handleInbound's callers), so it fails loudly per-message without
+  // taking down the rest of the webhook batch.
+  async handleInboundMessenger(
+    _tenantId: string,
+    _channelId: string,
+    _senderPsid: string,
+    _message: { mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }> },
+  ): Promise<never> {
+    throw new Error('Messenger inbound message handling is not yet implemented.');
+  }
+
   async handleInbound(tenantId: string, waMessage: {
     id: string;
     from: string;
