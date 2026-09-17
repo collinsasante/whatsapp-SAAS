@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { FacebookMessengerService } from '../facebook-messenger/facebook-messenger.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -118,7 +119,44 @@ export class MessagesService {
     private leadsService: LeadsService,
     private aiCreditsService: AiCreditsService,
     private conversationState: ConversationStateService,
+    @Inject(forwardRef(() => FacebookMessengerService)) private facebookMessengerService: FacebookMessengerService,
   ) {}
+
+  /**
+   * Single indirection point for every outbound send that has a real
+   * Messenger equivalent (text, media) -- branches once on the conversation's
+   * channel instead of every call site hardcoding WhatsAppService. Defaults
+   * to WhatsApp when no channel is tagged yet (every pre-existing
+   * conversation), so this is a zero-behavior-change refactor for WhatsApp.
+   * WhatsApp-only concepts with no Messenger equivalent (templates, location
+   * messages, contact-card messages) are NOT routed through here -- their
+   * call sites guard against being used on a Messenger conversation instead
+   * (see sendMessage()).
+   */
+  private async dispatchOutbound(
+    tenantId: string,
+    conversation: { channel?: { id: string; type: string } | null },
+    contact: { phone: string | null; externalId: string | null },
+    payload:
+      | { kind: 'TEXT'; text: string; replyToWaMessageId?: string }
+      | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string },
+  ): Promise<string | undefined> {
+    if (conversation.channel?.type === 'FACEBOOK_MESSENGER') {
+      if (!contact.externalId) throw new BadRequestException('This Messenger contact has no PSID on file.');
+      if (payload.kind === 'TEXT') {
+        return this.facebookMessengerService.sendTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text);
+      }
+      return this.facebookMessengerService.sendMediaMessage(
+        tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
+      );
+    }
+
+    if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
+    if (payload.kind === 'TEXT') {
+      return this.whatsappService.sendTextMessage(tenantId, contact.phone, payload.text, payload.replyToWaMessageId);
+    }
+    return this.deliverMedia(tenantId, contact.phone, payload.mediaType, payload.mediaUrl, payload.caption, payload.replyToWaMessageId);
+  }
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
     console.log(`[sendMessage] type=${dto.type} templateId=${dto.templateId} content=${dto.content}`);
@@ -129,13 +167,19 @@ export class MessagesService {
       throw new NotFoundException('Cannot send message to this contact');
     }
 
-    // sendMessage() is WhatsApp-only today (see the dispatchOutbound() work
-    // planned for a later phase, which will branch on conversation.channel
-    // instead of always calling WhatsAppService directly). A contact with no
-    // phone number (e.g. reached via a non-WhatsApp platform identifier) has
-    // nothing this method can currently deliver to.
-    if (!contact.phone) {
-      throw new BadRequestException('Sending from this channel is not yet supported.');
+    const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER';
+
+    // A contact with neither identifier (e.g. a channel not yet supported at
+    // all) has nothing this method can deliver to.
+    if (!contact.phone && !contact.externalId) {
+      throw new BadRequestException('This contact has no channel identity on file.');
+    }
+
+    // Template/location/contact-card messages are WhatsApp-specific concepts
+    // with no Messenger equivalent -- fail loudly rather than attempt (and
+    // silently mis-send via) a WhatsApp-shaped call for a Messenger contact.
+    if (isMessenger && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
+      throw new BadRequestException(`${dto.type} messages are not supported on Facebook Messenger.`);
     }
 
     // WhatsApp only allows free-form (non-template) sends within 24h of the
@@ -144,8 +188,9 @@ export class MessagesService {
     // "Re-engagement message"). Reject synchronously here instead of
     // creating a message that silently flips from sent to failed a moment
     // later -- the agent needs to know immediately, before they walk away
-    // thinking it went through.
-    if (dto.type !== MessageType.TEMPLATE) {
+    // thinking it went through. Messenger has its own (different) messaging-
+    // window rules, not enforced here yet -- out of scope for this pass.
+    if (!isMessenger && dto.type !== MessageType.TEMPLATE) {
       const lastInboundAt = conversation.lastMessageAt;
       const windowClosed = !lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000;
       if (windowClosed) {
@@ -230,12 +275,16 @@ export class MessagesService {
 
     try {
       if (dto.type === MessageType.TEXT || !dto.type) {
-        whatsappMessageId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, dto.content!, replyToWaMessageId);
+        whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: dto.content!, replyToWaMessageId });
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
         if (dto.mediaUrl) {
-          whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, dto.type as MessageType, dto.mediaUrl, dto.mediaCaption, replyToWaMessageId);
+          whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, {
+            kind: 'MEDIA', mediaType: dto.type as MessageType, mediaUrl: dto.mediaUrl, caption: dto.mediaCaption, replyToWaMessageId,
+          });
         }
       } else if (dto.type === MessageType.TEMPLATE && dto.templateId) {
+        // Guarded above: TEMPLATE never reaches here for a Messenger conversation.
+        if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
         const template = await this.prisma.template.findFirst({
           where: { id: dto.templateId, tenantId },
         });
@@ -250,6 +299,8 @@ export class MessagesService {
           );
         }
       } else if (dto.type === MessageType.LOCATION && dto.locationLatitude != null && dto.locationLongitude != null) {
+        // Guarded above: LOCATION never reaches here for a Messenger conversation.
+        if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
         whatsappMessageId = await this.whatsappService.sendLocationMessage(
           tenantId,
           contact.phone,
@@ -259,6 +310,8 @@ export class MessagesService {
           dto.locationAddress,
         );
       } else if (dto.type === MessageType.CONTACTS && dto.contactName && dto.contactPhone) {
+        // Guarded above: CONTACTS never reaches here for a Messenger conversation.
+        if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
         whatsappMessageId = await this.whatsappService.sendContactMessage(
           tenantId,
           contact.phone,
