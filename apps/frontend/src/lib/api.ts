@@ -322,6 +322,11 @@ export const channelsApi = {
   delete: (id: string) => api.delete(`/channels/${id}`),
 };
 
+export const facebookPagesApi = {
+  session: (sessionId: string) => api.get(`/channels/oauth/sessions/${sessionId}`),
+  select: (sessionId: string, pageIds: string[]) => api.post(`/channels/oauth/sessions/${sessionId}/select`, { pageIds }),
+};
+
 export const activityLogApi = {
   list: (params?: Record<string, unknown>) => api.get('/activity-logs', { params }),
   forConversation: (conversationId: string) => api.get(`/activity-logs/conversation/${conversationId}`),
