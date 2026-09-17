@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
 import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
+import { AuditService } from '../audit/audit.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
 
@@ -21,6 +22,7 @@ export class ChannelsService {
     private config: ConfigService,
     private whatsAppNumbers: WhatsAppNumbersService,
     private encryption: CredentialsEncryptionService,
+    private audit: AuditService,
   ) {}
 
   async findAll(tenantId: string) {
@@ -58,7 +60,7 @@ export class ChannelsService {
     }
 
     const mergedCredentials: Record<string, unknown> = { ...(dto.credentials ?? {}) };
-    return this.prisma.channel.create({
+    const created = await this.prisma.channel.create({
       data: {
         tenantId,
         type: dto.type as ChannelType,
@@ -67,6 +69,13 @@ export class ChannelsService {
         metadata: (dto.metadata ?? {}) as Prisma.InputJsonValue,
       },
     });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'CREATE', resource: 'channel', resourceId: created.id,
+      metadata: { type: created.type, name: created.name },
+    });
+
+    return created;
   }
 
   async update(tenantId: string, id: string, dto: UpdateChannelDto, actorId?: string) {
@@ -100,7 +109,7 @@ export class ChannelsService {
       } as Prisma.InputJsonValue;
     }
 
-    return this.prisma.channel.update({
+    const updated = await this.prisma.channel.update({
       where: { id },
       data: {
         ...(dto.name       !== undefined && { name:      dto.name }),
@@ -109,19 +118,69 @@ export class ChannelsService {
         ...(dto.metadata                 && { metadata:  dto.metadata as Prisma.InputJsonValue }),
       },
     });
-  }
 
-  async toggle(tenantId: string, id: string) {
-    const channel = await this.findOne(tenantId, id);
-    return this.prisma.channel.update({
-      where: { id },
-      data: { isActive: !channel.isActive },
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: id,
+      metadata: { changes: Object.keys(dto).filter((k) => k !== 'accessToken' && k !== 'credentials') },
     });
+
+    return updated;
   }
 
-  async remove(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
-    await this.prisma.channel.delete({ where: { id } });
+  async toggle(tenantId: string, id: string, actorId?: string) {
+    const channel = await this.findOne(tenantId, id);
+    const nextActive = !channel.isActive;
+
+    const updated = await this.prisma.channel.update({
+      where: { id },
+      data: { isActive: nextActive },
+    });
+
+    // Facebook Pages track their own isActive on FacebookPageConnection
+    // (checked by FacebookMessengerService.resolveCredentials before every
+    // send) -- keep it in lockstep with the generic Channel row so toggling
+    // "Disconnect" here actually blocks sending, not just flips a cosmetic
+    // status badge nothing else reads.
+    if (channel.type === ChannelType.FACEBOOK_MESSENGER) {
+      await this.prisma.facebookPageConnection.updateMany({
+        where: { tenantId, channelId: id },
+        data: { isActive: nextActive, ...(nextActive && { lastError: null, lastErrorAt: null }) },
+      });
+    }
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: id,
+      metadata: { action: 'TOGGLE', isActive: updated.isActive },
+    });
+
+    return updated;
+  }
+
+  async remove(tenantId: string, id: string, actorId?: string) {
+    const channel = await this.findOne(tenantId, id);
+
+    // Facebook Pages: soft-disconnect, never hard-delete -- Conversation.
+    // channelId/Message.channelId (onDelete: SetNull) would otherwise
+    // silently erase which Page a conversation's history belongs to the
+    // moment the row disappears. Mirrors WhatsAppNumbersService.remove()'s
+    // identical reasoning for WhatsApp numbers. Every other channel type
+    // keeps its existing hard-delete behavior unchanged -- out of scope for
+    // this track to revisit.
+    if (channel.type === ChannelType.FACEBOOK_MESSENGER) {
+      await this.prisma.facebookPageConnection.updateMany({
+        where: { tenantId, channelId: id },
+        data: { isActive: false },
+      });
+      await this.prisma.channel.update({ where: { id }, data: { isActive: false } });
+    } else {
+      await this.prisma.channel.delete({ where: { id } });
+    }
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'DELETE', resource: 'channel', resourceId: id,
+      metadata: { type: channel.type, name: channel.name, softDisconnect: channel.type === ChannelType.FACEBOOK_MESSENGER },
+    });
+
     return { success: true };
   }
 
@@ -261,7 +320,7 @@ export class ChannelsService {
     }, open_id);
   }
 
-  async connectTelegramBot(tenantId: string, botToken: string) {
+  async connectTelegramBot(tenantId: string, botToken: string, actorId?: string) {
     const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
     const verifyData = await verifyRes.json() as {
       ok: boolean;
@@ -282,7 +341,7 @@ export class ChannelsService {
     // second, third bot without silently overwriting the first.
     const botId = String(verifyData.result?.id ?? botToken);
 
-    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken }, botId);
+    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken }, botId, actorId);
   }
 
   // Keyed on tenantId + type + externalId (the provider's own stable account/
@@ -296,6 +355,7 @@ export class ChannelsService {
     name: string,
     credentials: Record<string, string>,
     externalId: string,
+    actorId?: string,
   ) {
     // Prefer the real, indexed externalId column now that it exists; still
     // check the legacy JSON-path match too so a row upserted before this
@@ -311,10 +371,17 @@ export class ChannelsService {
     const credentialsWithId = { ...credentials, externalId };
 
     if (existing) {
-      return this.prisma.channel.update({
+      const updated = await this.prisma.channel.update({
         where: { id: existing.id },
         data: { name, externalId, credentials: credentialsWithId as Prisma.InputJsonValue, isActive: true },
       });
+
+      void this.audit.log({
+        tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: updated.id,
+        metadata: { action: 'OAUTH_RECONNECT', type, name },
+      });
+
+      return updated;
     }
 
     // [tenantId, type, name] is a real DB unique constraint -- two distinct
@@ -328,7 +395,7 @@ export class ChannelsService {
       candidateName = `${name} ${suffix}`;
     }
 
-    return this.prisma.channel.create({
+    const created = await this.prisma.channel.create({
       data: {
         tenantId,
         type,
@@ -339,6 +406,13 @@ export class ChannelsService {
         isActive: true,
       },
     });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'CREATE', resource: 'channel', resourceId: created.id,
+      metadata: { action: 'OAUTH_CONNECT', type, name: candidateName },
+    });
+
+    return created;
   }
 
   // ─── Facebook Messenger: real Page-selection flow ─────────────────────────
@@ -491,7 +565,7 @@ export class ChannelsService {
         throw new BadRequestException(`Failed to subscribe "${page.name}" to Messenger webhooks: ${subscribeData.error?.message ?? 'unknown error'}`);
       }
 
-      const channel = await this.upsertOAuthChannel(tenantId, ChannelType.FACEBOOK_MESSENGER, page.name, { pageId: page.id }, page.id);
+      const channel = await this.upsertOAuthChannel(tenantId, ChannelType.FACEBOOK_MESSENGER, page.name, { pageId: page.id }, page.id, userId);
 
       await this.prisma.facebookPageConnection.upsert({
         where: { tenantId_pageId: { tenantId, pageId: page.id } },
