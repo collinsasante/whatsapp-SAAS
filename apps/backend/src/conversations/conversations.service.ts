@@ -53,6 +53,14 @@ export class ConversationsService {
     contactId: string,
     source?: { contactSource?: string; adSourceId?: string; adHeadline?: string; adImageUrl?: string },
     incomingNumberId?: string | null,
+    // Disambiguates which channel's open conversation to reuse -- when given,
+    // matches either that channel's own open conversation or a legacy one
+    // with no channel tagged yet (predates multi-channel support), never a
+    // DIFFERENT channel's open conversation. Mirrors the equivalent
+    // whatsappNumberId-based dedup used for multi-WhatsApp-number routing.
+    // Omitted entirely (undefined) preserves the exact prior behavior --
+    // every existing caller that doesn't pass this sees zero change.
+    channelId?: string,
   ) {
     // Prefer active (non-resolved) conversation. When the inbound message's
     // WhatsApp number is known, match either that number's own open
@@ -60,12 +68,21 @@ export class ConversationsService {
     // multi-account support) -- never someone else's number's open
     // conversation, so a contact messaging two different numbers gets two
     // separate threads instead of silently merging into one.
+    // Both disambiguators can in principle be passed together (they never
+    // are today -- WhatsApp callers pass incomingNumberId, the Messenger
+    // caller passes channelId -- but composing them as separate AND entries
+    // rather than two object-literal `OR` keys avoids one silently
+    // clobbering the other if that ever changes).
+    const disambiguators: Array<Record<string, unknown>> = [];
+    if (incomingNumberId) disambiguators.push({ OR: [{ whatsappNumberId: incomingNumberId }, { whatsappNumberId: null }] });
+    if (channelId) disambiguators.push({ OR: [{ channelId }, { channelId: null }] });
+
     const existing = await this.prisma.conversation.findFirst({
       where: {
         tenantId,
         contactId,
         status: { not: 'RESOLVED' },
-        ...(incomingNumberId && { OR: [{ whatsappNumberId: incomingNumberId }, { whatsappNumberId: null }] }),
+        ...(disambiguators.length > 0 && { AND: disambiguators }),
       },
       include: { contact: true, assignedTo: ASSIGNED_SELECT, channel: CHANNEL_SELECT },
     });
@@ -136,7 +153,11 @@ export class ConversationsService {
     void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_REQUESTED, conversationId: newConv.id, contactId });
     this.realtimeService.emitConversationStateChanged(tenantId, newConv.id, newConv);
     void this.notifyAllAgents(tenantId, newConv.id, newConv as unknown as Record<string, unknown>, 'CONVERSATION_REQUESTED' as NotificationType);
-    void this.airtableService.pushNewLead(tenantId, { name: newConv.contact.name, phone: newConv.contact.phone });
+    // Airtable lead sync is phone-centric -- a contact reached via a non-phone
+    // platform identifier (e.g. Messenger PSID) has nothing to push yet.
+    if (newConv.contact.phone) {
+      void this.airtableService.pushNewLead(tenantId, { name: newConv.contact.name, phone: newConv.contact.phone });
+    }
     return newConv;
   }
 

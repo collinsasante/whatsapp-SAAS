@@ -83,4 +83,35 @@ describe('PolicyStage', () => {
 
     await expect(stage.execute(ctx)).resolves.not.toThrow();
   });
+
+  it('formats for WhatsApp by default (channelType absent)', async () => {
+    const ctx = buildCtx({ result: { response: 'Your order is **confirmed**!', confidence: 90, blocked: false } });
+
+    await stage.execute(ctx);
+
+    expect(ctx.result?.response).toBe('Your order is *confirmed*!');
+  });
+
+  it('formats for WhatsApp explicitly when channelType is WHATSAPP', async () => {
+    const ctx = buildCtx({
+      input: { ...buildCtx().input, channelType: 'WHATSAPP' },
+      result: { response: 'Your order is **confirmed**!', confidence: 90, blocked: false },
+    });
+
+    await stage.execute(ctx);
+
+    expect(ctx.result?.response).toBe('Your order is *confirmed*!');
+  });
+
+  it('strips markdown for Messenger instead of converting it to WhatsApp syntax', async () => {
+    const ctx = buildCtx({
+      input: { ...buildCtx().input, channelType: 'FACEBOOK_MESSENGER' },
+      result: { response: 'Your order is **confirmed**!', confidence: 90, blocked: false },
+    });
+
+    await stage.execute(ctx);
+
+    expect(ctx.result?.response).toBe('Your order is confirmed!');
+    expect(ctx.result?.response).not.toContain('*');
+  });
 });

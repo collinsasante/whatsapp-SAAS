@@ -20,13 +20,14 @@ function buildDeps() {
     prisma: buildPrismaMock(),
     config: { get: jest.fn() },
     whatsAppNumbers: { create: jest.fn(), update: jest.fn() },
+    encryption: { encrypt: jest.fn((v: string) => v), decrypt: jest.fn((v: string) => v) },
     audit: { log: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new ChannelsService(deps.prisma as any, deps.config as any, deps.whatsAppNumbers as any, deps.audit as any);
+  return new ChannelsService(deps.prisma as any, deps.config as any, deps.whatsAppNumbers as any, deps.encryption as any, deps.audit as any);
 }
 
 describe('ChannelsService', () => {
@@ -89,7 +90,10 @@ describe('ChannelsService', () => {
       expect(deps.prisma.channel.delete).toHaveBeenCalledWith({ where: { id: 'c1' } });
       expect(deps.audit.log).toHaveBeenCalledWith(expect.objectContaining({
         userId: 'user-1', action: 'DELETE', resource: 'channel', resourceId: 'c1',
-        metadata: { type: 'TELEGRAM', name: '@my_bot' },
+        // softDisconnect is false here -- only FACEBOOK_MESSENGER channels
+        // soft-disconnect; every other type (Telegram here) is still a real
+        // hard delete, this field just records which path was taken.
+        metadata: { type: 'TELEGRAM', name: '@my_bot', softDisconnect: false },
       }));
     });
   });

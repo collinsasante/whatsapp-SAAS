@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import axios from 'axios';
-import { Prisma } from '@prisma/client';
+import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { FacebookMessengerService } from '../facebook-messenger/facebook-messenger.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -58,6 +59,21 @@ interface UnifiedAiResult {
  * data exists, not a final business decision baked into code. */
 const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
 
+// Messenger's Send/Receive API attachment `type` values -- 'file' covers
+// documents generically (no separate 'document' type the way WhatsApp has).
+const MESSENGER_ATTACHMENT_TYPE_MAP: Record<string, MessageType> = {
+  image: MessageType.IMAGE,
+  video: MessageType.VIDEO,
+  audio: MessageType.AUDIO,
+  file: MessageType.DOCUMENT,
+};
+const MESSENGER_ATTACHMENT_FALLBACK_MIME: Record<string, string> = {
+  image: 'image/jpeg',
+  video: 'video/mp4',
+  audio: 'audio/mpeg',
+  file: 'application/octet-stream',
+};
+
 @Injectable()
 export class MessagesService {
   private readonly logger = new Logger(MessagesService.name);
@@ -103,7 +119,44 @@ export class MessagesService {
     private leadsService: LeadsService,
     private aiCreditsService: AiCreditsService,
     private conversationState: ConversationStateService,
+    @Inject(forwardRef(() => FacebookMessengerService)) private facebookMessengerService: FacebookMessengerService,
   ) {}
+
+  /**
+   * Single indirection point for every outbound send that has a real
+   * Messenger equivalent (text, media) -- branches once on the conversation's
+   * channel instead of every call site hardcoding WhatsAppService. Defaults
+   * to WhatsApp when no channel is tagged yet (every pre-existing
+   * conversation), so this is a zero-behavior-change refactor for WhatsApp.
+   * WhatsApp-only concepts with no Messenger equivalent (templates, location
+   * messages, contact-card messages) are NOT routed through here -- their
+   * call sites guard against being used on a Messenger conversation instead
+   * (see sendMessage()).
+   */
+  private async dispatchOutbound(
+    tenantId: string,
+    conversation: { channel?: { id: string; type: string } | null; whatsappNumberId?: string | null },
+    contact: { phone: string | null; externalId: string | null },
+    payload:
+      | { kind: 'TEXT'; text: string; replyToWaMessageId?: string }
+      | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string },
+  ): Promise<string | undefined> {
+    if (conversation.channel?.type === 'FACEBOOK_MESSENGER') {
+      if (!contact.externalId) throw new BadRequestException('This Messenger contact has no PSID on file.');
+      if (payload.kind === 'TEXT') {
+        return this.facebookMessengerService.sendTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text);
+      }
+      return this.facebookMessengerService.sendMediaMessage(
+        tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
+      );
+    }
+
+    if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
+    if (payload.kind === 'TEXT') {
+      return this.whatsappService.sendTextMessage(tenantId, contact.phone, payload.text, payload.replyToWaMessageId, conversation.whatsappNumberId);
+    }
+    return this.deliverMedia(tenantId, contact.phone, payload.mediaType, payload.mediaUrl, payload.caption, payload.replyToWaMessageId, conversation.whatsappNumberId);
+  }
 
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
     console.log(`[sendMessage] type=${dto.type} templateId=${dto.templateId} content=${dto.content}`);
@@ -114,14 +167,30 @@ export class MessagesService {
       throw new NotFoundException('Cannot send message to this contact');
     }
 
+    const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER';
+
+    // A contact with neither identifier (e.g. a channel not yet supported at
+    // all) has nothing this method can deliver to.
+    if (!contact.phone && !contact.externalId) {
+      throw new BadRequestException('This contact has no channel identity on file.');
+    }
+
+    // Template/location/contact-card messages are WhatsApp-specific concepts
+    // with no Messenger equivalent -- fail loudly rather than attempt (and
+    // silently mis-send via) a WhatsApp-shaped call for a Messenger contact.
+    if (isMessenger && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
+      throw new BadRequestException(`${dto.type} messages are not supported on Facebook Messenger.`);
+    }
+
     // WhatsApp only allows free-form (non-template) sends within 24h of the
     // customer's last inbound message; outside that window Meta accepts a
     // non-template send then asynchronously rejects it (error 131047,
     // "Re-engagement message"). Reject synchronously here instead of
     // creating a message that silently flips from sent to failed a moment
     // later -- the agent needs to know immediately, before they walk away
-    // thinking it went through.
-    if (dto.type !== MessageType.TEMPLATE) {
+    // thinking it went through. Messenger has its own (different) messaging-
+    // window rules, not enforced here yet -- out of scope for this pass.
+    if (!isMessenger && dto.type !== MessageType.TEMPLATE) {
       const lastInboundAt = conversation.lastMessageAt;
       const windowClosed = !lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000;
       if (windowClosed) {
@@ -207,12 +276,16 @@ export class MessagesService {
 
     try {
       if (dto.type === MessageType.TEXT || !dto.type) {
-        whatsappMessageId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, dto.content!, replyToWaMessageId, conversation.whatsappNumberId);
+        whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: dto.content!, replyToWaMessageId });
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
         if (dto.mediaUrl) {
-          whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, dto.type as MessageType, dto.mediaUrl, dto.mediaCaption, replyToWaMessageId, conversation.whatsappNumberId);
+          whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, {
+            kind: 'MEDIA', mediaType: dto.type as MessageType, mediaUrl: dto.mediaUrl, caption: dto.mediaCaption, replyToWaMessageId,
+          });
         }
       } else if (dto.type === MessageType.TEMPLATE && dto.templateId) {
+        // Guarded above: TEMPLATE never reaches here for a Messenger conversation.
+        if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
         const template = await this.prisma.template.findFirst({
           where: { id: dto.templateId, tenantId },
         });
@@ -228,6 +301,8 @@ export class MessagesService {
           );
         }
       } else if (dto.type === MessageType.LOCATION && dto.locationLatitude != null && dto.locationLongitude != null) {
+        // Guarded above: LOCATION never reaches here for a Messenger conversation.
+        if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
         whatsappMessageId = await this.whatsappService.sendLocationMessage(
           tenantId,
           contact.phone,
@@ -238,6 +313,8 @@ export class MessagesService {
           conversation.whatsappNumberId,
         );
       } else if (dto.type === MessageType.CONTACTS && dto.contactName && dto.contactPhone) {
+        // Guarded above: CONTACTS never reaches here for a Messenger conversation.
+        if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
         whatsappMessageId = await this.whatsappService.sendContactMessage(
           tenantId,
           contact.phone,
@@ -383,6 +460,120 @@ export class MessagesService {
       this.prisma.message.count({ where: baseWhere }),
     ]);
     return { data: data.reverse(), hasMore: total > limit, meta: buildPaginationMeta(total, 1, limit) };
+  }
+
+  // Messenger's own inbound entry point -- deliberately separate from
+  // handleInbound below rather than a shared method with branching:
+  // handleInbound's ~450 lines are WhatsApp-payload-shaped throughout (CSAT/
+  // call-permission interactive replies, ad-referral image mirroring,
+  // WhatsApp's two-step media download), none of which apply to Messenger's
+  // differently-shaped payload. What IS genuinely shared (channel-agnostic
+  // media storage, realtime emit, the idempotency pattern) is reused as-is.
+  //
+  // AI auto-reply / welcome-message / bot-flow triggering intentionally NOT
+  // wired up here yet -- those all currently call WhatsAppService directly;
+  // hooking Messenger into them is the channel-aware outbound dispatcher's
+  // job (a later phase), not this one. This phase only gets inbound
+  // messages correctly persisted with real PSID-based Contact/Conversation
+  // identity and visible in the inbox.
+  async handleInboundMessenger(
+    tenantId: string,
+    channelId: string,
+    senderPsid: string,
+    message: { mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }> },
+  ) {
+    // Pre-check (mirrors handleInbound's) plus a P2002 catch around the
+    // actual create below -- defense-in-depth against the race between two
+    // concurrent webhook deliveries both passing this check before either
+    // commits (Meta retries webhooks; this codebase doesn't otherwise use
+    // find-then-skip alone as its only idempotency guard for new work).
+    const alreadyProcessed = await this.prisma.message.findFirst({
+      where: { whatsappMessageId: message.mid, tenantId },
+      select: { id: true },
+    });
+    if (alreadyProcessed) return alreadyProcessed;
+
+    const contact = await this.contactsService.findOrCreateByExternalId(tenantId, 'MESSENGER_PSID', senderPsid);
+    const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, channelId);
+
+    // Tag conversation with the receiving channel the first time only,
+    // mirroring handleInbound's whatsappNumberId backfill below.
+    if (!conversation.channelId) {
+      await this.prisma.conversation.update({ where: { id: conversation.id }, data: { channelId } });
+      (conversation as { channelId?: string | null }).channelId = channelId;
+    }
+
+    if (conversation.status === 'OPEN') {
+      await this.conversationsService.request(tenantId, conversation.id);
+    }
+
+    let content: string | undefined = message.text;
+    let mediaUrl: string | undefined;
+    let mediaType: string | undefined;
+    let msgType: MessageType = MessageType.TEXT;
+
+    const attachment = message.attachments?.[0];
+    if (attachment?.payload?.url) {
+      // Messenger's webhook payload already includes a fetchable CDN URL per
+      // attachment -- unlike WhatsApp's Graph API, there's no separate
+      // metadata-lookup-by-id step before the actual download.
+      try {
+        const mediaRes = await axios.get<ArrayBuffer>(attachment.payload.url, { responseType: 'arraybuffer', timeout: 30_000 });
+        const contentType = (mediaRes.headers['content-type'] as string | undefined) ?? MESSENGER_ATTACHMENT_FALLBACK_MIME[attachment.type] ?? 'application/octet-stream';
+        const ext = contentType.split('/')[1]?.split(';')[0] ?? 'bin';
+        const uploadResult = await this.storageService.uploadRaw(Buffer.from(mediaRes.data), contentType, tenantId, `${attachment.type}.${ext}`);
+        mediaUrl = uploadResult.fileUrl;
+        mediaType = contentType;
+        msgType = MESSENGER_ATTACHMENT_TYPE_MAP[attachment.type] ?? MessageType.DOCUMENT;
+      } catch (err) {
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Inbound Messenger media download failed for attachment type "${attachment.type}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+        }).catch(() => {});
+      }
+    }
+
+    if (!content && !mediaUrl) {
+      content = '[Sent a message type we can\'t display yet]';
+    }
+
+    let created: Message;
+    try {
+      const [msg] = await this.prisma.$transaction([
+        this.prisma.message.create({
+          data: {
+            tenantId, conversationId: conversation.id, contactId: contact.id,
+            whatsappMessageId: message.mid, channelId,
+            direction: MessageDirection.INBOUND, type: msgType, status: MessageStatus.DELIVERED,
+            content, mediaUrl, mediaType, deliveredAt: new Date(),
+          },
+        }),
+        this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
+        }),
+      ]);
+      created = msg;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: message.mid, tenantId } });
+        if (raced) return raced;
+      }
+      throw err;
+    }
+
+    this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
+    this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+      id: conversation.id,
+      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      lastMessageAt: created.createdAt,
+      lastInboundAt: created.createdAt,
+      contact: (conversation as Record<string, unknown>)['contact'],
+      status: conversation.status,
+    });
+
+    return created;
   }
 
   async handleInbound(tenantId: string, waMessage: {
@@ -904,6 +1095,7 @@ export class MessagesService {
   private runVerzAiV2(
     tenantId: string, conversationId: string, contactId: string, customerPhone: string,
     customerMessage: string, contactName: string | undefined, readOnlyTools: boolean,
+    channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER',
   ) {
     return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
       this.verzAiPipeline.run({
@@ -919,6 +1111,7 @@ export class MessagesService {
         contactId,
         customerPhone,
         readOnlyTools,
+        channelType,
       }),
     );
   }
@@ -939,12 +1132,12 @@ export class MessagesService {
     customerPhone: string,
     content: string,
     contactName: string | undefined,
-    opts: { commerceEnabled: boolean; readOnlyTools: boolean },
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER' },
   ): Promise<UnifiedAiResult> {
     if (opts.commerceEnabled) {
       const r = await this.commerceAiService.handleMessage(
         tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
-        { readOnlyTools: opts.readOnlyTools },
+        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType },
       );
       // Second hardening pass, Section 4: r.shouldEscalate was never mapped through
       // here before -- Commerce's own escalation branches called
@@ -957,7 +1150,7 @@ export class MessagesService {
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType);
 
     const legacy = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contactName);
     // The legacy responder calls DeepSeek via raw axios with no token tracking, so it

@@ -49,6 +49,7 @@ function buildDeps() {
       chargeFlat: jest.fn().mockResolvedValue({ settled: true, transaction: null }),
     },
     conversationState: { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) },
+    facebookMessengerService: { sendTextMessage: jest.fn().mockResolvedValue('mid-1'), sendMediaMessage: jest.fn().mockResolvedValue('mid-2') },
   };
 }
 
@@ -59,7 +60,7 @@ function buildService(deps: ReturnType<typeof buildDeps>) {
     deps.realtimeService as any, deps.storageService as any, deps.chatbotFlowsService as any, deps.activityLogService as any,
     deps.aiResponderService as any, deps.knowledgeBaseService as any, deps.aiLogsService as any, deps.commerceAiService as any,
     deps.featureFlagsService as any, deps.aiAgentsService as any, deps.verzAiPipeline as any, deps.aiExecutionsService as any,
-    deps.leadsService as any, deps.aiCreditsService as any, deps.conversationState as any,
+    deps.leadsService as any, deps.aiCreditsService as any, deps.conversationState as any, deps.facebookMessengerService as any,
   );
 }
 

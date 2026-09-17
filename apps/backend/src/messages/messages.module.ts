@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
 import { LinkPreviewController } from './link-preview.controller';
@@ -16,9 +16,10 @@ import { CommerceModule } from '../commerce/commerce.module';
 import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 import { AiCoreModule } from '../ai-core/ai-core.module';
 import { LeadsModule } from '../leads/leads.module';
+import { FacebookMessengerModule } from '../facebook-messenger/facebook-messenger.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule],
+  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule, forwardRef(() => FacebookMessengerModule)],
   controllers: [MessagesController, LinkPreviewController, MessageSearchController],
   providers: [MessagesService],
   exports: [MessagesService],

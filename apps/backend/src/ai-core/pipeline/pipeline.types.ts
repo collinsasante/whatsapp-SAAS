@@ -40,6 +40,12 @@ export interface PipelineInput {
    * flag -- true in SUGGESTION mode, withholds state-changing tools until a human
    * has reviewed/sent the reply or AUTO_REPLY sends it directly. */
   readOnlyTools?: boolean;
+  /** Messenger channel work: which transport this response will actually be
+   * sent through -- PolicyStage uses it to pick the right markdown-formatting
+   * pass (WhatsApp's *bold* delimiter vs. Messenger's plain-text stripping).
+   * Optional and defaults to WhatsApp formatting everywhere not yet threaded,
+   * so this is purely additive -- zero behavior change for existing callers. */
+  channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER';
 }
 
 export interface PipelineTrace {

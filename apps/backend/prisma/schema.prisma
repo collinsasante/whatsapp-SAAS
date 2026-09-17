@@ -8,75 +8,75 @@ datasource db {
 }
 
 model Tenant {
-  id                 String          @id @default(uuid())
-  name               String
-  phoneNumberId      String?         @map("phone_number_id")
-  wabaId             String?         @map("waba_id")
-  accessToken        String?         @map("access_token")
-  webhookVerifyToken String          @map("webhook_verify_token")
-  plan                    String   @default("free")
-  planStartedAt           DateTime? @map("plan_started_at")
-  planExpiresAt           DateTime? @map("plan_expires_at")
-  billingEmail            String?  @map("billing_email")
-  aiCredits               Int      @default(0) @map("ai_credits")
-  isActive                Boolean  @default(true)        @map("is_active")
-  onboardingCompleted     Boolean  @default(false)       @map("onboarding_completed")
-  onboardingStep          Int      @default(0)           @map("onboarding_step")
-  industry                String?
-  teamSize                String?  @map("team_size")
-  country                 String?
-  logoUrl                 String?  @map("logo_url")
-  businessCategory        String?  @map("business_category")
-  businessDescription     String?  @map("business_description")
-  businessAddress         String?  @map("business_address")
-  businessWebsite         String?  @map("business_website")
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt     @map("updated_at")
+  id                  String    @id @default(uuid())
+  name                String
+  phoneNumberId       String?   @map("phone_number_id")
+  wabaId              String?   @map("waba_id")
+  accessToken         String?   @map("access_token")
+  webhookVerifyToken  String    @map("webhook_verify_token")
+  plan                String    @default("free")
+  planStartedAt       DateTime? @map("plan_started_at")
+  planExpiresAt       DateTime? @map("plan_expires_at")
+  billingEmail        String?   @map("billing_email")
+  aiCredits           Int       @default(0) @map("ai_credits")
+  isActive            Boolean   @default(true) @map("is_active")
+  onboardingCompleted Boolean   @default(false) @map("onboarding_completed")
+  onboardingStep      Int       @default(0) @map("onboarding_step")
+  industry            String?
+  teamSize            String?   @map("team_size")
+  country             String?
+  logoUrl             String?   @map("logo_url")
+  businessCategory    String?   @map("business_category")
+  businessDescription String?   @map("business_description")
+  businessAddress     String?   @map("business_address")
+  businessWebsite     String?   @map("business_website")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  users               User[]
-  contacts            Contact[]
-  conversations       Conversation[]
-  messages            Message[]
-  templates           Template[]
-  campaigns           Campaign[]
-  automationRules     AutomationRule[]
-  mediaAssets         MediaAsset[]
-  auditLogs           AuditLog[]
-  settings            TenantSettings?
-  channels            Channel[]
-  activityLogs        ActivityLog[]
-  messageReactions    MessageReaction[]
-  pinnedMessages      PinnedMessage[]
-  callLogs            CallLog[]
-  notifications       Notification[]
-  pushTokens          PushToken[]
-  cannedResponses          CannedResponse[]
-  cannedResponseCategories CannedResponseCategory[]
-  cannedResponseUsages     CannedResponseUsage[]
-  apiKeys                  ApiKey[]
-  publicApiLogs            PublicApiLog[]
-  chatbotFlows        ChatbotFlow[]
-  tags                Tag[]
-  contactAttributes   ContactAttribute[]
-  webhooks            Webhook[]
-  contactSegments     ContactSegment[]
-  billingInvoices     BillingInvoice[]
-  subscription        Subscription?
-  invoices            Invoice[]
-  payments            Payment[]
-  workspaceUsages     WorkspaceUsage[]
-  billingEvents       BillingEvent[]
-  teams               Team[]
-  conversationEvents  ConversationEvent[]
-  workspaceMembers    WorkspaceMember[]   @relation("WorkspaceMembers")
-  knowledgeBase       KnowledgeBaseArticle[]
-  workspaceInvitations WorkspaceInvitation[] @relation("WorkspaceInvitations")
-  messageDeletions     MessageDeletion[]
-  feedback             Feedback[]
-  featureFlagRollouts  FeatureFlagRollout[]
-  whatsappNumbers      WhatsAppNumber[]
-  creditPurchases     CreditPurchase[]
-  aiInteractionLogs   AiInteractionLog[]
+  users                           User[]
+  contacts                        Contact[]
+  conversations                   Conversation[]
+  messages                        Message[]
+  templates                       Template[]
+  campaigns                       Campaign[]
+  automationRules                 AutomationRule[]
+  mediaAssets                     MediaAsset[]
+  auditLogs                       AuditLog[]
+  settings                        TenantSettings?
+  channels                        Channel[]
+  activityLogs                    ActivityLog[]
+  messageReactions                MessageReaction[]
+  pinnedMessages                  PinnedMessage[]
+  callLogs                        CallLog[]
+  notifications                   Notification[]
+  pushTokens                      PushToken[]
+  cannedResponses                 CannedResponse[]
+  cannedResponseCategories        CannedResponseCategory[]
+  cannedResponseUsages            CannedResponseUsage[]
+  apiKeys                         ApiKey[]
+  publicApiLogs                   PublicApiLog[]
+  chatbotFlows                    ChatbotFlow[]
+  tags                            Tag[]
+  contactAttributes               ContactAttribute[]
+  webhooks                        Webhook[]
+  contactSegments                 ContactSegment[]
+  billingInvoices                 BillingInvoice[]
+  subscription                    Subscription?
+  invoices                        Invoice[]
+  payments                        Payment[]
+  workspaceUsages                 WorkspaceUsage[]
+  billingEvents                   BillingEvent[]
+  teams                           Team[]
+  conversationEvents              ConversationEvent[]
+  workspaceMembers                WorkspaceMember[]                 @relation("WorkspaceMembers")
+  knowledgeBase                   KnowledgeBaseArticle[]
+  workspaceInvitations            WorkspaceInvitation[]             @relation("WorkspaceInvitations")
+  messageDeletions                MessageDeletion[]
+  feedback                        Feedback[]
+  featureFlagRollouts             FeatureFlagRollout[]
+  whatsappNumbers                 WhatsAppNumber[]
+  creditPurchases                 CreditPurchase[]
+  aiInteractionLogs               AiInteractionLog[]
   analyticsDailyMessageStats      AnalyticsDailyMessageStats[]
   analyticsDailyConversationStats AnalyticsDailyConversationStats[]
   analyticsDailyRevenueStats      AnalyticsDailyRevenueStats[]
@@ -97,30 +97,32 @@ model Tenant {
   aiLearningAuditLogs             AiLearningAuditLog[]
   internalTasks                   InternalTask[]
   leads                           Lead[]
-  aiCreditTransactions             AiCreditTransaction[]
-  errorLogs                        ErrorLog[]
-  webhookEvents                    WebhookEvent[]
+  aiCreditTransactions            AiCreditTransaction[]
+  errorLogs                       ErrorLog[]
+  webhookEvents                   WebhookEvent[]
+  facebookPageConnections         FacebookPageConnection[]
+  oauthConnectSessions            OAuthConnectSession[]
 
   @@map("tenants")
 }
 
 model WhatsAppNumber {
-  id            String   @id @default(uuid())
-  tenantId      String   @map("tenant_id")
-  channelId     String?  @unique @map("channel_id")
-  label         String
-  phoneNumberId String   @map("phone_number_id")
-  wabaId        String   @map("waba_id")
-  accessToken   String   @map("access_token")
-  isDefault     Boolean  @default(false) @map("is_default")
-  isActive      Boolean  @default(true)  @map("is_active")
-  qualityRating       String?   @map("quality_rating")
-  messagingLimitTier  String?   @map("messaging_limit_tier")
-  qualitySyncedAt     DateTime? @map("quality_synced_at")
-  lastError     String?   @map("last_error")
-  lastErrorAt   DateTime? @map("last_error_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt      @map("updated_at")
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  channelId          String?   @unique @map("channel_id")
+  label              String
+  phoneNumberId      String    @map("phone_number_id")
+  wabaId             String    @map("waba_id")
+  accessToken        String    @map("access_token")
+  isDefault          Boolean   @default(false) @map("is_default")
+  isActive           Boolean   @default(true) @map("is_active")
+  qualityRating      String?   @map("quality_rating")
+  messagingLimitTier String?   @map("messaging_limit_tier")
+  qualitySyncedAt    DateTime? @map("quality_synced_at")
+  lastError          String?   @map("last_error")
+  lastErrorAt        DateTime? @map("last_error_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   channel       Channel?       @relation(fields: [channelId], references: [id], onDelete: SetNull)
@@ -141,7 +143,7 @@ model Team {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   members TeamMember[]
   tasks   InternalTask[]
 
@@ -234,54 +236,54 @@ model BillingInvoice {
 }
 
 model TenantSettings {
-  id                  String   @id @default(uuid())
-  tenantId            String   @unique @map("tenant_id")
-  businessName        String?  @map("business_name")
-  businessEmail       String?  @map("business_email")
-  businessPhone       String?  @map("business_phone")
-  businessAddress     String?  @map("business_address")
-  businessWebsite     String?  @map("business_website")
-  businessDescription String?  @map("business_description")
-  timezone            String   @default("UTC")
-  autoReply           Boolean  @default(false) @map("auto_reply")
-  autoReplyMessage    String?  @map("auto_reply_message")
-  maxAgents           Int      @default(10) @map("max_agents")
-  welcomeEnabled      Boolean  @default(false) @map("welcome_enabled")
-  welcomeMessage      String?  @map("welcome_message")
-  offHoursEnabled     Boolean  @default(false) @map("off_hours_enabled")
-  offHoursMessage     String?  @map("off_hours_message")
-  offHoursSchedule    Json     @default("{}") @map("off_hours_schedule")
-  optOutKeywords      String[] @default(["STOP", "UNSUBSCRIBE"]) @map("opt_out_keywords")
-  optInKeywords       String[] @default(["START", "SUBSCRIBE"]) @map("opt_in_keywords")
-  optOutReply         String?  @map("opt_out_reply")
-  optInReply          String?  @map("opt_in_reply")
-  widgetEnabled       Boolean  @default(false) @map("widget_enabled")
-  widgetConfig        Json     @default("{}") @map("widget_config")
-  aiEnabled           Boolean  @default(false) @map("ai_enabled")
-  aiAlwaysOn          Boolean  @default(false) @map("ai_always_on")
-  aiPersonality       String?  @map("ai_personality")
-  aiMode              String   @default("SUGGESTION") @map("ai_mode") // SUGGESTION | AUTO_REPLY
-  aiPilotGroup        Boolean  @default(false) @map("ai_pilot_group")
-  aiTrialStartedAt    DateTime? @map("ai_trial_started_at")
-  aiTrialApprovedAt   DateTime? @map("ai_trial_approved_at")
-  lastKbLearnAt       DateTime? @map("last_kb_learn_at")
-  airtableEnabled     Boolean  @default(false) @map("airtable_enabled")
-  airtableApiKey      String?  @map("airtable_api_key")
-  airtableBaseId      String?  @map("airtable_base_id")
-  airtableTableName   String?  @map("airtable_table_name")
+  id                          String    @id @default(uuid())
+  tenantId                    String    @unique @map("tenant_id")
+  businessName                String?   @map("business_name")
+  businessEmail               String?   @map("business_email")
+  businessPhone               String?   @map("business_phone")
+  businessAddress             String?   @map("business_address")
+  businessWebsite             String?   @map("business_website")
+  businessDescription         String?   @map("business_description")
+  timezone                    String    @default("UTC")
+  autoReply                   Boolean   @default(false) @map("auto_reply")
+  autoReplyMessage            String?   @map("auto_reply_message")
+  maxAgents                   Int       @default(10) @map("max_agents")
+  welcomeEnabled              Boolean   @default(false) @map("welcome_enabled")
+  welcomeMessage              String?   @map("welcome_message")
+  offHoursEnabled             Boolean   @default(false) @map("off_hours_enabled")
+  offHoursMessage             String?   @map("off_hours_message")
+  offHoursSchedule            Json      @default("{}") @map("off_hours_schedule")
+  optOutKeywords              String[]  @default(["STOP", "UNSUBSCRIBE"]) @map("opt_out_keywords")
+  optInKeywords               String[]  @default(["START", "SUBSCRIBE"]) @map("opt_in_keywords")
+  optOutReply                 String?   @map("opt_out_reply")
+  optInReply                  String?   @map("opt_in_reply")
+  widgetEnabled               Boolean   @default(false) @map("widget_enabled")
+  widgetConfig                Json      @default("{}") @map("widget_config")
+  aiEnabled                   Boolean   @default(false) @map("ai_enabled")
+  aiAlwaysOn                  Boolean   @default(false) @map("ai_always_on")
+  aiPersonality               String?   @map("ai_personality")
+  aiMode                      String    @default("SUGGESTION") @map("ai_mode") // SUGGESTION | AUTO_REPLY
+  aiPilotGroup                Boolean   @default(false) @map("ai_pilot_group")
+  aiTrialStartedAt            DateTime? @map("ai_trial_started_at")
+  aiTrialApprovedAt           DateTime? @map("ai_trial_approved_at")
+  lastKbLearnAt               DateTime? @map("last_kb_learn_at")
+  airtableEnabled             Boolean   @default(false) @map("airtable_enabled")
+  airtableApiKey              String?   @map("airtable_api_key")
+  airtableBaseId              String?   @map("airtable_base_id")
+  airtableTableName           String?   @map("airtable_table_name")
   // Managed Commerce (Phase 1, single-pilot-tenant): flips a tenant from flat-subscription
   // billing into outcome-based GMV take-rate billing. takeRatePct is null (commerce off) until
   // explicitly set. Payment collection reuses the existing Paystack gateway (mobile money is
   // a Paystack checkout channel in Ghana, no separate MTN integration) -- see implementation
   // plan for full Phase 1 scope.
-  commerceEnabled     Boolean  @default(false) @map("commerce_enabled")
-  takeRatePct         Float?   @map("take_rate_pct")
+  commerceEnabled             Boolean   @default(false) @map("commerce_enabled")
+  takeRatePct                 Float?    @map("take_rate_pct")
   // Verz-AI unification, Phase P: when true (the default), a successful commerce
   // payment automatically creates a staff-visible InternalTask -- previously this
   // only ever happened if the AI separately decided to call create_internal_task,
   // so a successful payment could silently produce zero staff-visible task. Backend
   // event drives task creation now, not AI wording -- see CommerceLedgerService.
-  paymentVerificationRequired Boolean @default(true) @map("payment_verification_required")
+  paymentVerificationRequired Boolean   @default(true) @map("payment_verification_required")
   // Verz-AI unification, Phase Q: previously there was no delivery concept anywhere
   // in the schema at all -- the AI's only move on a delivery question was a vague
   // "I've flagged it" with no real action. No live courier API exists to book a real
@@ -289,14 +291,14 @@ model TenantSettings {
   // describe their real delivery capability in their own words (methods/areas/fees),
   // and make actually arranging one a real InternalTask a human executes -- see
   // delivery.tools.ts.
-  deliveryEnabled     Boolean  @default(false) @map("delivery_enabled")
-  deliveryInfo        String?  @map("delivery_info") @db.Text
+  deliveryEnabled             Boolean   @default(false) @map("delivery_enabled")
+  deliveryInfo                String?   @map("delivery_info") @db.Text
   // When true, a conversation already owned by a human agent (INTERVENED, assigned
   // to a real, non-AI user) reverts to AI auto-reply if that agent hasn't been seen
   // in 15 minutes -- see AI_TAKEOVER_AWAY_MS in messages.service.ts. Off by default;
   // an explicit product decision to never leave a customer message unanswered
   // indefinitely, not the default SUGGESTION-mode safety behavior.
-  aiTakeoverWhenAgentAway Boolean @default(false) @map("ai_takeover_when_agent_away")
+  aiTakeoverWhenAgentAway     Boolean   @default(false) @map("ai_takeover_when_agent_away")
   // Pilot-testing restriction: when set, AI responds ONLY to this one phone
   // number for the tenant -- every other contact gets no AI at all (full
   // human-only), regardless of aiEnabled/aiMode/takeover settings. Null
@@ -304,8 +306,8 @@ model TenantSettings {
   // tenant until this is explicitly set. Stored normalized (E.164-ish,
   // digits + leading '+') via shared-utils normalizePhone, matching
   // Contact.phone's own storage format.
-  aiRestrictedToPhone String? @map("ai_restricted_to_phone")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  aiRestrictedToPhone         String?   @map("ai_restricted_to_phone")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -313,61 +315,61 @@ model TenantSettings {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  tenantId     String    @map("tenant_id")
-  email        String
-  passwordHash String    @map("password_hash")
-  name         String
-  role         UserRole  @default(AGENT)
-  avatarUrl    String?   @map("avatar_url")
-  phone        String?
-  isActive     Boolean   @default(true) @map("is_active")
-  isAiAgent    Boolean   @default(false) @map("is_ai_agent")
-  lastSeenAt           DateTime? @map("last_seen_at")
-  lastLoginAt          DateTime? @map("last_login_at")
-  refreshToken         String?   @map("refresh_token")
-  emailVerified        Boolean   @default(false) @map("email_verified")
-  emailVerifyToken     String?   @map("email_verify_token")
-  emailVerifyExpiry    DateTime? @map("email_verify_expiry")
-  twoFactorCode        String?   @map("two_factor_code")
-  twoFactorCodeExpiry  DateTime? @map("two_factor_code_expiry")
-  loginPin             String?   @map("login_pin")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(uuid())
+  tenantId            String    @map("tenant_id")
+  email               String
+  passwordHash        String    @map("password_hash")
+  name                String
+  role                UserRole  @default(AGENT)
+  avatarUrl           String?   @map("avatar_url")
+  phone               String?
+  isActive            Boolean   @default(true) @map("is_active")
+  isAiAgent           Boolean   @default(false) @map("is_ai_agent")
+  lastSeenAt          DateTime? @map("last_seen_at")
+  lastLoginAt         DateTime? @map("last_login_at")
+  refreshToken        String?   @map("refresh_token")
+  emailVerified       Boolean   @default(false) @map("email_verified")
+  emailVerifyToken    String?   @map("email_verify_token")
+  emailVerifyExpiry   DateTime? @map("email_verify_expiry")
+  twoFactorCode       String?   @map("two_factor_code")
+  twoFactorCodeExpiry DateTime? @map("two_factor_code_expiry")
+  loginPin            String?   @map("login_pin")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignedConversations Conversation[]    @relation("AssignedAgent")
-  sentMessages          Message[]         @relation("MessageSender")
-  notes                 ConversationNote[]
-  campaigns             Campaign[]        @relation("CampaignCreator")
-  mediaAssets           MediaAsset[]
-  auditLogs             AuditLog[]
-  activityLogs          ActivityLog[]
-  messageReactions      MessageReaction[]
-  pinnedMessages        PinnedMessage[]   @relation("PinnedBy")
-  callLogs              CallLog[]
-  callNotes             CallNote[]
-  notifications         Notification[]
-  pushTokens            PushToken[]
-  cannedResponses          CannedResponse[]
-  favoriteResponses        UserFavoriteResponse[]
-  cannedResponseUsages     CannedResponseUsage[]
-  apiKeys                  ApiKey[]
-  workspaceMemberships  WorkspaceMember[] @relation("WorkspaceMemberships")
-  invitedMembers        WorkspaceMember[] @relation("InvitedMembers")
-  sentInvitations       WorkspaceInvitation[] @relation("SentInvitations")
-  messageEdits          MessageEdit[]
-  messageDeletions      MessageDeletion[]
-  feedback              Feedback[]
+  tenant                           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedConversations            Conversation[]            @relation("AssignedAgent")
+  sentMessages                     Message[]                 @relation("MessageSender")
+  notes                            ConversationNote[]
+  campaigns                        Campaign[]                @relation("CampaignCreator")
+  mediaAssets                      MediaAsset[]
+  auditLogs                        AuditLog[]
+  activityLogs                     ActivityLog[]
+  messageReactions                 MessageReaction[]
+  pinnedMessages                   PinnedMessage[]           @relation("PinnedBy")
+  callLogs                         CallLog[]
+  callNotes                        CallNote[]
+  notifications                    Notification[]
+  pushTokens                       PushToken[]
+  cannedResponses                  CannedResponse[]
+  favoriteResponses                UserFavoriteResponse[]
+  cannedResponseUsages             CannedResponseUsage[]
+  apiKeys                          ApiKey[]
+  workspaceMemberships             WorkspaceMember[]         @relation("WorkspaceMemberships")
+  invitedMembers                   WorkspaceMember[]         @relation("InvitedMembers")
+  sentInvitations                  WorkspaceInvitation[]     @relation("SentInvitations")
+  messageEdits                     MessageEdit[]
+  messageDeletions                 MessageDeletion[]
+  feedback                         Feedback[]
   resolvedReconciliationExceptions ReconciliationException[] @relation("ResolvedExceptions")
-  evaluationRunsTriggered EvaluationRun[] @relation("EvaluationRunsTriggered")
-  aiAgent                AiAgent? @relation("AiAgentUser")
-  assignedTasks          InternalTask[] @relation("TaskAssignee")
-  createdTasks           InternalTask[] @relation("TaskCreatedBy")
-  resolvedTasks          InternalTask[] @relation("TaskResolvedBy")
-  aiEvaluationFeedbackGiven AiEvaluationFeedback[] @relation("AiEvaluationFeedbackReviewer")
-  aiTrainingExamplesApproved AiTrainingExample[]   @relation("AiTrainingExamplesApproved")
-  aiCorrectionsReviewed      AiCustomerCorrection[] @relation("AiCorrectionsReviewed")
+  evaluationRunsTriggered          EvaluationRun[]           @relation("EvaluationRunsTriggered")
+  aiAgent                          AiAgent?                  @relation("AiAgentUser")
+  assignedTasks                    InternalTask[]            @relation("TaskAssignee")
+  createdTasks                     InternalTask[]            @relation("TaskCreatedBy")
+  resolvedTasks                    InternalTask[]            @relation("TaskResolvedBy")
+  aiEvaluationFeedbackGiven        AiEvaluationFeedback[]    @relation("AiEvaluationFeedbackReviewer")
+  aiTrainingExamplesApproved       AiTrainingExample[]       @relation("AiTrainingExamplesApproved")
+  aiCorrectionsReviewed            AiCustomerCorrection[]    @relation("AiCorrectionsReviewed")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -383,23 +385,33 @@ enum UserRole {
 }
 
 model Contact {
-  id           String   @id @default(uuid())
-  tenantId     String   @map("tenant_id")
-  phone        String
-  name         String?
-  email        String?
-  avatarUrl    String?  @map("avatar_url")
-  labels       String[] @default([])
-  customFields Json     @default("{}") @map("custom_fields")
-  isBlocked    Boolean  @default(false) @map("is_blocked")
-  optedOut     Boolean  @default(false) @map("opted_out")
-  blockedAt    DateTime? @map("blocked_at")
-  optedOutAt   DateTime? @map("opted_out_at")
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  // Nullable as of the Messenger channel work -- a contact reached via a
+  // platform identifier (e.g. Facebook PSID, see externalId below) has no
+  // real phone number to store. Postgres treats every NULL as distinct in a
+  // unique index, so this coexists safely with @@unique([tenantId, phone]).
+  phone          String?
+  name           String?
+  email          String?
+  avatarUrl      String?   @map("avatar_url")
+  labels         String[]  @default([])
+  customFields   Json      @default("{}") @map("custom_fields")
+  isBlocked      Boolean   @default(false) @map("is_blocked")
+  optedOut       Boolean   @default(false) @map("opted_out")
+  blockedAt      DateTime? @map("blocked_at")
+  optedOutAt     DateTime? @map("opted_out_at")
   // Synthetic contact created by the commerce AI evaluation harness -- excluded from
   // real inbox/analytics surfaces so eval runs never masquerade as real customers.
-  isEvalContact Boolean @default(false) @map("is_eval_contact")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  isEvalContact  Boolean   @default(false) @map("is_eval_contact")
+  // Non-phone platform identity (e.g. externalIdType: "MESSENGER_PSID"). Meta
+  // issues a different PSID per Page for the same real person, so the same
+  // customer messaging two Pages of one tenant intentionally becomes two
+  // separate Contact rows here -- a Meta platform limitation, not a bug.
+  externalId     String?   @map("external_id")
+  externalIdType String?   @map("external_id_type")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversations      Conversation[]
@@ -412,6 +424,7 @@ model Contact {
   leads              Lead[]
 
   @@unique([tenantId, phone])
+  @@unique([tenantId, externalIdType, externalId])
   @@index([tenantId])
   @@index([phone])
   @@map("contacts")
@@ -462,54 +475,54 @@ model Lead {
 }
 
 model Conversation {
-  id                String             @id @default(uuid())
-  tenantId          String             @map("tenant_id")
-  contactId         String             @map("contact_id")
-  assignedToId      String?            @map("assigned_to_id")
-  resolvedById      String?            @map("resolved_by_id")
-  channelId         String?            @map("channel_id")
-  whatsappNumberId  String?            @map("whatsapp_number_id")
-  status         ConversationStatus @default(OPEN)
-  priority       Int                @default(0)
-  unreadCount    Int                @default(0) @map("unread_count")
-  reopenedCount  Int                @default(0) @map("reopened_count")
-  lastMessageAt  DateTime?          @map("last_message_at")
-  snoozedUntil   DateTime?          @map("snoozed_until")
-  requestedAt    DateTime?          @map("requested_at")
-  intervenedAt   DateTime?          @map("intervened_at")
-  resolvedAt     DateTime?          @map("resolved_at")
-  reopenedAt     DateTime?          @map("reopened_at")
-  slaDeadline    DateTime?          @map("sla_deadline")
-  slaBreached    Boolean            @default(false) @map("sla_breached")
-  csatScore      Int?               @map("csat_score")
-  csatComment    String?            @map("csat_comment")
-  csatSubmittedAt DateTime?         @map("csat_submitted_at")
-  labels         String[]           @default([])
-  contactSource  String             @default("organic") @map("contact_source")
-  adSourceId     String?            @map("ad_source_id")
-  adHeadline     String?            @map("ad_headline")
-  adImageUrl     String?            @map("ad_image_url")
+  id               String             @id @default(uuid())
+  tenantId         String             @map("tenant_id")
+  contactId        String             @map("contact_id")
+  assignedToId     String?            @map("assigned_to_id")
+  resolvedById     String?            @map("resolved_by_id")
+  channelId        String?            @map("channel_id")
+  whatsappNumberId String?            @map("whatsapp_number_id")
+  status           ConversationStatus @default(OPEN)
+  priority         Int                @default(0)
+  unreadCount      Int                @default(0) @map("unread_count")
+  reopenedCount    Int                @default(0) @map("reopened_count")
+  lastMessageAt    DateTime?          @map("last_message_at")
+  snoozedUntil     DateTime?          @map("snoozed_until")
+  requestedAt      DateTime?          @map("requested_at")
+  intervenedAt     DateTime?          @map("intervened_at")
+  resolvedAt       DateTime?          @map("resolved_at")
+  reopenedAt       DateTime?          @map("reopened_at")
+  slaDeadline      DateTime?          @map("sla_deadline")
+  slaBreached      Boolean            @default(false) @map("sla_breached")
+  csatScore        Int?               @map("csat_score")
+  csatComment      String?            @map("csat_comment")
+  csatSubmittedAt  DateTime?          @map("csat_submitted_at")
+  labels           String[]           @default([])
+  contactSource    String             @default("organic") @map("contact_source")
+  adSourceId       String?            @map("ad_source_id")
+  adHeadline       String?            @map("ad_headline")
+  adImageUrl       String?            @map("ad_image_url")
   // Verz-AI unification, Phase F: advisory cross-turn state (current intent, known
   // facts, selected product, active order, last topic) -- read/rendered into the
   // prompt as a compact summary, never branched on by application code. Nullable/
   // additive; absence just means "no state tracked yet," not an error.
-  aiState        Json?              @map("ai_state")
-  createdAt      DateTime           @default(now()) @map("created_at")
-  updatedAt      DateTime           @updatedAt @map("updated_at")
+  aiState          Json?              @map("ai_state")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contact           Contact             @relation(fields: [contactId], references: [id])
-  assignedTo        User?               @relation("AssignedAgent", fields: [assignedToId], references: [id])
-  channel           Channel?            @relation(fields: [channelId], references: [id], onDelete: SetNull)
-  whatsappNumber    WhatsAppNumber?     @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
-  messages          Message[]
-  notes             ConversationNote[]
-  activityLogs      ActivityLog[]
-  pinnedMessages    PinnedMessage[]
-  conversationEvents ConversationEvent[]
-  orders            Order[]
-  internalTasks     InternalTask[]
-  lead              Lead?
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact                  Contact                   @relation(fields: [contactId], references: [id])
+  assignedTo               User?                     @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  channel                  Channel?                  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  whatsappNumber           WhatsAppNumber?           @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
+  messages                 Message[]
+  notes                    ConversationNote[]
+  activityLogs             ActivityLog[]
+  pinnedMessages           PinnedMessage[]
+  conversationEvents       ConversationEvent[]
+  orders                   Order[]
+  internalTasks            InternalTask[]
+  lead                     Lead?
   aiInteractionEvaluations AiInteractionEvaluation[]
 
   @@index([tenantId])
@@ -527,13 +540,13 @@ model Conversation {
 }
 
 model ConversationEvent {
-  id             String              @id @default(uuid())
-  tenantId       String              @map("tenant_id")
-  conversationId String              @map("conversation_id")
-  actorId        String?             @map("actor_id")
+  id             String                @id @default(uuid())
+  tenantId       String                @map("tenant_id")
+  conversationId String                @map("conversation_id")
+  actorId        String?               @map("actor_id")
   type           ConversationEventType
-  payload        Json                @default("{}")
-  createdAt      DateTime            @default(now()) @map("created_at")
+  payload        Json                  @default("{}")
+  createdAt      DateTime              @default(now()) @map("created_at")
 
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -584,50 +597,58 @@ model ConversationNote {
 }
 
 model Message {
-  id                String           @id @default(uuid())
-  tenantId          String           @map("tenant_id")
-  conversationId    String           @map("conversation_id")
-  contactId         String           @map("contact_id")
-  senderId          String?          @map("sender_id")
-  replyToId         String?          @map("reply_to_id")
-  whatsappMessageId String?          @map("whatsapp_message_id")
-  whatsappNumberId  String?          @map("whatsapp_number_id")
-  direction         MessageDirection
-  type              MessageType      @default(TEXT)
-  status            MessageStatus    @default(QUEUED)
-  content           String?
-  mediaUrl          String?          @map("media_url")
-  mediaType         String?          @map("media_type")
-  mediaSize         Int?             @map("media_size")
-  mediaCaption      String?          @map("media_caption")
-  templateId        String?          @map("template_id")
-  templateVariables Json?            @map("template_variables")
-  metadata          Json?
-  isStarred         Boolean          @default(false) @map("is_starred")
-  isPinned          Boolean          @default(false) @map("is_pinned")
-  isEdited          Boolean          @default(false) @map("is_edited")
-  editedAt          DateTime?        @map("edited_at")
-  deletedForEveryone Boolean         @default(false) @map("deleted_for_everyone")
-  deletedAt         DateTime?        @map("deleted_at")
-  sentAt            DateTime?        @map("sent_at")
-  deliveredAt       DateTime?        @map("delivered_at")
-  readAt            DateTime?        @map("read_at")
-  failedAt          DateTime?        @map("failed_at")
-  failureReason     String?          @map("failure_reason")
-  errorCode         Int?             @map("error_code")
-  createdAt         DateTime         @default(now()) @map("created_at")
+  id                 String           @id @default(uuid())
+  tenantId           String           @map("tenant_id")
+  conversationId     String           @map("conversation_id")
+  contactId          String           @map("contact_id")
+  senderId           String?          @map("sender_id")
+  replyToId          String?          @map("reply_to_id")
+  // Reused (not WhatsApp-exclusive despite the name) as the generic per-provider
+  // message id / idempotency key -- also holds Facebook Messenger's `mid` for
+  // Messenger-channel messages. Renaming would be a bigger migration for no
+  // behavioral benefit since the column is already functionally generic.
+  whatsappMessageId  String?          @map("whatsapp_message_id")
+  whatsappNumberId   String?          @map("whatsapp_number_id")
+  // Generic per-message channel attribution (mirrors Conversation.channelId).
+  // Populated for Messenger messages; WhatsApp continues to use whatsappNumberId.
+  channelId          String?          @map("channel_id")
+  direction          MessageDirection
+  type               MessageType      @default(TEXT)
+  status             MessageStatus    @default(QUEUED)
+  content            String?
+  mediaUrl           String?          @map("media_url")
+  mediaType          String?          @map("media_type")
+  mediaSize          Int?             @map("media_size")
+  mediaCaption       String?          @map("media_caption")
+  templateId         String?          @map("template_id")
+  templateVariables  Json?            @map("template_variables")
+  metadata           Json?
+  isStarred          Boolean          @default(false) @map("is_starred")
+  isPinned           Boolean          @default(false) @map("is_pinned")
+  isEdited           Boolean          @default(false) @map("is_edited")
+  editedAt           DateTime?        @map("edited_at")
+  deletedForEveryone Boolean          @default(false) @map("deleted_for_everyone")
+  deletedAt          DateTime?        @map("deleted_at")
+  sentAt             DateTime?        @map("sent_at")
+  deliveredAt        DateTime?        @map("delivered_at")
+  readAt             DateTime?        @map("read_at")
+  failedAt           DateTime?        @map("failed_at")
+  failureReason      String?          @map("failure_reason")
+  errorCode          Int?             @map("error_code")
+  createdAt          DateTime         @default(now()) @map("created_at")
 
-  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  contact        Contact           @relation(fields: [contactId], references: [id])
-  sender         User?             @relation("MessageSender", fields: [senderId], references: [id])
-  replyTo        Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies        Message[]         @relation("MessageReplies")
-  reactions      MessageReaction[]
-  pinnedIn       PinnedMessage[]
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contact          Contact           @relation(fields: [contactId], references: [id])
+  sender           User?             @relation("MessageSender", fields: [senderId], references: [id])
+  replyTo          Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies          Message[]         @relation("MessageReplies")
+  reactions        MessageReaction[]
+  pinnedIn         PinnedMessage[]
   editHistory      MessageEdit[]
   messageDeletions MessageDeletion[]
-  whatsappNumber WhatsAppNumber?   @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
+  whatsappNumber   WhatsAppNumber?   @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
+  channel          Channel?          @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, whatsappMessageId])
   @@index([tenantId])
@@ -637,6 +658,7 @@ model Message {
   @@index([tenantId, createdAt])
   @@index([tenantId, mediaUrl])
   @@index([whatsappNumberId])
+  @@index([channelId])
   @@map("messages")
 }
 
@@ -708,16 +730,79 @@ model Channel {
   isActive    Boolean     @default(true) @map("is_active")
   credentials Json        @default("{}") @map("credentials")
   metadata    Json        @default("{}") @map("metadata")
+  // Real, indexed external-account identifier (Page ID / IG business ID /
+  // Telegram bot ID) -- previously only reachable via a JSON path query into
+  // `credentials`. Nullable for channel types with no such concept (WhatsApp,
+  // EMAIL, WEB_CHAT), whose Channel rows keep externalId null (Postgres allows
+  // multiple NULLs in a unique index, so this doesn't collide).
+  externalId  String?     @map("external_id")
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversations  Conversation[]
-  whatsAppNumber WhatsAppNumber?
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations          Conversation[]
+  messages               Message[]
+  whatsAppNumber         WhatsAppNumber?
+  facebookPageConnection FacebookPageConnection?
 
   @@unique([tenantId, type, name])
+  @@unique([tenantId, type, externalId])
   @@index([tenantId])
   @@map("channels")
+}
+
+// Facebook Page connection details for a FACEBOOK_MESSENGER-type Channel --
+// mirrors WhatsAppNumber's shape (one typed table per concrete connected
+// account, 1:1 with a generic Channel row) rather than relying on Channel's
+// opaque `credentials` JSON, so the page access token can be encrypted at
+// rest via the same CredentialsEncryptionService WhatsApp already uses, and
+// expiry/status can be tracked with real, indexed columns.
+model FacebookPageConnection {
+  id                       String    @id @default(uuid())
+  tenantId                 String    @map("tenant_id")
+  channelId                String    @unique @map("channel_id")
+  pageId                   String    @map("page_id")
+  pageName                 String    @map("page_name")
+  pageAccessToken          String    @map("page_access_token")
+  pageAccessTokenExpiresAt DateTime? @map("page_access_token_expires_at")
+  subscribedFields         String[]  @default([]) @map("subscribed_fields")
+  webhookVerified          Boolean   @default(false) @map("webhook_verified")
+  isActive                 Boolean   @default(true) @map("is_active")
+  connectedByUserId        String?   @map("connected_by_user_id")
+  lastError                String?   @map("last_error")
+  lastErrorAt              DateTime? @map("last_error_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, pageId])
+  @@index([tenantId])
+  @@map("facebook_page_connections")
+}
+
+// Short-lived holding state between "Meta OAuth callback completed" and "user
+// submitted their Page selection" -- lets the callback avoid auto-connecting
+// every Page the user manages (see ChannelsService) without ever exposing the
+// Facebook user access token to the frontend. One-time use: deleted by the
+// selection endpoint once consumed, and lazily swept for expiry on the next
+// OAuth-init call (no cron/scheduler exists in this backend to run on a timer).
+model OAuthConnectSession {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  createdByUserId String   @map("created_by_user_id")
+  provider        String
+  userAccessToken String   @map("user_access_token")
+  candidatePages  Json     @map("candidate_pages")
+  expiresAt       DateTime @map("expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([expiresAt])
+  @@map("oauth_connect_sessions")
 }
 
 enum ChannelType {
@@ -854,9 +939,9 @@ model CallLog {
 }
 
 model CallNote {
-  id        String   @id @default(uuid())
-  callLogId String   @map("call_log_id")
-  userId    String   @map("user_id")
+  id        String @id @default(uuid())
+  callLogId String @map("call_log_id")
+  userId    String @map("user_id")
   content   String
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -990,14 +1075,14 @@ model CampaignRecipient {
 }
 
 model CampaignClick {
-  id          String   @id @default(uuid())
-  campaignId  String   @map("campaign_id")
-  contactId   String?  @map("contact_id")
-  code        String   @unique
-  clickedAt   DateTime? @map("clicked_at")
-  userAgent   String?  @map("user_agent")
-  ip          String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String    @id @default(uuid())
+  campaignId String    @map("campaign_id")
+  contactId  String?   @map("contact_id")
+  code       String    @unique
+  clickedAt  DateTime? @map("clicked_at")
+  userAgent  String?   @map("user_agent")
+  ip         String?
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
@@ -1148,7 +1233,7 @@ model PushToken {
   tenantId  String   @map("tenant_id")
   userId    String   @map("user_id")
   token     String   @unique
-  platform  String   // "ios" | "android"
+  platform  String // "ios" | "android"
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1246,8 +1331,8 @@ model ApiKey {
   isActive    Boolean   @default(true) @map("is_active")
   createdAt   DateTime  @default(now()) @map("created_at")
 
-  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdBy User            @relation(fields: [createdById], references: [id])
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User           @relation(fields: [createdById], references: [id])
   logs      PublicApiLog[]
 
   @@index([tenantId])
@@ -1282,18 +1367,18 @@ enum FlowTriggerType {
 }
 
 model ChatbotFlow {
-  id          String          @id @default(uuid())
-  tenantId    String          @map("tenant_id")
-  name        String
-  description String?
-  trigger     FlowTriggerType
-  keywords    String[]        @default([])
-  nodes       Json            @default("[]")
-  isActive    Boolean         @default(true) @map("is_active")
-  priority    Int             @default(0)
-  executionCount Int          @default(0) @map("execution_count")
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
+  id             String          @id @default(uuid())
+  tenantId       String          @map("tenant_id")
+  name           String
+  description    String?
+  trigger        FlowTriggerType
+  keywords       String[]        @default([])
+  nodes          Json            @default("[]")
+  isActive       Boolean         @default(true) @map("is_active")
+  priority       Int             @default(0)
+  executionCount Int             @default(0) @map("execution_count")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1396,9 +1481,9 @@ model WorkspaceMember {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  workspace Tenant  @relation("WorkspaceMembers", fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User    @relation("WorkspaceMemberships", fields: [userId], references: [id], onDelete: Cascade)
-  invitedBy User?   @relation("InvitedMembers", fields: [invitedById], references: [id])
+  workspace Tenant @relation("WorkspaceMembers", fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User   @relation("WorkspaceMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?  @relation("InvitedMembers", fields: [invitedById], references: [id])
 
   @@unique([workspaceId, userId])
   @@index([workspaceId])
@@ -1429,20 +1514,20 @@ model WorkspaceInvitation {
 // ─── Platform Administration ─────────────────────────────────────────────────
 
 model PlatformAdmin {
-  id               String    @id @default(uuid())
-  email            String    @unique
-  passwordHash     String    @map("password_hash")
-  name             String
-  role             String    @default("SUPER_ADMIN") // SUPER_ADMIN | SUPPORT | VIEWER
-  isActive         Boolean   @default(true)  @map("is_active")
-  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
-  twoFactorSecret  String?   @map("two_factor_secret")
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  passwordHash        String    @map("password_hash")
+  name                String
+  role                String    @default("SUPER_ADMIN") // SUPER_ADMIN | SUPPORT | VIEWER
+  isActive            Boolean   @default(true) @map("is_active")
+  twoFactorEnabled    Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorSecret     String?   @map("two_factor_secret")
   lastLoginAt         DateTime? @map("last_login_at")
   lastLoginIp         String?   @map("last_login_ip")
   resetToken          String?   @map("reset_token")
   resetTokenExpiresAt DateTime? @map("reset_token_expires_at")
   createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt      @map("updated_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   sessions  AdminSession[]
   auditLogs PlatformAuditLog[]
@@ -1451,15 +1536,15 @@ model PlatformAdmin {
 }
 
 model AdminSession {
-  id           String        @id @default(uuid())
-  adminId      String        @map("admin_id")
-  tokenHash    String        @unique @map("token_hash")
-  ipAddress    String?       @map("ip_address")
-  userAgent    String?       @map("user_agent")
-  expiresAt    DateTime      @map("expires_at")
-  isRevoked    Boolean       @default(false) @map("is_revoked")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  lastActiveAt DateTime      @default(now()) @map("last_active_at")
+  id           String   @id @default(uuid())
+  adminId      String   @map("admin_id")
+  tokenHash    String   @unique @map("token_hash")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  expiresAt    DateTime @map("expires_at")
+  isRevoked    Boolean  @default(false) @map("is_revoked")
+  createdAt    DateTime @default(now()) @map("created_at")
+  lastActiveAt DateTime @default(now()) @map("last_active_at")
 
   admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
 
@@ -1468,15 +1553,15 @@ model AdminSession {
 }
 
 model PlatformAuditLog {
-  id           String         @id @default(uuid())
-  adminId      String?        @map("admin_id")
+  id           String   @id @default(uuid())
+  adminId      String?  @map("admin_id")
   action       String
-  resourceType String?        @map("resource_type")
-  resourceId   String?        @map("resource_id")
+  resourceType String?  @map("resource_type")
+  resourceId   String?  @map("resource_id")
   metadata     Json?
-  ipAddress    String?        @map("ip_address")
-  userAgent    String?        @map("user_agent")
-  createdAt    DateTime       @default(now()) @map("created_at")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   admin PlatformAdmin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
 
@@ -1535,39 +1620,39 @@ enum InvoiceStatus {
 }
 
 model Plan {
-  id          String  @id @default(uuid())
-  slug        String  @unique
-  name        String
-  description String?
-  monthlyPrice Float  @map("monthly_price")
-  yearlyPrice  Float  @map("yearly_price")
-  currency     String @default("USD")
-  ghsMonthlyPrice Float? @map("ghs_monthly_price")
-  ghsYearlyPrice  Float? @map("ghs_yearly_price")
-  isActive     Boolean @default(true) @map("is_active")
-  isPublic     Boolean @default(true) @map("is_public")
-  trialDays    Int     @default(0)    @map("trial_days")
+  id              String  @id @default(uuid())
+  slug            String  @unique
+  name            String
+  description     String?
+  monthlyPrice    Float   @map("monthly_price")
+  yearlyPrice     Float   @map("yearly_price")
+  currency        String  @default("USD")
+  ghsMonthlyPrice Float?  @map("ghs_monthly_price")
+  ghsYearlyPrice  Float?  @map("ghs_yearly_price")
+  isActive        Boolean @default(true) @map("is_active")
+  isPublic        Boolean @default(true) @map("is_public")
+  trialDays       Int     @default(0) @map("trial_days")
 
-  limMaxAgents         Int @default(1)    @map("lim_max_agents")
-  limMaxChannels       Int @default(1)    @map("lim_max_channels")
-  limMaxContacts       Int @default(500)  @map("lim_max_contacts")
-  limMaxTemplates      Int @default(5)    @map("lim_max_templates")
+  limMaxAgents         Int @default(1) @map("lim_max_agents")
+  limMaxChannels       Int @default(1) @map("lim_max_channels")
+  limMaxContacts       Int @default(500) @map("lim_max_contacts")
+  limMaxTemplates      Int @default(5) @map("lim_max_templates")
   limMessagesPerMonth  Int @default(1000) @map("lim_messages_per_month")
-  limMaxCampaigns      Int @default(0)    @map("lim_max_campaigns")
-  limAiCreditsPerMonth Int @default(0)    @map("lim_ai_credits_per_month")
-  limStorageGb         Int @default(1)    @map("lim_storage_gb")
+  limMaxCampaigns      Int @default(0) @map("lim_max_campaigns")
+  limAiCreditsPerMonth Int @default(0) @map("lim_ai_credits_per_month")
+  limStorageGb         Int @default(1) @map("lim_storage_gb")
 
-  features  Json @default("[]")
+  features  Json  @default("[]")
   metadata  Json?
-  sortOrder Int  @default(0) @map("sort_order")
+  sortOrder Int   @default(0) @map("sort_order")
 
-  stripePriceIdMonthly   String? @unique @map("stripe_price_id_monthly")
-  stripePriceIdYearly    String? @unique @map("stripe_price_id_yearly")
+  stripePriceIdMonthly    String? @unique @map("stripe_price_id_monthly")
+  stripePriceIdYearly     String? @unique @map("stripe_price_id_yearly")
   paystackPlanCodeMonthly String? @unique @map("paystack_plan_code_monthly")
   paystackPlanCodeYearly  String? @unique @map("paystack_plan_code_yearly")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   subscriptions Subscription[]
 
@@ -1587,13 +1672,13 @@ model Subscription {
   cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
   canceledAt         DateTime? @map("canceled_at")
 
-  stripeSubscriptionId      String? @unique @map("stripe_subscription_id")
-  paystackSubscriptionCode  String? @unique @map("paystack_subscription_code")
-  gatewayCustomerId         String? @map("gateway_customer_id")
+  stripeSubscriptionId     String? @unique @map("stripe_subscription_id")
+  paystackSubscriptionCode String? @unique @map("paystack_subscription_code")
+  gatewayCustomerId        String? @map("gateway_customer_id")
 
   metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   plan   Plan   @relation(fields: [planId], references: [id])
@@ -1610,8 +1695,8 @@ model Invoice {
   status        InvoiceStatus @default(DRAFT)
 
   subtotal Float
-  tax      Float @default(0)
-  discount Float @default(0)
+  tax      Float  @default(0)
+  discount Float  @default(0)
   total    Float
   currency String @default("USD")
 
@@ -1630,7 +1715,7 @@ model Invoice {
   notes     String?
   metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   items    InvoiceItem[]
@@ -1676,7 +1761,7 @@ model Payment {
 
   metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
@@ -1710,7 +1795,7 @@ model AnalyticsDailyMessageStats {
   outboundCount  Int @default(0) @map("outbound_count")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1730,7 +1815,7 @@ model AnalyticsDailyConversationStats {
   resolvedCount          Int @default(0) @map("resolved_count")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1745,12 +1830,12 @@ model AnalyticsDailyRevenueStats {
   date     DateTime       @db.Date
   gateway  PaymentGateway
 
-  successCount  Int   @default(0) @map("success_count")
-  failedCount   Int   @default(0) @map("failed_count")
-  amount        Float @default(0)
+  successCount Int   @default(0) @map("success_count")
+  failedCount  Int   @default(0) @map("failed_count")
+  amount       Float @default(0)
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1830,7 +1915,7 @@ model PlatformDailyStats {
   mau Int @default(0)
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("platform_daily_stats")
 }
@@ -1842,17 +1927,17 @@ model WorkspaceUsage {
   periodStart DateTime @map("period_start")
   periodEnd   DateTime @map("period_end")
 
-  messagesSent        Int   @default(0)   @map("messages_sent")
-  messagesReceived    Int   @default(0)   @map("messages_received")
-  conversationsOpened Int   @default(0)   @map("conversations_opened")
-  campaignsSent       Int   @default(0)   @map("campaigns_sent")
-  aiCreditsUsed       Int   @default(0)   @map("ai_credits_used")
-  activeAgents        Int   @default(0)   @map("active_agents")
-  activeChannels      Int   @default(0)   @map("active_channels")
-  storageUsedMb       Float @default(0)   @map("storage_used_mb")
+  messagesSent        Int   @default(0) @map("messages_sent")
+  messagesReceived    Int   @default(0) @map("messages_received")
+  conversationsOpened Int   @default(0) @map("conversations_opened")
+  campaignsSent       Int   @default(0) @map("campaigns_sent")
+  aiCreditsUsed       Int   @default(0) @map("ai_credits_used")
+  activeAgents        Int   @default(0) @map("active_agents")
+  activeChannels      Int   @default(0) @map("active_channels")
+  storageUsedMb       Float @default(0) @map("storage_used_mb")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1870,7 +1955,7 @@ model BillingEvent {
   gatewayEventId String?         @map("gateway_event_id")
 
   data      Json
-  processed Boolean  @default(false)
+  processed Boolean @default(false)
   error     String?
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -1890,26 +1975,26 @@ model BillingEvent {
 // statements UI, etc.) until this pilot proves the model.
 
 model Product {
-  id            String   @id @default(uuid())
-  tenantId      String   @map("tenant_id")
-  name          String
-  description   String?
-  sku           String?
-  priceMajorUnits Float  @map("price_major_units")
-  currency      String   @default("GHS")
-  isActive      Boolean  @default(true) @map("is_active")
-  imageUrl      String?  @map("image_url")
-  stockQuantity Int?     @map("stock_quantity")
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  name             String
+  description      String?
+  sku              String?
+  priceMajorUnits  Float    @map("price_major_units")
+  currency         String   @default("GHS")
+  isActive         Boolean  @default(true) @map("is_active")
+  imageUrl         String?  @map("image_url")
+  stockQuantity    Int?     @map("stock_quantity")
   // Verz-AI Phase 2b: below this quantity, an order routes to AWAITING_APPROVAL instead
   // of straight to checkout. Nullable, no default -- no minimum unless a tenant sets one.
-  minOrderQuantity Int?  @map("min_order_quantity")
+  minOrderQuantity Int?     @map("min_order_quantity")
   // Simple JSON variants for Phase 1 (single pilot tenant) rather than a
   // relational ProductVariant table -- e.g. [{name, priceDeltaMajorUnits, stockQuantity, sku}].
   // A real join table is a fast-follow once there's more than one pilot merchant.
-  variants      Json?
-  metadata      Json?
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  variants         Json?
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   orderItems OrderItem[]
@@ -1931,42 +2016,42 @@ enum OrderStatus {
 }
 
 model Order {
-  id             String      @id @default(uuid())
-  tenantId       String      @map("tenant_id")
-  contactId      String      @map("contact_id")
-  conversationId String?     @map("conversation_id")
-  status         OrderStatus @default(DRAFT)
-  currency       String      @default("GHS")
-  subtotalMajorUnits Float   @map("subtotal_major_units")
-  totalMajorUnits    Float   @map("total_major_units")
-  customerPhone  String      @map("customer_phone")
-  customerName   String?     @map("customer_name")
-  paystackReference String?  @map("paystack_reference")
-  paystackCheckoutUrl String? @map("paystack_checkout_url")
+  id                  String          @id @default(uuid())
+  tenantId            String          @map("tenant_id")
+  contactId           String          @map("contact_id")
+  conversationId      String?         @map("conversation_id")
+  status              OrderStatus     @default(DRAFT)
+  currency            String          @default("GHS")
+  subtotalMajorUnits  Float           @map("subtotal_major_units")
+  totalMajorUnits     Float           @map("total_major_units")
+  customerPhone       String          @map("customer_phone")
+  customerName        String?         @map("customer_name")
+  paystackReference   String?         @map("paystack_reference")
+  paystackCheckoutUrl String?         @map("paystack_checkout_url")
   // Needed for the branded checkout page's Paystack Inline popup
   // (PaystackPop.resumeTransaction(accessCode)) -- previously only the hosted
   // authorizationUrl was persisted, since nothing rendered a custom checkout UI.
-  paystackAccessCode String? @map("paystack_access_code")
-  paymentGateway    PaymentGateway? @map("payment_gateway")
-  paidAt         DateTime?   @map("paid_at")
-  cancelledAt    DateTime?   @map("cancelled_at")
-  cancelReason   String?     @map("cancel_reason")
-  metadata       Json?
+  paystackAccessCode  String?         @map("paystack_access_code")
+  paymentGateway      PaymentGateway? @map("payment_gateway")
+  paidAt              DateTime?       @map("paid_at")
+  cancelledAt         DateTime?       @map("cancelled_at")
+  cancelReason        String?         @map("cancel_reason")
+  metadata            Json?
   // Set only by the eval harness's own privileged fixture writes -- excluded from the
   // reconciliation worker's PAID-order scan so synthetic test orders (fake Paystack
   // references, no real transaction) never raise a false ReconciliationException.
-  isEvalOrder    Boolean     @default(false) @map("is_eval_order")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
+  isEvalOrder         Boolean         @default(false) @map("is_eval_order")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
 
-  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contact      Contact             @relation(fields: [contactId], references: [id])
-  conversation Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  items        OrderItem[]
-  events       OrderEvent[]
-  ledgerEntries CommerceLedgerEntry[]
+  tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact                  Contact                   @relation(fields: [contactId], references: [id])
+  conversation             Conversation?             @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  items                    OrderItem[]
+  events                   OrderEvent[]
+  ledgerEntries            CommerceLedgerEntry[]
   reconciliationExceptions ReconciliationException[]
-  internalTasks InternalTask[]
+  internalTasks            InternalTask[]
 
   @@index([tenantId])
   @@index([tenantId, isEvalOrder])
@@ -1978,8 +2063,8 @@ model Order {
 }
 
 model OrderItem {
-  id        String @id @default(uuid())
-  orderId   String @map("order_id")
+  id        String  @id @default(uuid())
+  orderId   String  @map("order_id")
   productId String? @map("product_id")
 
   // Price snapshot at purchase time -- never re-derive from the live Product,
@@ -1988,8 +2073,8 @@ model OrderItem {
   productNameSnapshot         String  @map("product_name_snapshot")
   unitPriceMajorUnitsSnapshot Float   @map("unit_price_major_units_snapshot")
   variantLabelSnapshot        String? @map("variant_label_snapshot")
-  quantity          Int   @map("quantity")
-  lineTotalMajorUnits Float @map("line_total_major_units")
+  quantity                    Int     @map("quantity")
+  lineTotalMajorUnits         Float   @map("line_total_major_units")
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -2034,18 +2119,18 @@ enum LedgerEntryType {
 }
 
 model CommerceLedgerEntry {
-  id              String          @id @default(uuid())
-  tenantId        String          @map("tenant_id")
-  orderId         String          @map("order_id")
-  type            LedgerEntryType
-  amountMajorUnits Float          @map("amount_major_units")
-  currency        String
-  gateway         PaymentGateway? @map("gateway")
-  gatewayEventId  String?         @map("gateway_event_id")
-  data            Json
-  processed       Boolean         @default(false)
-  error           String?
-  createdAt       DateTime        @default(now()) @map("created_at")
+  id               String          @id @default(uuid())
+  tenantId         String          @map("tenant_id")
+  orderId          String          @map("order_id")
+  type             LedgerEntryType
+  amountMajorUnits Float           @map("amount_major_units")
+  currency         String
+  gateway          PaymentGateway? @map("gateway")
+  gatewayEventId   String?         @map("gateway_event_id")
+  data             Json
+  processed        Boolean         @default(false)
+  error            String?
+  createdAt        DateTime        @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -2070,10 +2155,10 @@ model ReconciliationException {
   orderId  String @map("order_id")
   type     String
 
-  status ExceptionStatus @default(OPEN)
-  expectedAmountMajorUnits Float? @map("expected_amount_major_units")
-  actualAmountMajorUnits   Float? @map("actual_amount_major_units")
-  details  Json?
+  status                   ExceptionStatus @default(OPEN)
+  expectedAmountMajorUnits Float?          @map("expected_amount_major_units")
+  actualAmountMajorUnits   Float?          @map("actual_amount_major_units")
+  details                  Json?
 
   resolvedAt     DateTime? @map("resolved_at")
   resolvedById   String?   @map("resolved_by_id")
@@ -2185,11 +2270,11 @@ model PromoCode {
   validFrom  DateTime? @map("valid_from")
   validUntil DateTime? @map("valid_until")
 
-  applicablePlans Json?    @map("applicable_plans")
-  isActive        Boolean  @default(true) @map("is_active")
+  applicablePlans Json?   @map("applicable_plans")
+  isActive        Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   usages PromoCodeUsage[]
 
@@ -2197,9 +2282,9 @@ model PromoCode {
 }
 
 model PromoCodeUsage {
-  id          String @id @default(uuid())
-  promoCodeId String @map("promo_code_id")
-  tenantId    String @map("tenant_id")
+  id          String  @id @default(uuid())
+  promoCodeId String  @map("promo_code_id")
+  tenantId    String  @map("tenant_id")
   invoiceId   String? @map("invoice_id")
 
   discountApplied Float    @map("discount_applied")
@@ -2213,19 +2298,19 @@ model PromoCodeUsage {
 }
 
 model CreditPurchase {
-  id          String        @id @default(uuid())
-  tenantId    String        @map("tenant_id")
+  id          String          @id @default(uuid())
+  tenantId    String          @map("tenant_id")
   credits     Int
-  packSlug    String        @map("pack_slug")
+  packSlug    String          @map("pack_slug")
   amount      Float
-  currency    String        @default("USD")
+  currency    String          @default("USD")
   gateway     PaymentGateway? @map("gateway")
-  paystackRef String?       @unique @map("paystack_ref")
-  status      PaymentStatus @default(PENDING)
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt      @map("updated_at")
+  paystackRef String?         @unique @map("paystack_ref")
+  status      PaymentStatus   @default(PENDING)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   aiCreditTransaction AiCreditTransaction?
 
   @@index([tenantId])
@@ -2246,7 +2331,7 @@ model Feedback {
   status   FeedbackStatus @default(NEW)
 
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt      @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -2278,7 +2363,7 @@ model KnowledgeBaseArticle {
   title     String
   content   String
   source    String   @default("manual") // manual | learned | upload | url
-  sourceRef String?  @map("source_ref")  // filename or URL
+  sourceRef String?  @map("source_ref") // filename or URL
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2290,26 +2375,26 @@ model KnowledgeBaseArticle {
 }
 
 model DemoRequest {
-  id              String   @id @default(cuid())
-  fullName        String   @map("full_name")
-  workEmail       String   @map("work_email")
-  phoneNumber     String?  @map("phone_number")
-  businessName    String   @map("business_name")
-  businessType    String   @map("business_type")
-  companySize     String   @map("company_size")
-  currentPlatform String?  @map("current_platform")
-  preferredDate   DateTime @map("preferred_date")
-  preferredTime   String   @map("preferred_time")
-  timezone        String   @default("UTC")
+  id              String              @id @default(cuid())
+  fullName        String              @map("full_name")
+  workEmail       String              @map("work_email")
+  phoneNumber     String?             @map("phone_number")
+  businessName    String              @map("business_name")
+  businessType    String              @map("business_type")
+  companySize     String              @map("company_size")
+  currentPlatform String?             @map("current_platform")
+  preferredDate   DateTime            @map("preferred_date")
+  preferredTime   String              @map("preferred_time")
+  timezone        String              @default("UTC")
   goals           String?
-  leadScore       Int      @default(0) @map("lead_score")
-  leadTier        String   @default("standard") @map("lead_tier")
-  priority        Int      @default(1)
-  status          String   @default("new")
+  leadScore       Int                 @default(0) @map("lead_score")
+  leadTier        String              @default("standard") @map("lead_tier")
+  priority        Int                 @default(1)
+  status          String              @default("new")
   notes           LeadNote[]
   statusHistory   LeadStatusHistory[]
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([workEmail])
@@ -2378,16 +2463,16 @@ model FeatureFlagRollout {
 }
 
 model AppVersion {
-  id          String    @id @default(cuid())
-  version     String    @unique
+  id          String   @id @default(cuid())
+  version     String   @unique
   major       Int
   minor       Int
   patch       Int
-  channel     String    @default("stable")
-  releasedAt  DateTime  @default(now()) @map("released_at")
+  channel     String   @default("stable")
+  releasedAt  DateTime @default(now()) @map("released_at")
   description String?
   changelog   Json?
-  isLatest    Boolean   @default(false) @map("is_latest")
+  isLatest    Boolean  @default(false) @map("is_latest")
 
   deployments DeploymentLog[]
 
@@ -2487,12 +2572,12 @@ model AiAgent {
 }
 
 model AiPromptTemplate {
-  id          String            @id @default(uuid())
-  key         String            @unique // e.g. 'responder.system'
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g. 'responder.system'
   name        String
   description String?
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   versions AiPromptVersion[]
 
@@ -2502,7 +2587,7 @@ model AiPromptTemplate {
 model AiPromptVersion {
   id          String    @id @default(uuid())
   templateId  String    @map("template_id")
-  version     String    // '1.0.0'
+  version     String // '1.0.0'
   status      String    @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
   body        String    @db.Text // with {{variables}}
   variables   String[]
@@ -2531,7 +2616,7 @@ model AiExecution {
   taskType         String   @map("task_type") // RESPONDER | SUMMARIZE | KB_LEARN | TEST | LEAD_SCORE
   provider         String
   modelKey         String   @map("model_key")
-  status           String   // SUCCESS | BLOCKED | POLICY_REJECTED | PROVIDER_ERROR | EMPTY
+  status           String // SUCCESS | BLOCKED | POLICY_REJECTED | PROVIDER_ERROR | EMPTY
   latencyMs        Int?     @map("latency_ms")
   inputTokens      Int?     @map("input_tokens")
   outputTokens     Int?     @map("output_tokens")
@@ -2551,10 +2636,10 @@ model AiExecution {
   toolTrace        Json?    @map("tool_trace")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  agent         AiAgent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  promptVersion AiPromptVersion? @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
-  creditTransaction AiCreditTransaction?
+  tenant                Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  agent                 AiAgent?                 @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  promptVersion         AiPromptVersion?         @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
+  creditTransaction     AiCreditTransaction?
   interactionEvaluation AiInteractionEvaluation?
 
   @@index([tenantId, createdAt])
@@ -2575,12 +2660,12 @@ model AiExecution {
 // storage, and does not implement automatic production self-training.
 
 enum EvalQualityStatus {
-  PENDING       // queued, not yet evaluated
-  EVALUATED     // evaluator produced a result, no review needed
-  NEEDS_REVIEW  // below threshold or a critical signal was detected
-  APPROVED      // a human reviewer signed off
-  REJECTED      // a human reviewer marked it wrong/unusable
-  FAILED        // evaluator could not produce a valid result after retries
+  PENDING // queued, not yet evaluated
+  EVALUATED // evaluator produced a result, no review needed
+  NEEDS_REVIEW // below threshold or a critical signal was detected
+  APPROVED // a human reviewer signed off
+  REJECTED // a human reviewer marked it wrong/unusable
+  FAILED // evaluator could not produce a valid result after retries
 }
 
 enum FailureCategory {
@@ -2672,12 +2757,12 @@ model AiInteractionEvaluation {
   evaluatorReasoning  String?           @map("evaluator_reasoning") @db.Text
   evaluatorConfidence Float?            @map("evaluator_confidence")
 
-  needsHumanReview           Boolean @default(false) @map("needs_human_review")
-  falseActionClaim           Boolean @default(false) @map("false_action_claim")
-  falseSuccessClaim          Boolean @default(false) @map("false_success_claim")
-  unnecessaryHandoff         Boolean @default(false) @map("unnecessary_handoff")
-  customerCorrectionDetected Boolean @default(false) @map("customer_correction_detected")
-  humanTakeoverFollowed      Boolean @default(false) @map("human_takeover_followed")
+  needsHumanReview           Boolean                 @default(false) @map("needs_human_review")
+  falseActionClaim           Boolean                 @default(false) @map("false_action_claim")
+  falseSuccessClaim          Boolean                 @default(false) @map("false_success_claim")
+  unnecessaryHandoff         Boolean                 @default(false) @map("unnecessary_handoff")
+  customerCorrectionDetected Boolean                 @default(false) @map("customer_correction_detected")
+  humanTakeoverFollowed      Boolean                 @default(false) @map("human_takeover_followed")
   takeoverClassification     TakeoverClassification? @map("takeover_classification")
 
   // Copied from AiExecution.promptVersionId at evaluation time -- the version
@@ -2717,14 +2802,14 @@ model AiEvaluationFeedback {
   tenantId     String @map("tenant_id")
   reviewerId   String @map("reviewer_id")
 
-  rating           String  // GOOD | BAD
+  rating           String // GOOD | BAD
   reason           String? // structured reason key, e.g. WRONG_PRODUCT, TOOL_FAILURE
   notes            String? @db.Text
   expectedAction   String? @map("expected_action") @db.Text
   expectedResponse String? @map("expected_response") @db.Text
 
   takeoverClassification TakeoverClassification? @map("takeover_classification")
-  correctionCategory     CorrectionCategory?      @map("correction_category")
+  correctionCategory     CorrectionCategory?     @map("correction_category")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2749,14 +2834,14 @@ model AiTrainingExample {
   sourceConversationId String  @map("source_conversation_id")
   sourceMessageId      String? @map("source_message_id")
 
-  customerInput    String  @db.Text @map("customer_input")
+  customerInput    String  @map("customer_input") @db.Text
   relevantContext  Json?   @map("relevant_context")
-  actualResponse   String  @db.Text @map("actual_response")
-  expectedAction   String? @db.Text @map("expected_action")
-  expectedResponse String? @db.Text @map("expected_response")
+  actualResponse   String  @map("actual_response") @db.Text
+  expectedAction   String? @map("expected_action") @db.Text
+  expectedResponse String? @map("expected_response") @db.Text
 
   failureCategories FailureCategory[]     @default([]) @map("failure_categories")
-  reviewerNotes     String?               @db.Text @map("reviewer_notes")
+  reviewerNotes     String?               @map("reviewer_notes") @db.Text
   status            TrainingExampleStatus @default(DRAFT)
 
   approvedById String?   @map("approved_by_id")
@@ -2781,14 +2866,14 @@ model AiTrainingExample {
 // classifies it (a customer claiming something is wrong is not the same as
 // it actually being wrong).
 model AiCustomerCorrection {
-  id                     String  @id @default(uuid())
-  tenantId               String  @map("tenant_id")
-  evaluationId           String  @map("evaluation_id")
-  correctionMessageId    String  @map("correction_message_id")
+  id                     String             @id @default(uuid())
+  tenantId               String             @map("tenant_id")
+  evaluationId           String             @map("evaluation_id")
+  correctionMessageId    String             @map("correction_message_id")
   category               CorrectionCategory @default(NORMAL_FOLLOW_UP)
-  reviewerId             String? @map("reviewer_id")
-  reviewerNotes          String? @db.Text @map("reviewer_notes")
-  expectedInterpretation String? @db.Text @map("expected_interpretation")
+  reviewerId             String?            @map("reviewer_id")
+  reviewerNotes          String?            @map("reviewer_notes") @db.Text
+  expectedInterpretation String?            @map("expected_interpretation") @db.Text
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -2833,21 +2918,21 @@ model AiLearningAuditLog {
 // ClientErrorsController (frontend reports); both already the single
 // catch-all point for their respective error source.
 model ErrorLog {
-  id               String    @id @default(uuid())
-  tenantId         String?   @map("tenant_id")
-  service          String    // 'backend' | 'frontend' | a specific module name
-  severity         String    @default("ERROR") // WARN | ERROR | CRITICAL
-  message          String    @db.Text
-  stack            String?   @db.Text
-  requestId        String?   @map("request_id")
-  resourceType     String?   @map("resource_type")
-  resourceId       String?   @map("resource_id")
-  fingerprint      String    // dedup key: service+message-prefix(+url/status where available)
-  occurrenceCount  Int       @default(1) @map("occurrence_count")
-  firstSeenAt      DateTime  @default(now()) @map("first_seen_at")
-  lastSeenAt       DateTime  @default(now()) @map("last_seen_at")
-  status           String    @default("OPEN") // OPEN | RESOLVED | IGNORED
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id              String   @id @default(uuid())
+  tenantId        String?  @map("tenant_id")
+  service         String // 'backend' | 'frontend' | a specific module name
+  severity        String   @default("ERROR") // WARN | ERROR | CRITICAL
+  message         String   @db.Text
+  stack           String?  @db.Text
+  requestId       String?  @map("request_id")
+  resourceType    String?  @map("resource_type")
+  resourceId      String?  @map("resource_id")
+  fingerprint     String // dedup key: service+message-prefix(+url/status where available)
+  occurrenceCount Int      @default(1) @map("occurrence_count")
+  firstSeenAt     DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt      DateTime @default(now()) @map("last_seen_at")
+  status          String   @default("OPEN") // OPEN | RESOLVED | IGNORED
+  createdAt       DateTime @default(now()) @map("created_at")
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
@@ -2863,6 +2948,7 @@ enum WebhookSource {
   STRIPE_BILLING
   PAYSTACK_BILLING
   PAYSTACK_COMMERCE
+  MESSENGER
 }
 
 enum WebhookEventStatus {
@@ -2879,17 +2965,17 @@ enum WebhookEventStatus {
 // which is only offered for sources whose underlying handler is already
 // proven idempotent (all four are, by construction of their own dedup keys).
 model WebhookEvent {
-  id             String              @id @default(uuid())
+  id             String             @id @default(uuid())
   source         WebhookSource
-  eventType      String              @map("event_type")
-  status         WebhookEventStatus  @default(RECEIVED)
-  gatewayEventId String?             @map("gateway_event_id")
-  tenantId       String?             @map("tenant_id")
+  eventType      String             @map("event_type")
+  status         WebhookEventStatus @default(RECEIVED)
+  gatewayEventId String?            @map("gateway_event_id")
+  tenantId       String?            @map("tenant_id")
   payload        Json?
-  error          String?             @db.Text
-  attempts       Int                 @default(1)
-  createdAt      DateTime            @default(now()) @map("created_at")
-  processedAt    DateTime?           @map("processed_at")
+  error          String?            @db.Text
+  attempts       Int                @default(1)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  processedAt    DateTime?          @map("processed_at")
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 

@@ -5,10 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search, X, CheckCircle2, AlertCircle, RefreshCw, Clock,
   Settings, ChevronDown, Radio, Zap, Activity, Shield,
-  Plug2, PlugZap,
+  Plug2, PlugZap, Plus, PowerOff, Power,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { channelsApi } from '@/lib/api';
+import { channelsApi, facebookPagesApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 
@@ -52,15 +52,15 @@ const CHANNELS: ChannelDef[] = [
   {
     id: 'facebook',
     name: 'Facebook Messenger',
-    description: 'Connect your Facebook Page now to reserve it. Inbox messaging, auto-replies, and AI support for Messenger are coming soon.',
-    badge: 'Coming Soon',
+    description: 'Reply to Messenger conversations directly from your inbox. Connect one or more Facebook Pages to your workspace.',
+    badge: 'New',
     connectType: 'oauth',
     oauthProvider: 'facebook',
     accentClass: 'border-l-blue-600',
     accentBg: 'bg-blue-600',
     btnClass: 'bg-[#1877F2] hover:bg-[#166FE5] text-white',
     btnLabel: 'Continue with Facebook',
-    features: ['Page connection available now', 'Inbox messaging — coming soon', 'AI & automation — coming soon'],
+    features: ['Real-time inbox messaging', 'Connect multiple Pages', 'AI-assisted replies'],
   },
   {
     id: 'instagram',
@@ -190,7 +190,7 @@ function LiveDot({ color = 'emerald' }: { color?: 'emerald' | 'amber' | 'red' | 
 // Reflects exactly what's requested in the real OAuth scope (channels.controller.ts) --
 // not what the eventual messaging feature will need once it's built.
 const OAUTH_INFO: Record<string, { permissions: string[] }> = {
-  facebook: { permissions: ['See which Pages you manage', 'Read basic Page engagement info'] },
+  facebook: { permissions: ['See which Pages you manage', 'Read basic Page engagement info', 'Send and receive Messenger messages on your behalf'] },
   instagram: { permissions: ['View your linked Instagram professional account', 'See which Pages you manage'] },
   tiktok: { permissions: ['View your public TikTok profile (name, avatar)'] },
 };
@@ -235,7 +235,7 @@ function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => 
       </div>
       <div className="px-6 py-4 space-y-4">
         <p className="text-sm text-gray-600 leading-relaxed">
-          {provider === 'facebook' && "You'll be redirected to Facebook to connect and reserve your Page. Messenger inbox support is coming soon."}
+          {provider === 'facebook' && "You'll be redirected to Facebook to authorize Verz, then choose which Page(s) to connect. You can connect more than one."}
           {provider === 'instagram' && "You'll sign in with Instagram Business to connect and reserve your account. DM and story reply support is coming soon."}
           {provider === 'tiktok' && "You'll be redirected to TikTok to verify your account. This does not yet enable Business Messaging, which requires TikTok's own platform approval."}
         </p>
@@ -403,6 +403,197 @@ function TelegramModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+// ─── Facebook Page Picker ──────────────────────────────────────────────────────
+// Real Page selection, replacing the old auto-connect-everything behavior --
+// the OAuth callback now stops at fetching candidate Pages and stashes them
+// server-side in a short-lived session; nothing is connected until the user
+// explicitly picks which Page(s) here.
+
+interface CandidatePage {
+  id: string;
+  name: string;
+  alreadyConnected: boolean;
+}
+
+function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: string; onClose: () => void; onConnected: () => void }) {
+  const [pages, setPages] = useState<CandidatePage[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await facebookPagesApi.session(sessionId);
+        const data = res.data as { candidatePages: CandidatePage[] };
+        if (cancelled) return;
+        setPages(data.candidatePages);
+        setSelected(new Set(data.candidatePages.filter(p => !p.alreadyConnected).map(p => p.id)));
+      } catch {
+        if (!cancelled) setError('This connection session has expired. Please reconnect from the Channels page.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  const toggle = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleConnect = async () => {
+    if (selected.size === 0) { setError('Select at least one Page.'); return; }
+    setConnecting(true);
+    setError('');
+    try {
+      await facebookPagesApi.select(sessionId, [...selected]);
+      toast.success(selected.size === 1 ? 'Page connected!' : `${selected.size} Pages connected!`);
+      onConnected();
+      onClose();
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'response' in e ? (e as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
+      setError(typeof msg === 'string' ? msg : 'Failed to connect the selected Page(s).');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  return (
+    <ModalShell onClose={onClose}>
+      <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Connect Facebook Page</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Select the Page(s) you want to connect to Verz</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+        </div>
+      </div>
+      <div className="px-6 py-4 max-h-80 overflow-y-auto">
+        {loading ? (
+          <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" /></div>
+        ) : pages.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-6">No Facebook Pages found. Make sure your account manages at least one Page.</p>
+        ) : (
+          <div className="space-y-2">
+            {pages.map(p => (
+              <label key={p.id} className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors',
+                selected.has(p.id) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-gray-200',
+                p.alreadyConnected && 'opacity-60',
+              )}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(p.id)}
+                  onChange={() => toggle(p.id)}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-gray-800 truncate block">{p.name}</span>
+                  <span className="text-xs text-gray-400">Facebook Page{p.alreadyConnected ? ' · Already connected' : ''}</span>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl mt-3">
+            <AlertCircle size={12} className="flex-shrink-0" />{error}
+          </div>
+        )}
+      </div>
+      <div className="px-6 pb-6 flex gap-2.5">
+        <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Cancel</button>
+        <button
+          onClick={() => { void handleConnect(); }}
+          disabled={connecting || loading || pages.length === 0}
+          className="flex-1 py-2.5 text-sm bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-60 text-white rounded-xl font-semibold transition-colors"
+        >
+          {connecting ? 'Connecting…' : `Connect ${selected.size > 0 ? `(${selected.size})` : ''}`}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Facebook Pages Section ────────────────────────────────────────────────────
+// Facebook can have multiple connected Pages (one Channel row each), unlike
+// the other platforms' single-row ChannelCard -- gets its own dedicated
+// section mirroring the WhatsApp Numbers row-list pattern (Settings page),
+// the only existing precedent in this codebase for a real multi-account list.
+
+function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: ConnectedChannel[]; onChanged: () => void; onConnectMore: () => void }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const fbDef = CHANNELS.find(c => c.id === 'facebook')!;
+
+  const handleToggle = async (id: string) => {
+    setBusyId(id);
+    try {
+      await channelsApi.toggle(id);
+      onChanged();
+    } catch {
+      toast.error('Failed to update this Page.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className="pl-5 pr-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <ChannelIcon ch={fbDef} size="md" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-gray-900 text-sm">Facebook Messenger</h3>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">New</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">{pages.length} Page{pages.length !== 1 ? 's' : ''} connected</p>
+          </div>
+        </div>
+        <button
+          onClick={onConnectMore}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs rounded-lg font-semibold transition-colors"
+        >
+          <Plus size={13} /> Connect another Page
+        </button>
+      </div>
+      <div className="p-3 space-y-2">
+        {pages.map(page => (
+          <div key={page.id} className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors', page.isActive ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100')}>
+            <LiveDot color={page.isActive ? 'emerald' : 'gray'} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-800 truncate">{page.name}</span>
+                {!page.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Disconnected</span>}
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">Facebook Page</p>
+            </div>
+            <button
+              onClick={() => { void handleToggle(page.id); }}
+              disabled={busyId === page.id}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50',
+                page.isActive ? 'text-gray-500 hover:text-red-600 hover:bg-red-50' : 'text-teal-600 hover:bg-teal-50',
+              )}
+            >
+              {page.isActive ? <PowerOff size={12} /> : <Power size={12} />}
+              {page.isActive ? 'Disconnect' : 'Reconnect'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -662,6 +853,7 @@ function ChannelsPageInner() {
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
   const [oauthChannel, setOauthChannel] = useState<ChannelDef | null>(null);
+  const [facebookPickerSession, setFacebookPickerSession] = useState<string | null>(null);
 
   const loadConnected = useCallback(async () => {
     try {
@@ -696,8 +888,28 @@ function ChannelsPageInner() {
     }
   }, [searchParams, loadConnected]);
 
+  // Real Page-selection flow: the OAuth callback redirects here with
+  // ?picker=facebook&session=<id> instead of auto-connecting every Page.
+  useEffect(() => {
+    if (!searchParams) return;
+    const picker = searchParams.get('picker');
+    const session = searchParams.get('session');
+    if (picker === 'facebook' && session) {
+      setFacebookPickerSession(session);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('picker');
+      url.searchParams.delete('session');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, [searchParams]);
+
   const getConnectedData = (ch: ChannelDef): ConnectedChannel | undefined =>
     connected.find(c => c.type?.toUpperCase() === TYPE_MAP[ch.id]);
+
+  // Facebook can have multiple connected Pages (one Channel row each) --
+  // every other platform's card assumes a single row via getConnectedData
+  // above, which only ever returns the first match.
+  const facebookPages = connected.filter(c => c.type?.toUpperCase() === 'FACEBOOK_MESSENGER');
 
   const filtered = CHANNELS.filter(ch => {
     const isConn = !!getConnectedData(ch);
@@ -785,12 +997,21 @@ function ChannelsPageInner() {
             </div>
           ) : (
             connectedFirst.map(ch => (
-              <ChannelCard
-                key={ch.id}
-                ch={ch}
-                connectedData={getConnectedData(ch)}
-                onConnect={() => handleConnect(ch)}
-              />
+              ch.id === 'facebook' && facebookPages.length > 0 ? (
+                <FacebookPagesSection
+                  key={ch.id}
+                  pages={facebookPages}
+                  onChanged={() => { void loadConnected(); }}
+                  onConnectMore={() => setOauthChannel(ch)}
+                />
+              ) : (
+                <ChannelCard
+                  key={ch.id}
+                  ch={ch}
+                  connectedData={getConnectedData(ch)}
+                  onConnect={() => handleConnect(ch)}
+                />
+              )
             ))
           )}
         </div>
@@ -800,6 +1021,13 @@ function ChannelsPageInner() {
       {showWhatsApp && <WhatsAppModal onClose={() => setShowWhatsApp(false)} onSaved={() => { void loadConnected(); }} />}
       {showTelegram && <TelegramModal onClose={() => setShowTelegram(false)} onSaved={() => { void loadConnected(); }} />}
       {oauthChannel && <OAuthModal channel={oauthChannel} onClose={() => setOauthChannel(null)} />}
+      {facebookPickerSession && (
+        <FacebookPagePicker
+          sessionId={facebookPickerSession}
+          onClose={() => setFacebookPickerSession(null)}
+          onConnected={() => { void loadConnected(); }}
+        />
+      )}
     </div>
   );
 }
