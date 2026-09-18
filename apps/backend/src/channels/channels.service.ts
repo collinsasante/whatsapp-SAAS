@@ -26,10 +26,19 @@ export class ChannelsService {
   ) {}
 
   async findAll(tenantId: string) {
-    return this.prisma.channel.findMany({
+    const channels = await this.prisma.channel.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'asc' },
+      include: { whatsAppWebSession: { select: { id: true, status: true, phoneNumber: true, lastError: true } } },
     });
+    // Flatten the WhatsAppWebSession relation onto the returned row only for
+    // WHATSAPP_WEB channels -- every other channel type's row shape is
+    // unchanged from before this field existed.
+    return channels.map(({ whatsAppWebSession, ...channel }) =>
+      channel.type === ChannelType.WHATSAPP_WEB && whatsAppWebSession
+        ? { ...channel, sessionId: whatsAppWebSession.id, whatsappWebStatus: whatsAppWebSession.status, phoneNumber: whatsAppWebSession.phoneNumber, lastError: whatsAppWebSession.lastError }
+        : channel,
+    );
   }
 
   async findOne(tenantId: string, id: string) {

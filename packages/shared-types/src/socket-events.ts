@@ -76,6 +76,9 @@ export enum SocketEvent {
   CALL_RECONNECTING = 'call_reconnecting',
   // ── AI Suggestion ──────────────────────────────────────────────────────────
   AI_SUGGESTION = 'ai_suggestion',
+  // ── WhatsApp Web (QR/linked-device) session lifecycle ──────────────────────
+  WHATSAPP_WEB_QR = 'whatsapp_web:qr',
+  WHATSAPP_WEB_STATUS = 'whatsapp_web:status',
 }
 
 export interface SocketAiSuggestionEvent {
@@ -85,4 +88,19 @@ export interface SocketAiSuggestionEvent {
     response: string;
     confidence: number | null;
   };
+}
+
+export interface SocketWhatsAppWebQrEvent {
+  tenantId: string;
+  sessionId: string;
+  channelId: string;
+  qrDataUrl: string;
+}
+
+export interface SocketWhatsAppWebStatusEvent {
+  tenantId: string;
+  sessionId: string;
+  channelId: string;
+  status: 'QR_PENDING' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'LOGGED_OUT' | 'ERROR';
+  phoneNumber?: string;
 }

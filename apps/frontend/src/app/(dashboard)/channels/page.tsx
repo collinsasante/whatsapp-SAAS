@@ -5,12 +5,13 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search, X, CheckCircle2, AlertCircle, RefreshCw, Clock,
   Settings, ChevronDown, Radio, Zap, Activity, Shield,
-  Plug2, PlugZap, Plus, PowerOff, Power,
+  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { channelsApi, facebookPagesApi } from '@/lib/api';
+import { channelsApi, facebookPagesApi, whatsappWebApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
+import { getSocket, SocketEvent } from '@/lib/socket';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,11 @@ interface ConnectedChannel {
   type: string;
   isActive: boolean;
   phoneNumber?: string;
+  // WHATSAPP_WEB-only fields (flattened server-side from WhatsAppWebSession) --
+  // undefined for every other channel type.
+  sessionId?: string;
+  whatsappWebStatus?: 'QR_PENDING' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'LOGGED_OUT' | 'ERROR';
+  lastError?: string | null;
 }
 
 interface ChannelDef {
@@ -27,7 +33,7 @@ interface ChannelDef {
   name: string;
   description: string;
   badge?: 'Popular' | 'Beta' | 'New' | 'Coming Soon';
-  connectType: 'api' | 'oauth';
+  connectType: 'api' | 'oauth' | 'qr';
   oauthProvider?: 'facebook' | 'instagram' | 'tiktok';
   accentClass: string;
   accentBg: string;
@@ -100,6 +106,18 @@ const CHANNELS: ChannelDef[] = [
     btnLabel: 'Connect Bot',
     features: ['Bot token verified on connect', 'Message inbox — coming soon', 'Automation & routing — coming soon'],
   },
+  {
+    id: 'whatsapp-web',
+    name: 'WhatsApp via QR',
+    description: 'Link a personal WhatsApp number by scanning a QR code, like WhatsApp Web. Unofficial and against WhatsApp\'s Terms of Service — the linked number can be banned by WhatsApp at any time, with no recourse.',
+    badge: 'Beta',
+    connectType: 'qr',
+    accentClass: 'border-l-amber-500',
+    accentBg: 'bg-gradient-to-br from-emerald-500 to-teal-600',
+    btnClass: 'bg-gray-900 hover:bg-black text-white',
+    btnLabel: 'Connect via QR Code',
+    features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial — real ban risk, no SLA'],
+  },
 ];
 
 const TYPE_MAP: Record<string, string> = {
@@ -108,6 +126,7 @@ const TYPE_MAP: Record<string, string> = {
   instagram: 'INSTAGRAM',
   tiktok: 'TIKTOK',
   telegram: 'TELEGRAM',
+  'whatsapp-web': 'WHATSAPP_WEB',
 };
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -162,6 +181,7 @@ function ChannelIcon({ ch, size = 'md' }: { ch: ChannelDef; size?: 'sm' | 'md' |
       {ch.id === 'instagram' && <InstagramIcon size={iconSizes[size]} />}
       {ch.id === 'tiktok' && <TikTokIcon size={iconSizes[size]} />}
       {ch.id === 'telegram' && <TelegramIcon size={iconSizes[size]} />}
+      {ch.id === 'whatsapp-web' && <QrCode size={iconSizes[size]} className="text-white" />}
     </div>
   );
 }
@@ -611,6 +631,299 @@ function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: Conn
   );
 }
 
+// ─── WhatsApp via QR (unofficial linked-device) ────────────────────────────────
+// Separate connection mechanism from the official Cloud API card above -- a
+// live Baileys socket + session lifecycle, not an OAuth token exchange or a
+// static credentials form. Never mixed with WhatsApp Business API internally:
+// distinct channel type (WHATSAPP_WEB), distinct connect/manage UI here.
+
+const WA_WEB_STATUS_META: Record<NonNullable<ConnectedChannel['whatsappWebStatus']>, { label: string; dot: 'emerald' | 'amber' | 'red' | 'gray' }> = {
+  QR_PENDING: { label: 'Waiting for scan', dot: 'amber' },
+  CONNECTING: { label: 'Connecting…', dot: 'amber' },
+  CONNECTED: { label: 'Connected', dot: 'emerald' },
+  RECONNECTING: { label: 'Reconnecting…', dot: 'amber' },
+  LOGGED_OUT: { label: 'Logged out', dot: 'gray' },
+  ERROR: { label: 'Connection error', dot: 'red' },
+};
+
+function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
+  const [step, setStep] = useState<'disclosure' | 'starting' | 'qr' | 'connected' | 'error'>('disclosure');
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const waWebDef = CHANNELS.find(c => c.id === 'whatsapp-web')!;
+
+  const handleStart = async () => {
+    setStep('starting');
+    setErrorMsg('');
+    try {
+      const res = await whatsappWebApi.startPairing();
+      setSessionId(res.data.sessionId);
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'response' in e ? (e as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
+      setErrorMsg(typeof msg === 'string' ? msg : 'Failed to start the pairing session.');
+      setStep('error');
+    }
+  };
+
+  // Listens tenant-wide (the events carry sessionId; every other session's
+  // events for this tenant are just filtered out) -- matches how every other
+  // realtime feature in this app listens, no server-side per-modal room.
+  useEffect(() => {
+    if (!sessionId) return;
+    const socket = getSocket();
+
+    const onQr = (data: { sessionId: string; qrDataUrl: string }) => {
+      if (data.sessionId !== sessionId) return;
+      setQrDataUrl(data.qrDataUrl);
+      setStep('qr');
+    };
+    const onStatus = (data: { sessionId: string; status: string; phoneNumber?: string }) => {
+      if (data.sessionId !== sessionId) return;
+      if (data.status === 'CONNECTED') {
+        setPhoneNumber(data.phoneNumber ?? null);
+        setStep('connected');
+        toast.success('WhatsApp connected!');
+        onConnected();
+      } else if (data.status === 'ERROR' || data.status === 'LOGGED_OUT') {
+        setErrorMsg('The connection failed or was closed before pairing finished. Please try again.');
+        setStep('error');
+      }
+    };
+
+    socket.on(SocketEvent.WHATSAPP_WEB_QR, onQr);
+    socket.on(SocketEvent.WHATSAPP_WEB_STATUS, onStatus);
+    return () => {
+      socket.off(SocketEvent.WHATSAPP_WEB_QR, onQr);
+      socket.off(SocketEvent.WHATSAPP_WEB_STATUS, onStatus);
+    };
+  }, [sessionId, onConnected]);
+
+  return (
+    <ModalShell onClose={onClose}>
+      <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <ChannelIcon ch={waWebDef} size="lg" />
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Connect WhatsApp via QR</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Unofficial, linked-device connection</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+        </div>
+      </div>
+
+      {step === 'disclosure' && (
+        <>
+          <div className="px-6 py-4 space-y-3">
+            <div className="flex items-start gap-2.5 text-sm text-amber-900 bg-amber-50 border border-amber-200 px-4 py-3 rounded-xl">
+              <TriangleAlert size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="space-y-1.5">
+                <p className="font-semibold">This is not the official WhatsApp Business API.</p>
+                <p className="text-amber-800 leading-relaxed">
+                  It links your personal WhatsApp number the same way WhatsApp Web does. This works outside
+                  WhatsApp&rsquo;s Terms of Service for businesses — WhatsApp can ban the linked number at any time,
+                  without warning and with no recourse. Use a number you can afford to lose.
+                </p>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">What happens next</p>
+              {[
+                'A QR code appears below — open WhatsApp on your phone, go to Linked Devices, and scan it',
+                'Once linked, incoming messages arrive in this same inbox — same AI, automation, and team routing',
+                'You can disconnect or fully log out this number at any time from the Channels page',
+              ].map(p => (
+                <div key={p} className="flex items-start gap-2.5">
+                  <CheckCircle2 size={13} className="text-teal-600 flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-gray-700 leading-snug">{p}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="px-6 pb-6 space-y-2">
+            <button
+              onClick={() => { void handleStart(); }}
+              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-black text-white transition-all"
+            >
+              I understand the risks — show me a QR code
+            </button>
+            <button onClick={onClose} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium">Cancel</button>
+          </div>
+        </>
+      )}
+
+      {step === 'starting' && (
+        <div className="px-6 py-14 flex flex-col items-center justify-center gap-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900" />
+          <p className="text-sm text-gray-500">Starting a secure pairing session…</p>
+        </div>
+      )}
+
+      {step === 'qr' && (
+        <>
+          <div className="px-6 py-6 flex flex-col items-center gap-4">
+            {qrDataUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qrDataUrl} alt="Scan with WhatsApp to connect" className="w-56 h-56 rounded-xl border border-gray-200 p-2" />
+            ) : (
+              <div className="w-56 h-56 rounded-xl border border-gray-200 flex items-center justify-center">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900" />
+              </div>
+            )}
+            <div className="text-center space-y-1">
+              <p className="text-sm font-semibold text-gray-800">Scan with your phone</p>
+              <p className="text-xs text-gray-500 max-w-xs">
+                WhatsApp → Settings → Linked Devices → Link a Device. The code refreshes automatically if it expires.
+              </p>
+            </div>
+          </div>
+          <div className="px-6 pb-6">
+            <button onClick={onClose} className="w-full py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">
+              Close (pairing continues in the background)
+            </button>
+          </div>
+        </>
+      )}
+
+      {step === 'connected' && (
+        <div className="px-6 py-10 flex flex-col items-center gap-3 text-center">
+          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center">
+            <CheckCircle2 size={24} className="text-emerald-600" />
+          </div>
+          <p className="text-sm font-bold text-gray-900">WhatsApp connected!</p>
+          {phoneNumber && <p className="text-xs text-gray-500">{phoneNumber}</p>}
+          <button onClick={onClose} className="mt-2 px-5 py-2.5 text-sm bg-gray-900 hover:bg-black text-white rounded-xl font-semibold transition-colors">
+            Done
+          </button>
+        </div>
+      )}
+
+      {step === 'error' && (
+        <>
+          <div className="px-6 py-4">
+            <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl">
+              <AlertCircle size={12} className="flex-shrink-0" />{errorMsg}
+            </div>
+          </div>
+          <div className="px-6 pb-6 flex gap-2.5">
+            <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Cancel</button>
+            <button onClick={() => { setStep('disclosure'); }} className="flex-1 py-2.5 text-sm bg-gray-900 hover:bg-black text-white rounded-xl font-semibold transition-colors">
+              Try again
+            </button>
+          </div>
+        </>
+      )}
+    </ModalShell>
+  );
+}
+
+function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: ConnectedChannel[]; onChanged: () => void; onConnectMore: () => void }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const waWebDef = CHANNELS.find(c => c.id === 'whatsapp-web')!;
+
+  const handleDisconnect = async (sessionId: string) => {
+    setBusyId(sessionId);
+    try {
+      await whatsappWebApi.disconnect(sessionId);
+      onChanged();
+    } catch {
+      toast.error('Failed to disconnect this number.');
+    } finally { setBusyId(null); }
+  };
+
+  const handleLogout = async (sessionId: string) => {
+    if (!window.confirm('Log out this number? You\'ll need to scan a new QR code to reconnect it.')) return;
+    setBusyId(sessionId);
+    try {
+      await whatsappWebApi.logout(sessionId);
+      onChanged();
+    } catch {
+      toast.error('Failed to log out this number.');
+    } finally { setBusyId(null); }
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+      <div className="pl-5 pr-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <ChannelIcon ch={waWebDef} size="md" />
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-gray-900 text-sm">WhatsApp via QR</h3>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-purple-50 text-purple-700 border-purple-200">Beta · Unofficial</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5">{sessions.length} number{sessions.length !== 1 ? 's' : ''} linked</p>
+          </div>
+        </div>
+        <button
+          onClick={onConnectMore}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs rounded-lg font-semibold transition-colors"
+        >
+          <Plus size={13} /> Link another number
+        </button>
+      </div>
+      <div className="p-3 space-y-2">
+        {sessions.map(s => {
+          const meta = WA_WEB_STATUS_META[s.whatsappWebStatus ?? 'ERROR'];
+          const isConnected = s.whatsappWebStatus === 'CONNECTED';
+          const canReconnectLater = s.whatsappWebStatus === 'CONNECTED' || s.whatsappWebStatus === 'RECONNECTING';
+          return (
+            <div key={s.id} className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors', isConnected ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100')}>
+              <LiveDot color={meta.dot} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-800 truncate">{s.phoneNumber ?? s.name}</span>
+                  <span className={cn(
+                    'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+                    meta.dot === 'emerald' && 'bg-emerald-50 text-emerald-700',
+                    meta.dot === 'amber' && 'bg-amber-50 text-amber-700',
+                    meta.dot === 'red' && 'bg-red-50 text-red-700',
+                    meta.dot === 'gray' && 'bg-gray-100 text-gray-500',
+                  )}>
+                    {meta.label}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">{s.lastError ? s.lastError : 'Unofficial linked device'}</p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {canReconnectLater && (
+                  <button
+                    onClick={() => { void handleDisconnect(s.sessionId!); }}
+                    disabled={busyId === s.sessionId}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                  >
+                    <PowerOff size={12} /> Disconnect
+                  </button>
+                )}
+                {(canReconnectLater) && (
+                  <button
+                    onClick={() => { void handleLogout(s.sessionId!); }}
+                    disabled={busyId === s.sessionId}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  >
+                    <LogOut size={12} /> Log out
+                  </button>
+                )}
+                {!canReconnectLater && (
+                  <button
+                    onClick={onConnectMore}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors"
+                  >
+                    <QrCode size={12} /> Scan again
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Hero Section ─────────────────────────────────────────────────────────────
 
 function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
@@ -866,6 +1179,7 @@ function ChannelsPageInner() {
   const [connected, setConnected] = useState<ConnectedChannel[]>([]);
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showWhatsAppWebQr, setShowWhatsAppWebQr] = useState(false);
   const [oauthChannel, setOauthChannel] = useState<ChannelDef | null>(null);
   const [facebookPickerSession, setFacebookPickerSession] = useState<string | null>(null);
 
@@ -924,6 +1238,9 @@ function ChannelsPageInner() {
   // every other platform's card assumes a single row via getConnectedData
   // above, which only ever returns the first match.
   const facebookPages = connected.filter(c => c.type?.toUpperCase() === 'FACEBOOK_MESSENGER');
+  // Same multi-account shape as Facebook Pages: a workspace can link more
+  // than one WhatsApp Web number.
+  const whatsAppWebSessions = connected.filter(c => c.type?.toUpperCase() === 'WHATSAPP_WEB');
 
   const filtered = CHANNELS.filter(ch => {
     const isConn = !!getConnectedData(ch);
@@ -948,6 +1265,7 @@ function ChannelsPageInner() {
       setShowWhatsApp(true);
       return;
     }
+    if (ch.connectType === 'qr') { setShowWhatsAppWebQr(true); return; }
     if (ch.connectType === 'oauth') { setOauthChannel(ch); }
   };
 
@@ -1018,6 +1336,13 @@ function ChannelsPageInner() {
                   onChanged={() => { void loadConnected(); }}
                   onConnectMore={() => setOauthChannel(ch)}
                 />
+              ) : ch.id === 'whatsapp-web' && whatsAppWebSessions.length > 0 ? (
+                <WhatsAppWebSection
+                  key={ch.id}
+                  sessions={whatsAppWebSessions}
+                  onChanged={() => { void loadConnected(); }}
+                  onConnectMore={() => setShowWhatsAppWebQr(true)}
+                />
               ) : (
                 <ChannelCard
                   key={ch.id}
@@ -1034,6 +1359,7 @@ function ChannelsPageInner() {
       {/* Modals */}
       {showWhatsApp && <WhatsAppModal onClose={() => setShowWhatsApp(false)} onSaved={() => { void loadConnected(); }} />}
       {showTelegram && <TelegramModal onClose={() => setShowTelegram(false)} onSaved={() => { void loadConnected(); }} />}
+      {showWhatsAppWebQr && <WhatsAppQrModal onClose={() => setShowWhatsAppWebQr(false)} onConnected={() => { void loadConnected(); }} />}
       {oauthChannel && <OAuthModal channel={oauthChannel} onClose={() => setOauthChannel(null)} />}
       {facebookPickerSession && (
         <FacebookPagePicker

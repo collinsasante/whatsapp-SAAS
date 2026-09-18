@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { MessageStatus } from '@whatsapp-platform/shared-types';
+import { MessageStatus, SocketEvent } from '@whatsapp-platform/shared-types';
 
 @Injectable()
 export class RealtimeService {
@@ -84,11 +84,11 @@ export class RealtimeService {
   // (no conversationId), matching every other tenant-settings-style event --
   // the channels-settings page listens tenant-wide, not scoped to one socket.
   emitWhatsAppWebQr(tenantId: string, sessionId: string, channelId: string, qrDataUrl: string) {
-    void this.emit('whatsapp_web:qr', { tenantId, sessionId, channelId, qrDataUrl });
+    void this.emit(SocketEvent.WHATSAPP_WEB_QR, { tenantId, sessionId, channelId, qrDataUrl });
   }
 
   emitWhatsAppWebStatus(tenantId: string, sessionId: string, channelId: string, status: string, phoneNumber?: string) {
-    void this.emit('whatsapp_web:status', { tenantId, sessionId, channelId, status, phoneNumber });
+    void this.emit(SocketEvent.WHATSAPP_WEB_STATUS, { tenantId, sessionId, channelId, status, phoneNumber });
   }
 
   emitCannedUpdated(tenantId: string) {
