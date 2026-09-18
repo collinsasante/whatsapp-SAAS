@@ -1,7 +1,9 @@
 # Standalone staging compose — run with a single -f flag (no merge with production).
 # Usage:
 #   docker compose -p staging --env-file .env.staging -f infra/docker-compose.staging.yml up -d --build
-# Access: http://VPS_IP:8080
+# Access: http://VPS_IP:8080, or https://staging.verzchat.com:8443 once
+# STAGING_PUBLIC_URL is set in .env.staging (needed for Meta OAuth/webhook
+# config, which requires HTTPS) -- see infra/nginx/nginx.staging.conf.
 
 networks:
   staging-network:
@@ -80,10 +82,10 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
-      FRONTEND_URL: http://${VPS_IP}:8080
-      API_URL: http://${VPS_IP}:8080/api/v1
+      FRONTEND_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
+      API_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}/api/v1
       REALTIME_URL: http://realtime:3002
-      PUBLIC_URL: http://${VPS_IP}:8080
+      PUBLIC_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
       FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       MESSENGER_WEBHOOK_VERIFY_TOKEN: ${MESSENGER_WEBHOOK_VERIFY_TOKEN:-}
@@ -142,7 +144,7 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
-      FRONTEND_URL: http://${VPS_IP}:8080
+      FRONTEND_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
       BACKEND_URL: http://backend:3001
     depends_on:
       redis:
@@ -177,8 +179,8 @@ services:
       context: ..
       dockerfile: apps/frontend/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://${VPS_IP}:8080/api/v1
-        NEXT_PUBLIC_SOCKET_URL: http://${VPS_IP}:8080
+        NEXT_PUBLIC_API_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}/api/v1
+        NEXT_PUBLIC_SOCKET_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
     container_name: wa_staging_frontend
     restart: always
@@ -194,8 +196,13 @@ services:
     restart: always
     ports:
       - "8080:80"
+      - "8443:443"
     volumes:
       - ./nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+      # Same host cert store production's nginx already reads from -- lets
+      # this container serve the staging.verzchat.com cert once issued via
+      # certbot on the host, without a separate cert-mount scheme.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - frontend
       - backend
