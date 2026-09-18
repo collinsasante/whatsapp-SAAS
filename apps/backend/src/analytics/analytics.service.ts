@@ -109,8 +109,8 @@ export class AnalyticsService {
 
     const rows = await Promise.all(agents.map(async (agent) => {
       const [conversationsHandled, resolvedCount, medianFirstResponseSeconds, medianResolutionSeconds] = await Promise.all([
-        this.prisma.conversation.count({ where: { tenantId, assignedToId: agent.id, createdAt: { gte: start, lt: end } } }),
-        this.prisma.conversation.count({ where: { tenantId, assignedToId: agent.id, resolvedAt: { gte: start, lt: end } } }),
+        this.prisma.conversation.count({ where: { tenantId, assignedToId: agent.id, contactSource: { not: 'eval_harness' }, createdAt: { gte: start, lt: end } } }),
+        this.prisma.conversation.count({ where: { tenantId, assignedToId: agent.id, contactSource: { not: 'eval_harness' }, resolvedAt: { gte: start, lt: end } } }),
         this.getMedianFirstResponseSeconds(tenantId, start, end, agent.id),
         this.getMedianResolutionSeconds(tenantId, start, end, agent.id),
       ]);
@@ -140,6 +140,7 @@ export class AnalyticsService {
       ) AS prior_count
       FROM "conversations" c
       WHERE c.tenant_id = ${tenantId}
+        AND c.contact_source != 'eval_harness'
         AND c.created_at >= ${start} AND c.created_at < ${end}
         AND (${agentScopeId ?? null}::text IS NULL OR c.assigned_to_id = ${agentScopeId ?? null})
     `;
@@ -179,11 +180,15 @@ export class AnalyticsService {
   }
 
   private async computeMessageStatsLive(tenantId: string, start: Date, end: Date) {
+    // Excludes messages belonging to an eval-harness-tagged conversation --
+    // see the isEvalContact/contactSource='eval_harness' exclusion applied
+    // consistently across this service.
+    const notEval = { conversation: { contactSource: { not: 'eval_harness' } } };
     const [sentCount, deliveredCount, readCount, inboundCount] = await Promise.all([
-      this.prisma.message.count({ where: { tenantId, sentAt: { gte: start, lt: end } } }),
-      this.prisma.message.count({ where: { tenantId, deliveredAt: { gte: start, lt: end } } }),
-      this.prisma.message.count({ where: { tenantId, readAt: { gte: start, lt: end } } }),
-      this.prisma.message.count({ where: { tenantId, direction: 'INBOUND', createdAt: { gte: start, lt: end } } }),
+      this.prisma.message.count({ where: { tenantId, sentAt: { gte: start, lt: end }, ...notEval } }),
+      this.prisma.message.count({ where: { tenantId, deliveredAt: { gte: start, lt: end }, ...notEval } }),
+      this.prisma.message.count({ where: { tenantId, readAt: { gte: start, lt: end }, ...notEval } }),
+      this.prisma.message.count({ where: { tenantId, direction: 'INBOUND', createdAt: { gte: start, lt: end }, ...notEval } }),
     ]);
     return { sentCount, deliveredCount, readCount, inboundCount };
   }
@@ -196,6 +201,7 @@ export class AnalyticsService {
         SELECT DISTINCT ON (conversation_id) conversation_id, created_at
         FROM messages
         WHERE tenant_id = ${tenantId} AND direction = 'INBOUND' AND created_at >= ${start} AND created_at < ${end}
+          AND conversation_id NOT IN (SELECT id FROM conversations WHERE contact_source = 'eval_harness')
         ORDER BY conversation_id, created_at ASC
       ) first_in
       JOIN LATERAL (
@@ -216,6 +222,7 @@ export class AnalyticsService {
       SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (resolved_at - created_at))) AS median_seconds
       FROM conversations
       WHERE tenant_id = ${tenantId} AND resolved_at >= ${start} AND resolved_at < ${end}
+        AND contact_source != 'eval_harness'
         AND (${agentId}::text IS NULL OR assigned_to_id = ${agentId})
     `;
     const value = rows[0]?.median_seconds;
@@ -427,7 +434,7 @@ export class AnalyticsService {
         if (date === today) {
           const { start, end } = getTenantDayBoundaries(date, timezone);
           const counts = await this.getConversationCounts(tenantId, start, end);
-          const resolved = await this.prisma.conversation.count({ where: { tenantId, resolvedAt: { gte: start, lt: end } } });
+          const resolved = await this.prisma.conversation.count({ where: { tenantId, contactSource: { not: 'eval_harness' }, resolvedAt: { gte: start, lt: end } } });
           return { date, new: counts.newConversations, returning: counts.returningConversations, opened: counts.total, resolved };
         }
         const row = byDate.get(date);
@@ -439,7 +446,7 @@ export class AnalyticsService {
     return Promise.all(dates.map(async (date) => {
       const { start, end } = getTenantDayBoundaries(date, timezone);
       const counts = await this.getConversationCounts(tenantId, start, end, agentScopeId);
-      const resolved = await this.prisma.conversation.count({ where: { tenantId, assignedToId: agentScopeId, resolvedAt: { gte: start, lt: end } } });
+      const resolved = await this.prisma.conversation.count({ where: { tenantId, assignedToId: agentScopeId, contactSource: { not: 'eval_harness' }, resolvedAt: { gte: start, lt: end } } });
       return { date, new: counts.newConversations, returning: counts.returningConversations, opened: counts.total, resolved };
     }));
   }
@@ -449,6 +456,7 @@ export class AnalyticsService {
       SELECT date_trunc('hour', created_at) AS hour, COUNT(*)::bigint AS opened
       FROM conversations
       WHERE tenant_id = ${tenantId} AND created_at >= ${start} AND created_at < ${end}
+        AND contact_source != 'eval_harness'
         AND (${agentScopeId ?? null}::text IS NULL OR assigned_to_id = ${agentScopeId ?? null})
       GROUP BY 1 ORDER BY 1 ASC
     `;
@@ -458,7 +466,9 @@ export class AnalyticsService {
   private async getConversationsByStatus(tenantId: string, agentScopeId?: string) {
     const rows = await this.prisma.conversation.groupBy({
       by: ['status'],
-      where: agentScopeId ? { tenantId, assignedToId: agentScopeId } : { tenantId },
+      where: agentScopeId
+        ? { tenantId, assignedToId: agentScopeId, contactSource: { not: 'eval_harness' } }
+        : { tenantId, contactSource: { not: 'eval_harness' } },
       _count: { id: true },
     });
     return rows.map((r) => ({ status: r.status, count: r._count.id }));
@@ -468,6 +478,7 @@ export class AnalyticsService {
     const convs = await this.prisma.conversation.findMany({
       where: {
         tenantId,
+        contactSource: { not: 'eval_harness' },
         createdAt: { gte: start, lt: end },
         ...(agentScopeId && { assignedToId: agentScopeId }),
       },
@@ -493,6 +504,7 @@ export class AnalyticsService {
         COUNT(*)::bigint AS count
       FROM messages
       WHERE tenant_id = ${tenantId} AND direction = 'INBOUND' AND created_at >= ${start} AND created_at < ${end}
+        AND conversation_id NOT IN (SELECT id FROM conversations WHERE contact_source = 'eval_harness')
       GROUP BY 1, 2
     `;
     return rows.map((r) => ({ dayOfWeek: r.dow, hour: r.hour, count: Number(r.count) }));

@@ -22,9 +22,15 @@ export class PlatformAdminAnalyticsService {
     const fromDate = new Date(`${from}T00:00:00.000Z`);
     const toDate = new Date(`${to}T23:59:59.999Z`);
 
+    // taskType 'TEST' is the commerce AI evaluation harness's tag (see
+    // CommerceAiService.handleMessage -- set only when evalContext is
+    // passed, currently its only real caller) -- excluded here so synthetic
+    // QA-scenario runs never inflate platform-wide AI cost/revenue KPIs.
+    const notEvalHarness = { taskType: { not: 'TEST' } };
+
     const [executions, creditRevenue, byProvider, byModel] = await Promise.all([
       this.prisma.aiExecution.findMany({
-        where: { createdAt: { gte: fromDate, lte: toDate } },
+        where: { createdAt: { gte: fromDate, lte: toDate }, ...notEvalHarness },
         select: { createdAt: true, estCostUsd: true, status: true },
       }),
       this.prisma.creditPurchase.aggregate({
@@ -33,13 +39,13 @@ export class PlatformAdminAnalyticsService {
       }),
       this.prisma.aiExecution.groupBy({
         by: ['provider'],
-        where: { createdAt: { gte: fromDate, lte: toDate } },
+        where: { createdAt: { gte: fromDate, lte: toDate }, ...notEvalHarness },
         _count: { id: true },
         _sum: { estCostUsd: true },
       }),
       this.prisma.aiExecution.groupBy({
         by: ['provider', 'modelKey'],
-        where: { createdAt: { gte: fromDate, lte: toDate } },
+        where: { createdAt: { gte: fromDate, lte: toDate }, ...notEvalHarness },
         _count: { id: true },
         _sum: { estCostUsd: true },
       }),

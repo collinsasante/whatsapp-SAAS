@@ -93,6 +93,12 @@ export class ContactsService {
       }
     }
 
+    // Synthetic contacts created by the commerce AI evaluation harness (see
+    // Contact.isEvalContact) are never a real customer -- exclude them from
+    // every tenant-facing Contacts view, including segment-filtered ones,
+    // regardless of which branch above built `where`.
+    where['isEvalContact'] = false;
+
     if (search) {
       where['OR'] = [
         { name: { contains: search, mode: 'insensitive' } },

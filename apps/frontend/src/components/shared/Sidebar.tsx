@@ -342,7 +342,7 @@ export default function Sidebar() {
   const visibleMainNav = mainNav.filter((item) => {
     if (item.label === 'Dashboard') return perms.showDashboard;
     if (item.label === 'Broadcasts') return perms.showCampaigns;
-    if (item.label === 'Verz') return perms.showAI;
+    if (item.label === 'Verz AI') return perms.showAI;
     if (item.label === 'Commerce') return perms.showCommerce;
     if (item.label === 'Analytics') return perms.showAnalytics;
     return true;

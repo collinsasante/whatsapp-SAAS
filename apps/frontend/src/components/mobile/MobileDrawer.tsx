@@ -12,6 +12,26 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
+import { getPermissions, type Permissions } from '@/lib/permissions';
+
+// Unlike the desktop Sidebar (which filters whole nav groups), mobile mixes
+// several differently-permissioned items inside one section (e.g. Broadcasts
+// has Campaigns/Templates/Automation/Chatbot/Verz AI, each its own flag) --
+// filtering per href avoids the desktop's past label-matching drift.
+function isDrawerItemVisible(href: string, perms: Permissions): boolean {
+  if (href === '/dashboard') return perms.showDashboard;
+  if (href === '/campaigns') return perms.showCampaigns;
+  if (href === '/templates') return perms.showTemplates;
+  if (href === '/automation') return perms.showAutomation;
+  if (href === '/chatbot') return perms.showChatbot;
+  if (href === '/ai') return perms.showAI;
+  if (href.startsWith('/commerce')) return perms.showCommerce;
+  if (href === '/settings') return perms.showSettings;
+  if (href === '/channels') return perms.showChannels;
+  if (href === '/manage') return perms.showManage;
+  if (href === '/billing') return perms.showBilling;
+  return true; // inbox/contacts/calls/library/analytics -- always visible per getPermissions
+}
 
 const DRAWER_WIDTH = 280;
 
@@ -82,6 +102,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const { user, tenant, clearAuth } = useAuthStore();
+  const perms = getPermissions(user?.role);
 
   const workspaceName = tenant?.name ?? 'Workspace';
   const avatarLetter = workspaceName[0]?.toUpperCase() ?? 'W';
@@ -179,12 +200,15 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
 
         {/* Nav sections */}
         <div className="flex-1 overflow-y-auto overscroll-contain py-2">
-          {DRAWER_SECTIONS.map((section, si) => (
+          {DRAWER_SECTIONS.map((section, si) => {
+            const visibleItems = section.items.filter((item) => isDrawerItemVisible(item.href, perms));
+            if (visibleItems.length === 0) return null;
+            return (
             <div key={si} className={cn('mb-0', si > 0 && 'mt-1 pt-1 border-t border-gray-100')}>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-5 py-2 leading-none">
                 {section.title}
               </p>
-              {section.items.map((item) => {
+              {visibleItems.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                 const Icon = item.icon;
                 return (
@@ -213,7 +237,8 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
                 );
               })}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Logout */}

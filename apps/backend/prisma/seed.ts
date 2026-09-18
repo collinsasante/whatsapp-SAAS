@@ -1,7 +1,16 @@
 import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
+// Dev convenience seed only -- never wired into any production/deploy path
+// (confirmed: no `prisma.seed` package.json config, not called from any
+// Dockerfile CMD, CI workflow, or docker-compose). Credentials below are
+// intentionally placeholder/env-driven, not real -- this file previously
+// held a real, committed WhatsApp access token and real user emails/password
+// hashes, redacted here for secrets hygiene. Rotate any credential that was
+// ever committed to this file, since removing it here does not remove it
+// from git history.
 async function main() {
   const TENANT_ID = 'a98c5ff8-20ba-4d1f-9378-8a1371a288eb';
 
@@ -10,47 +19,31 @@ async function main() {
     tenant = await prisma.tenant.create({
       data: {
         id: TENANT_ID,
-        name: "Pakkmax",
-        phoneNumberId: '1095571453639433',
-        wabaId: '2446646179109530',
-        accessToken: 'EAAihD8pZBPFwBRswhOkDW1ZBawg1SsdYWDK0AAaQXgZBccyTCT9GMtkY0vDWl7kkkM9gjlWc2NZA7NlZAVHoKrq9izNb7WgZBxJq0sSaKBOgJE4HDRPnXixaP8xFULs1WGuRR8k3bAU8jdQF3C7BCXhVQLuZBuqgggxoaZAGg3xbxfqMTdV3Thk0fqgZA4hfJPlMdPgZDZD',
-        webhookVerifyToken: '2b71a5a4-686a-44cb-83fa-74c9d55ac00c',
+        name: 'Dev Workspace',
+        phoneNumberId: process.env['SEED_WHATSAPP_PHONE_NUMBER_ID'] ?? 'CHANGE_ME_PHONE_NUMBER_ID',
+        wabaId: process.env['SEED_WHATSAPP_WABA_ID'] ?? 'CHANGE_ME_WABA_ID',
+        accessToken: process.env['SEED_WHATSAPP_ACCESS_TOKEN'] ?? 'CHANGE_ME_ACCESS_TOKEN',
+        webhookVerifyToken: process.env['SEED_WEBHOOK_VERIFY_TOKEN'] ?? 'CHANGE_ME_WEBHOOK_VERIFY_TOKEN',
         plan: 'free',
         isActive: true,
         onboardingCompleted: true,
         onboardingStep: 2,
       },
     });
-    console.log("✓ Tenant created: Pakkmax");
+    console.log('✓ Tenant created: Dev Workspace');
   } else {
-    console.log("✓ Tenant already exists: Pakkmax");
+    console.log('✓ Tenant already exists: Dev Workspace');
   }
 
+  // A single dev password for every seeded user -- override via env for a
+  // local run, never commit a real one.
+  const devPassword = process.env['SEED_USER_PASSWORD'] ?? 'CHANGE_ME_DEV_PASSWORD';
+  const passwordHash = await bcrypt.hash(devPassword, 12);
+
   const users = [
-    {
-      id: '8c738d5f-ab75-43be-b27b-34526bc5c712',
-      email: 'debarongh@gmail.com',
-      name: 'Benard Addo',
-      role: 'ADMIN',
-      passwordHash: '$2b$12$Xj5vuq6bTwXXGYizZGpxNu2KroP4GtAj99azWEN/qsV4rGvwHT/6.',
-      emailVerified: true,
-    },
-    {
-      id: '3e6c4595-1c84-4b7a-8dbe-24992efdc86d',
-      email: 'mr.asantee@gmail.com',
-      name: 'Collins Asante',
-      role: 'AGENT',
-      passwordHash: '$2b$12$BxyCYg59w8zJDxtd7mPJ6ucXAjSK.Kzv51dP.WzSZ8wmoRdy6l45O',
-      emailVerified: true,
-    },
-    {
-      id: '7c06946b-4c0c-444c-9fe4-84f935394eb3',
-      email: 'kwameforex6@gmail.com',
-      name: 'James',
-      role: 'AGENT',
-      passwordHash: '$2b$12$GMtURqvvYZN5qKkmF8gN/OvJCDunmLEaFOAAWe/JaIZoUomYhRfz2',
-      emailVerified: false,
-    },
+    { id: '8c738d5f-ab75-43be-b27b-34526bc5c712', email: 'admin@example.com', name: 'Dev Admin', role: 'ADMIN', emailVerified: true },
+    { id: '3e6c4595-1c84-4b7a-8dbe-24992efdc86d', email: 'agent1@example.com', name: 'Dev Agent One', role: 'AGENT', emailVerified: true },
+    { id: '7c06946b-4c0c-444c-9fe4-84f935394eb3', email: 'agent2@example.com', name: 'Dev Agent Two', role: 'AGENT', emailVerified: false },
   ];
 
   for (const u of users) {
@@ -63,7 +56,7 @@ async function main() {
           email: u.email,
           name: u.name,
           role: u.role as any,
-          passwordHash: u.passwordHash,
+          passwordHash,
           emailVerified: u.emailVerified,
           isActive: true,
         },
