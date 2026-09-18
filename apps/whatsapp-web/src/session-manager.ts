@@ -4,6 +4,7 @@ import * as QRCode from 'qrcode';
 import makeWASocket, {
   DisconnectReason,
   Browsers,
+  downloadMediaMessage,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -75,7 +76,7 @@ export class SessionManager {
     sock.ev.on('messages.upsert', (upsert) => {
       if (upsert.type !== 'notify') return;
       for (const msg of upsert.messages) {
-        void this.handleInboundMessage(tenantId, channelId, msg);
+        void this.handleInboundMessage(tenantId, channelId, sessionId, msg);
       }
     });
   }
@@ -150,7 +151,7 @@ export class SessionManager {
     }
   }
 
-  private async handleInboundMessage(tenantId: string, channelId: string, msg: WAMessage): Promise<void> {
+  private async handleInboundMessage(tenantId: string, channelId: string, sessionId: string, msg: WAMessage): Promise<void> {
     // Echoes of our own outgoing messages, and messages with no actual
     // content (protocol/system messages), aren't real inbound customer
     // messages -- mirrors the Messenger channel's is_echo exclusion.
@@ -160,6 +161,36 @@ export class SessionManager {
     const fromPhone = msg.key.remoteJid?.split('@')[0];
     if (!fromPhone) return;
 
+    // Media/text parsing lives here (not in the backend) -- this is the one
+    // place that actually understands Baileys' payload shape, mirroring how
+    // WhatsApp Cloud's own payload parsing stays inside its own service.
+    const m = msg.message;
+    const content = m.conversation ?? m.extendedTextMessage?.text ?? undefined;
+
+    let mediaType: 'image' | 'video' | 'audio' | 'document' | undefined;
+    let caption: string | undefined;
+    let mimetype: string | undefined;
+    if (m.imageMessage) { mediaType = 'image'; caption = m.imageMessage.caption ?? undefined; mimetype = m.imageMessage.mimetype ?? undefined; }
+    else if (m.videoMessage) { mediaType = 'video'; caption = m.videoMessage.caption ?? undefined; mimetype = m.videoMessage.mimetype ?? undefined; }
+    else if (m.audioMessage) { mediaType = 'audio'; mimetype = m.audioMessage.mimetype ?? undefined; }
+    else if (m.documentMessage) { mediaType = 'document'; caption = m.documentMessage.caption ?? undefined; mimetype = m.documentMessage.mimetype ?? undefined; }
+
+    let mediaBase64: string | undefined;
+    const entry = this.active.get(sessionId);
+    if (mediaType && entry) {
+      try {
+        const buffer = await downloadMediaMessage(
+          msg,
+          'buffer',
+          {},
+          { logger: logger.child({ sessionId }), reuploadRequest: entry.sock.updateMediaMessage },
+        );
+        mediaBase64 = Buffer.isBuffer(buffer) ? buffer.toString('base64') : undefined;
+      } catch (err) {
+        logger.error({ err, sessionId }, 'failed to download inbound WhatsApp Web media -- delivering as text-only fallback');
+      }
+    }
+
     await this.notifyBackend({
       type: 'inbound_message',
       tenantId,
@@ -167,7 +198,11 @@ export class SessionManager {
       fromPhone,
       providerMessageId: msg.key.id,
       timestamp: typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Date.now(),
-      message: msg.message,
+      content,
+      mediaType,
+      mediaBase64,
+      mimetype,
+      caption,
       pushName: msg.pushName ?? undefined,
     });
   }

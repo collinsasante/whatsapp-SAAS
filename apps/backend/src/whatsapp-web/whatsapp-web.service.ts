@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ChannelType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AuditService } from '../audit/audit.service';
+import { MessagesService } from '../messages/messages.service';
 
 interface WhatsAppWebEventPayload {
   type: 'qr' | 'status' | 'inbound_message';
@@ -32,6 +33,7 @@ export class WhatsAppWebService {
     private readonly config: ConfigService,
     private readonly realtime: RealtimeService,
     private readonly audit: AuditService,
+    @Inject(forwardRef(() => MessagesService)) private readonly messagesService: MessagesService,
   ) {}
 
   private get sessionManagerUrl(): string {
@@ -88,6 +90,28 @@ export class WhatsAppWebService {
     });
 
     return { channelId: channel.id, sessionId: session.id };
+  }
+
+  private async resolveConnectedSession(tenantId: string, channelId: string) {
+    const session = await this.prisma.whatsAppWebSession.findFirst({ where: { tenantId, channelId } });
+    if (!session) throw new BadRequestException('This conversation\'s WhatsApp Web channel is not connected.');
+    if (session.status !== 'CONNECTED') {
+      throw new BadRequestException('This conversation\'s WhatsApp Web session has been disconnected. Reconnect it in Settings to send messages.');
+    }
+    return session;
+  }
+
+  /** Called by MessagesService.dispatchOutbound() for a WHATSAPP_WEB conversation -- mirrors FacebookMessengerService's shape (resolve credentials/session, then send). */
+  async sendText(tenantId: string, channelId: string, toPhone: string, text: string): Promise<string> {
+    const session = await this.resolveConnectedSession(tenantId, channelId);
+    const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-text`, { toPhone, text });
+    return result.providerMessageId;
+  }
+
+  async sendMedia(tenantId: string, channelId: string, toPhone: string, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string): Promise<string> {
+    const session = await this.resolveConnectedSession(tenantId, channelId);
+    const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-media`, { toPhone, mediaUrl, mediaType, caption });
+    return result.providerMessageId;
   }
 
   async getSessionStatus(tenantId: string, sessionId: string) {
@@ -147,10 +171,7 @@ export class WhatsAppWebService {
 
   /**
    * Receives events posted by apps/whatsapp-web (QR ready, status changed,
-   * or an inbound message arrived). Inbound-message handling is a stub for
-   * now -- Phase 4 wires it into the real message-ingestion pipeline, same
-   * sequencing the Messenger channel's own webhook receiver used (stop at a
-   * stubbed call, implement the real handler in the next phase).
+   * or an inbound message arrived).
    */
   async handleInternalEvent(payload: WhatsAppWebEventPayload): Promise<void> {
     const sessionId = payload.sessionId as string | undefined;
@@ -175,7 +196,28 @@ export class WhatsAppWebService {
     }
 
     if (payload.type === 'inbound_message') {
-      this.logger.debug(`Inbound WhatsApp Web message received for channel ${payload.channelId} -- ingestion not yet wired (Phase 4)`);
+      const fromPhone = payload['fromPhone'] as string | undefined;
+      const providerMessageId = payload['providerMessageId'] as string | undefined;
+      if (!fromPhone || !providerMessageId) {
+        this.logger.warn(`Dropping malformed WhatsApp Web inbound_message event for channel ${payload.channelId} -- missing fromPhone/providerMessageId`);
+        return;
+      }
+      await this.messagesService.handleInboundWhatsAppWeb(
+        payload.tenantId,
+        payload.channelId,
+        fromPhone,
+        providerMessageId,
+        {
+          content: payload['content'] as string | undefined,
+          mediaType: payload['mediaType'] as 'image' | 'video' | 'audio' | 'document' | undefined,
+          mediaBase64: payload['mediaBase64'] as string | undefined,
+          mimetype: payload['mimetype'] as string | undefined,
+          caption: payload['caption'] as string | undefined,
+        },
+        payload['pushName'] as string | undefined,
+      ).catch((err) => {
+        this.logger.error(`Failed to ingest inbound WhatsApp Web message for channel ${payload.channelId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
       return;
     }
   }
