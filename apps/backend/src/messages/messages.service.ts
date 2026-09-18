@@ -195,6 +195,10 @@ export class MessagesService {
     }
 
     const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER';
+    // Unofficial WhatsApp Web (QR/linked-device): a real Baileys socket, not
+    // the Cloud API Graph client -- Meta-specific concepts below (templates,
+    // the 24h customer-service window) don't apply to it either.
+    const isWhatsAppWeb = conversation.channel?.type === 'WHATSAPP_WEB';
 
     // A contact with neither identifier (e.g. a channel not yet supported at
     // all) has nothing this method can deliver to.
@@ -202,22 +206,26 @@ export class MessagesService {
       throw new BadRequestException('This contact has no channel identity on file.');
     }
 
-    // Template/location/contact-card messages are WhatsApp-specific concepts
-    // with no Messenger equivalent -- fail loudly rather than attempt (and
-    // silently mis-send via) a WhatsApp-shaped call for a Messenger contact.
-    if (isMessenger && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
-      throw new BadRequestException(`${dto.type} messages are not supported on Facebook Messenger.`);
+    // Template/location/contact-card messages are Cloud-API-specific concepts
+    // with no Messenger or WhatsApp Web equivalent (not currently implemented
+    // by the Baileys session-manager either) -- fail loudly rather than
+    // attempt (and silently mis-send via) a Cloud-API-shaped call for a
+    // Messenger or WhatsApp Web contact.
+    if ((isMessenger || isWhatsAppWeb) && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
+      throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? 'Facebook Messenger' : 'WhatsApp Web'}.`);
     }
 
-    // WhatsApp only allows free-form (non-template) sends within 24h of the
-    // customer's last inbound message; outside that window Meta accepts a
-    // non-template send then asynchronously rejects it (error 131047,
+    // WhatsApp Cloud API only allows free-form (non-template) sends within 24h
+    // of the customer's last inbound message; outside that window Meta accepts
+    // a non-template send then asynchronously rejects it (error 131047,
     // "Re-engagement message"). Reject synchronously here instead of
     // creating a message that silently flips from sent to failed a moment
     // later -- the agent needs to know immediately, before they walk away
     // thinking it went through. Messenger has its own (different) messaging-
     // window rules, not enforced here yet -- out of scope for this pass.
-    if (!isMessenger && dto.type !== MessageType.TEMPLATE) {
+    // WhatsApp Web has no such window at all (a real linked personal account
+    // can message anyone anytime), so it's excluded the same way Messenger is.
+    if (!isMessenger && !isWhatsAppWeb && dto.type !== MessageType.TEMPLATE) {
       const lastInboundAt = conversation.lastMessageAt;
       const windowClosed = !lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000;
       if (windowClosed) {
@@ -1643,9 +1651,14 @@ export class MessagesService {
     // Send reaction to WhatsApp — look up the message's whatsapp ID and the contact's phone
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, tenantId },
-      include: { conversation: { include: { contact: true } } },
+      include: { conversation: { include: { contact: true, channel: true } } },
     });
-    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone) {
+    // Reactions aren't wired up for WhatsApp Web (Baileys) or Messenger yet --
+    // Messenger contacts have no phone so the check below already excludes
+    // them; WhatsApp Web contacts do have a real phone, so its channel type
+    // needs an explicit check here to avoid sending a Cloud-API reaction call
+    // (wrong provider entirely) for a QR-connected conversation.
+    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone && msg.conversation.channel?.type !== 'WHATSAPP_WEB') {
       await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, emoji, msg.whatsappNumberId).catch(() => null);
     }
 
@@ -1666,9 +1679,9 @@ export class MessagesService {
     // Send empty emoji to remove reaction on WhatsApp
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, tenantId },
-      include: { conversation: { include: { contact: true } } },
+      include: { conversation: { include: { contact: true, channel: true } } },
     });
-    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone) {
+    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone && msg.conversation.channel?.type !== 'WHATSAPP_WEB') {
       await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, '', msg.whatsappNumberId).catch(() => null);
     }
 
