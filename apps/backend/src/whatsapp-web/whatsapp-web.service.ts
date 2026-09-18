@@ -2,6 +2,7 @@ import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundEx
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ChannelType } from '@prisma/client';
+import { normalizePhone } from '@whatsapp-platform/shared-utils';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AuditService } from '../audit/audit.service';
@@ -191,6 +192,19 @@ export class WhatsAppWebService {
       }).catch((err) => {
         this.logger.warn(`Failed to persist WhatsApp Web session status for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
       });
+      // The phone number isn't known at pairing time (startPairing creates the
+      // Channel before any Baileys handshake happens) -- backfill it onto the
+      // Channel here, the first time it's reported, so multiple linked
+      // numbers stay disambiguated the same way Messenger's externalId (Page
+      // ID) already disambiguates multiple connected Pages.
+      if (phoneNumber) {
+        await this.prisma.channel.update({
+          where: { id: payload.channelId },
+          data: { externalId: normalizePhone(phoneNumber) },
+        }).catch((err) => {
+          this.logger.warn(`Failed to backfill Channel.externalId for ${payload.channelId}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
       this.realtime.emitWhatsAppWebStatus(payload.tenantId, sessionId, payload.channelId, status, phoneNumber);
       return;
     }
