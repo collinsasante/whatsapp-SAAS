@@ -79,6 +79,18 @@ export class RealtimeService {
     void this.emit('conversations_reassigned', { tenantId, fromUserId, toUserId, count });
   }
 
+  // Unofficial WhatsApp Web (QR/linked-device) channel: a fresh QR code is
+  // ready to display, or a pairing/connection's status changed. Tenant-wide
+  // (no conversationId), matching every other tenant-settings-style event --
+  // the channels-settings page listens tenant-wide, not scoped to one socket.
+  emitWhatsAppWebQr(tenantId: string, sessionId: string, channelId: string, qrDataUrl: string) {
+    void this.emit('whatsapp_web:qr', { tenantId, sessionId, channelId, qrDataUrl });
+  }
+
+  emitWhatsAppWebStatus(tenantId: string, sessionId: string, channelId: string, status: string, phoneNumber?: string) {
+    void this.emit('whatsapp_web:status', { tenantId, sessionId, channelId, status, phoneNumber });
+  }
+
   emitCannedUpdated(tenantId: string) {
     void this.emit('canned_responses_updated', { tenantId });
   }

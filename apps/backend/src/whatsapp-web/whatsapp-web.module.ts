@@ -1,0 +1,15 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { WhatsAppWebController } from './whatsapp-web.controller';
+import { WhatsAppWebInternalController } from './whatsapp-web-internal.controller';
+import { WhatsAppWebService } from './whatsapp-web.service';
+import { PrismaModule } from '../prisma/prisma.module';
+import { AuditModule } from '../audit/audit.module';
+
+@Module({
+  imports: [PrismaModule, ConfigModule, AuditModule],
+  controllers: [WhatsAppWebController, WhatsAppWebInternalController],
+  providers: [WhatsAppWebService],
+  exports: [WhatsAppWebService],
+})
+export class WhatsAppWebModule {}

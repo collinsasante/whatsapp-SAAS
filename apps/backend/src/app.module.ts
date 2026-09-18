@@ -23,6 +23,7 @@ import { MediaModule } from './media/media.module';
 import { AuditModule } from './audit/audit.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { FacebookMessengerModule } from './facebook-messenger/facebook-messenger.module';
+import { WhatsAppWebModule } from './whatsapp-web/whatsapp-web.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ActivityLogModule } from './activity-log/activity-log.module';
 import { ChannelsModule } from './channels/channels.module';
@@ -108,6 +109,7 @@ import appConfig from './config/app.config';
     AuditModule,
     WhatsappModule,
     FacebookMessengerModule,
+    WhatsAppWebModule,
     DashboardModule,
     ActivityLogModule,
     ChannelsModule,
