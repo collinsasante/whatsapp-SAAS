@@ -90,6 +90,8 @@ services:
       API_URL: ${API_URL}
       REALTIME_URL: http://realtime:3002
       PUBLIC_URL: ${PUBLIC_URL}
+      WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
+      WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
       FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       TIKTOK_CLIENT_ID: ${TIKTOK_CLIENT_ID:-}
@@ -179,10 +181,37 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
+      WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - platform-network
+
+  # Unofficial WhatsApp Web / linked-device (QR) channel -- holds live
+  # Baileys socket connections, one per connected WhatsAppWebSession, for
+  # each account's entire connected lifetime. Never exposed through nginx;
+  # only reachable internally by backend (pairing/send requests) and worker
+  # (the INACTIVITY automation SEND_MESSAGE action). See CREDENTIALS_ENCRYPTION_KEY
+  # for how its auth-state persistence is encrypted at rest.
+  whatsapp-web:
+    build:
+      context: ..
+      dockerfile: apps/whatsapp-web/Dockerfile
+    container_name: wa_whatsapp_web
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3004
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
+      BACKEND_INTERNAL_URL: http://backend:3001
+      WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - platform-network

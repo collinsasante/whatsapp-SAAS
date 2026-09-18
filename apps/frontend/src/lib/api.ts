@@ -332,6 +332,16 @@ export const facebookPagesApi = {
   select: (sessionId: string, pageIds: string[]) => api.post(`/channels/oauth/sessions/${sessionId}/select`, { pageIds }),
 };
 
+// Unofficial WhatsApp Web (QR/linked-device) -- separate connection
+// mechanism from the official Cloud API above (a live Baileys socket +
+// session state, not an OAuth token exchange or static credentials form).
+export const whatsappWebApi = {
+  startPairing: (name?: string) => api.post<{ channelId: string; sessionId: string }>('/channels/whatsapp-web/sessions', { name }),
+  getStatus: (sessionId: string) => api.get(`/channels/whatsapp-web/sessions/${sessionId}`),
+  disconnect: (sessionId: string) => api.post(`/channels/whatsapp-web/sessions/${sessionId}/disconnect`),
+  logout: (sessionId: string) => api.post(`/channels/whatsapp-web/sessions/${sessionId}/logout`),
+};
+
 export const activityLogApi = {
   list: (params?: Record<string, unknown>) => api.get('/activity-logs', { params }),
   forConversation: (conversationId: string) => api.get(`/activity-logs/conversation/${conversationId}`),

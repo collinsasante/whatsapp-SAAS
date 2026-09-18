@@ -46,9 +46,18 @@ export class AutomationWorker {
     const actions = rule.actions as unknown as AutomationActionConfig[];
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { whatsappNumberId: true },
+      select: { whatsappNumberId: true, channelId: true, channel: { select: { type: true } } },
     });
-    const credentials = await resolveWhatsAppCredentials(this.prisma, tenantId, conversation?.whatsappNumberId);
+    // WHATSAPP_WEB conversations have no whatsappNumberId (that field is
+    // Cloud-API-number-specific) -- resolving Cloud credentials for them
+    // would silently fall back to the tenant's *default* Cloud API number
+    // (resolveWhatsAppCredentials' no-whatsappNumberId branch), sending an
+    // automation message via the wrong provider entirely if the tenant also
+    // has a Cloud number connected. Skip Cloud credential resolution for
+    // WHATSAPP_WEB conversations; SEND_MESSAGE resolves its own WhatsApp Web
+    // session below instead.
+    const isWhatsAppWeb = conversation?.channel?.type === 'WHATSAPP_WEB';
+    const credentials = isWhatsAppWeb ? null : await resolveWhatsAppCredentials(this.prisma, tenantId, conversation?.whatsappNumberId);
 
     const contact = await this.prisma.contact.findUnique({ where: { id: contactId } });
     // This processor is WhatsApp-only (see the ctx.contact.phone-shaped actions
@@ -62,7 +71,11 @@ export class AutomationWorker {
         // for any contact with no phone (narrowing contact.phone doesn't
         // narrow the whole `contact` object's static type once it's passed
         // by reference into executeAction's differently-typed param).
-        await this.executeAction(action, { tenantId, conversationId, contactId, contact: { ...contact, phone: contact.phone! }, credentials, whatsappNumberId: conversation?.whatsappNumberId ?? null });
+        await this.executeAction(action, {
+          tenantId, conversationId, contactId, contact: { ...contact, phone: contact.phone! }, credentials,
+          whatsappNumberId: conversation?.whatsappNumberId ?? null,
+          whatsAppWebChannelId: isWhatsAppWeb ? (conversation?.channelId ?? null) : null,
+        });
       } catch (error) {
         console.error(`Failed to execute action ${action.type}:`, error instanceof Error ? error.message : String(error));
       }
@@ -83,12 +96,21 @@ export class AutomationWorker {
       contact: { phone: string; name: string | null };
       credentials: WhatsAppCredentials | null;
       whatsappNumberId: string | null;
+      whatsAppWebChannelId: string | null;
     },
   ) {
     const payload = action.payload as Record<string, string>;
 
     switch (action.type) {
       case AutomationAction.SEND_MESSAGE: {
+        // Unofficial WhatsApp Web (QR/linked-device) conversation -- send via
+        // the real Baileys session through apps/whatsapp-web's internal HTTP
+        // API, same direct-HTTP pattern this worker already uses for Meta's
+        // Graph API (no NestJS DI here), not the Cloud API branch below.
+        if (ctx.whatsAppWebChannelId) {
+          await this.sendWhatsAppWebMessage(ctx.tenantId, ctx.whatsAppWebChannelId, ctx.conversationId, ctx.contactId, ctx.contact.phone, payload['message'] ?? 'Hello!');
+          break;
+        }
         if (!ctx.credentials) break;
         const response = await axios.post(
           `${GRAPH_API_BASE}/${ctx.credentials.phoneNumberId}/messages`,
@@ -253,5 +275,54 @@ export class AutomationWorker {
         break;
       }
     }
+  }
+
+  /**
+   * SEND_MESSAGE for a WHATSAPP_WEB conversation -- calls apps/whatsapp-web's
+   * internal send endpoint directly (same direct-HTTP pattern this worker
+   * already uses for Meta's Graph API above, just a different URL). Always
+   * persists a Message row (SENT or FAILED) so the attempt is visible in the
+   * inbox either way, matching how the backend's own AI auto-reply path
+   * handles a send that might fail.
+   */
+  private async sendWhatsAppWebMessage(
+    tenantId: string,
+    channelId: string,
+    conversationId: string,
+    contactId: string,
+    toPhone: string,
+    text: string,
+  ): Promise<void> {
+    const session = await this.prisma.whatsAppWebSession.findFirst({ where: { tenantId, channelId } });
+    let providerMessageId: string | undefined;
+    if (session && session.status === 'CONNECTED') {
+      try {
+        const baseUrl = process.env['WHATSAPP_WEB_INTERNAL_URL'] ?? 'http://whatsapp-web:3004';
+        const apiKey = process.env['WHATSAPP_WEB_INTERNAL_API_KEY'] ?? '';
+        const res = await axios.post<{ providerMessageId: string }>(
+          `${baseUrl}/sessions/${session.id}/send-text`,
+          { toPhone, text },
+          { headers: { 'x-internal-api-key': apiKey }, timeout: 15000 },
+        );
+        providerMessageId = res.data.providerMessageId;
+      } catch (err) {
+        console.error(`[Automation] WhatsApp Web send failed for channel ${channelId}:`, err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    await this.prisma.message.create({
+      data: {
+        tenantId,
+        conversationId,
+        contactId,
+        channelId,
+        whatsappMessageId: providerMessageId,
+        direction: MessageDirection.OUTBOUND,
+        type: MessageType.TEXT,
+        status: providerMessageId ? MessageStatus.SENT : MessageStatus.FAILED,
+        content: text,
+        sentAt: providerMessageId ? new Date() : undefined,
+      },
+    });
   }
 }

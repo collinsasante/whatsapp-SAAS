@@ -4,6 +4,7 @@ import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { FacebookMessengerService } from '../facebook-messenger/facebook-messenger.service';
+import { WhatsAppWebService } from '../whatsapp-web/whatsapp-web.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -74,6 +75,15 @@ const MESSENGER_ATTACHMENT_FALLBACK_MIME: Record<string, string> = {
   file: 'application/octet-stream',
 };
 
+// Baileys' own media-message field names -- extracted by apps/whatsapp-web
+// before the event ever reaches here (see session-manager.ts).
+const WHATSAPP_WEB_MEDIA_TYPE_MAP: Record<string, MessageType> = {
+  image: MessageType.IMAGE,
+  video: MessageType.VIDEO,
+  audio: MessageType.AUDIO,
+  document: MessageType.DOCUMENT,
+};
+
 @Injectable()
 export class MessagesService {
   private readonly logger = new Logger(MessagesService.name);
@@ -120,6 +130,7 @@ export class MessagesService {
     private aiCreditsService: AiCreditsService,
     private conversationState: ConversationStateService,
     @Inject(forwardRef(() => FacebookMessengerService)) private facebookMessengerService: FacebookMessengerService,
+    @Inject(forwardRef(() => WhatsAppWebService)) private whatsAppWebService: WhatsAppWebService,
   ) {}
 
   /**
@@ -136,7 +147,7 @@ export class MessagesService {
   private async dispatchOutbound(
     tenantId: string,
     conversation: { channel?: { id: string; type: string } | null; whatsappNumberId?: string | null },
-    contact: { phone: string | null; externalId: string | null },
+    contact: { phone: string | null; externalId?: string | null },
     payload:
       | { kind: 'TEXT'; text: string; replyToWaMessageId?: string }
       | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string },
@@ -148,6 +159,22 @@ export class MessagesService {
       }
       return this.facebookMessengerService.sendMediaMessage(
         tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
+      );
+    }
+
+    // Unofficial WhatsApp Web (QR/linked-device) -- unlike Messenger, this
+    // contact genuinely has a real phone number (contact.phone), since
+    // Baileys addresses recipients by phone/JID rather than a page-scoped
+    // id. Still needs its own branch: the send transport is a live Baileys
+    // socket via apps/whatsapp-web, not the Cloud API Graph client below.
+    if (conversation.channel?.type === 'WHATSAPP_WEB') {
+      if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
+      if (!conversation.channel.id) throw new BadRequestException('This conversation has no WhatsApp Web channel on file.');
+      if (payload.kind === 'TEXT') {
+        return this.whatsAppWebService.sendText(tenantId, conversation.channel.id, contact.phone, payload.text);
+      }
+      return this.whatsAppWebService.sendMedia(
+        tenantId, conversation.channel.id, contact.phone, payload.mediaUrl, payload.mediaType.toLowerCase() as 'image' | 'video' | 'audio' | 'document', payload.caption,
       );
     }
 
@@ -168,6 +195,10 @@ export class MessagesService {
     }
 
     const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER';
+    // Unofficial WhatsApp Web (QR/linked-device): a real Baileys socket, not
+    // the Cloud API Graph client -- Meta-specific concepts below (templates,
+    // the 24h customer-service window) don't apply to it either.
+    const isWhatsAppWeb = conversation.channel?.type === 'WHATSAPP_WEB';
 
     // A contact with neither identifier (e.g. a channel not yet supported at
     // all) has nothing this method can deliver to.
@@ -175,22 +206,26 @@ export class MessagesService {
       throw new BadRequestException('This contact has no channel identity on file.');
     }
 
-    // Template/location/contact-card messages are WhatsApp-specific concepts
-    // with no Messenger equivalent -- fail loudly rather than attempt (and
-    // silently mis-send via) a WhatsApp-shaped call for a Messenger contact.
-    if (isMessenger && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
-      throw new BadRequestException(`${dto.type} messages are not supported on Facebook Messenger.`);
+    // Template/location/contact-card messages are Cloud-API-specific concepts
+    // with no Messenger or WhatsApp Web equivalent (not currently implemented
+    // by the Baileys session-manager either) -- fail loudly rather than
+    // attempt (and silently mis-send via) a Cloud-API-shaped call for a
+    // Messenger or WhatsApp Web contact.
+    if ((isMessenger || isWhatsAppWeb) && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
+      throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? 'Facebook Messenger' : 'WhatsApp Web'}.`);
     }
 
-    // WhatsApp only allows free-form (non-template) sends within 24h of the
-    // customer's last inbound message; outside that window Meta accepts a
-    // non-template send then asynchronously rejects it (error 131047,
+    // WhatsApp Cloud API only allows free-form (non-template) sends within 24h
+    // of the customer's last inbound message; outside that window Meta accepts
+    // a non-template send then asynchronously rejects it (error 131047,
     // "Re-engagement message"). Reject synchronously here instead of
     // creating a message that silently flips from sent to failed a moment
     // later -- the agent needs to know immediately, before they walk away
     // thinking it went through. Messenger has its own (different) messaging-
     // window rules, not enforced here yet -- out of scope for this pass.
-    if (!isMessenger && dto.type !== MessageType.TEMPLATE) {
+    // WhatsApp Web has no such window at all (a real linked personal account
+    // can message anyone anytime), so it's excluded the same way Messenger is.
+    if (!isMessenger && !isWhatsAppWeb && dto.type !== MessageType.TEMPLATE) {
       const lastInboundAt = conversation.lastMessageAt;
       const windowClosed = !lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000;
       if (windowClosed) {
@@ -572,6 +607,120 @@ export class MessagesService {
       contact: (conversation as Record<string, unknown>)['contact'],
       status: conversation.status,
     });
+
+    return created;
+  }
+
+  // Unofficial WhatsApp Web (QR/linked-device) inbound entry point -- kept
+  // separate from handleInbound() rather than force-unified with it, same
+  // reasoning as handleInboundMessenger(): Baileys' payload shape and
+  // identity model (real phone number, no per-number webhook routing) are
+  // different enough from Meta's Cloud API webhook that sharing the parsing/
+  // contact/conversation-creation code would be fragile. What genuinely is
+  // shared (AI/chatbot dispatch) lives in dispatchAiAndChatbot() and is
+  // called from both entry points.
+  async handleInboundWhatsAppWeb(
+    tenantId: string,
+    channelId: string,
+    fromPhone: string,
+    providerMessageId: string,
+    payload: {
+      content?: string;
+      mediaType?: 'image' | 'video' | 'audio' | 'document';
+      mediaBase64?: string;
+      mimetype?: string;
+      caption?: string;
+    },
+    pushName?: string,
+  ) {
+    const alreadyProcessed = await this.prisma.message.findFirst({
+      where: { whatsappMessageId: providerMessageId, tenantId },
+      select: { id: true },
+    });
+    if (alreadyProcessed) return alreadyProcessed;
+
+    const contact = await this.contactsService.findOrCreate(tenantId, fromPhone, pushName);
+    const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, undefined, channelId);
+
+    // Tag conversation with the receiving channel the first time only,
+    // mirroring handleInboundMessenger's own channelId backfill above --
+    // findOrCreate() never writes channelId itself (used purely as a query
+    // disambiguator), so every entry point that cares has to backfill it.
+    if (!conversation.channelId) {
+      await this.prisma.conversation.update({ where: { id: conversation.id }, data: { channelId } });
+      (conversation as { channelId?: string | null }).channelId = channelId;
+    }
+
+    if (conversation.status === 'OPEN') {
+      await this.conversationsService.request(tenantId, conversation.id);
+    }
+
+    let content = payload.content;
+    let mediaUrl: string | undefined;
+    const msgType: MessageType = payload.mediaType
+      ? (WHATSAPP_WEB_MEDIA_TYPE_MAP[payload.mediaType] ?? MessageType.DOCUMENT)
+      : MessageType.TEXT;
+
+    if (payload.mediaType && payload.mediaBase64) {
+      try {
+        const buffer = Buffer.from(payload.mediaBase64, 'base64');
+        const contentType = payload.mimetype ?? 'application/octet-stream';
+        const ext = contentType.split('/')[1]?.split(';')[0] ?? 'bin';
+        const uploadResult = await this.storageService.uploadRaw(buffer, contentType, tenantId, `${payload.mediaType}.${ext}`);
+        mediaUrl = uploadResult.fileUrl;
+      } catch (err) {
+        void notify({
+          source: 'backend',
+          tenantId,
+          message: `Inbound WhatsApp Web media download failed for type "${payload.mediaType}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+        }).catch(() => {});
+      }
+    } else if (payload.mediaType && !payload.mediaBase64) {
+      // The session-manager attempted the download and it failed (e.g. expired
+      // media key) -- fall back to a visible placeholder rather than a silently
+      // empty message, same as Messenger's own can't-display fallback.
+      content = content ?? '[Sent a file we couldn\'t download]';
+    }
+    if (!content && !mediaUrl) {
+      content = '[Sent a message type we can\'t display yet]';
+    }
+
+    let created: Message;
+    try {
+      const [msg] = await this.prisma.$transaction([
+        this.prisma.message.create({
+          data: {
+            tenantId, conversationId: conversation.id, contactId: contact.id,
+            whatsappMessageId: providerMessageId, channelId,
+            direction: MessageDirection.INBOUND, type: msgType, status: MessageStatus.DELIVERED,
+            content, mediaUrl, mediaCaption: payload.caption, mediaType: payload.mimetype, deliveredAt: new Date(),
+          },
+        }),
+        this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { unreadCount: { increment: 1 }, lastMessageAt: new Date() },
+        }),
+      ]);
+      created = msg;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: providerMessageId, tenantId } });
+        if (raced) return raced;
+      }
+      throw err;
+    }
+
+    this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
+    this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
+      id: conversation.id,
+      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      lastMessageAt: created.createdAt,
+      lastInboundAt: created.createdAt,
+      contact: (conversation as Record<string, unknown>)['contact'],
+      status: conversation.status,
+    });
+
+    await this.dispatchAiAndChatbot(tenantId, conversation, contact, content, created.id);
 
     return created;
   }
@@ -1006,6 +1155,27 @@ export class MessagesService {
       }
     }
 
+    await this.dispatchAiAndChatbot(tenantId, conversation, contact, content, message.id);
+
+    return message;
+  }
+
+  /**
+   * The genuinely transport-agnostic part of inbound processing: chatbot-flow
+   * matching and AI suggestion/auto-reply dispatch. Operates purely on
+   * already-created Message/Conversation/Contact rows and a plain content
+   * string, so it's shared between handleInbound() (WhatsApp Cloud) and
+   * handleInboundWhatsAppWeb() -- unlike payload parsing and contact/
+   * conversation creation, which stay separate per transport (too entangled
+   * with each provider's own payload shape to safely force-unify).
+   */
+  private async dispatchAiAndChatbot(
+    tenantId: string,
+    conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null; assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null },
+    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    content: string | undefined,
+    excludeMessageId: string,
+  ): Promise<void> {
     // Verz-AI unification, Phase M: resolved before flow-matching now (used to be
     // resolved after) so findMatchingFlow can know whether AI is actually switched on
     // for this tenant -- see the comment on findMatchingFlow for why that matters.
@@ -1026,19 +1196,19 @@ export class MessagesService {
     let flowMatched = false;
     if (content) {
       const priorInboundInConversation = await this.prisma.message.count({
-        where: { tenantId, conversationId: conversation.id, direction: MessageDirection.INBOUND, id: { not: message.id } },
+        where: { tenantId, conversationId: conversation.id, direction: MessageDirection.INBOUND, id: { not: excludeMessageId } },
       });
       const flow = await this.chatbotFlowsService.findMatchingFlow(tenantId, content, priorInboundInConversation === 0, aiActive);
       if (flow) {
         flowMatched = true;
-        void this.runBotFlow(tenantId, conversation.id, { id: contact.id, phone: contact.phone }, flow.nodes as unknown as FlowNode[], conversation.whatsappNumberId);
+        void this.runBotFlow(tenantId, conversation, contact, flow.nodes as unknown as FlowNode[]);
       }
     }
 
     // AI responder: suggestion mode or auto-reply (only if no chatbot flow matched)
     // Skip if a human agent has taken over (assignedTo exists and is not an AI agent) --
     // UNLESS that agent has gone quiet and this tenant has opted into takeover (below).
-    const assignedTo = (conversation as typeof conversation & { assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null }).assignedTo;
+    const assignedTo = conversation.assignedTo;
     const humanOwned = assignedTo && !assignedTo.isAiAgent;
     const agentAway = isAgentAway(assignedTo, takeoverEnabled, !!aiMode);
     if (content && !flowMatched && aiAllowedForThisContact && (!humanOwned || agentAway)) {
@@ -1083,8 +1253,6 @@ export class MessagesService {
         }
       }
     }
-
-    return message;
   }
 
   /**
@@ -1179,7 +1347,7 @@ export class MessagesService {
   private async handleAiSuggestion(
     tenantId: string,
     conversation: { id: string },
-    contact: { id: string; phone: string; name: string | null },
+    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
   ) {
@@ -1244,8 +1412,8 @@ export class MessagesService {
 
   private async handleAiAutoReply(
     tenantId: string,
-    conversation: { id: string; whatsappNumberId?: string | null },
-    contact: { id: string; phone: string; name: string | null },
+    conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
+    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
     assignedTo: { id: string; isAiAgent?: boolean } | null | undefined,
@@ -1280,8 +1448,7 @@ export class MessagesService {
       const fallbackText = escalated
         ? PROVIDER_FAILURE_FALLBACK_TEXT
         : HANDOFF_FAILED_TEXT;
-      await this.whatsappService
-        .sendTextMessage(tenantId, contact.phone, fallbackText, undefined, conversation.whatsappNumberId)
+      await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: fallbackText })
         .catch((err) => this.logger.warn(`Failed to send fallback message for conversation ${conversation.id}: ${String(err)}`));
       return;
     }
@@ -1310,7 +1477,7 @@ export class MessagesService {
     // time we're here the AI call already happened and already cost real money; there's
     // no additional gate before sending -- withholding an already-generated, already-
     // charged-for reply would waste the spend without helping the customer.
-    await this.whatsappService.sendTextMessage(tenantId, contact.phone, result.response, undefined, conversation.whatsappNumberId).catch(() => null);
+    await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: result.response }).catch(() => null);
 
     const log = await this.aiLogsService.create({
       tenantId,
@@ -1358,7 +1525,7 @@ export class MessagesService {
     // so images follow it -- matches natural WhatsApp UX. Persisted as its own
     // Message row so it's visible in the inbox like any other outbound message.
     for (const effect of result.mediaToSend ?? []) {
-      const whatsappMessageId = await this.deliverMedia(tenantId, contact.phone, 'IMAGE' as MessageType, effect.mediaUrl, effect.caption, undefined, conversation.whatsappNumberId).catch((err) => {
+      const whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: 'IMAGE' as MessageType, mediaUrl: effect.mediaUrl, caption: effect.caption }).catch((err) => {
         this.logger.warn(`Failed to deliver AI-triggered media for conversation ${conversation.id}: ${String(err)}`);
         return undefined;
       });
@@ -1404,8 +1571,15 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
   }
 
-  private async runBotFlow(tenantId: string, conversationId: string, contact: { id: string; phone: string }, rawNodes: FlowNode[] | Record<string, unknown>, whatsappNumberId?: string | null) {
+  private async runBotFlow(
+    tenantId: string,
+    conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
+    contact: { id: string; phone: string; externalId?: string | null },
+    rawNodes: FlowNode[] | Record<string, unknown>,
+  ) {
     if (!rawNodes) return;
+    const conversationId = conversation.id;
+    const whatsappNumberId = conversation.whatsappNumberId;
 
     // Support both simple FlowNode[] and ReactFlow {nodes,edges} format
     type ExecNode = { id: string; type: string; data: Record<string, unknown> };
@@ -1448,14 +1622,14 @@ export class MessagesService {
           const msg = await this.prisma.message.create({
             data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content, whatsappNumberId },
           });
-          const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, content, undefined, whatsappNumberId).catch(() => null);
+          const waId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: content }).catch(() => null);
           const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
           this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
         } else if (node.type === 'image' && mediaUrl) {
           const msg = await this.prisma.message.create({
             data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.IMAGE, status: MessageStatus.QUEUED, mediaUrl, mediaCaption: content ?? null, whatsappNumberId },
           });
-          const waId = await this.whatsappService.sendMediaMessage(tenantId, contact.phone, 'image', mediaUrl, content, undefined, whatsappNumberId).catch(() => null);
+          const waId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: MessageType.IMAGE, mediaUrl, caption: content }).catch(() => null);
           const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
           this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
         } else if (node.type === 'delay' && delaySec) {
@@ -1477,9 +1651,14 @@ export class MessagesService {
     // Send reaction to WhatsApp — look up the message's whatsapp ID and the contact's phone
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, tenantId },
-      include: { conversation: { include: { contact: true } } },
+      include: { conversation: { include: { contact: true, channel: true } } },
     });
-    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone) {
+    // Reactions aren't wired up for WhatsApp Web (Baileys) or Messenger yet --
+    // Messenger contacts have no phone so the check below already excludes
+    // them; WhatsApp Web contacts do have a real phone, so its channel type
+    // needs an explicit check here to avoid sending a Cloud-API reaction call
+    // (wrong provider entirely) for a QR-connected conversation.
+    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone && msg.conversation.channel?.type !== 'WHATSAPP_WEB') {
       await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, emoji, msg.whatsappNumberId).catch(() => null);
     }
 
@@ -1500,9 +1679,9 @@ export class MessagesService {
     // Send empty emoji to remove reaction on WhatsApp
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, tenantId },
-      include: { conversation: { include: { contact: true } } },
+      include: { conversation: { include: { contact: true, channel: true } } },
     });
-    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone) {
+    if (msg?.whatsappMessageId && msg.conversation?.contact?.phone && msg.conversation.channel?.type !== 'WHATSAPP_WEB') {
       await this.whatsappService.sendReaction(tenantId, msg.conversation.contact.phone, msg.whatsappMessageId, '', msg.whatsappNumberId).catch(() => null);
     }
 

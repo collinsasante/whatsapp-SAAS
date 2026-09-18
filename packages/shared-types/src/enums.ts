@@ -112,6 +112,10 @@ export enum AuditAction {
 
 export enum ChannelType {
   WHATSAPP = 'WHATSAPP',
+  // Unofficial WhatsApp Web / linked-device connection -- deliberately
+  // separate from WHATSAPP (the official Cloud API channel), never to be
+  // conflated with it. See WhatsAppWebSession in the Prisma schema.
+  WHATSAPP_WEB = 'WHATSAPP_WEB',
   FACEBOOK_MESSENGER = 'FACEBOOK_MESSENGER',
   INSTAGRAM = 'INSTAGRAM',
   TELEGRAM = 'TELEGRAM',

@@ -86,6 +86,8 @@ services:
       API_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}/api/v1
       REALTIME_URL: http://realtime:3002
       PUBLIC_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
+      WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
+      WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
       FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       MESSENGER_WEBHOOK_VERIFY_TOKEN: ${MESSENGER_WEBHOOK_VERIFY_TOKEN:-}
@@ -166,10 +168,34 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
+      WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+    networks:
+      - staging-network
+
+  # Unofficial WhatsApp Web / linked-device (QR) channel -- see the
+  # equivalent block in docker-compose.yml for the full rationale. Never
+  # exposed through nginx.
+  whatsapp-web:
+    build:
+      context: ..
+      dockerfile: apps/whatsapp-web/Dockerfile
+    container_name: wa_staging_whatsapp_web
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3004
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}_staging
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
+      BACKEND_INTERNAL_URL: http://backend:3001
+      WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
+    depends_on:
+      postgres:
         condition: service_healthy
     networks:
       - staging-network

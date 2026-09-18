@@ -17,9 +17,10 @@ import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 import { AiCoreModule } from '../ai-core/ai-core.module';
 import { LeadsModule } from '../leads/leads.module';
 import { FacebookMessengerModule } from '../facebook-messenger/facebook-messenger.module';
+import { WhatsAppWebModule } from '../whatsapp-web/whatsapp-web.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule, forwardRef(() => FacebookMessengerModule)],
+  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule, forwardRef(() => FacebookMessengerModule), forwardRef(() => WhatsAppWebModule)],
   controllers: [MessagesController, LinkPreviewController, MessageSearchController],
   providers: [MessagesService],
   exports: [MessagesService],
