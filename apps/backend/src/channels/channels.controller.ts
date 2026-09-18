@@ -83,11 +83,16 @@ export class ChannelsController {
 
     // pages_messaging is required for the Messenger Send API and webhook
     // subscription (added alongside the Facebook Messenger channel work --
-    // the pre-existing pages_show_list/pages_read_engagement scopes only
-    // ever supported listing Pages, never messaging through them).
+    // the pre-existing pages_show_list scope only ever supported listing
+    // Pages, never messaging through them). pages_read_engagement was
+    // dropped -- confirmed via a repo-wide search that no API call this
+    // codebase makes actually needs it (only /me/accounts for listing and
+    // the Send API/webhook-subscribe for messaging), and Meta rejects it as
+    // an invalid scope for an app created through the Business Messaging
+    // use case flow ("Invalid Scopes: pages_read_engagement").
     const scope = provider === 'instagram'
-      ? 'instagram_basic,pages_show_list,pages_read_engagement'
-      : 'pages_show_list,pages_read_engagement,pages_messaging';
+      ? 'instagram_basic,pages_show_list'
+      : 'pages_show_list,pages_messaging';
 
     const params = new URLSearchParams({
       client_id: appId,
