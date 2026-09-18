@@ -320,6 +320,11 @@ export const channelsApi = {
   update: (id: string, data: Record<string, unknown>) => api.patch(`/channels/${id}`, data),
   toggle: (id: string) => api.patch(`/channels/${id}/toggle`),
   delete: (id: string) => api.delete(`/channels/${id}`),
+  // Auth-required (unlike a plain <a href>/window.location navigation, this
+  // goes through the authenticated axios client so the Bearer token is
+  // actually attached) -- returns the provider's OAuth URL as JSON; the
+  // caller does the actual browser navigation to it.
+  getOAuthUrl: (provider: string) => api.get<{ redirectUrl: string }>(`/channels/oauth/${provider}`),
 };
 
 export const facebookPagesApi = {

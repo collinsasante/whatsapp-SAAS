@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -36,27 +36,30 @@ export class ChannelsController {
     return this.channelsService.findAll(tenantId);
   }
 
+  // Returns the OAuth URL as JSON rather than issuing an HTTP redirect
+  // itself -- this route requires auth (see the state-signing comment
+  // below), and the frontend can only attach its Bearer token to a real
+  // fetch/axios call, never to a plain browser navigation. The frontend
+  // calls this via its authenticated API client, then does the actual
+  // window.location navigation itself with the URL this returns.
   @Get('oauth/:provider')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @HttpCode(HttpStatus.FOUND)
-  @ApiOperation({ summary: 'Initiate OAuth for a social channel' })
-  oauthRedirect(
+  @ApiOperation({ summary: 'Get the OAuth authorization URL for a social channel' })
+  getOAuthUrl(
     @Param('provider') provider: string,
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
-    @Res() res: Response,
-  ) {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+  ): { redirectUrl: string } {
     const apiUrl = this.configService.get<string>('API_URL', 'http://localhost:3001/api/v1');
 
     if (!['facebook', 'instagram', 'tiktok'].includes(provider)) {
-      return res.redirect(`${frontendUrl}/channels?error=unsupported_provider`);
+      throw new BadRequestException('Unsupported provider');
     }
 
     const credKey = provider === 'tiktok' ? 'TIKTOK_CLIENT_ID' : 'FACEBOOK_APP_ID';
     const appId = this.configService.get<string>(credKey);
     if (!appId) {
-      return res.redirect(`${frontendUrl}/channels?error=not_configured&provider=${provider}`);
+      throw new BadRequestException(`${provider} is not configured on this server`);
     }
 
     // Signed, expiring, server-derived state -- tenantId/userId come from the
@@ -75,7 +78,7 @@ export class ChannelsController {
         redirect_uri: callbackUri,
         state,
       });
-      return res.redirect(`https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`);
+      return { redirectUrl: `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}` };
     }
 
     // pages_messaging is required for the Messenger Send API and webhook
@@ -94,7 +97,7 @@ export class ChannelsController {
       state,
     });
 
-    return res.redirect(`https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}`);
+    return { redirectUrl: `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}` };
   }
 
   @Get('oauth/:provider/callback')

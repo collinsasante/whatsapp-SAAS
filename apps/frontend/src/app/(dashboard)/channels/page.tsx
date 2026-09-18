@@ -208,13 +208,23 @@ function ModalShell({ onClose, children }: { onClose: () => void; children: Reac
 function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => void }) {
   const provider = channel.oauthProvider!;
   const info = OAUTH_INFO[provider];
-  const { tenant } = useAuthStore();
+  const [connecting, setConnecting] = useState(false);
 
-  const handleConnect = () => {
-    const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001/api/v1';
-    const url = new URL(`${API_URL}/channels/oauth/${provider}`);
-    if (tenant?.id) url.searchParams.set('tenantId', tenant.id);
-    window.location.href = url.toString();
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      // Fetched via the authenticated API client (not a plain <a href>/
+      // window.location navigation) since this route requires auth -- a raw
+      // browser navigation can't attach the Bearer token. The actual
+      // redirect to Facebook/Instagram/TikTok happens here, after we have
+      // the real URL back.
+      const res = await channelsApi.getOAuthUrl(provider);
+      window.location.href = (res.data as { redirectUrl: string }).redirectUrl;
+    } catch (e) {
+      const msg = e && typeof e === 'object' && 'response' in e ? (e as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
+      toast.error(typeof msg === 'string' ? msg : `Failed to start ${channel.name} connection.`);
+      setConnecting(false);
+    }
   };
 
   return (
@@ -254,11 +264,15 @@ function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => 
         </div>
       </div>
       <div className="px-6 pb-6 space-y-2">
-        <button onClick={handleConnect} className={cn('w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm transition-all', channel.btnClass)}>
+        <button
+          onClick={() => { void handleConnect(); }}
+          disabled={connecting}
+          className={cn('w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed', channel.btnClass)}
+        >
           <ChannelIcon ch={channel} size="sm" />
-          {channel.btnLabel}
+          {connecting ? 'Connecting…' : channel.btnLabel}
         </button>
-        <button onClick={onClose} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium">Cancel</button>
+        <button onClick={onClose} disabled={connecting} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium disabled:opacity-60">Cancel</button>
       </div>
     </ModalShell>
   );
