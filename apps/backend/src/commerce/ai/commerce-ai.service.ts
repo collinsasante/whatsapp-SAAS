@@ -192,7 +192,12 @@ export class CommerceAiService {
 
     const result = await this.toolCalling.complete({
       tenantId,
-      taskType: 'RESPONDER',
+      // evalContext is only ever passed by the eval-harness (evaluation-runner.
+      // service.ts) -- tagging these runs TEST rather than RESPONDER routes them
+      // through AiExecutionsService's existing unmetered-task-type list (no real
+      // credit deduction for a tenant's own synthetic QA scenarios) and also lets
+      // platform-admin AI analytics exclude them from cost/revenue KPIs.
+      taskType: evalContext ? 'TEST' : 'RESPONDER',
       conversationId,
       systemPrompt,
       // The last history entry is this same customerMessage, already persisted before

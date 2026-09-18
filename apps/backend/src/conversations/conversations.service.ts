@@ -180,7 +180,13 @@ export class ConversationsService {
     search?: string,
   ) {
     const skip = getPaginationSkip(page, limit);
-    const where: Record<string, unknown> = { tenantId };
+    // Synthetic conversations created by the commerce AI evaluation harness
+    // (see Conversation.contactSource === 'eval_harness') are never a real
+    // customer thread -- exclude them from every tenant-facing Conversations
+    // view, regardless of which status filter is applied (they're created
+    // RESOLVED, so filtering by that status would otherwise mix them in with
+    // real resolved conversations).
+    const where: Record<string, unknown> = { tenantId, contactSource: { not: 'eval_harness' } };
 
     if (status) {
       where['status'] = status;
