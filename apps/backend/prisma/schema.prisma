@@ -102,6 +102,7 @@ model Tenant {
   webhookEvents                   WebhookEvent[]
   facebookPageConnections         FacebookPageConnection[]
   oauthConnectSessions            OAuthConnectSession[]
+  whatsAppWebSessions             WhatsAppWebSession[]
 
   @@map("tenants")
 }
@@ -744,6 +745,7 @@ model Channel {
   messages               Message[]
   whatsAppNumber         WhatsAppNumber?
   facebookPageConnection FacebookPageConnection?
+  whatsAppWebSession     WhatsAppWebSession?
 
   @@unique([tenantId, type, name])
   @@unique([tenantId, type, externalId])
@@ -782,6 +784,43 @@ model FacebookPageConnection {
   @@map("facebook_page_connections")
 }
 
+// Unofficial WhatsApp Web / linked-device connection details for a
+// WHATSAPP_WEB-type Channel -- mirrors FacebookPageConnection/WhatsAppNumber's
+// shape (one typed table per concrete connected account, 1:1 with a generic
+// Channel row). Deliberately separate from WhatsAppNumber (the official Cloud
+// API model): different lifecycle (a live socket connection + session auth
+// state vs. a static API token), different risk profile (this is explicitly
+// an unofficial integration, never to be confused with or merged into the
+// official one). encryptedAuthState holds Baileys' serialized multi-device
+// credentials (JSON, encrypted via the same CredentialsEncryptionService
+// WhatsApp Cloud/Messenger already use) -- restored on service restart so a
+// reconnect doesn't force re-scanning the QR code.
+model WhatsAppWebSession {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  channelId          String    @unique @map("channel_id")
+  phoneNumber        String?   @map("phone_number")
+  // QR_PENDING | CONNECTING | CONNECTED | RECONNECTING | LOGGED_OUT | ERROR --
+  // computed/owned by apps/whatsapp-web, not a Prisma enum, so new transient
+  // states don't need a migration to introduce.
+  status             String    @default("QR_PENDING")
+  encryptedAuthState String?   @map("encrypted_auth_state") @db.Text
+  connectedByUserId  String?   @map("connected_by_user_id")
+  lastConnectedAt    DateTime? @map("last_connected_at")
+  lastSeenAt         DateTime? @map("last_seen_at")
+  lastError          String?   @map("last_error")
+  lastErrorAt        DateTime? @map("last_error_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("whatsapp_web_sessions")
+}
+
 // Short-lived holding state between "Meta OAuth callback completed" and "user
 // submitted their Page selection" -- lets the callback avoid auto-connecting
 // every Page the user manages (see ChannelsService) without ever exposing the
@@ -807,6 +846,7 @@ model OAuthConnectSession {
 
 enum ChannelType {
   WHATSAPP
+  WHATSAPP_WEB
   FACEBOOK_MESSENGER
   INSTAGRAM
   TELEGRAM
