@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+
+// MAJOR.MINOR.PATCH with an optional -prerelease tag, e.g. 1.3.0-beta.1 --
+// must match ReleaseAdminController's SEMVER_PATTERN in release.dto.ts.
+const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 export interface CreateVersionDto {
   version: string;
@@ -45,9 +49,16 @@ export class ReleaseService {
   }
 
   async createVersion(dto: CreateVersionDto) {
-    const parts = dto.version.split('.').map(Number);
-    if (parts.length !== 3 || parts.some(isNaN)) {
-      throw new Error('Invalid semver format — use MAJOR.MINOR.PATCH');
+    // split('.').map(Number) previously rejected any prerelease suffix
+    // (e.g. "1.3.0-beta.1" splits into 4 dot-separated parts, not 3) --
+    // this app's versioning policy explicitly requires prerelease support.
+    const match = SEMVER_PATTERN.exec(dto.version);
+    if (!match) {
+      throw new BadRequestException('Invalid semver format — use MAJOR.MINOR.PATCH, optionally with a -prerelease tag (e.g. 1.3.0-beta.1)');
+    }
+    const existing = await this.prisma.appVersion.findUnique({ where: { version: dto.version } });
+    if (existing) {
+      throw new BadRequestException(`Version ${dto.version} already exists`);
     }
     if (dto.isLatest) {
       await this.prisma.appVersion.updateMany({ where: { isLatest: true }, data: { isLatest: false } });
@@ -55,9 +66,9 @@ export class ReleaseService {
     return this.prisma.appVersion.create({
       data: {
         version: dto.version,
-        major: parts[0]!,
-        minor: parts[1]!,
-        patch: parts[2]!,
+        major: Number(match[1]),
+        minor: Number(match[2]),
+        patch: Number(match[3]),
         channel: dto.channel ?? 'stable',
         description: dto.description,
         changelog: dto.changelog ?? {},
