@@ -242,9 +242,23 @@ export class OrdersService {
     return order;
   }
 
+  /** The tenant-facing Orders list -- excludes synthetic orders from the eval
+   * harness (isEvalOrder) and from the dashboard "test as a customer" chat
+   * (tagged via its conversation's contactSource), so an admin's real order
+   * history/revenue isn't mixed with test data. conversationId is nullable,
+   * so the OR keeps orders with no conversation instead of dropping them. */
   findAll(tenantId: string, status?: OrderStatus, contactId?: string) {
     return this.prisma.order.findMany({
-      where: { tenantId, ...(status ? { status } : {}), ...(contactId ? { contactId } : {}) },
+      where: {
+        tenantId,
+        isEvalOrder: false,
+        OR: [
+          { conversationId: null },
+          { conversation: { contactSource: { notIn: ['dashboard_test', 'dashboard_test_ai'] } } },
+        ],
+        ...(status ? { status } : {}),
+        ...(contactId ? { contactId } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: { items: true },
     });

@@ -5,6 +5,7 @@ import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
 import { CommerceTestChatService } from './commerce-test-chat.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { DevToolsGuard } from '../../common/guards/dev-tools.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -16,10 +17,10 @@ class TestChatMessageDto {
   message!: string;
 }
 
-/** Admin-only: drives the real commerce AI (real orders, real Paystack init). */
+/** Admin-only, non-production-only: drives the real commerce AI (real orders, real Paystack init). */
 @ApiTags('Commerce Test Chat')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, DevToolsGuard)
 @Roles(UserRole.ADMIN)
 @Controller('commerce/test-chat')
 export class CommerceTestChatController {

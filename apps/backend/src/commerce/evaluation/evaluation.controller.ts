@@ -4,14 +4,15 @@ import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
 import { EvaluationRunService } from './evaluation-run.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { DevToolsGuard } from '../../common/guards/dev-tools.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 
-/** Admin-only: a run costs real DeepSeek spend and writes production-shaped rows. */
+/** Admin-only, non-production-only: a run costs real DeepSeek spend and writes production-shaped rows. */
 @ApiTags('Commerce AI Evaluation')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, DevToolsGuard)
 @Roles(UserRole.ADMIN)
 @Controller('commerce/evaluation')
 export class EvaluationController {

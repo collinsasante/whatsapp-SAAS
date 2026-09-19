@@ -10,8 +10,23 @@ const ALLOWED: Record<UserRole, string[] | '*'> = {
   [UserRole.VIEWER]:      AGENT_ROUTES,
 };
 
+// Internal AI/Commerce testing & evaluation tools -- shared by Sidebar,
+// MobileDrawer, and canAccess() below so there's one list, not three. Baked
+// in at build time like every other NEXT_PUBLIC_* var; unset (falsy) unless
+// infra/docker-compose.staging.yml's frontend build arg sets it, so these
+// stay unreachable in production regardless of role (SUPER_ADMIN/ADMIN's
+// '*' route access in ALLOWED above would otherwise let a real customer's
+// own admin reach them).
+export const DEV_TOOL_ROUTES = ['/ai-test', '/ai/test-chat', '/commerce/chat', '/commerce/evaluation'];
+export const SHOW_DEV_TOOLS = process.env.NEXT_PUBLIC_SHOW_DEV_TOOLS === 'true';
+
+export function isDevToolRoute(pathname: string): boolean {
+  return DEV_TOOL_ROUTES.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'));
+}
+
 export function canAccess(role: UserRole | undefined, pathname: string): boolean {
   if (!role) return false;
+  if (isDevToolRoute(pathname) && !SHOW_DEV_TOOLS) return false;
   const allowed = ALLOWED[role];
   if (allowed === '*') return true;
   return allowed.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'));

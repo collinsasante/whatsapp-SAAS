@@ -313,15 +313,19 @@ export class CommerceLedgerService {
   async getLedger(tenantId: string, opts: { page?: number; limit?: number } = {}) {
     const page = opts.page ?? 1;
     const limit = opts.limit ?? 50;
+    // Excludes eval-harness synthetic orders from the tenant's real revenue
+    // numbers -- orderId is required here, so this relation filter can't
+    // accidentally drop entries with no order the way a nullable relation would.
+    const realOrderOnly = { order: { isEvalOrder: false } };
     const [entries, total, summary] = await Promise.all([
       this.prisma.commerceLedgerEntry.findMany({
-        where: { tenantId },
+        where: { tenantId, ...realOrderOnly },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      this.prisma.commerceLedgerEntry.count({ where: { tenantId } }),
-      this.prisma.commerceLedgerEntry.groupBy({ by: ['type'], where: { tenantId }, _sum: { amountMajorUnits: true } }),
+      this.prisma.commerceLedgerEntry.count({ where: { tenantId, ...realOrderOnly } }),
+      this.prisma.commerceLedgerEntry.groupBy({ by: ['type'], where: { tenantId, ...realOrderOnly }, _sum: { amountMajorUnits: true } }),
     ]);
     return {
       entries,
