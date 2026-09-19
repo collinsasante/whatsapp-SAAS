@@ -5,10 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search, X, CheckCircle2, AlertCircle, RefreshCw, Clock,
   Settings, ChevronDown, Radio, Zap, Activity, Shield,
-  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert,
+  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert, Copy,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { channelsApi, facebookPagesApi, whatsappWebApi } from '@/lib/api';
+import { channelsApi, facebookPagesApi, whatsappWebApi, tenantApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import { getSocket, SocketEvent } from '@/lib/socket';
@@ -298,11 +298,50 @@ function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => 
   );
 }
 
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button type="button" onClick={copy} className="text-teal-500 hover:text-teal-700 transition-colors flex-shrink-0">
+      {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+    </button>
+  );
+}
+
 function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  // Two steps -- webhook setup must happen on Meta's side before the
+  // connection will actually receive anything, but nothing enforced that
+  // order before: credentials could be saved (and even look "connected",
+  // quality rating and all) while the webhook was never configured, with no
+  // visible sign anything was missing. Making this an explicit, un-skippable
+  // first step surfaces the one thing that caused the most real debugging
+  // time so far: the webhook URL/verify token, and the subscribed_apps call,
+  // being invisible and easy to miss.
+  const [step, setStep] = useState<'webhook' | 'credentials'>('webhook');
   const [form, setForm] = useState({ name: '', phoneNumberId: '', wabaId: '', accessToken: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const waDef = CHANNELS[0];
+  // The auth store's tenant object only carries {id, name, onboardingCompleted}
+  // (every login path's safeTenant is deliberately minimal) -- webhookVerifyToken
+  // isn't in it, so it's fetched fresh here the same way the Settings page does.
+  const [tenantInfo, setTenantInfo] = useState<{ id: string; webhookVerifyToken: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    tenantApi.get()
+      .then(res => { if (!cancelled) setTenantInfo(res.data as { id: string; webhookVerifyToken: string }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'https://yourdomain.com/api/v1';
+  const webhookUrl = `${apiUrl}/webhook/whatsapp/${tenantInfo?.id ?? ''}`;
+  const verifyToken = tenantInfo?.webhookVerifyToken ?? '';
 
   const handleSave = async () => {
     if (!form.name || !form.phoneNumberId || !form.wabaId || !form.accessToken) {
@@ -336,35 +375,83 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <ChannelIcon ch={waDef} size="lg" />
             <div>
               <h2 className="text-base font-bold text-gray-900">Connect WhatsApp Business API</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Enter your Meta credentials</p>
+              <p className="text-xs text-gray-500 mt-0.5">Step {step === 'webhook' ? '1' : '2'} of 2 — {step === 'webhook' ? 'Configure your webhook' : 'Enter your credentials'}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
         </div>
       </div>
-      <div className="px-6 py-4 space-y-3">
-        {fields.map(f => (
-          <div key={f.key}>
-            <label className="text-xs font-semibold text-gray-500 block mb-1.5">{f.label}</label>
-            <input
-              type={f.secret ? 'password' : 'text'} placeholder={f.placeholder}
-              value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-              className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-            />
+
+      {step === 'webhook' ? (
+        <>
+          <div className="px-6 py-4 space-y-3">
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Before entering your credentials, set these up in your Meta App Dashboard under
+              <span className="font-semibold"> WhatsApp → Configuration → Webhook</span>. Messages won&apos;t arrive in Verz until this is done.
+            </p>
+            <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 space-y-3">
+              <div>
+                <p className="text-[11px] font-bold text-teal-700 uppercase tracking-wide mb-1">Callback URL</p>
+                <div className="flex items-center gap-2 bg-white border border-teal-200 rounded-lg px-3 py-2">
+                  <code className="text-xs text-teal-800 break-all flex-1 font-mono">{webhookUrl}</code>
+                  <CopyButton value={webhookUrl} />
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-teal-700 uppercase tracking-wide mb-1">Verify Token</p>
+                <div className="flex items-center gap-2 bg-white border border-teal-200 rounded-lg px-3 py-2">
+                  <code className="text-xs text-teal-800 break-all flex-1 font-mono">{verifyToken}</code>
+                  <CopyButton value={verifyToken} />
+                </div>
+              </div>
+              <p className="text-xs text-teal-700">Subscribe the <span className="font-mono font-semibold">messages</span> field once verified.</p>
+            </div>
+            <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200">
+              <AlertCircle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <span>
+                Easy to miss: each phone number also needs its own one-time subscribe call —
+                <code className="bg-amber-100 px-1 rounded mx-1">POST /&#123;phone-number-id&#125;/subscribed_apps</code>
+                with your access token. Configuring the webhook alone isn&apos;t enough.
+              </span>
+            </div>
           </div>
-        ))}
-        {error && (
-          <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl">
-            <AlertCircle size={12} className="flex-shrink-0" />{error}
+          <div className="px-6 pb-6 space-y-2">
+            <button
+              onClick={() => setStep('credentials')}
+              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-emerald-600 hover:bg-emerald-700 text-white transition-all"
+            >
+              I&apos;ve configured this, continue
+            </button>
+            <button onClick={onClose} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium">Cancel</button>
           </div>
-        )}
-      </div>
-      <div className="px-6 pb-6 flex gap-2.5">
-        <button onClick={onClose} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Cancel</button>
-        <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
-          {saving ? 'Connecting…' : 'Connect'}
-        </button>
-      </div>
+        </>
+      ) : (
+        <>
+          <div className="px-6 py-4 space-y-3">
+            {fields.map(f => (
+              <div key={f.key}>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">{f.label}</label>
+                <input
+                  type={f.secret ? 'password' : 'text'} placeholder={f.placeholder}
+                  value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
+                />
+              </div>
+            ))}
+            {error && (
+              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl">
+                <AlertCircle size={12} className="flex-shrink-0" />{error}
+              </div>
+            )}
+          </div>
+          <div className="px-6 pb-6 flex gap-2.5">
+            <button onClick={() => setStep('webhook')} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Back</button>
+            <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
+              {saving ? 'Connecting…' : 'Connect'}
+            </button>
+          </div>
+        </>
+      )}
     </ModalShell>
   );
 }
