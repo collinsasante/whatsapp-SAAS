@@ -16,14 +16,27 @@ networks:
     driver: bridge
 
 volumes:
+  # Pinned to the real, already-populated volumes by their exact existing
+  # names (all previously created under the old implicit "infra" project,
+  # before the `name: verzchat-prod` above was added). Without this,
+  # Compose would create brand-new EMPTY volumes under the "verzchat-prod"
+  # prefix the next time any of these services gets recreated -- exactly
+  # the bug that caused a real "table users does not exist" outage on
+  # staging today. `external: true` makes Compose never create/manage
+  # these volumes' lifecycle, just mount exactly the named ones that
+  # already have the real production data.
   postgres_data:
-    driver: local
+    external: true
+    name: infra_postgres_data
   redis_data:
-    driver: local
+    external: true
+    name: infra_redis_data
   minio_data:
-    driver: local
+    external: true
+    name: infra_minio_data
   uploads_data:
-    driver: local
+    external: true
+    name: infra_uploads_data
 
 services:
   postgres:
