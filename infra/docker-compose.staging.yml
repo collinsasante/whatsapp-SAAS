@@ -19,10 +19,33 @@ networks:
     driver: bridge
 
 volumes:
+  # Pinned to the real, already-populated volume by its exact existing name.
+  # Before this, Compose derived an implicit name for this volume by
+  # prefixing it with the project name -- fine as long as the project name
+  # never changes, but the project-isolation fix above (explicit `name:`)
+  # changed it from the old implicit "infra" to "verzchat-staging", which
+  # made Compose create a brand-new EMPTY volume under that new prefix
+  # instead of reusing the real one. This caused a real, live "table users
+  # does not exist" outage. `external: true` tells Compose to never
+  # create/manage this volume's lifecycle -- just mount exactly the named
+  # volume that already has the real data, regardless of what the project
+  # name is now or ever becomes in the future.
   postgres_staging_data:
+    external: true
+    name: staging_postgres_staging_data
+  # Same issue, same fix -- confirmed live: the project-name change had
+  # already silently switched this to a new, nearly-empty volume by the
+  # time this was caught (232K of new uploads existed there, merged into
+  # the real one below before this pin was added).
   redis_staging_data:
+    external: true
+    name: staging_redis_staging_data
   minio_staging_data:
+    external: true
+    name: staging_minio_staging_data
   uploads_staging_data:
+    external: true
+    name: staging_uploads_staging_data
 
 services:
   postgres:
