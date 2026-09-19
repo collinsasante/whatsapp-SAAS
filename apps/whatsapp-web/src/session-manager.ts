@@ -251,7 +251,15 @@ export class SessionManager {
   }
 
   private async notifyBackend(payload: Record<string, unknown>): Promise<void> {
-    await axios.post(`${BACKEND_INTERNAL_URL}/internal/whatsapp-web/events`, payload, {
+    // The backend applies a global 'api/v1' prefix to every route (see
+    // apps/backend/src/main.ts's app.setGlobalPrefix('api/v1')) -- this
+    // internal controller is no exception, so the real registered path is
+    // /api/v1/internal/whatsapp-web/events, not the bare path this called
+    // until now. Confirmed live: every event notification was silently
+    // failing with a 404 ("Cannot POST /internal/whatsapp-web/events"),
+    // since nothing in dev/CI ever exercised a real Baileys connection to
+    // trigger this call for real.
+    await axios.post(`${BACKEND_INTERNAL_URL}/api/v1/internal/whatsapp-web/events`, payload, {
       headers: { 'x-internal-api-key': INTERNAL_API_KEY },
       timeout: 10_000,
     }).catch((err) => {
