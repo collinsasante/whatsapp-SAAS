@@ -1,5 +1,9 @@
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat openssl python3 make g++
+# git is required by pnpm to resolve @whiskeysockets/baileys' own git-URL
+# dependency (libsignal-node) -- both at `pnpm install` (deps stage) and
+# `pnpm deploy --prod` (builder stage), which re-resolves dependencies for
+# the isolated deploy output. Alpine's base image doesn't include it.
+RUN apk add --no-cache libc6-compat openssl python3 make g++ git
 WORKDIR /app
 RUN npm install -g pnpm@9.1.0
 
