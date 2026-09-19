@@ -5,6 +5,7 @@ import makeWASocket, {
   DisconnectReason,
   Browsers,
   downloadMediaMessage,
+  fetchLatestBaileysVersion,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
@@ -56,12 +57,30 @@ export class SessionManager {
     if (this.active.has(sessionId)) return;
 
     const authStore = await PostgresAuthStateStore.load(this.prisma, sessionId);
+
+    // WhatsApp's servers reject the noise handshake outright for a stale
+    // protocol version, failing every connection attempt with a generic
+    // "Connection Failure" during frame decoding -- confirmed live on
+    // staging (the very first real Baileys connection this codebase ever
+    // attempted; dev/CI can't reach WhatsApp's servers to catch this).
+    // Fetching the current version at connect time, with the library's
+    // baked-in default as a fallback if the version-check call itself
+    // fails, avoids pinning to whatever version shipped with this Baileys
+    // release.
+    let version: [number, number, number] | undefined;
+    try {
+      version = (await fetchLatestBaileysVersion()).version;
+    } catch (err) {
+      logger.warn({ sessionId, err }, 'failed to fetch latest WhatsApp Web version -- falling back to library default');
+    }
+
     const sock = makeWASocket({
       auth: authStore.authState,
       logger: logger.child({ sessionId }),
       browser: Browsers.macOS('Verz'),
       printQRInTerminal: false,
       syncFullHistory: false,
+      ...(version ? { version } : {}),
     });
 
     const entry: ActiveSession = { sock, authStore, reconnectAttempts: 0 };
