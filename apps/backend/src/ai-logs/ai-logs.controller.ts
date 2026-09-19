@@ -1,7 +1,10 @@
 import { Controller, ForbiddenException, Get, Patch, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { DevToolsGuard } from '../common/guards/dev-tools.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
-import { JwtPayload } from '@whatsapp-platform/shared-types';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { AiLogsService } from './ai-logs.service';
 import { AiResponderService } from '../ai/ai-responder.service';
 import { detectInjection } from '../ai-core/guards/injection-patterns';
@@ -53,6 +56,8 @@ export class AiLogsController {
 
   /** POST /ai-logs/test  body: { message }  — sandbox test without saving a real log */
   @Post('test')
+  @UseGuards(RolesGuard, DevToolsGuard)
+  @Roles(UserRole.ADMIN)
   async test(
     @CurrentUser() user: JwtPayload,
     @Body() body: { message: string },

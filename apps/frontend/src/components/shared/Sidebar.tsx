@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
-import { getPermissions } from '@/lib/permissions';
+import { getPermissions, isDevToolRoute, SHOW_DEV_TOOLS } from '@/lib/permissions';
 import { useAuthStore, WorkspaceEntry } from '@/store/auth.store';
 import { authApi, publicApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
@@ -339,14 +339,18 @@ export default function Sidebar() {
 
   const perms = getPermissions(user?.role);
 
-  const visibleMainNav = mainNav.filter((item) => {
-    if (item.label === 'Dashboard') return perms.showDashboard;
-    if (item.label === 'Broadcasts') return perms.showCampaigns;
-    if (item.label === 'Verz AI') return perms.showAI;
-    if (item.label === 'Commerce') return perms.showCommerce;
-    if (item.label === 'Analytics') return perms.showAnalytics;
-    return true;
-  });
+  const visibleMainNav = mainNav
+    .filter((item) => {
+      if (item.label === 'Dashboard') return perms.showDashboard;
+      if (item.label === 'Broadcasts') return perms.showCampaigns;
+      if (item.label === 'Verz AI') return perms.showAI;
+      if (item.label === 'Commerce') return perms.showCommerce;
+      if (item.label === 'Analytics') return perms.showAnalytics;
+      return true;
+    })
+    .map((item) => item.type === 'group'
+      ? { ...item, children: item.children.filter((child) => SHOW_DEV_TOOLS || !isDevToolRoute(child.href)) }
+      : item);
 
   const visibleSettingsChildren = settingsGroup.children.filter((child) => {
     if (child.href === '/settings') return perms.showSettings;

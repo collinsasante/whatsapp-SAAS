@@ -5,6 +5,7 @@ import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
 import { AiTestChatService } from './ai-test-chat.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { DevToolsGuard } from '../../common/guards/dev-tools.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -16,10 +17,10 @@ class TestChatMessageDto {
   message!: string;
 }
 
-/** Admin-only: drives the real general-purpose Verz-AI responder (SUGGESTION/AUTO_REPLY). */
+/** Admin-only, non-production-only: drives the real general-purpose Verz-AI responder (SUGGESTION/AUTO_REPLY). */
 @ApiTags('Verz-AI Test Chat')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, DevToolsGuard)
 @Roles(UserRole.ADMIN)
 @Controller('ai/test-chat')
 export class AiTestChatController {

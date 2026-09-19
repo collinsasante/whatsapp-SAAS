@@ -12,13 +12,14 @@ import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
-import { getPermissions, type Permissions } from '@/lib/permissions';
+import { getPermissions, isDevToolRoute, SHOW_DEV_TOOLS, type Permissions } from '@/lib/permissions';
 
 // Unlike the desktop Sidebar (which filters whole nav groups), mobile mixes
 // several differently-permissioned items inside one section (e.g. Broadcasts
 // has Campaigns/Templates/Automation/Chatbot/Verz AI, each its own flag) --
 // filtering per href avoids the desktop's past label-matching drift.
 function isDrawerItemVisible(href: string, perms: Permissions): boolean {
+  if (isDevToolRoute(href)) return SHOW_DEV_TOOLS;
   if (href === '/dashboard') return perms.showDashboard;
   if (href === '/campaigns') return perms.showCampaigns;
   if (href === '/templates') return perms.showTemplates;
