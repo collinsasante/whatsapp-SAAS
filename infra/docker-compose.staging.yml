@@ -1,9 +1,18 @@
 # Standalone staging compose — run with a single -f flag (no merge with production).
 # Usage:
-#   docker compose -p staging --env-file .env.staging -f infra/docker-compose.staging.yml up -d --build
+#   docker compose --env-file .env.staging -f infra/docker-compose.staging.yml up -d --build
 # Access: http://VPS_IP:8080, or https://staging.verzchat.com:8443 once
 # STAGING_PUBLIC_URL is set in .env.staging (needed for Meta OAuth/webhook
 # config, which requires HTTPS) -- see infra/nginx/nginx.staging.conf.
+#
+# The `-p staging` flag this comment used to require is no longer necessary
+# -- the `name:` field below declares the project name explicitly, so it
+# applies regardless of how the command is invoked. This matters because
+# docker-compose.yml (production) lives in this same "infra" directory;
+# without an explicit name, Compose derives one from the directory itself,
+# which both files would then share -- letting a command run against one
+# file recreate/touch the other stack's containers. This happened for real.
+name: verzchat-staging
 
 networks:
   staging-network:
