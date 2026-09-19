@@ -1,5 +1,16 @@
 version: '3.9'
 
+# Explicit project name -- without this, Compose derives the project name
+# from the containing directory ("infra"), which is the SAME directory
+# docker-compose.staging.yml lives in. Two compose files sharing one implicit
+# project name means Docker Compose can treat their containers as belonging
+# to the same project, so a command run against one file can recreate/touch
+# containers that actually belong to the other stack. This happened for
+# real: running `docker compose -f infra/docker-compose.yml up -d frontend`
+# also recreated wa_staging_frontend. An explicit name makes this
+# structurally impossible regardless of how the command is invoked.
+name: verzchat-prod
+
 networks:
   platform-network:
     driver: bridge
