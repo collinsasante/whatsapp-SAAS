@@ -9,9 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { apiClient } from '../../../src/lib/api';
 import { useAuthStore } from '../../../src/store/auth.store';
 
@@ -20,7 +23,45 @@ export default function EditProfileScreen() {
   const updateUser = useAuthStore((s) => s.updateUser);
 
   const [name, setName] = useState(user?.name ?? '');
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+
+  const handleChangeAvatar = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Allow photo access to change your profile picture.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'] as ImagePicker.MediaType[],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    setIsUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      const filename = asset.uri.split('/').pop() ?? 'avatar.jpg';
+      const type = asset.mimeType ?? 'image/jpeg';
+      formData.append('file', { uri: asset.uri, name: filename, type } as unknown as Blob);
+      const uploadRes = await apiClient.http.post('/media/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const { fileUrl } = uploadRes.data as { fileUrl: string };
+      await apiClient.auth.updateMe({ avatarUrl: fileUrl });
+      setAvatarUrl(fileUrl);
+      updateUser({ avatarUrl: fileUrl });
+    } catch {
+      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -62,14 +103,30 @@ export default function EditProfileScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
-          {/* Avatar placeholder */}
+          {/* Avatar */}
           <View className="items-center mb-8">
-            <View className="w-24 h-24 rounded-full bg-green/20 items-center justify-center border-2 border-green/30 mb-2">
-              <Text className="text-green font-extrabold text-4xl">
-                {(name || user?.name || '?').charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            <Text className="text-white/30 text-xs">Photo upload available in a future update</Text>
+            <TouchableOpacity
+              onPress={handleChangeAvatar}
+              disabled={isUploadingAvatar}
+              activeOpacity={0.8}
+              className="w-24 h-24 rounded-full bg-green/20 items-center justify-center border-2 border-green/30 mb-2 overflow-hidden"
+            >
+              {isUploadingAvatar ? (
+                <ActivityIndicator color="#25D366" />
+              ) : avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={{ width: 96, height: 96 }} />
+              ) : (
+                <Text className="text-green font-extrabold text-4xl">
+                  {(name || user?.name || '?').charAt(0).toUpperCase()}
+                </Text>
+              )}
+              <View className="absolute bottom-0 right-0 left-0 bg-black/50 py-1 items-center">
+                <Ionicons name="camera" size={14} color="#fff" />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleChangeAvatar} disabled={isUploadingAvatar}>
+              <Text className="text-green text-xs font-medium">Change photo</Text>
+            </TouchableOpacity>
           </View>
 
           <View className="gap-4">

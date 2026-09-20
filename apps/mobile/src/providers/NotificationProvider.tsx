@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { AppState, type AppStateStatus } from 'react-native';
-import { registerForPushNotifications } from '../lib/notifications';
+import { registerForPushNotifications, unregisterPushNotifications } from '../lib/notifications';
 import { useAuthStore } from '../store/auth.store';
 import { useMessageQueueStore } from '../store/message-queue.store';
 import { apiClient } from '../lib/api';
@@ -10,11 +10,17 @@ import { apiClient } from '../lib/api';
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const lastAppState = useRef<AppStateStatus>(AppState.currentState);
+  const wasAuthenticated = useRef(isAuthenticated);
 
-  // Register push token when user logs in
+  // Register push token on login, unregister on logout (so a stale token
+  // doesn't keep receiving pushes for an account this device signed out of)
   useEffect(() => {
-    if (!isAuthenticated) return;
-    registerForPushNotifications().catch(() => null);
+    if (isAuthenticated) {
+      registerForPushNotifications().catch(() => null);
+    } else if (wasAuthenticated.current) {
+      unregisterPushNotifications().catch(() => null);
+    }
+    wasAuthenticated.current = isAuthenticated;
   }, [isAuthenticated]);
 
   // Handle foreground notifications

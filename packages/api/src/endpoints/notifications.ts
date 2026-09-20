@@ -6,5 +6,9 @@ export function createNotificationsApi(client: AxiosInstance) {
     unreadCount: () => client.get('/notifications/unread-count'),
     markRead: (id: string) => client.patch(`/notifications/${id}/read`),
     markAllRead: () => client.patch('/notifications/read-all'),
+    registerPushToken: (token: string, platform: 'ios' | 'android') =>
+      client.post('/notifications/push-token', { token, platform }),
+    unregisterPushToken: (token: string) =>
+      client.delete('/notifications/push-token', { data: { token } }),
   };
 }

@@ -54,6 +54,7 @@ export function getPermissions(role: UserRole | undefined) {
     showChannels: admin,
     showManage: admin,
     showBilling: admin,
+    showCommerce: admin,
     showInbox: true,
     showContacts: true,
     showCalls: true,

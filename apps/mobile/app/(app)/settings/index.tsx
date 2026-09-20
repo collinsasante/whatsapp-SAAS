@@ -94,21 +94,20 @@ export default function SettingsScreen() {
             label="Change PIN"
             onPress={() => router.push('/(app)/settings/change-pin')}
           />
-          {permissions.showManage && (
-            <SettingRow
-              icon="people-outline"
-              iconColor="#25D366"
-              label="Team"
-              description="Manage agents, roles & invites"
-              onPress={() => router.push('/(app)/settings/team')}
-            />
-          )}
           {permissions.showBilling && (
             <SettingRow
               icon="card-outline"
               label="Billing & Subscription"
               onPress={() => router.push('/(app)/billing')}
               accent
+            />
+          )}
+          {permissions.canManageTeam && (
+            <SettingRow
+              icon="people-outline"
+              label="Team"
+              description="Manage members and roles"
+              onPress={() => router.push('/(app)/settings/team')}
             />
           )}
         </View>
@@ -168,6 +167,20 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* Commerce */}
+        {permissions.showCommerce && (
+          <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
+            <SectionHeader title="Commerce" />
+            <SettingRow
+              icon="storefront-outline"
+              iconColor="#25D366"
+              label="Orders & Products"
+              description="Manage orders and your product catalog"
+              onPress={() => router.push('/(app)/commerce')}
+            />
+          </View>
+        )}
+
         {/* Content */}
         <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
           <SectionHeader title="Content" />
@@ -208,6 +221,12 @@ export default function SettingsScreen() {
             label="Notifications"
             onPress={() => router.push('/(app)/settings/notifications')}
             badge={unreadCount && unreadCount > 0 ? unreadCount : undefined}
+          />
+          <SettingRow
+            icon="phone-portrait-outline"
+            label="Push Notification Settings"
+            description="Manage alerts on this device"
+            onPress={() => router.push('/(app)/settings/push-preferences')}
           />
         </View>
 
