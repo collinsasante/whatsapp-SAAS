@@ -24,7 +24,7 @@ interface ConnectedChannel {
   // WHATSAPP_WEB-only fields (flattened server-side from WhatsAppWebSession) --
   // undefined for every other channel type.
   sessionId?: string;
-  whatsappWebStatus?: 'QR_PENDING' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'LOGGED_OUT' | 'ERROR';
+  whatsappWebStatus?: 'QR_PENDING' | 'QR_EXPIRED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'LOGGED_OUT' | 'ERROR';
   lastError?: string | null;
 }
 
@@ -726,6 +726,7 @@ function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: Conn
 
 const WA_WEB_STATUS_META: Record<NonNullable<ConnectedChannel['whatsappWebStatus']>, { label: string; dot: 'emerald' | 'amber' | 'red' | 'gray' }> = {
   QR_PENDING: { label: 'Waiting for scan', dot: 'amber' },
+  QR_EXPIRED: { label: 'QR expired', dot: 'gray' },
   CONNECTING: { label: 'Connecting…', dot: 'amber' },
   CONNECTED: { label: 'Connected', dot: 'emerald' },
   RECONNECTING: { label: 'Reconnecting…', dot: 'amber' },
@@ -773,6 +774,9 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
         setStep('connected');
         toast.success('WhatsApp connected!');
         onConnected();
+      } else if (data.status === 'QR_EXPIRED') {
+        setErrorMsg('This QR code expired before it was scanned. Please try again to get a new one.');
+        setStep('error');
       } else if (data.status === 'ERROR' || data.status === 'LOGGED_OUT') {
         setErrorMsg('The connection failed or was closed before pairing finished. Please try again.');
         setStep('error');

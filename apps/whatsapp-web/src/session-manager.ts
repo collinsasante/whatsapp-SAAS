@@ -11,6 +11,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
+import { randomUUID } from 'crypto';
 import { PostgresAuthStateStore } from './auth-state-store';
 
 const BACKEND_INTERNAL_URL = process.env['BACKEND_INTERNAL_URL'] ?? 'http://backend:3001';
@@ -24,10 +25,25 @@ const RECONNECT_BASE_DELAY_MS = 2000;
 const RECONNECT_MAX_DELAY_MS = 5 * 60_000;
 const RECONNECT_MAX_ATTEMPTS = 10;
 
+// Identifies this process for the session-ownership lease below -- unique
+// per container/restart, not persisted anywhere else.
+const INSTANCE_ID = randomUUID();
+const LEASE_HEARTBEAT_INTERVAL_MS = 15_000;
+// Comfortably more than one missed heartbeat before a lease is considered
+// abandoned and reclaimable -- avoids a transient slow tick causing a false
+// takeover while the original holder is still alive and well.
+const LEASE_STALE_MS = 45_000;
+
 interface ActiveSession {
   sock: WASocket;
   authStore: PostgresAuthStateStore;
   reconnectAttempts: number;
+  // False until the very first successful 'open' -- distinguishes "this QR
+  // was never scanned before the connection died" (QR_EXPIRED, no point
+  // auto-retrying without a fresh QR) from "was connected, then dropped"
+  // (RECONNECTING, worth retrying with backoff).
+  hasConnectedOnce: boolean;
+  heartbeatTimer: NodeJS.Timeout;
 }
 
 export class SessionManager {
@@ -52,9 +68,51 @@ export class SessionManager {
     return this.active.has(sessionId);
   }
 
+  /**
+   * Atomically claims (or renews) this session's single-owner lease. Only
+   * succeeds if nobody holds it, this instance already does, or the current
+   * holder's lease has gone stale -- so if this service is ever scaled to
+   * more than one replica, at most one instance can ever hold a live
+   * Baileys socket for a given session at a time.
+   */
+  private async claimLease(sessionId: string): Promise<boolean> {
+    const result = await this.prisma.whatsAppWebSession.updateMany({
+      where: {
+        id: sessionId,
+        OR: [
+          { ownerInstanceId: null },
+          { ownerInstanceId: INSTANCE_ID },
+          { lockHeartbeatAt: { lt: new Date(Date.now() - LEASE_STALE_MS) } },
+        ],
+      },
+      data: { ownerInstanceId: INSTANCE_ID, lockHeartbeatAt: new Date() },
+    });
+    return result.count > 0;
+  }
+
+  /** Releases the lease immediately (rather than waiting for it to go stale) -- used on logout/permanent failure/graceful shutdown so another instance (or this one, on restart) doesn't sit idle for LEASE_STALE_MS. */
+  private async releaseLease(sessionId: string): Promise<void> {
+    await this.prisma.whatsAppWebSession.updateMany({
+      where: { id: sessionId, ownerInstanceId: INSTANCE_ID },
+      data: { ownerInstanceId: null, lockHeartbeatAt: null },
+    }).catch((err) => {
+      logger.warn({ sessionId, err }, 'failed to release WhatsApp Web session lease');
+    });
+  }
+
+  /** Releases every lease this instance currently holds -- called on graceful shutdown so a redeploy doesn't strand sessions for LEASE_STALE_MS before they're reclaimed. */
+  async releaseAllLeases(): Promise<void> {
+    await Promise.all([...this.active.keys()].map((sessionId) => this.releaseLease(sessionId)));
+  }
+
   /** Starts (or restarts) a Baileys socket for this session. Emits QR/status events to backend as they happen. */
   async connect(sessionId: string, tenantId: string, channelId: string): Promise<void> {
     if (this.active.has(sessionId)) return;
+
+    if (!(await this.claimLease(sessionId))) {
+      logger.warn({ sessionId }, 'could not claim WhatsApp Web session lease -- another instance already holds it');
+      return;
+    }
 
     const authStore = await PostgresAuthStateStore.load(this.prisma, sessionId);
 
@@ -83,7 +141,26 @@ export class SessionManager {
       ...(version ? { version } : {}),
     });
 
-    const entry: ActiveSession = { sock, authStore, reconnectAttempts: 0 };
+    const heartbeatTimer = setInterval(() => {
+      void this.claimLease(sessionId).then((held) => {
+        if (!held) {
+          // Lost the lease (shouldn't normally happen while actively
+          // heartbeating, but a long GC pause or DB hiccup could let it go
+          // stale) -- another instance may now own this session, so back
+          // off rather than keep running a socket we no longer have a
+          // lease for.
+          logger.warn({ sessionId }, 'lost WhatsApp Web session lease during heartbeat -- tearing down local socket');
+          const current = this.active.get(sessionId);
+          if (current) {
+            clearInterval(current.heartbeatTimer);
+            this.active.delete(sessionId);
+            current.sock.end(undefined);
+          }
+        }
+      }).catch((err) => logger.warn({ sessionId, err }, 'WhatsApp Web session lease heartbeat failed'));
+    }, LEASE_HEARTBEAT_INTERVAL_MS);
+
+    const entry: ActiveSession = { sock, authStore, reconnectAttempts: 0, hasConnectedOnce: false, heartbeatTimer };
     this.active.set(sessionId, entry);
 
     sock.ev.on('creds.update', () => { void authStore.saveCreds(); });
@@ -119,6 +196,7 @@ export class SessionManager {
 
     if (update.connection === 'open') {
       entry.reconnectAttempts = 0;
+      entry.hasConnectedOnce = true;
       const phoneNumber = entry.sock.user?.id?.split(':')[0]?.split('@')[0];
       await this.prisma.whatsAppWebSession.update({
         where: { id: sessionId },
@@ -134,21 +212,35 @@ export class SessionManager {
       const statusCode = boom?.output?.statusCode;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
 
+      clearInterval(entry.heartbeatTimer);
       this.active.delete(sessionId);
 
       if (loggedOut) {
         await this.prisma.whatsAppWebSession.update({
           where: { id: sessionId },
-          data: { status: 'LOGGED_OUT', encryptedAuthState: null, lastError: 'Logged out from the linked device', lastErrorAt: new Date() },
+          data: { status: 'LOGGED_OUT', encryptedAuthState: null, lastError: 'Logged out from the linked device', lastErrorAt: new Date(), ownerInstanceId: null, lockHeartbeatAt: null },
         }).catch(() => {});
         await this.notifyBackend({ type: 'status', tenantId, sessionId, channelId, status: 'LOGGED_OUT' });
+        return;
+      }
+
+      // The QR was never scanned before Baileys gave up refreshing it and
+      // closed the connection -- terminal until the user explicitly starts a
+      // fresh pairing attempt, not something worth the reconnect backoff
+      // below (nothing to reconnect to; auth never completed).
+      if (!entry.hasConnectedOnce) {
+        await this.prisma.whatsAppWebSession.update({
+          where: { id: sessionId },
+          data: { status: 'QR_EXPIRED', lastError: 'QR code expired before it was scanned', lastErrorAt: new Date(), ownerInstanceId: null, lockHeartbeatAt: null },
+        }).catch(() => {});
+        await this.notifyBackend({ type: 'status', tenantId, sessionId, channelId, status: 'QR_EXPIRED' });
         return;
       }
 
       if (entry.reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
         await this.prisma.whatsAppWebSession.update({
           where: { id: sessionId },
-          data: { status: 'ERROR', lastError: 'Exceeded max reconnect attempts', lastErrorAt: new Date() },
+          data: { status: 'ERROR', lastError: 'Exceeded max reconnect attempts', lastErrorAt: new Date(), ownerInstanceId: null, lockHeartbeatAt: null },
         }).catch(() => {});
         await this.notifyBackend({ type: 'status', tenantId, sessionId, channelId, status: 'ERROR' });
         return;
@@ -250,17 +342,27 @@ export class SessionManager {
   async disconnect(sessionId: string): Promise<void> {
     const entry = this.active.get(sessionId);
     if (entry) {
+      clearInterval(entry.heartbeatTimer);
       await entry.authStore.flush();
       entry.sock.end(undefined);
       this.active.delete(sessionId);
+      // Deliberately keeps the lease held (not released) -- this is a
+      // resumable disconnect (backend marks it RECONNECTING, expecting to
+      // reconnect without a fresh QR scan later), so this instance should
+      // stay the owner rather than let another instance race to claim it
+      // the moment it goes stale.
     }
   }
 
   async logout(sessionId: string): Promise<void> {
     const entry = this.active.get(sessionId);
     if (entry) {
+      clearInterval(entry.heartbeatTimer);
       await entry.sock.logout().catch(() => {});
       this.active.delete(sessionId);
+      // sock.logout() triggers Baileys' own 'close' event (loggedOut reason),
+      // which releases the lease via handleConnectionUpdate -- no need to
+      // duplicate that here.
     }
   }
 

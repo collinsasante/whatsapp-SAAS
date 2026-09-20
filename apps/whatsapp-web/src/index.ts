@@ -103,12 +103,16 @@ async function bootstrap() {
     console.log(`WhatsApp Web session-manager running on port ${PORT}`);
   });
 
-  // Graceful shutdown: persist every active session's auth state before the
-  // process exits, so a redeploy/restart doesn't lose in-memory-only key
-  // writes that hadn't hit their debounce yet.
+  // Graceful shutdown: persist every active session's auth state and release
+  // this instance's session-ownership leases before the process exits, so a
+  // redeploy/restart doesn't lose in-memory-only key writes that hadn't hit
+  // their debounce yet, and the restarted process (or another instance, if
+  // ever scaled beyond one) doesn't have to wait out the lease staleness
+  // timeout before it can reclaim and reconnect these sessions.
   const shutdown = async () => {
-    console.log('Shutting down -- flushing active session auth state');
+    console.log('Shutting down -- flushing active session auth state and releasing session leases');
     await sessionManager.flushAll();
+    await sessionManager.releaseAllLeases();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000);
   };
