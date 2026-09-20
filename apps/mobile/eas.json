@@ -15,7 +15,8 @@
       "distribution": "internal",
       "env": {
         "APP_ENV": "staging",
-        "API_URL": "https://staging-api.verzchat.com/api/v1"
+        "API_URL": "https://staging.verzchat.com:8443/api/v1",
+        "SOCKET_URL": "https://staging.verzchat.com:8443"
       },
       "ios": {
         "simulator": false
@@ -25,7 +26,8 @@
       "autoIncrement": true,
       "env": {
         "APP_ENV": "production",
-        "API_URL": "https://api.verzchat.com/api/v1"
+        "API_URL": "https://verzchat.com/api/v1",
+        "SOCKET_URL": "https://verzchat.com"
       },
       "ios": {
         "resourceClass": "m-medium"
