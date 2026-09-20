@@ -810,6 +810,17 @@ model WhatsAppWebSession {
   lastSeenAt         DateTime? @map("last_seen_at")
   lastError          String?   @map("last_error")
   lastErrorAt        DateTime? @map("last_error_at")
+  // Single-owner lease for the live Baileys socket -- apps/whatsapp-web
+  // claims this via a conditional UPDATE before opening a connection, and
+  // renews it on a heartbeat while the socket is active. Prevents two
+  // instances of the service from ever running the same WhatsApp session
+  // concurrently (which would cause duplicate inbound processing and an
+  // unstable, repeatedly-kicked Baileys connection) if this service is ever
+  // scaled beyond one replica. A stale lease (no heartbeat within the
+  // timeout) is free for any instance to reclaim, so a crashed process
+  // doesn't permanently strand the session.
+  ownerInstanceId    String?   @map("owner_instance_id")
+  lockHeartbeatAt    DateTime? @map("lock_heartbeat_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 

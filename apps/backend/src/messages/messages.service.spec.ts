@@ -13,8 +13,9 @@ function buildDeps() {
     prisma: {
       tenantSettings: { findUnique: jest.fn() },
       tenant: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }) },
+      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null) },
       conversation: { update: jest.fn().mockResolvedValue({ id: 'conv1' }) },
+      $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
     },
     whatsappService: {
       sendTextMessage: jest.fn().mockResolvedValue(undefined),
@@ -22,8 +23,11 @@ function buildDeps() {
       sendMediaMessageById: jest.fn().mockResolvedValue('wamid.media'),
       sendMediaMessage: jest.fn().mockResolvedValue('wamid.media-fallback'),
     },
-    conversationsService: { request: jest.fn().mockResolvedValue(null), requestWithRetry: jest.fn().mockResolvedValue(true) },
-    contactsService: {},
+    conversationsService: {
+      request: jest.fn().mockResolvedValue(null), requestWithRetry: jest.fn().mockResolvedValue(true),
+      findOrCreate: jest.fn().mockResolvedValue({ id: 'conv1', status: 'OPEN', channelId: 'chan1', unreadCount: 0 }),
+    },
+    contactsService: { findOrCreate: jest.fn().mockResolvedValue({ id: 'contact1', phone: '+233555000111', name: 'Jane' }) },
     realtimeService: { emitAiSuggestion: jest.fn(), emitNewMessage: jest.fn(), emitConversationUpdated: jest.fn() },
     storageService: { downloadBuffer: jest.fn().mockResolvedValue({ buffer: Buffer.from('img'), mimeType: 'image/jpeg' }) },
     chatbotFlowsService: {},
@@ -443,6 +447,73 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       await expect(first).rejects.toThrow('boom');
       await expect(second).resolves.toBeUndefined();
       expect(ran).toEqual(['first', 'second']);
+    });
+  });
+
+  describe('handleInboundWhatsAppWeb (unofficial QR/linked-device channel)', () => {
+    it('is idempotent: a providerMessageId already seen for this tenant short-circuits without creating a new contact/conversation/message', async () => {
+      const deps = buildDeps();
+      deps.prisma.message.findFirst.mockResolvedValue({ id: 'existing-msg' });
+      const service = buildService(deps);
+
+      const result = await service.handleInboundWhatsAppWeb('t1', 'chan1', '+233555000111', 'wa-msg-1', { content: 'hi' });
+
+      expect(result).toEqual({ id: 'existing-msg' });
+      expect(deps.contactsService.findOrCreate).not.toHaveBeenCalled();
+      expect(deps.conversationsService.findOrCreate).not.toHaveBeenCalled();
+      expect(deps.prisma.message.create).not.toHaveBeenCalled();
+    });
+
+    it('scopes the duplicate-check to the calling tenant -- same providerMessageId, different tenant, is not treated as a duplicate', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(service as any, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+
+      await service.handleInboundWhatsAppWeb('tenant-a', 'chan1', '+233555000111', 'wa-msg-1', { content: 'hi' });
+
+      expect(deps.prisma.message.findFirst).toHaveBeenCalledWith({
+        where: { whatsappMessageId: 'wa-msg-1', tenantId: 'tenant-a' },
+        select: { id: true },
+      });
+    });
+
+    it('creates the contact/conversation/message and emits realtime events for a new inbound message', async () => {
+      const deps = buildDeps();
+      deps.prisma.message.create.mockResolvedValue({ id: 'msg-new', createdAt: new Date('2026-01-01') });
+      const service = buildService(deps);
+      // dispatchAiAndChatbot is exercised by the other describe blocks above via its
+      // own extracted methods -- stub it here so this test stays focused on the
+      // contact/conversation/message/realtime plumbing that's unique to this entry point.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(service as any, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+
+      const result = await service.handleInboundWhatsAppWeb('t1', 'chan1', '+233555000111', 'wa-msg-2', { content: 'Hello!' }, 'Jane Doe');
+
+      expect(deps.contactsService.findOrCreate).toHaveBeenCalledWith('t1', '+233555000111', 'Jane Doe');
+      expect(deps.conversationsService.findOrCreate).toHaveBeenCalledWith('t1', 'contact1', undefined, undefined, 'chan1');
+      expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          tenantId: 't1', whatsappMessageId: 'wa-msg-2', channelId: 'chan1',
+          direction: 'INBOUND', content: 'Hello!',
+        }),
+      }));
+      expect(deps.realtimeService.emitNewMessage).toHaveBeenCalledWith('t1', 'conv1', expect.objectContaining({ id: 'msg-new' }));
+      expect(result).toEqual(expect.objectContaining({ id: 'msg-new' }));
+    });
+
+    it('falls back to a placeholder when neither text content nor a downloadable media URL is present', async () => {
+      const deps = buildDeps();
+      deps.prisma.message.create.mockResolvedValue({ id: 'msg-placeholder', createdAt: new Date('2026-01-01') });
+      const service = buildService(deps);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest.spyOn(service as any, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+
+      await service.handleInboundWhatsAppWeb('t1', 'chan1', '+233555000111', 'wa-msg-3', {});
+
+      expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ content: "[Sent a message type we can't display yet]" }),
+      }));
     });
   });
 });
