@@ -9,7 +9,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { SplashAnimation } from '../src/components/SplashAnimation';
 import { useAuthStore } from '../src/store/auth.store';
-import { mobileTokenStorage } from '../src/lib/storage';
+import { mobileTokenStorage, refreshTokenStorage } from '../src/lib/storage';
 import { apiClient } from '../src/lib/api';
 import { isTokenExpired } from '@whatsapp-platform/auth';
 import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
@@ -25,16 +25,25 @@ function RootLayoutInner() {
   useEffect(() => {
     const restoreSession = async () => {
       try {
+        // Hydrate the in-memory refresh-token cache from SecureStore before
+        // any request runs -- the API client's 401 retry reads it synchronously.
+        await refreshTokenStorage.hydrate();
+
         const token = mobileTokenStorage.getAccessToken();
-        if (token && !isTokenExpired(token)) {
+        const hasRefreshToken = !!refreshTokenStorage.getSync();
+        if (token && (!isTokenExpired(token) || hasRefreshToken)) {
+          // getMe() with an expired access token 401s once, which the API
+          // client's interceptor silently recovers from via the stored
+          // refresh token before retrying -- no manual refresh call needed here.
           const res = await apiClient.auth.getMe();
           const { user, tenant } = res.data as { user: AuthUser; tenant: AuthTenant };
-          setAuth(user, tenant, token);
+          setAuth(user, tenant, mobileTokenStorage.getAccessToken() ?? token);
         } else if (token) {
           mobileTokenStorage.clearAccessToken();
         }
       } catch {
         mobileTokenStorage.clearAccessToken();
+        await refreshTokenStorage.clear();
       } finally {
         setReady();
         // Hide the native splash immediately, our JS splash takes over

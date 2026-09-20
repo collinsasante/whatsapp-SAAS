@@ -10,6 +10,17 @@ export function createAuthApi(client: AxiosInstance) {
       client.post('/auth/setup-pin', { tempToken, pin }),
     selectWorkspace: (tempToken: string, tenantId: string) =>
       client.post('/auth/select-workspace', { tempToken, tenantId }),
+    // Mobile variants: same underlying auth logic, but the response includes
+    // a refreshToken in the body instead of an HttpOnly cookie (no cookie jar
+    // on React Native) -- see auth.controller.ts's "Mobile" section.
+    loginMobile: (email: string, password: string) =>
+      client.post('/auth/mobile/login', { email, password }),
+    verify2FAMobile: (tempToken: string, code: string) =>
+      client.post('/auth/mobile/verify-2fa', { tempToken, code }),
+    setupPinMobile: (tempToken: string, pin: string) =>
+      client.post('/auth/mobile/setup-pin', { tempToken, pin }),
+    selectWorkspaceMobile: (tempToken: string, tenantId: string) =>
+      client.post('/auth/mobile/select-workspace', { tempToken, tenantId }),
     register: (name: string, email: string, password: string, phoneNumber?: string) =>
       client.post('/auth/register', { name, email, password, ...(phoneNumber ? { phoneNumber } : {}) }),
     verifyEmail: (token: string) =>
@@ -21,6 +32,7 @@ export function createAuthApi(client: AxiosInstance) {
     resetPassword: (token: string, password: string) =>
       client.post('/auth/reset-password', { token, password }),
     firebaseLogin: (idToken: string) => client.post('/auth/firebase', { idToken }),
+    firebaseLoginMobile: (idToken: string) => client.post('/auth/mobile/firebase', { idToken }),
     googleMobileLogin: (accessToken: string) => client.post('/auth/google/mobile', { accessToken }),
     getWorkspaces: () => client.get('/auth/workspaces'),
     switchWorkspace: (workspaceId: string) =>

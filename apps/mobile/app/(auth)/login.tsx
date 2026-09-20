@@ -40,7 +40,7 @@ export default function LoginScreen() {
 
     setIsLoading(true);
     try {
-      const res = await apiClient.auth.login(cleanEmail, cleanPassword);
+      const res = await apiClient.auth.loginMobile(cleanEmail, cleanPassword);
       const result = res.data as {
         requiresWorkspaceSelection?: boolean;
         requiresPin?: boolean;
@@ -50,6 +50,7 @@ export default function LoginScreen() {
         user?: AuthUser;
         tenant?: AuthTenant;
         accessToken?: string;
+        refreshToken?: string;
       };
 
       if (result.requiresWorkspaceSelection && result.tempToken && result.workspaces) {
@@ -75,7 +76,7 @@ export default function LoginScreen() {
       }
 
       if (result.user && result.tenant && result.accessToken) {
-        setAuth(result.user, result.tenant, result.accessToken);
+        setAuth(result.user, result.tenant, result.accessToken, result.refreshToken);
         router.replace('/(app)');
       }
     } catch (err: unknown) {

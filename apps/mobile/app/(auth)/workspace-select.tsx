@@ -31,13 +31,14 @@ export default function WorkspaceSelectScreen() {
     if (loadingId) return;
     setLoadingId(workspace.id);
     try {
-      const res = await apiClient.auth.selectWorkspace(tempToken, workspace.id);
-      const { user, tenant, accessToken } = res.data as {
+      const res = await apiClient.auth.selectWorkspaceMobile(tempToken, workspace.id);
+      const { user, tenant, accessToken, refreshToken } = res.data as {
         user: AuthUser;
         tenant: AuthTenant;
         accessToken: string;
+        refreshToken: string;
       };
-      setAuth(user, tenant, accessToken);
+      setAuth(user, tenant, accessToken, refreshToken);
       router.replace('/(app)');
     } catch {
       Alert.alert('Error', 'Failed to select workspace. Please try again.');

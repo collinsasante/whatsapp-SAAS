@@ -16,6 +16,8 @@ export interface ApiClientConfig {
   getRefreshToken?: () => string | null;
   /** Called when a new access token is issued (e.g. update in-memory store) */
   onTokenRefreshed?: (accessToken: string) => void;
+  /** Mobile only: called when the refresh endpoint rotates in a new refresh token */
+  onRefreshTokenRotated?: (refreshToken: string) => void;
   /** Called when the session is permanently expired */
   onSessionExpired?: () => void;
 }

@@ -42,14 +42,15 @@ export default function VerifyPinScreen() {
     setIsLoading(true);
     try {
       const res = isSetup
-        ? await apiClient.auth.setupPin(tempToken, code)
-        : await apiClient.auth.verify2FA(tempToken, code);
-      const { user, tenant, accessToken } = res.data as {
+        ? await apiClient.auth.setupPinMobile(tempToken, code)
+        : await apiClient.auth.verify2FAMobile(tempToken, code);
+      const { user, tenant, accessToken, refreshToken } = res.data as {
         user: AuthUser;
         tenant: AuthTenant;
         accessToken: string;
+        refreshToken: string;
       };
-      setAuth(user, tenant, accessToken);
+      setAuth(user, tenant, accessToken, refreshToken);
       router.replace('/(app)');
     } catch {
       Alert.alert('Invalid PIN', 'The PIN you entered is incorrect. Please try again.');
