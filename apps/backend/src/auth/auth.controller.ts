@@ -1,6 +1,6 @@
 import {
   Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query,
-  Req, Res, UseGuards,
+  Req, Res, UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -163,6 +163,74 @@ export class AuthController {
     return { accessToken: result.accessToken, expiresIn: result.expiresIn };
   }
 
+  // ─── Mobile (React Native has no cookie jar — refresh token travels in the
+  // body/header instead of an HttpOnly cookie). These are genuinely separate
+  // routes from their web equivalents above, not a shared route branching on
+  // a client-supplied flag: a web XSS script can call these too, but it has
+  // no refresh token to present (it can't read the HttpOnly cookie), so
+  // there's nothing for it to exfiltrate. The web routes above are
+  // byte-for-byte unchanged — this never weakens web's XSS protection. ────
+
+  @Post('mobile/login')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: '[Mobile] Login with email and password — returns tokens in the body' })
+  async mobileLogin(@Body() dto: LoginDto, @Req() req: Request) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    const result = await this.authService.login(dto, ip);
+    if ('requiresPin' in result || 'requiresPinSetup' in result || 'requiresWorkspaceSelection' in result) return result;
+    return result as typeof result & { refreshToken: string };
+  }
+
+  @Post('mobile/setup-pin')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: '[Mobile] Set login PIN for the first time — returns tokens in the body' })
+  async mobileSetupPin(@Body() body: { tempToken: string; pin: string }, @Req() req: Request) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    return this.authService.setupPin(body.tempToken, body.pin, ip);
+  }
+
+  @Post('mobile/select-workspace')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: '[Mobile] Complete login by selecting a workspace — returns tokens in the body' })
+  async mobileSelectWorkspace(@Body() body: { tempToken: string; tenantId: string }, @Req() req: Request) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    return this.authService.selectWorkspace(body.tempToken, body.tenantId, ip);
+  }
+
+  @Post('mobile/verify-2fa')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: '[Mobile] Verify login PIN and complete sign-in — returns tokens in the body' })
+  async mobileVerify2FA(@Body() body: { tempToken: string; code: string }, @Req() req: Request) {
+    const ip = req.ip ?? req.socket?.remoteAddress;
+    return this.authService.verify2FA(body.tempToken, body.code, ip);
+  }
+
+  @Post('mobile/refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[Mobile] Refresh access token via X-Refresh-Token header — returns a rotated refresh token in the body' })
+  async mobileRefresh(@Req() req: Request) {
+    const token = req.header('x-refresh-token');
+    if (!token) {
+      throw new UnauthorizedException('No refresh token');
+    }
+    return this.authService.refreshTokens(token);
+  }
+
+  @Post('mobile/firebase')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[Mobile] Sign in with a Firebase ID token — returns tokens in the body' })
+  async mobileFirebaseLogin(@Body() body: { idToken: string }) {
+    return this.authService.loginWithFirebase(body.idToken);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -245,13 +313,9 @@ export class AuthController {
   @Post('google/mobile')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Sign in with a Google OAuth access token from mobile' })
-  async googleMobileLogin(
-    @Body() body: { accessToken: string },
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async googleMobileLogin(@Body() body: { accessToken: string }) {
     const result = await this.authService.loginWithGoogleAccessToken(body.accessToken);
-    this.setRefreshCookie(res as unknown as import('express').Response, result.refreshToken);
-    return { accessToken: result.accessToken, expiresIn: result.expiresIn, user: result.user, tenant: result.tenant };
+    return result;
   }
 
   // ─── Google OAuth ────────────────────────────────────────────────────────────
