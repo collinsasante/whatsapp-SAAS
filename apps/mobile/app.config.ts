@@ -7,10 +7,18 @@ const IS_STAGING = APP_ENV === 'staging';
 const apiUrl =
   process.env.API_URL ??
   (IS_PRODUCTION
-    ? 'https://api.verzchat.com/api/v1'
+    ? 'https://verzchat.com/api/v1'
     : IS_STAGING
-    ? 'https://staging-api.verzchat.com/api/v1'
+    ? 'https://staging.verzchat.com:8443/api/v1'
     : 'http://localhost:3001/api/v1');
+
+const socketUrl =
+  process.env.SOCKET_URL ??
+  (IS_PRODUCTION
+    ? 'https://verzchat.com'
+    : IS_STAGING
+    ? 'https://staging.verzchat.com:8443'
+    : 'http://localhost:3002');
 
 const appName = IS_PRODUCTION
   ? 'VerzChat'
@@ -48,6 +56,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       ...config.extra,
       apiUrl,
+      socketUrl,
       appEnv: APP_ENV,
       ...(easProjectId && {
         eas: { projectId: easProjectId },
