@@ -82,14 +82,16 @@ export function GoogleSignInButton({ onError }: Props) {
       const firebaseData = (await firebaseRes.json()) as { idToken?: string };
       if (!firebaseData.idToken) throw new Error('No Firebase ID token');
 
-      // Send Firebase ID token to our backend — same endpoint as the web app
-      const res = await apiClient.auth.firebaseLogin(firebaseData.idToken);
-      const { user, tenant, accessToken } = res.data as {
+      // Send Firebase ID token to our backend — mobile variant returns the
+      // refresh token in the body (no cookie jar on React Native)
+      const res = await apiClient.auth.firebaseLoginMobile(firebaseData.idToken);
+      const { user, tenant, accessToken, refreshToken } = res.data as {
         user: AuthUser;
         tenant: AuthTenant;
         accessToken: string;
+        refreshToken: string;
       };
-      setAuth(user, tenant, accessToken);
+      setAuth(user, tenant, accessToken, refreshToken);
       router.replace('/(app)');
     } catch {
       onError?.('Google sign-in failed. Please try again.');

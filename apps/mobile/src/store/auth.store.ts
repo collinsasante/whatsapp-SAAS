@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AuthUser, AuthTenant, WorkspaceEntry } from '@whatsapp-platform/auth';
-import { mobileTokenStorage } from '../lib/storage';
+import { mobileTokenStorage, refreshTokenStorage } from '../lib/storage';
 
 interface AuthState {
   user: AuthUser | null;
@@ -9,7 +9,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isReady: boolean;
 
-  setAuth: (user: AuthUser, tenant: AuthTenant, accessToken: string) => void;
+  setAuth: (user: AuthUser, tenant: AuthTenant, accessToken: string, refreshToken?: string) => void;
   setAccessToken: (token: string) => void;
   setWorkspaces: (workspaces: WorkspaceEntry[]) => void;
   switchTenant: (tenant: AuthTenant, accessToken: string) => void;
@@ -25,8 +25,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
   isAuthenticated: false,
   isReady: false,
 
-  setAuth: (user, tenant, accessToken) => {
+  setAuth: (user, tenant, accessToken, refreshToken) => {
     mobileTokenStorage.setAccessToken(accessToken);
+    if (refreshToken) void refreshTokenStorage.set(refreshToken);
     set({ user, tenant, isAuthenticated: true });
   },
 
@@ -48,6 +49,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
   clearAuth: () => {
     mobileTokenStorage.clearAccessToken();
+    void refreshTokenStorage.clear();
     set({ user: null, tenant: null, workspaces: [], isAuthenticated: false });
   },
 
