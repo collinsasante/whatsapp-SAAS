@@ -17,6 +17,7 @@ export * from './endpoints/chatbot';
 export * from './endpoints/billing';
 export * from './endpoints/manageSettings';
 export * from './endpoints/commerce';
+export * from './endpoints/analytics';
 
 import type { AxiosInstance } from 'axios';
 import type { ApiClientConfig } from './types';
@@ -38,6 +39,7 @@ import { createChatbotFlowsApi } from './endpoints/chatbot';
 import { createBillingApi } from './endpoints/billing';
 import { createManageSettingsApi } from './endpoints/manageSettings';
 import { createCommerceProductsApi, createCommerceOrdersApi } from './endpoints/commerce';
+import { createAnalyticsApi } from './endpoints/analytics';
 
 export interface VerzChatApiClient {
   http: AxiosInstance;
@@ -62,6 +64,7 @@ export interface VerzChatApiClient {
   manageSettings: ReturnType<typeof createManageSettingsApi>;
   commerceProducts: ReturnType<typeof createCommerceProductsApi>;
   commerceOrders: ReturnType<typeof createCommerceOrdersApi>;
+  analytics: ReturnType<typeof createAnalyticsApi>;
 }
 
 export function createVerzChatApi(config: ApiClientConfig): VerzChatApiClient {
@@ -89,5 +92,6 @@ export function createVerzChatApi(config: ApiClientConfig): VerzChatApiClient {
     manageSettings: createManageSettingsApi(http),
     commerceProducts: createCommerceProductsApi(http),
     commerceOrders: createCommerceOrdersApi(http),
+    analytics: createAnalyticsApi(http),
   };
 }

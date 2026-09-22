@@ -91,16 +91,21 @@ export const colors = {
     busy: '#ef4444',
   },
 
-  // Light mode overrides
+  // Light mode -- mirrors the `surface`/`text` dark tokens above, key-for-key,
+  // so every dark:bg-surface-* / dark:text-white/* pairing has a light default.
   light: {
     background: '#ffffff',
     surface: '#f8fafc',
     card: '#ffffff',
+    elevated: '#f1f5f9',
     border: '#e2e8f0',
+    borderLight: '#cbd5e1',
     text: {
       primary: '#0f172a',
       secondary: '#475569',
       muted: '#94a3b8',
+      disabled: '#cbd5e1',
+      inverse: '#ffffff',
     },
   },
 } as const;
