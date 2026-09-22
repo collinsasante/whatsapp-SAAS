@@ -17,8 +17,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { apiClient } from '../../../src/lib/api';
 import { useAuthStore } from '../../../src/store/auth.store';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 export default function EditProfileScreen() {
+  const { colors } = useAppTheme();
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
 
@@ -83,12 +85,12 @@ export default function EditProfileScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top', 'bottom']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top', 'bottom']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text className="text-green text-base">←</Text>
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Edit Profile</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Edit Profile</Text>
         <TouchableOpacity onPress={handleSave} disabled={isSaving}>
           {isSaving ? (
             <ActivityIndicator color="#25D366" size="small" />
@@ -131,11 +133,11 @@ export default function EditProfileScreen() {
 
           <View className="gap-4">
             <View>
-              <Text className="text-white/70 text-sm font-medium mb-2">Full Name</Text>
+              <Text className="text-light-text-secondary dark:text-white/70 text-sm font-medium mb-2">Full Name</Text>
               <TextInput
-                className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
+                className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3.5 text-light-text-primary dark:text-white text-base"
                 placeholder="Your name"
-                placeholderTextColor="rgba(255,255,255,0.3)"
+                placeholderTextColor={colors.textDisabled}
                 value={name}
                 onChangeText={setName}
                 autoCapitalize="words"
@@ -146,17 +148,17 @@ export default function EditProfileScreen() {
             </View>
 
             <View>
-              <Text className="text-white/70 text-sm font-medium mb-2">Email</Text>
-              <View className="bg-surface-card/50 border border-white/5 rounded-xl px-4 py-3.5">
-                <Text className="text-white/40 text-base">{user?.email}</Text>
+              <Text className="text-light-text-secondary dark:text-white/70 text-sm font-medium mb-2">Email</Text>
+              <View className="bg-light-card dark:bg-surface-card/50 border border-light-border dark:border-white/5 rounded-xl px-4 py-3.5">
+                <Text className="text-light-text-muted dark:text-white/40 text-base">{user?.email}</Text>
               </View>
-              <Text className="text-white/30 text-xs mt-1.5">Email cannot be changed here</Text>
+              <Text className="text-light-text-disabled dark:text-white/30 text-xs mt-1.5">Email cannot be changed here</Text>
             </View>
 
             <View>
-              <Text className="text-white/70 text-sm font-medium mb-2">Role</Text>
-              <View className="bg-surface-card/50 border border-white/5 rounded-xl px-4 py-3.5">
-                <Text className="text-white/40 text-base capitalize">
+              <Text className="text-light-text-secondary dark:text-white/70 text-sm font-medium mb-2">Role</Text>
+              <View className="bg-light-card dark:bg-surface-card/50 border border-light-border dark:border-white/5 rounded-xl px-4 py-3.5">
+                <Text className="text-light-text-muted dark:text-white/40 text-base capitalize">
                   {user?.role?.toLowerCase().replace(/_/g, ' ') ?? '—'}
                 </Text>
               </View>

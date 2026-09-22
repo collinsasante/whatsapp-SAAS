@@ -5,8 +5,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { EmptyState } from '../../../src/components/ui';
+import { RecordingPlayer } from '../../../src/components/calls/RecordingPlayer';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface CallContact {
   id: string;
@@ -27,6 +31,7 @@ interface CallLog {
   answeredAt: string | null;
   endedAt: string | null;
   endReason: string | null;
+  recordingUrl: string | null;
   contact: CallContact | null;
   user: { id: string; name: string; avatarUrl: string | null } | null;
 }
@@ -73,6 +78,7 @@ function timeAgo(dateStr: string): string {
 }
 
 export default function CallsScreen() {
+  const { colors } = useAppTheme();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>('All');
   const [search, setSearch] = useState('');
@@ -125,12 +131,12 @@ export default function CallsScreen() {
 
     return (
       <TouchableOpacity
-        className="flex-row items-center px-4 py-3.5 border-b border-white/5"
+        className="flex-row items-center px-4 py-3.5 border-b border-light-border dark:border-white/5"
         onPress={() => setSelected(item)}
         activeOpacity={0.7}
       >
         {/* Direction icon */}
-        <View className="w-9 h-9 rounded-full bg-surface-card items-center justify-center mr-3">
+        <View className="w-9 h-9 rounded-full bg-light-card dark:bg-surface-card items-center justify-center mr-3">
           <Ionicons
             name={isIncoming ? 'call-outline' : 'arrow-up-outline'}
             size={16}
@@ -139,26 +145,33 @@ export default function CallsScreen() {
         </View>
 
         <View className="flex-1 min-w-0">
-          <Text className="text-white font-medium text-sm" numberOfLines={1}>{displayName}</Text>
+          <Text className="text-light-text-primary dark:text-white font-medium text-lg" numberOfLines={1}>{displayName}</Text>
           <View className="flex-row items-center gap-2 mt-0.5">
             <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: statusColor + '20' }}>
-              <Text className="text-[10px] font-semibold" style={{ color: statusColor }}>
+              <Text className="text-xs font-semibold" style={{ color: statusColor }}>
                 {item.status}
               </Text>
             </View>
-            <Text className="text-white/30 text-xs">{formatDuration(item.duration)}</Text>
+            <Text className="text-light-text-muted dark:text-white/40 text-sm">{formatDuration(item.duration)}</Text>
           </View>
         </View>
 
-        <Text className="text-white/30 text-xs">{timeAgo(item.startedAt)}</Text>
+        <Text className="text-light-text-muted dark:text-white/40 text-sm">{timeAgo(item.startedAt)}</Text>
       </TouchableOpacity>
     );
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5">
-        <Text className="text-white text-xl font-bold">Calls</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="mr-3 p-1"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="chevron-back" size={22} color="#25D366" />
+        </TouchableOpacity>
+        <Text className="text-light-text-primary dark:text-white text-xl font-bold flex-1">Calls</Text>
       </View>
 
       {/* Stats */}
@@ -170,9 +183,9 @@ export default function CallsScreen() {
             { label: 'In', value: stats.inbound, color: '#25D366' },
             { label: 'Out', value: stats.outbound, color: '#a855f7' },
           ].map((s) => (
-            <View key={s.label} className="flex-1 bg-surface-card rounded-xl p-3 items-center">
+            <View key={s.label} className="flex-1 bg-light-card dark:bg-surface-card rounded-xl p-3 items-center">
               <Text className="text-lg font-bold" style={{ color: s.color }}>{s.value}</Text>
-              <Text className="text-white/40 text-[10px] font-medium mt-0.5">{s.label}</Text>
+              <Text className="text-light-text-muted dark:text-white/40 text-[10px] font-medium mt-0.5">{s.label}</Text>
             </View>
           ))}
         </View>
@@ -180,33 +193,42 @@ export default function CallsScreen() {
 
       {/* Search */}
       <View className="px-4 pb-2">
-        <View className="bg-surface-card rounded-xl flex-row items-center px-3">
-          <Ionicons name="search-outline" size={16} color="rgba(255,255,255,0.3)" />
+        <View className="bg-light-card dark:bg-surface-card rounded-xl flex-row items-center px-3">
+          <Ionicons name="search-outline" size={16} color={colors.textDisabled} />
           <TextInput
-            className="flex-1 py-2.5 px-2 text-white text-sm"
+            className="flex-1 py-2.5 px-2 text-light-text-primary dark:text-white text-sm"
             placeholder="Search calls..."
-            placeholderTextColor="rgba(255,255,255,0.2)"
+            placeholderTextColor={colors.textDisabled}
             value={search}
             onChangeText={setSearch}
             autoCorrect={false}
           />
           {search.length > 0 && (
             <TouchableOpacity onPress={() => setSearch('')}>
-              <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.3)" />
+              <Ionicons name="close-circle" size={16} color={colors.textDisabled} />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
       {/* Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} className="px-4 mb-2" contentContainerStyle={{ gap: 8 }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        className="px-4 mb-2"
+        contentContainerStyle={{ gap: 8, alignItems: 'center' }}
+      >
         {TABS.map((tab) => (
           <TouchableOpacity
             key={tab}
             onPress={() => setActiveTab(tab)}
-            className={`rounded-full px-4 py-1.5 ${activeTab === tab ? 'bg-green' : 'bg-surface-card'}`}
+            className="rounded-full px-4 py-1.5"
+            style={{
+              alignSelf: 'flex-start',
+              backgroundColor: activeTab === tab ? '#25D366' : colors.card,
+            }}
           >
-            <Text className={`text-sm font-semibold ${activeTab === tab ? 'text-white' : 'text-white/40'}`}>{tab}</Text>
+            <Text className={`text-sm font-semibold ${activeTab === tab ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>{tab}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -220,12 +242,10 @@ export default function CallsScreen() {
           data={calls ?? []}
           keyExtractor={(item) => item.id}
           renderItem={renderCallRow}
+          contentContainerStyle={{ flexGrow: 1 }}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#25D366" />}
           ListEmptyComponent={
-            <View className="items-center justify-center py-16">
-              <Ionicons name="call-outline" size={40} color="rgba(255,255,255,0.15)" />
-              <Text className="text-white/30 text-sm mt-3">No calls found</Text>
-            </View>
+            <EmptyState icon="call-outline" title="No calls found" description="Calls you make or receive will show up here" />
           }
         />
       )}
@@ -233,20 +253,37 @@ export default function CallsScreen() {
       {/* Detail modal */}
       <Modal visible={!!selected} animationType="slide" transparent>
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-surface rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
             <View className="flex-row items-center justify-between mb-5">
-              <Text className="text-white text-lg font-bold">
-                {selected?.contact?.name ?? selected?.phone ?? 'Unknown'}
-              </Text>
+              {selected?.contact?.id ? (
+                <TouchableOpacity
+                  className="flex-row items-center gap-1.5 flex-1 mr-2"
+                  onPress={() => {
+                    const contactId = selected.contact!.id;
+                    setSelected(null);
+                    setNote('');
+                    router.push(`/(app)/contacts/${contactId}`);
+                  }}
+                >
+                  <Text className="text-light-text-primary dark:text-white text-lg font-bold" numberOfLines={1}>
+                    {selected.contact.name ?? selected.phone}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
+                </TouchableOpacity>
+              ) : (
+                <Text className="text-light-text-primary dark:text-white text-lg font-bold flex-1" numberOfLines={1}>
+                  {selected?.phone ?? 'Unknown'}
+                </Text>
+              )}
               <TouchableOpacity onPress={() => { setSelected(null); setNote(''); }}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             {selected && (
               <ScrollView showsVerticalScrollIndicator={false}>
                 {/* Call info grid */}
-                <View className="bg-surface-card rounded-2xl p-4 mb-4">
+                <View className="bg-light-card dark:bg-surface-card rounded-2xl p-4 mb-4">
                   {[
                     { label: 'Status', value: selected.status },
                     { label: 'Direction', value: selected.direction },
@@ -254,52 +291,55 @@ export default function CallsScreen() {
                     { label: 'Agent', value: selected.user?.name ?? '-' },
                     { label: 'End Reason', value: selected.endReason ?? '-' },
                   ].map((row) => (
-                    <View key={row.label} className="flex-row justify-between py-2 border-b border-white/5 last:border-0">
-                      <Text className="text-white/40 text-sm">{row.label}</Text>
-                      <Text className="text-white text-sm font-medium">{row.value}</Text>
+                    <View key={row.label} className="flex-row justify-between py-2.5 border-b border-light-border dark:border-white/5 last:border-0">
+                      <Text className="text-light-text-muted dark:text-white/40 text-base">{row.label}</Text>
+                      <Text className="text-light-text-primary dark:text-white text-base font-medium">{row.value}</Text>
                     </View>
                   ))}
                 </View>
 
+                {/* Recording */}
+                {selected.recordingUrl && <RecordingPlayer url={selected.recordingUrl} />}
+
                 {/* Notes */}
                 {selected.notes && (
-                  <View className="bg-surface-card rounded-2xl p-4 mb-4">
-                    <Text className="text-white/40 text-xs mb-2">Call Notes</Text>
-                    <Text className="text-white text-sm">{selected.notes}</Text>
+                  <View className="bg-light-card dark:bg-surface-card rounded-2xl p-4 mb-4">
+                    <Text className="text-light-text-muted dark:text-white/40 text-sm mb-2">Call Notes</Text>
+                    <Text className="text-light-text-primary dark:text-white text-base">{selected.notes}</Text>
                   </View>
                 )}
 
                 {/* Add note */}
-                <View className="bg-surface-card rounded-2xl p-4 mb-4">
-                  <Text className="text-white/40 text-xs mb-2">Add Internal Note</Text>
+                <View className="bg-light-card dark:bg-surface-card rounded-2xl p-4 mb-4">
+                  <Text className="text-light-text-muted dark:text-white/40 text-sm mb-2">Add Internal Note</Text>
                   <TextInput
-                    className="text-white text-sm min-h-[60px]"
+                    className="text-light-text-primary dark:text-white text-base min-h-[60px]"
                     placeholder="Type a note..."
-                    placeholderTextColor="rgba(255,255,255,0.2)"
+                    placeholderTextColor={colors.textDisabled}
                     value={note}
                     onChangeText={setNote}
                     multiline
                     textAlignVertical="top"
                   />
                   <TouchableOpacity
-                    className="bg-green/20 rounded-xl py-2 items-center mt-2"
+                    className="bg-green/20 rounded-xl py-2.5 items-center mt-2"
                     onPress={() => {
                       if (!note.trim()) return;
                       addNoteMutation.mutate({ id: selected.id, content: note.trim() });
                     }}
                     disabled={addNoteMutation.isPending || !note.trim()}
                   >
-                    <Text className="text-green text-sm font-semibold">Save Note</Text>
+                    <Text className="text-green text-base font-semibold">Save Note</Text>
                   </TouchableOpacity>
                 </View>
 
                 {/* Actions */}
                 <View className="flex-row gap-3">
                   <TouchableOpacity
-                    className="flex-1 bg-surface-card rounded-xl py-3 items-center"
+                    className="flex-1 bg-light-card dark:bg-surface-card rounded-xl py-3.5 items-center"
                     onPress={() => archiveMutation.mutate(selected.id)}
                   >
-                    <Text className="text-white/50 text-sm">Archive</Text>
+                    <Text className="text-light-text-muted dark:text-white/50 text-base">Archive</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>

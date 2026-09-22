@@ -10,7 +10,12 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { apiClient } from '../../../src/lib/api';
 
-const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
+const NUMPAD_ROWS = [
+  ['1', '2', '3'],
+  ['4', '5', '6'],
+  ['7', '8', '9'],
+  ['', '0', '⌫'],
+];
 
 type PinStep = 'new' | 'confirm';
 
@@ -77,17 +82,17 @@ export default function ChangePinScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top', 'bottom']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top', 'bottom']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text className="text-green text-base">←</Text>
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Change PIN</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Change PIN</Text>
       </View>
 
       <View className="flex-1 px-6 pt-10">
-        <Text className="text-white text-2xl font-bold mb-2">{titles[step]}</Text>
-        <Text className="text-white/60 text-base mb-10">{subtitles[step]}</Text>
+        <Text className="text-light-text-primary dark:text-white text-2xl font-bold mb-2">{titles[step]}</Text>
+        <Text className="text-light-text-secondary dark:text-white/60 text-base mb-10">{subtitles[step]}</Text>
 
         {/* PIN dots */}
         <View className="flex-row justify-center gap-4 mb-12">
@@ -95,7 +100,7 @@ export default function ChangePinScreen() {
             <View
               key={i}
               className={`w-4 h-4 rounded-full ${
-                i < currentValue.length ? 'bg-green' : 'bg-white/20'
+                i < currentValue.length ? 'bg-green' : 'bg-light-border dark:bg-white/20'
               }`}
             />
           ))}
@@ -106,19 +111,23 @@ export default function ChangePinScreen() {
             <ActivityIndicator color="#25D366" size="large" />
           </View>
         ) : (
-          <View className="flex-row flex-wrap justify-center gap-4">
-            {NUMPAD.map((key, i) => (
-              <TouchableOpacity
-                key={i}
-                className={`w-20 h-16 rounded-2xl items-center justify-center ${
-                  key === '' ? 'opacity-0' : 'bg-surface-card'
-                }`}
-                onPress={() => key !== '' && handleKey(key)}
-                disabled={key === ''}
-                activeOpacity={0.6}
-              >
-                <Text className="text-white text-2xl font-medium">{key}</Text>
-              </TouchableOpacity>
+          <View className="items-center" style={{ gap: 16 }}>
+            {NUMPAD_ROWS.map((row, rowIndex) => (
+              <View key={rowIndex} className="flex-row" style={{ gap: 16 }}>
+                {row.map((key, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    className={`w-20 h-16 rounded-2xl items-center justify-center ${
+                      key === '' ? 'opacity-0' : 'bg-light-card dark:bg-surface-card'
+                    }`}
+                    onPress={() => key !== '' && handleKey(key)}
+                    disabled={key === ''}
+                    activeOpacity={0.6}
+                  >
+                    <Text className="text-light-text-primary dark:text-white text-2xl font-medium">{key}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             ))}
           </View>
         )}

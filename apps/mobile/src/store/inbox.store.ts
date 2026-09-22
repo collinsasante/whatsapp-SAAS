@@ -31,6 +31,12 @@ export interface MobileConversation {
   snoozedUntil?: string | null;
 }
 
+export interface AiSuggestion {
+  logId: string;
+  response: string;
+  confidence: number | null;
+}
+
 interface InboxState {
   conversations: MobileConversation[];
   activeConversationId: string | null;
@@ -38,6 +44,7 @@ interface InboxState {
   messageCursors: Record<string, string | null>;
   hasMoreMessages: Record<string, boolean>;
   typingUsers: Record<string, string[]>;
+  aiSuggestions: Record<string, AiSuggestion>;
   isLoading: boolean;
 
   setConversations: (conversations: MobileConversation[]) => void;
@@ -51,6 +58,8 @@ interface InboxState {
   removeConversation: (id: string) => void;
   setTyping: (conversationId: string, userId: string, isTyping: boolean) => void;
   updateMessageStatus: (messageId: string, whatsappMessageId: string | null, status: MessageStatus) => void;
+  setAiSuggestion: (conversationId: string, suggestion: AiSuggestion) => void;
+  clearAiSuggestion: (conversationId: string) => void;
   setLoading: (loading: boolean) => void;
 }
 
@@ -61,6 +70,7 @@ export const useInboxStore = create<InboxState>()((set) => ({
   messageCursors: {},
   hasMoreMessages: {},
   typingUsers: {},
+  aiSuggestions: {},
   isLoading: false,
 
   setConversations: (conversations) => set({ conversations }),
@@ -133,6 +143,16 @@ export const useInboxStore = create<InboxState>()((set) => ({
             : current.filter((id) => id !== userId),
         },
       };
+    }),
+
+  setAiSuggestion: (conversationId, suggestion) =>
+    set((state) => ({ aiSuggestions: { ...state.aiSuggestions, [conversationId]: suggestion } })),
+
+  clearAiSuggestion: (conversationId) =>
+    set((state) => {
+      const next = { ...state.aiSuggestions };
+      delete next[conversationId];
+      return { aiSuggestions: next };
     }),
 
   setLoading: (isLoading) => set({ isLoading }),

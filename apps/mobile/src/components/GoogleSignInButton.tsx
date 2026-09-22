@@ -5,6 +5,7 @@ import * as AuthSession from 'expo-auth-session';
 import { router } from 'expo-router';
 import { apiClient } from '../lib/api';
 import { useAuthStore } from '../store/auth.store';
+import { useAppTheme } from '../theme/useAppTheme';
 import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function GoogleSignInButton({ onError }: Props) {
+  const { colors } = useAppTheme();
   const setAuth = useAuthStore((s) => s.setAuth);
   const redirectUri = AuthSession.makeRedirectUri({ scheme: 'verzchat', path: 'auth' });
 
@@ -102,17 +104,17 @@ export function GoogleSignInButton({ onError }: Props) {
 
   return (
     <TouchableOpacity
-      className="border border-white/15 rounded-xl py-3.5 items-center flex-row justify-center gap-3"
+      className="border border-light-border dark:border-white/15 rounded-xl py-3.5 items-center flex-row justify-center gap-3"
       onPress={() => void promptAsync()}
       disabled={!request}
       activeOpacity={0.8}
     >
       {!request ? (
-        <ActivityIndicator color="#fff" size="small" />
+        <ActivityIndicator color={colors.textPrimary} size="small" />
       ) : (
         <>
           <GoogleLogo />
-          <Text className="text-white font-semibold text-base">Continue with Google</Text>
+          <Text className="text-light-text-primary dark:text-white font-semibold text-base">Continue with Google</Text>
         </>
       )}
     </TouchableOpacity>

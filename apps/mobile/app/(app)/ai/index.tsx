@@ -4,9 +4,11 @@ import {
   Switch, Alert, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Article {
   id: string;
@@ -52,6 +54,7 @@ const PERSONALITIES = [
 ];
 
 export default function AiScreen() {
+  const { colors } = useAppTheme();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<(typeof AI_TABS)[number]>('Knowledge Base');
   const [showArticleModal, setShowArticleModal] = useState(false);
@@ -148,11 +151,14 @@ export default function AiScreen() {
   const aiMode = settings?.aiMode ?? 'SUGGESTION';
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5 flex-row items-center justify-between">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 py-3 border-b border-light-border dark:border-white/5 flex-row items-center justify-between">
         <View className="flex-row items-center gap-2">
+          <TouchableOpacity onPress={() => router.back()} className="mr-1 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-back" size={22} color="#25D366" />
+          </TouchableOpacity>
           <Ionicons name="sparkles" size={20} color="#25D366" />
-          <Text className="text-white text-xl font-bold">Verz AI</Text>
+          <Text className="text-light-text-primary dark:text-white text-xl font-bold">Verz AI</Text>
         </View>
         {isEnabled && (
           <View className="bg-green/20 rounded-full px-3 py-1 flex-row items-center gap-1.5">
@@ -170,13 +176,13 @@ export default function AiScreen() {
         }
       >
         {/* AI Settings card */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <View className="px-4 py-3 border-b border-white/5 flex-row items-center justify-between">
-            <Text className="text-white font-semibold">Verz AI Settings</Text>
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 mb-4 overflow-hidden">
+          <View className="px-4 py-3 border-b border-light-border dark:border-white/5 flex-row items-center justify-between">
+            <Text className="text-light-text-primary dark:text-white font-semibold">Verz AI Settings</Text>
             <Switch
               value={isEnabled}
               onValueChange={(v) => updateSettingsMutation.mutate({ aiEnabled: v })}
-              trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#25D366' }}
+              trackColor={{ false: colors.border, true: '#25D366' }}
               thumbColor="#fff"
             />
           </View>
@@ -184,8 +190,8 @@ export default function AiScreen() {
           {isEnabled && (
             <>
               {/* When should AI reply */}
-              <View className="px-4 py-4 border-b border-white/5">
-                <Text className="text-white/50 text-xs mb-3 uppercase tracking-wider">When should Verz reply</Text>
+              <View className="px-4 py-4 border-b border-light-border dark:border-white/5">
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-3 uppercase tracking-wider">When should Verz reply</Text>
                 <View className="flex-row gap-2">
                   {[
                     { label: 'After Hours Only', value: false },
@@ -194,9 +200,9 @@ export default function AiScreen() {
                     <TouchableOpacity
                       key={opt.label}
                       onPress={() => updateSettingsMutation.mutate({ aiAlwaysOn: opt.value })}
-                      className={`flex-1 py-2 rounded-xl items-center ${isAlwaysOn === opt.value ? 'bg-green' : 'bg-surface border border-white/10'}`}
+                      className={`flex-1 py-2 rounded-xl items-center ${isAlwaysOn === opt.value ? 'bg-green' : 'bg-light-background dark:bg-surface border border-light-border dark:border-white/10'}`}
                     >
-                      <Text className={`text-sm font-semibold ${isAlwaysOn === opt.value ? 'text-white' : 'text-white/50'}`}>
+                      <Text className={`text-sm font-semibold ${isAlwaysOn === opt.value ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>
                         {opt.label}
                       </Text>
                     </TouchableOpacity>
@@ -205,8 +211,8 @@ export default function AiScreen() {
               </View>
 
               {/* Response mode */}
-              <View className="px-4 py-4 border-b border-white/5">
-                <Text className="text-white/50 text-xs mb-3 uppercase tracking-wider">Response Mode</Text>
+              <View className="px-4 py-4 border-b border-light-border dark:border-white/5">
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-3 uppercase tracking-wider">Response Mode</Text>
                 <View className="flex-row gap-2">
                   {[
                     { label: 'Suggestion', value: 'SUGGESTION' },
@@ -215,9 +221,9 @@ export default function AiScreen() {
                     <TouchableOpacity
                       key={opt.value}
                       onPress={() => updateSettingsMutation.mutate({ aiMode: opt.value })}
-                      className={`flex-1 py-2 rounded-xl items-center ${aiMode === opt.value ? 'bg-green' : 'bg-surface border border-white/10'}`}
+                      className={`flex-1 py-2 rounded-xl items-center ${aiMode === opt.value ? 'bg-green' : 'bg-light-background dark:bg-surface border border-light-border dark:border-white/10'}`}
                     >
-                      <Text className={`text-sm font-semibold ${aiMode === opt.value ? 'text-white' : 'text-white/50'}`}>
+                      <Text className={`text-sm font-semibold ${aiMode === opt.value ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>
                         {opt.label}
                       </Text>
                     </TouchableOpacity>
@@ -227,7 +233,7 @@ export default function AiScreen() {
 
               {/* Personality */}
               <View className="px-4 py-4">
-                <Text className="text-white/50 text-xs mb-3 uppercase tracking-wider">AI Personality</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-3 uppercase tracking-wider">AI Personality</Text>
                 <View className="flex-row flex-wrap gap-2">
                   {PERSONALITIES.map((p) => {
                     const active = settings?.aiPersonality === p;
@@ -235,9 +241,9 @@ export default function AiScreen() {
                       <TouchableOpacity
                         key={p}
                         onPress={() => updateSettingsMutation.mutate({ aiPersonality: p })}
-                        className={`rounded-full px-3 py-1.5 ${active ? 'bg-green' : 'bg-surface border border-white/10'}`}
+                        className={`rounded-full px-3 py-1.5 ${active ? 'bg-green' : 'bg-light-background dark:bg-surface border border-light-border dark:border-white/10'}`}
                       >
-                        <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-white/50'}`}>{p}</Text>
+                        <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>{p}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -248,14 +254,14 @@ export default function AiScreen() {
         </View>
 
         {/* Tabs */}
-        <View className="flex-row bg-surface-card rounded-xl p-1 mb-4">
+        <View className="flex-row bg-light-card dark:bg-surface-card rounded-xl p-1 mb-4">
           {AI_TABS.map((tab) => (
             <TouchableOpacity
               key={tab}
               onPress={() => setActiveTab(tab)}
               className={`flex-1 py-2 rounded-lg items-center ${activeTab === tab ? 'bg-green' : ''}`}
             >
-              <Text className={`text-sm font-semibold ${activeTab === tab ? 'text-white' : 'text-white/40'}`}>{tab}</Text>
+              <Text className={`text-sm font-semibold ${activeTab === tab ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>{tab}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -275,7 +281,7 @@ export default function AiScreen() {
                 <Text className="text-white font-semibold">Add Article</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                className="bg-surface-card border border-white/10 rounded-xl py-3 px-4 items-center flex-row gap-2"
+                className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl py-3 px-4 items-center flex-row gap-2"
                 onPress={() => learnMutation.mutate()}
                 disabled={learnMutation.isPending}
               >
@@ -292,38 +298,38 @@ export default function AiScreen() {
               <ActivityIndicator color="#25D366" />
             ) : (articles ?? []).length === 0 ? (
               <View className="items-center py-8">
-                <Ionicons name="library-outline" size={40} color="rgba(255,255,255,0.1)" />
-                <Text className="text-white/30 text-sm mt-3">No articles yet</Text>
-                <Text className="text-white/20 text-xs mt-1">Add articles to teach Verz AI about your business</Text>
+                <Ionicons name="library-outline" size={40} color={colors.border} />
+                <Text className="text-light-text-disabled dark:text-white/30 text-sm mt-3">No articles yet</Text>
+                <Text className="text-light-text-disabled dark:text-white/20 text-xs mt-1">Add articles to teach Verz AI about your business</Text>
               </View>
             ) : (
               (articles ?? []).map((article) => (
-                <View key={article.id} className="bg-surface-card rounded-2xl border border-white/5 p-4 mb-3">
+                <View key={article.id} className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4 mb-3">
                   <View className="flex-row items-start gap-3">
                     <Switch
                       value={article.isActive}
                       onValueChange={(v) =>
                         updateArticleMutation.mutate({ id: article.id, data: { isActive: v } })
                       }
-                      trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#25D366' }}
+                      trackColor={{ false: colors.border, true: '#25D366' }}
                       thumbColor="#fff"
                       style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
                     />
                     <View className="flex-1 min-w-0">
-                      <Text className="text-white font-semibold text-sm" numberOfLines={1}>{article.title}</Text>
-                      <Text className="text-white/40 text-xs mt-0.5" numberOfLines={2}>{article.content}</Text>
+                      <Text className="text-light-text-primary dark:text-white font-semibold text-sm" numberOfLines={1}>{article.title}</Text>
+                      <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5" numberOfLines={2}>{article.content}</Text>
                       <View className="flex-row items-center gap-2 mt-2">
-                        <View className="bg-surface rounded-full px-2 py-0.5">
-                          <Text className="text-white/30 text-[10px] capitalize">{article.source}</Text>
+                        <View className="bg-light-background dark:bg-surface rounded-full px-2 py-0.5">
+                          <Text className="text-light-text-disabled dark:text-white/30 text-[10px] capitalize">{article.source}</Text>
                         </View>
                       </View>
                     </View>
                     <View className="flex-row gap-1">
                       <TouchableOpacity onPress={() => openEdit(article)} className="p-1.5">
-                        <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.4)" />
+                        <Ionicons name="pencil-outline" size={16} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => handleDeleteConfirm(article.id)} className="p-1.5">
-                        <Ionicons name="trash-outline" size={16} color="rgba(255,255,255,0.3)" />
+                        <Ionicons name="trash-outline" size={16} color={colors.textDisabled} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -344,9 +350,9 @@ export default function AiScreen() {
                 { label: 'Avg Response', value: analytics.avgResponseMs ? `${(analytics.avgResponseMs / 1000).toFixed(1)}s` : '-', color: '#3b82f6' },
                 { label: 'Avg Confidence', value: `${Math.round((analytics.avgConfidence ?? 0) * 100)}%`, color: '#a855f7' },
               ].map((stat) => (
-                <View key={stat.label} className="bg-surface-card rounded-2xl p-3 border border-white/5" style={{ width: '47%' }}>
+                <View key={stat.label} className="bg-light-card dark:bg-surface-card rounded-2xl p-3 border border-light-border dark:border-white/5" style={{ width: '47%' }}>
                   <Text className="text-lg font-bold" style={{ color: stat.color }}>{stat.value}</Text>
-                  <Text className="text-white/40 text-xs mt-0.5">{stat.label}</Text>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5">{stat.label}</Text>
                 </View>
               ))}
             </View>
@@ -357,33 +363,33 @@ export default function AiScreen() {
       {/* Article editor modal */}
       <Modal visible={showArticleModal} animationType="slide" transparent>
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-surface rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-6" style={{ maxHeight: '85%' }}>
             <View className="flex-row items-center justify-between mb-5">
-              <Text className="text-white text-lg font-bold">
+              <Text className="text-light-text-primary dark:text-white text-lg font-bold">
                 {editingArticle ? 'Edit Article' : 'New Article'}
               </Text>
               <TouchableOpacity onPress={() => setShowArticleModal(false)}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View className="mb-4">
-                <Text className="text-white/50 text-xs mb-1.5">Title</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Title</Text>
                 <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                  className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                   placeholder="Article title..."
-                  placeholderTextColor="rgba(255,255,255,0.2)"
+                  placeholderTextColor={colors.textDisabled}
                   value={articleForm.title}
                   onChangeText={(v) => setArticleForm((f) => ({ ...f, title: v }))}
                 />
               </View>
               <View className="mb-4">
-                <Text className="text-white/50 text-xs mb-1.5">Content</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Content</Text>
                 <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                  className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                   placeholder="Write the knowledge content here..."
-                  placeholderTextColor="rgba(255,255,255,0.2)"
+                  placeholderTextColor={colors.textDisabled}
                   value={articleForm.content}
                   onChangeText={(v) => setArticleForm((f) => ({ ...f, content: v }))}
                   multiline
@@ -393,11 +399,11 @@ export default function AiScreen() {
                 />
               </View>
               <View className="flex-row items-center justify-between mb-6">
-                <Text className="text-white/50 text-sm">Active</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-sm">Active</Text>
                 <Switch
                   value={articleForm.isActive}
                   onValueChange={(v) => setArticleForm((f) => ({ ...f, isActive: v }))}
-                  trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#25D366' }}
+                  trackColor={{ false: colors.border, true: '#25D366' }}
                   thumbColor="#fff"
                 />
               </View>

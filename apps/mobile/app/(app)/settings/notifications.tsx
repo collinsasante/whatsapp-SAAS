@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Notification {
   id: string;
@@ -24,6 +25,7 @@ interface Notification {
 }
 
 export default function NotificationsScreen() {
+  const { colors } = useAppTheme();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isRefetching, refetch } = useQuery({
@@ -44,12 +46,12 @@ export default function NotificationsScreen() {
   const unreadCount = (data ?? []).filter((n) => !n.isRead).length;
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Notifications</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Notifications</Text>
         {unreadCount > 0 && (
           <TouchableOpacity
             onPress={() => markAllRead.mutate()}
@@ -77,7 +79,7 @@ export default function NotificationsScreen() {
           }
           renderItem={({ item }) => (
             <TouchableOpacity
-              className={`px-4 py-4 border-b border-white/5 flex-row items-start gap-3 ${
+              className={`px-4 py-4 border-b border-light-border dark:border-white/5 flex-row items-start gap-3 ${
                 !item.isRead ? 'bg-green/5' : ''
               }`}
               onPress={() => {
@@ -90,13 +92,13 @@ export default function NotificationsScreen() {
               )}
               {item.isRead && <View className="w-2" />}
               <View className="flex-1 min-w-0">
-                <Text className="text-white font-semibold text-sm mb-0.5" numberOfLines={1}>
+                <Text className="text-light-text-primary dark:text-white font-semibold text-sm mb-0.5" numberOfLines={1}>
                   {item.title}
                 </Text>
-                <Text className="text-white/60 text-xs leading-4" numberOfLines={2}>
+                <Text className="text-light-text-muted dark:text-white/60 text-xs leading-4" numberOfLines={2}>
                   {item.body}
                 </Text>
-                <Text className="text-white/30 text-[10px] mt-1.5">
+                <Text className="text-light-text-disabled dark:text-white/30 text-[10px] mt-1.5">
                   {formatRelative(item.createdAt)}
                 </Text>
               </View>
@@ -104,8 +106,8 @@ export default function NotificationsScreen() {
           )}
           ListEmptyComponent={
             <View className="items-center pt-24">
-              <Ionicons name="notifications-off-outline" size={48} color="rgba(255,255,255,0.15)" style={{ marginBottom: 12 }} />
-              <Text className="text-white/30 text-base font-medium">No notifications</Text>
+              <Ionicons name="notifications-off-outline" size={48} color={colors.border} style={{ marginBottom: 12 }} />
+              <Text className="text-light-text-disabled dark:text-white/30 text-base font-medium">No notifications</Text>
             </View>
           }
           contentContainerStyle={{ flexGrow: 1 }}

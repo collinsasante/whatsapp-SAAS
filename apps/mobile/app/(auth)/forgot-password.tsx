@@ -14,10 +14,12 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { forgotPasswordSchema, type ForgotPasswordInput } from '@whatsapp-platform/validation';
 import { apiClient } from '../../src/lib/api';
+import { useAppTheme } from '../../src/theme/useAppTheme';
 
 export default function ForgotPasswordScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const { colors } = useAppTheme();
 
   const {
     control,
@@ -41,16 +43,16 @@ export default function ForgotPasswordScreen() {
 
   if (sent) {
     return (
-      <View className="flex-1 bg-surface justify-center px-6">
-        <Text className="text-white text-2xl font-bold mb-3">Check your email</Text>
-        <Text className="text-white/60 text-base mb-8">
+      <View className="flex-1 bg-light-background dark:bg-surface justify-center px-6">
+        <Text className="text-light-text-primary dark:text-white text-2xl font-bold mb-3">Check your email</Text>
+        <Text className="text-light-text-secondary dark:text-white/60 text-base mb-8">
           We sent a password reset link to your email address.
         </Text>
         <TouchableOpacity
-          className="bg-surface-card border border-white/10 rounded-xl py-4 items-center"
+          className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl py-4 items-center"
           onPress={() => router.back()}
         >
-          <Text className="text-white font-semibold">Back to Login</Text>
+          <Text className="text-light-text-primary dark:text-white font-semibold">Back to Login</Text>
         </TouchableOpacity>
       </View>
     );
@@ -59,15 +61,15 @@ export default function ForgotPasswordScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-surface"
+      className="flex-1 bg-light-background dark:bg-surface"
     >
       <View className="flex-1 justify-center px-6">
         <TouchableOpacity className="mb-8" onPress={() => router.back()}>
           <Text className="text-green text-base">← Back</Text>
         </TouchableOpacity>
 
-        <Text className="text-white text-3xl font-bold mb-2">Reset Password</Text>
-        <Text className="text-white/60 text-base mb-8">
+        <Text className="text-light-text-primary dark:text-white text-3xl font-bold mb-2">Reset Password</Text>
+        <Text className="text-light-text-secondary dark:text-white/60 text-base mb-8">
           Enter your email and we'll send a reset link.
         </Text>
 
@@ -77,9 +79,9 @@ export default function ForgotPasswordScreen() {
             name="email"
             render={({ field: { onChange, onBlur, value } }) => (
               <TextInput
-                className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
+                className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3.5 text-light-text-primary dark:text-white text-base"
                 placeholder="you@company.com"
-                placeholderTextColor="rgba(255,255,255,0.3)"
+                placeholderTextColor={colors.textDisabled}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 onBlur={onBlur}

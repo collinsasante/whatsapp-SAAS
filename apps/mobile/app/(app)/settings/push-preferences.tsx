@@ -10,10 +10,12 @@ import {
   registerForPushNotifications,
   unregisterPushNotifications,
 } from '../../../src/lib/notifications';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 type PermissionStatus = 'granted' | 'denied' | 'undetermined';
 
 export default function PushPreferencesScreen() {
+  const { colors } = useAppTheme();
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>('undetermined');
   const [enabled, setEnabled] = useState(isPushEnabled());
   const [isBusy, setIsBusy] = useState(false);
@@ -59,8 +61,8 @@ export default function PushPreferencesScreen() {
   const permissionBlocked = permissionStatus === 'denied';
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity
           onPress={() => router.back()}
           className="mr-3 p-1"
@@ -68,22 +70,22 @@ export default function PushPreferencesScreen() {
         >
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Push Notifications</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Push Notifications</Text>
       </View>
 
       <View className="p-4">
         {permissionBlocked && (
           <TouchableOpacity
-            className="bg-surface-card border border-amber-500/30 rounded-2xl p-4 mb-4 flex-row items-start gap-3"
+            className="bg-light-card dark:bg-surface-card border border-amber-500/30 rounded-2xl p-4 mb-4 flex-row items-start gap-3"
             onPress={() => void Linking.openSettings()}
             activeOpacity={0.8}
           >
             <Ionicons name="alert-circle-outline" size={20} color="#f59e0b" style={{ marginTop: 1 }} />
             <View className="flex-1">
-              <Text className="text-white font-semibold text-sm mb-1">
+              <Text className="text-light-text-primary dark:text-white font-semibold text-sm mb-1">
                 Notifications are blocked
               </Text>
-              <Text className="text-white/50 text-xs leading-4">
+              <Text className="text-light-text-muted dark:text-white/50 text-xs leading-4">
                 {Platform.OS === 'ios' ? 'iOS' : 'Android'} settings are blocking push
                 notifications for VerzChat. Tap here to open Settings and allow them.
               </Text>
@@ -91,14 +93,14 @@ export default function PushPreferencesScreen() {
           </TouchableOpacity>
         )}
 
-        <View className="bg-surface-card rounded-2xl border border-white/5 overflow-hidden">
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 overflow-hidden">
           <View className="flex-row items-center px-4 py-4 gap-3">
             <View className="w-7 h-7 rounded-lg items-center justify-center bg-green/20">
               <Ionicons name="notifications-outline" size={15} color="#25D366" />
             </View>
             <View className="flex-1 min-w-0">
-              <Text className="text-white text-sm font-medium">Push Notifications</Text>
-              <Text className="text-white/40 text-xs mt-0.5">
+              <Text className="text-light-text-primary dark:text-white text-sm font-medium">Push Notifications</Text>
+              <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5">
                 New messages, mentions, and alerts on this device
               </Text>
             </View>
@@ -106,13 +108,13 @@ export default function PushPreferencesScreen() {
               value={enabled && !permissionBlocked}
               onValueChange={(next) => void handleToggle(next)}
               disabled={isBusy || permissionBlocked}
-              trackColor={{ false: 'rgba(255,255,255,0.15)', true: '#25D366' }}
+              trackColor={{ false: colors.border, true: '#25D366' }}
               thumbColor="#fff"
             />
           </View>
         </View>
 
-        <Text className="text-white/30 text-xs mt-4 px-1 leading-4">
+        <Text className="text-light-text-disabled dark:text-white/30 text-xs mt-4 px-1 leading-4">
           Turning this off stops new push notifications from being sent to this device. You'll
           still see everything in the Notifications tab and Inbox.
         </Text>

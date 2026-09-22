@@ -16,34 +16,16 @@ export function SplashAnimation({ visible, onComplete }: SplashAnimationProps) {
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.85)).current;
 
-  // Three loading dots
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
-
   // Container fade for exit
   const containerOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Entry: logo fades + scales in
+    // Entry: logo fades + scales in -- kept to a single, restrained motion,
+    // no looping loading indicator.
     Animated.parallel([
       Animated.timing(logoOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.spring(logoScale, { toValue: 1, tension: 80, friction: 9, useNativeDriver: true }),
-    ]).start(() => {
-      // Dots bounce in sequence, looping
-      const dotAnim = (dot: Animated.Value, delay: number) =>
-        Animated.loop(
-          Animated.sequence([
-            Animated.delay(delay),
-            Animated.timing(dot, { toValue: 1, duration: 280, useNativeDriver: true }),
-            Animated.timing(dot, { toValue: 0, duration: 280, useNativeDriver: true }),
-            Animated.delay(560),
-          ]),
-        );
-      dotAnim(dot1, 0).start();
-      dotAnim(dot2, 180).start();
-      dotAnim(dot3, 360).start();
-    });
+    ]).start();
   }, []);
 
   useEffect(() => {
@@ -62,39 +44,21 @@ export function SplashAnimation({ visible, onComplete }: SplashAnimationProps) {
 
   if (!mounted) return null;
 
-  const dotStyle = (anim: Animated.Value) => ({
-    opacity: anim,
-    transform: [
-      {
-        translateY: anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -6],
-        }),
-      },
-    ],
-  });
-
   return (
     <Animated.View style={[styles.container, { opacity: containerOpacity }]} pointerEvents="none">
-      {/* Logo card */}
       <Animated.View
-        style={[
-          styles.logoCard,
-          { opacity: logoOpacity, transform: [{ scale: logoScale }] },
-        ]}
+        style={{ opacity: logoOpacity, transform: [{ scale: logoScale }], alignItems: 'center' }}
       >
         <Image
-          source={require('../../assets/images/icon.png')}
+          source={require('../../assets/images/verz-mark.png')}
           style={styles.logo}
           contentFit="contain"
         />
-      </Animated.View>
-
-      {/* Loading dots */}
-      <Animated.View style={[styles.dotsRow, { opacity: logoOpacity }]}>
-        <Animated.View style={[styles.dot, dotStyle(dot1)]} />
-        <Animated.View style={[styles.dot, dotStyle(dot2)]} />
-        <Animated.View style={[styles.dot, dotStyle(dot3)]} />
+        <Image
+          source={require('../../assets/images/verz-wordmark-dark.png')}
+          style={styles.wordmark}
+          contentFit="contain"
+        />
       </Animated.View>
     </Animated.View>
   );
@@ -105,40 +69,18 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width,
     height,
-    backgroundColor: '#0d1117',
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 9999,
   },
-  logoCard: {
-    width: 108,
-    height: 108,
-    borderRadius: 24,
-    backgroundColor: '#161b22',
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Green shadow glow
-    shadowColor: '#25D366',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
-  },
   logo: {
-    width: 72,
-    height: 72,
+    width: 64,
+    height: 64,
   },
-  dotsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 32,
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#25D366',
-    opacity: 0.7,
+  wordmark: {
+    width: 130,
+    height: 29,
+    marginTop: 16,
   },
 });

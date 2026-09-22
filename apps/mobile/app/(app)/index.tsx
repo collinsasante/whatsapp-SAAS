@@ -11,9 +11,13 @@ import { router } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { SocketEvent } from '@whatsapp-platform/shared-types';
 import { apiClient } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth.store';
 import { socketClient } from '../../src/lib/socket';
+import { Card, Avatar, SkeletonBlock } from '../../src/components/ui';
+import { tapLight as tap } from '../../src/lib/haptics';
+import { useAppTheme } from '../../src/theme/useAppTheme';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -76,28 +80,7 @@ function SectionHeader({ icon, title }: { icon: string; title: string }) {
   return (
     <View className="flex-row items-center gap-2 mb-3">
       <Ionicons name={icon as never} size={15} color="#25D366" />
-      <Text className="text-white font-semibold text-sm">{title}</Text>
-    </View>
-  );
-}
-
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <View className={`bg-surface-card rounded-2xl p-4 border border-white/5 ${className ?? ''}`}>
-      {children}
-    </View>
-  );
-}
-
-function QuickStat({
-  label, value, color,
-}: { label: string; value: number; color: string }) {
-  return (
-    <View className="flex-1 bg-surface-card rounded-2xl p-4 border border-white/5 items-center">
-      <Text className="font-extrabold text-2xl" style={{ color }}>
-        {value.toLocaleString()}
-      </Text>
-      <Text className="text-white/40 text-xs mt-1 text-center">{label}</Text>
+      <Text className="text-light-text-primary dark:text-white font-semibold text-sm">{title}</Text>
     </View>
   );
 }
@@ -106,14 +89,18 @@ function QuickAction({
   label, icon, color, onPress,
 }: { label: string; icon: string; color: string; onPress: () => void }) {
   return (
-    <TouchableOpacity className="flex-1 items-center gap-2" onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      className="flex-1 items-center gap-2"
+      onPress={() => { tap(); onPress(); }}
+      activeOpacity={0.75}
+    >
       <View
         className="w-14 h-14 rounded-2xl items-center justify-center"
         style={{ backgroundColor: `${color}18` }}
       >
         <Ionicons name={icon as never} size={22} color={color} />
       </View>
-      <Text className="text-white/60 text-[11px] font-medium">{label}</Text>
+      <Text className="text-light-text-secondary dark:text-white/60 text-[11px] font-medium">{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -124,12 +111,26 @@ function StatusDot({ color }: { color: string }) {
   );
 }
 
+function InlineStat({
+  label, value, urgent, onPress,
+}: { label: string; value: number; urgent?: boolean; onPress: () => void }) {
+  return (
+    <TouchableOpacity className="flex-1 items-center py-3" onPress={onPress} activeOpacity={0.7}>
+      <Text className={`font-bold text-lg ${urgent ? 'text-orange-400' : 'text-light-text-primary dark:text-white'}`}>
+        {value.toLocaleString()}
+      </Text>
+      <Text className="text-light-text-muted dark:text-white/40 text-[11px] mt-0.5">{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
   const user = useAuthStore((s) => s.user);
   const tenant = useAuthStore((s) => s.tenant);
   const qc = useQueryClient();
+  const { colors } = useAppTheme();
 
   const [preset, setPreset] = useState<DatePreset>('30d');
   const [statsFrom, setStatsFrom] = useState(() => daysAgoISO(30));
@@ -185,13 +186,17 @@ export default function DashboardScreen() {
   }, [refetchOverview, refetchTeam]);
 
   useEffect(() => {
-    socketClient.on('conversation:updated', refreshOverview);
-    socketClient.on('conversation:state_changed', refreshOverview);
-    socketClient.on('message:new', refreshOverview);
+    // Bug fix: these previously used colon-style names ('conversation:updated'
+    // etc.) that the backend never emits (real events are underscore-style,
+    // e.g. 'conversation_updated') -- real-time dashboard refresh was silently
+    // a no-op. Using the shared SocketEvent enum now so this can't drift again.
+    socketClient.on(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
+    socketClient.on(SocketEvent.CONVERSATION_STATE_CHANGED, refreshOverview);
+    socketClient.on(SocketEvent.NEW_MESSAGE, refreshOverview);
     return () => {
-      socketClient.off('conversation:updated', refreshOverview);
-      socketClient.off('conversation:state_changed', refreshOverview);
-      socketClient.off('message:new', refreshOverview);
+      socketClient.off(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
+      socketClient.off(SocketEvent.CONVERSATION_STATE_CHANGED, refreshOverview);
+      socketClient.off(SocketEvent.NEW_MESSAGE, refreshOverview);
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, [refreshOverview]);
@@ -216,7 +221,7 @@ export default function DashboardScreen() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ padding: 16, gap: 16 }}
@@ -228,9 +233,9 @@ export default function DashboardScreen() {
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <View className="flex-row items-start justify-between mb-2">
           <View className="flex-1">
-            <Text className="text-white/40 text-xs mb-0.5">{tenant?.name ?? 'Workspace'}</Text>
-            <Text className="text-white text-xl font-bold">
-              {greeting()}, {user?.name?.split(' ')[0] ?? 'Agent'} 👋
+            <Text className="text-light-text-muted dark:text-white/40 text-xs mb-0.5">{tenant?.name ?? 'Workspace'}</Text>
+            <Text className="text-light-text-primary dark:text-white text-xl font-bold">
+              {greeting()}, {user?.name?.split(' ')[0] ?? 'Agent'}
             </Text>
             {biz?.plan && (
               <View className="mt-1.5 self-start bg-green/15 rounded-full px-2.5 py-0.5 border border-green/20">
@@ -240,15 +245,18 @@ export default function DashboardScreen() {
           </View>
           <TouchableOpacity
             onPress={handleRefresh}
-            className="w-9 h-9 bg-surface-card border border-white/10 rounded-xl items-center justify-center"
+            className="w-9 h-9 bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl items-center justify-center"
           >
-            <Ionicons name="refresh-outline" size={18} color="rgba(255,255,255,0.5)" />
+            <Ionicons name="refresh-outline" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
 
         {isLoading ? (
-          <View className="items-center justify-center py-16">
-            <ActivityIndicator color="#25D366" size="large" />
+          <View style={{ gap: 16 }}>
+            <SkeletonBlock height={64} radius={16} />
+            <SkeletonBlock height={100} radius={16} />
+            <SkeletonBlock height={160} radius={16} />
+            <SkeletonBlock height={140} radius={16} />
           </View>
         ) : (
           <>
@@ -259,18 +267,30 @@ export default function DashboardScreen() {
                   <Ionicons name="logo-whatsapp" size={22} color="#fff" />
                 </View>
                 <View className="flex-1 min-w-0">
-                  <Text className="text-white font-semibold text-sm">No channel connected</Text>
-                  <Text className="text-white/50 text-xs mt-0.5">Connect WhatsApp Business API to start receiving conversations</Text>
+                  <Text className="text-light-text-primary dark:text-white font-semibold text-sm">No channel connected</Text>
+                  <Text className="text-light-text-muted dark:text-white/50 text-xs mt-0.5">Connect WhatsApp Business API to start receiving conversations</Text>
                 </View>
               </View>
             )}
 
-            {/* ── Quick Stats ────────────────────────────────────────────── */}
-            <View className="flex-row gap-2.5">
-              <QuickStat label="Open" value={openCount} color="#25D366" />
-              <QuickStat label="Pending" value={pendingCount} color="#f97316" />
-              <QuickStat label="Resolved" value={resolvedCount} color="#3b82f6" />
-              <QuickStat label="Contacts" value={contactsTotal} color="#a855f7" />
+            {/* ── Inbox summary ──────────────────────────────────────────── */}
+            <View className="flex-row items-center bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5">
+              <InlineStat label="Open" value={openCount} onPress={() => router.push('/(app)/inbox')} />
+              <View className="w-px h-9 bg-light-elevated dark:bg-white/5" />
+              <InlineStat
+                label="Pending"
+                value={pendingCount}
+                urgent={pendingCount > 0}
+                onPress={() => router.push({ pathname: '/(app)/inbox', params: { tab: 'PENDING' } })}
+              />
+              <View className="w-px h-9 bg-light-elevated dark:bg-white/5" />
+              <InlineStat
+                label="Resolved"
+                value={resolvedCount}
+                onPress={() => router.push({ pathname: '/(app)/inbox', params: { tab: 'RESOLVED' } })}
+              />
+              <View className="w-px h-9 bg-light-elevated dark:bg-white/5" />
+              <InlineStat label="Contacts" value={contactsTotal} onPress={() => router.push('/(app)/contacts')} />
             </View>
 
             {/* ── Quick Actions ──────────────────────────────────────────── */}
@@ -307,7 +327,7 @@ export default function DashboardScreen() {
             <Card>
               <SectionHeader icon="trending-up-outline" title="Conversation Activity" />
               {/* Date preset filter */}
-              <View className="flex-row bg-white/5 rounded-xl p-1 gap-0.5 mb-4">
+              <View className="flex-row bg-light-elevated dark:bg-white/5 rounded-xl p-1 gap-0.5 mb-4">
                 {PRESETS.map((p) => (
                   <TouchableOpacity
                     key={p.key}
@@ -319,7 +339,7 @@ export default function DashboardScreen() {
                   >
                     <Text
                       className={`text-xs font-semibold ${
-                        preset === p.key ? 'text-white' : 'text-white/40'
+                        preset === p.key ? 'text-light-text-primary dark:text-white' : 'text-light-text-muted dark:text-white/40'
                       }`}
                     >
                       {p.label}
@@ -333,17 +353,17 @@ export default function DashboardScreen() {
                 <View className="flex-row gap-3">
                   <View className="flex-1 bg-green/10 border border-green/20 rounded-xl p-4 items-center">
                     <Ionicons name="trending-up" size={18} color="#25D366" />
-                    <Text className="text-white font-bold text-2xl mt-1.5">
+                    <Text className="text-light-text-primary dark:text-white font-bold text-2xl mt-1.5">
                       {(convStats?.opened ?? 0).toLocaleString()}
                     </Text>
-                    <Text className="text-white/40 text-xs mt-1">Opened</Text>
+                    <Text className="text-light-text-muted dark:text-white/40 text-xs mt-1">Opened</Text>
                   </View>
                   <View className="flex-1 bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 items-center">
                     <Ionicons name="checkmark-circle" size={18} color="#3b82f6" />
-                    <Text className="text-white font-bold text-2xl mt-1.5">
+                    <Text className="text-light-text-primary dark:text-white font-bold text-2xl mt-1.5">
                       {(convStats?.closed ?? 0).toLocaleString()}
                     </Text>
-                    <Text className="text-white/40 text-xs mt-1">Resolved</Text>
+                    <Text className="text-light-text-muted dark:text-white/40 text-xs mt-1">Resolved</Text>
                   </View>
                 </View>
               )}
@@ -368,28 +388,28 @@ export default function DashboardScreen() {
                       label: 'Quality Rating',
                       value: waStatus.qualityRating || '—',
                       dotColor: waStatus.qualityRating === 'GREEN' ? '#22c55e' : waStatus.qualityRating === 'YELLOW' ? '#eab308' : '#ef4444',
-                      valueColor: waStatus.qualityRating === 'GREEN' ? '#22c55e' : waStatus.qualityRating === 'YELLOW' ? '#eab308' : 'rgba(255,255,255,0.7)',
+                      valueColor: waStatus.qualityRating === 'GREEN' ? '#22c55e' : waStatus.qualityRating === 'YELLOW' ? '#eab308' : colors.textSecondary,
                     },
                     {
                       label: 'Verification',
                       value: waStatus.verificationStatus || '—',
                       dotColor: waStatus.verificationStatus === 'VERIFIED' ? '#22c55e' : '#eab308',
-                      valueColor: waStatus.verificationStatus === 'VERIFIED' ? '#22c55e' : 'rgba(255,255,255,0.7)',
+                      valueColor: waStatus.verificationStatus === 'VERIFIED' ? '#22c55e' : colors.textSecondary,
                     },
                     {
                       label: 'Messaging Limit',
                       value: waStatus.messagingLimit || '—',
                       dotColor: '#25D366',
-                      valueColor: 'rgba(255,255,255,0.8)',
+                      valueColor: colors.textSecondary,
                     },
                   ].map(({ label, value, dotColor, valueColor }) => (
                     <View
                       key={label}
-                      className="flex-row items-center justify-between bg-white/5 rounded-xl px-3 py-2.5"
+                      className="flex-row items-center justify-between bg-light-elevated dark:bg-white/5 rounded-xl px-3 py-2.5"
                     >
                       <View className="flex-row items-center gap-2">
                         <StatusDot color={dotColor} />
-                        <Text className="text-white/60 text-xs font-medium">{label}</Text>
+                        <Text className="text-light-text-secondary dark:text-white/60 text-xs font-medium">{label}</Text>
                       </View>
                       <Text className="text-xs font-semibold" style={{ color: valueColor }}>
                         {value}
@@ -405,38 +425,27 @@ export default function DashboardScreen() {
               <Card>
                 <View className="flex-row items-center justify-between mb-3">
                   <SectionHeader icon="people-outline" title="Team Performance" />
-                  <Text className="text-white/30 text-xs">{resolvedToday} resolved today</Text>
+                  <Text className="text-light-text-disabled dark:text-white/30 text-xs">{resolvedToday} resolved today</Text>
                 </View>
                 {team.length === 0 ? (
-                  <Text className="text-white/30 text-xs text-center py-4">No team members</Text>
+                  <Text className="text-light-text-disabled dark:text-white/30 text-xs text-center py-4">No team members</Text>
                 ) : (
                   <View className="gap-3">
                     {team.slice(0, 6).map((m) => (
                       <View key={m.id} className="flex-row items-center gap-3">
-                        {/* Avatar */}
-                        <View className="relative">
-                          <View className="w-9 h-9 rounded-full bg-green/15 items-center justify-center border border-green/20">
-                            <Text className="text-green text-xs font-bold">
-                              {m.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
-                            </Text>
-                          </View>
-                          <View
-                            className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-card"
-                            style={{ backgroundColor: m.isOnline ? '#22c55e' : '#4b5563' }}
-                          />
-                        </View>
+                        <Avatar name={m.name} size="sm" online={m.isOnline} />
                         {/* Info */}
                         <View className="flex-1 min-w-0">
-                          <Text className="text-white text-xs font-semibold" numberOfLines={1}>{m.name}</Text>
-                          <Text className="text-white/40 text-[10px]">
+                          <Text className="text-light-text-primary dark:text-white text-xs font-semibold" numberOfLines={1}>{m.name}</Text>
+                          <Text className="text-light-text-muted dark:text-white/40 text-[10px]">
                             {m.assignedConversations} assigned · {m.resolvedToday} resolved
                           </Text>
                         </View>
                         {/* Online badge */}
                         <View
-                          className={`px-2 py-0.5 rounded-full ${m.isOnline ? 'bg-green/15' : 'bg-white/5'}`}
+                          className={`px-2 py-0.5 rounded-full ${m.isOnline ? 'bg-green/15' : 'bg-light-elevated dark:bg-white/5'}`}
                         >
-                          <Text className={`text-[10px] font-medium ${m.isOnline ? 'text-green' : 'text-white/25'}`}>
+                          <Text className={`text-[10px] font-medium ${m.isOnline ? 'text-green' : 'text-light-text-disabled dark:text-white/25'}`}>
                             {m.isOnline ? 'Online' : 'Away'}
                           </Text>
                         </View>
@@ -452,23 +461,23 @@ export default function DashboardScreen() {
               <SectionHeader icon="flash-outline" title="AI Performance" />
               <View className="flex-row justify-between">
                 <View className="items-center flex-1">
-                  <Text className="text-white/40 text-xs mb-1">Handled</Text>
-                  <Text className="text-white font-bold text-xl">
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs mb-1">Handled</Text>
+                  <Text className="text-light-text-primary dark:text-white font-bold text-xl">
                     {overview?.aiHandledCount ?? 0}
                   </Text>
                 </View>
-                <View className="w-px bg-white/5" />
+                <View className="w-px bg-light-elevated dark:bg-white/5" />
                 <View className="items-center flex-1">
-                  <Text className="text-white/40 text-xs mb-1">Avg Confidence</Text>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs mb-1">Avg Confidence</Text>
                   <Text className="text-green font-bold text-xl">
                     {overview?.avgConfidence != null
                       ? `${Math.round(overview.avgConfidence * 100)}%`
                       : '—'}
                   </Text>
                 </View>
-                <View className="w-px bg-white/5" />
+                <View className="w-px bg-light-elevated dark:bg-white/5" />
                 <View className="items-center flex-1">
-                  <Text className="text-white/40 text-xs mb-1">Escalated</Text>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs mb-1">Escalated</Text>
                   <Text className="text-orange-400 font-bold text-xl">
                     {overview?.escalatedCount ?? 0}
                   </Text>
@@ -492,10 +501,10 @@ export default function DashboardScreen() {
                     .map(({ label, value }) => (
                       <View
                         key={label}
-                        className="flex-row items-start justify-between py-2 border-b border-white/5 last:border-0"
+                        className="flex-row items-start justify-between py-2 border-b border-light-border dark:border-white/5 last:border-0"
                       >
-                        <Text className="text-white/40 text-xs flex-shrink-0">{label}</Text>
-                        <Text className="text-white/80 text-xs text-right flex-1 ml-4" numberOfLines={2}>
+                        <Text className="text-light-text-muted dark:text-white/40 text-xs flex-shrink-0">{label}</Text>
+                        <Text className="text-light-text-secondary dark:text-white/80 text-xs text-right flex-1 ml-4" numberOfLines={2}>
                           {value}
                         </Text>
                       </View>

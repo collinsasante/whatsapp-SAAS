@@ -4,9 +4,11 @@ import {
   Alert, RefreshControl, ActivityIndicator, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface MediaItem {
   id: string;
@@ -80,6 +82,7 @@ function getUrl(item: MediaItem): string {
 }
 
 export default function LibraryScreen() {
+  const { colors } = useAppTheme();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<(typeof TYPE_TABS)[number]>('All');
   const [preview, setPreview] = useState<MediaItem | null>(null);
@@ -137,8 +140,8 @@ export default function LibraryScreen() {
           {url ? (
             <Image source={{ uri: url }} style={{ width: CELL, height: CELL, borderRadius: 8 }} resizeMode="cover" />
           ) : (
-            <View style={{ width: CELL, height: CELL, borderRadius: 8, backgroundColor: '#21262d', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name={isVideo(item) ? 'videocam' : 'image-outline'} size={24} color="rgba(255,255,255,0.2)" />
+            <View style={{ width: CELL, height: CELL, borderRadius: 8, backgroundColor: colors.elevated, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name={isVideo(item) ? 'videocam' : 'image-outline'} size={24} color={colors.textDisabled} />
             </View>
           )}
           {isVideo(item) && (
@@ -161,22 +164,22 @@ export default function LibraryScreen() {
     // List row for audio/documents
     return (
       <TouchableOpacity
-        className="flex-row items-center px-4 py-3 border-b border-white/5"
+        className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5"
         onPress={() => setPreview(item)}
         activeOpacity={0.7}
       >
-        <View className="w-10 h-10 rounded-xl bg-surface-card items-center justify-center mr-3">
+        <View className="w-10 h-10 rounded-xl bg-light-card dark:bg-surface-card items-center justify-center mr-3">
           <Ionicons name={mimeIcon(item.mimeType ?? item.mediaType) as any} size={20} color="#25D366" />
         </View>
         <View className="flex-1 min-w-0">
-          <Text className="text-white text-sm font-medium" numberOfLines={1}>
+          <Text className="text-light-text-primary dark:text-white text-sm font-medium" numberOfLines={1}>
             {item.originalName ?? item.mediaCaption ?? 'File'}
           </Text>
-          <Text className="text-white/30 text-xs">{formatBytes(item.mediaSize ?? item.fileSize)}</Text>
+          <Text className="text-light-text-disabled dark:text-white/30 text-xs">{formatBytes(item.mediaSize ?? item.fileSize)}</Text>
         </View>
         {section === 'agent' && (
           <TouchableOpacity onPress={() => handleDelete(item)} className="p-1">
-            <Ionicons name="trash-outline" size={16} color="rgba(255,255,255,0.3)" />
+            <Ionicons name="trash-outline" size={16} color={colors.textDisabled} />
           </TouchableOpacity>
         )}
       </TouchableOpacity>
@@ -186,10 +189,15 @@ export default function LibraryScreen() {
   const showGrid = activeTab === 'All' || activeTab === 'Images' || activeTab === 'Videos';
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5 flex-row items-center justify-between">
-        <Text className="text-white text-xl font-bold">Media Library</Text>
-        <Text className="text-white/30 text-sm">{items.length} files</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 py-3 border-b border-light-border dark:border-white/5 flex-row items-center justify-between">
+        <View className="flex-row items-center">
+          <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-back" size={22} color="#25D366" />
+          </TouchableOpacity>
+          <Text className="text-light-text-primary dark:text-white text-xl font-bold">Media Library</Text>
+        </View>
+        <Text className="text-light-text-disabled dark:text-white/30 text-sm">{items.length} files</Text>
       </View>
 
       {/* Type tabs */}
@@ -198,22 +206,22 @@ export default function LibraryScreen() {
           <TouchableOpacity
             key={tab}
             onPress={() => setActiveTab(tab)}
-            className={`rounded-full px-3 py-1 ${activeTab === tab ? 'bg-green' : 'bg-surface-card'}`}
+            className={`rounded-full px-3 py-1 ${activeTab === tab ? 'bg-green' : 'bg-light-card dark:bg-surface-card'}`}
           >
-            <Text className={`text-xs font-semibold ${activeTab === tab ? 'text-white' : 'text-white/40'}`}>{tab}</Text>
+            <Text className={`text-xs font-semibold ${activeTab === tab ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>{tab}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {/* Section toggle */}
-      <View className="flex-row mx-4 bg-surface-card rounded-xl p-1 mb-2">
+      <View className="flex-row mx-4 bg-light-card dark:bg-surface-card rounded-xl p-1 mb-2">
         {(['agent', 'customer'] as const).map((s) => (
           <TouchableOpacity
             key={s}
             onPress={() => setSection(s)}
             className={`flex-1 py-2 rounded-lg items-center ${section === s ? 'bg-green' : ''}`}
           >
-            <Text className={`text-sm font-semibold ${section === s ? 'text-white' : 'text-white/40'}`}>
+            <Text className={`text-sm font-semibold ${section === s ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>
               {s === 'agent' ? 'Team Library' : 'Customer Files'}
             </Text>
           </TouchableOpacity>
@@ -226,8 +234,8 @@ export default function LibraryScreen() {
         </View>
       ) : items.length === 0 ? (
         <View className="flex-1 items-center justify-center">
-          <Ionicons name="images-outline" size={48} color="rgba(255,255,255,0.1)" />
-          <Text className="text-white/30 text-sm mt-3">No files found</Text>
+          <Ionicons name="images-outline" size={48} color={colors.border} />
+          <Text className="text-light-text-disabled dark:text-white/30 text-sm mt-3">No files found</Text>
         </View>
       ) : showGrid ? (
         <FlatList

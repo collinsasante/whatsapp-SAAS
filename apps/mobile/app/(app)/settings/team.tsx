@@ -18,6 +18,7 @@ import { router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
 import { useAuthStore } from '../../../src/store/auth.store';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface WorkspaceMember {
   id: string;
@@ -47,14 +48,17 @@ interface WorkspaceInvitation {
 const ROLE_OPTIONS = ['OWNER', 'ADMIN', 'MANAGER', 'AGENT', 'ANALYST', 'VIEWER'] as const;
 const INVITABLE_ROLES = ROLE_OPTIONS.filter((r) => r !== 'OWNER');
 
-const ROLE_COLOR: Record<string, string> = {
-  OWNER: '#f97316',
-  ADMIN: '#a855f7',
-  MANAGER: '#6366f1',
-  AGENT: '#3b82f6',
-  ANALYST: '#14b8a6',
-  VIEWER: 'rgba(255,255,255,0.4)',
-};
+function getRoleColor(role: string, isDark: boolean): string {
+  const map: Record<string, string> = {
+    OWNER: '#f97316',
+    ADMIN: '#a855f7',
+    MANAGER: '#6366f1',
+    AGENT: '#3b82f6',
+    ANALYST: '#14b8a6',
+    VIEWER: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(15,23,42,0.4)',
+  };
+  return map[role] ?? (isDark ? '#fff' : '#0f172a');
+}
 
 function apiErrorMessage(err: unknown, fallback: string): string {
   const e = err as { response?: { data?: { message?: string | string[] } } };
@@ -74,6 +78,7 @@ function initials(name: string): string {
 }
 
 export default function TeamScreen() {
+  const { colors, isDark } = useAppTheme();
   const queryClient = useQueryClient();
   const currentUserId = useAuthStore((s) => s.user?.id);
 
@@ -157,12 +162,12 @@ export default function TeamScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Team</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Team</Text>
         <TouchableOpacity onPress={() => setInviteVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="person-add-outline" size={22} color="#25D366" />
         </TouchableOpacity>
@@ -185,20 +190,20 @@ export default function TeamScreen() {
         ListHeaderComponent={
           invitations && invitations.length > 0 ? (
             <View className="mb-4">
-              <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">
+              <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">
                 Pending Invites
               </Text>
               <View style={{ gap: 8 }}>
                 {invitations.map((inv) => (
                   <View
                     key={inv.id}
-                    className="bg-surface-card border border-white/5 rounded-2xl p-3.5 flex-row items-center justify-between"
+                    className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/5 rounded-2xl p-3.5 flex-row items-center justify-between"
                   >
                     <View className="flex-1 min-w-0">
-                      <Text className="text-white text-sm font-medium" numberOfLines={1}>
+                      <Text className="text-light-text-primary dark:text-white text-sm font-medium" numberOfLines={1}>
                         {inv.name || inv.email}
                       </Text>
-                      <Text className="text-white/30 text-[11px] mt-0.5" numberOfLines={1}>
+                      <Text className="text-light-text-disabled dark:text-white/30 text-[11px] mt-0.5" numberOfLines={1}>
                         {inv.email} · {inv.role}
                       </Text>
                     </View>
@@ -206,12 +211,12 @@ export default function TeamScreen() {
                       onPress={() => cancelInvitation.mutate(inv.id)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons name="close-circle-outline" size={20} color="rgba(255,255,255,0.3)" />
+                      <Ionicons name="close-circle-outline" size={20} color={colors.textDisabled} />
                     </TouchableOpacity>
                   </View>
                 ))}
               </View>
-              <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2 mt-4">
+              <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-2 mt-4">
                 Members
               </Text>
             </View>
@@ -228,7 +233,7 @@ export default function TeamScreen() {
           const suspended = item.status === 'SUSPENDED';
           return (
             <TouchableOpacity
-              className="bg-surface-card border border-white/5 rounded-2xl p-3.5 flex-row items-center gap-3"
+              className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/5 rounded-2xl p-3.5 flex-row items-center gap-3"
               activeOpacity={0.8}
               onPress={() => setActionsMember(item)}
             >
@@ -236,15 +241,15 @@ export default function TeamScreen() {
                 <Text className="text-green font-bold text-sm">{initials(item.user?.name ?? '?')}</Text>
               </View>
               <View className="flex-1 min-w-0">
-                <Text className={`text-sm font-medium ${suspended ? 'text-white/40' : 'text-white'}`} numberOfLines={1}>
+                <Text className={`text-sm font-medium ${suspended ? 'text-light-text-muted dark:text-white/40' : 'text-light-text-primary dark:text-white'}`} numberOfLines={1}>
                   {item.user?.name ?? 'Unknown'}
                 </Text>
-                <Text className="text-white/30 text-[11px] mt-0.5" numberOfLines={1}>
+                <Text className="text-light-text-disabled dark:text-white/30 text-[11px] mt-0.5" numberOfLines={1}>
                   {item.user?.email}
                 </Text>
               </View>
               <View className="items-end">
-                <Text className="text-[11px] font-semibold" style={{ color: ROLE_COLOR[item.role] ?? '#fff' }}>
+                <Text className="text-[11px] font-semibold" style={{ color: getRoleColor(item.role, isDark) }}>
                   {item.role}
                 </Text>
                 {suspended && <Text className="text-red-400 text-[10px] mt-0.5">Suspended</Text>}
@@ -261,20 +266,20 @@ export default function TeamScreen() {
           className="flex-1 justify-end"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
         >
-          <View className="bg-surface rounded-t-3xl">
-            <View className="flex-row items-center justify-between px-5 py-4 border-b border-white/5">
-              <Text className="text-white font-bold text-lg">Invite Member</Text>
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl">
+            <View className="flex-row items-center justify-between px-5 py-4 border-b border-light-border dark:border-white/5">
+              <Text className="text-light-text-primary dark:text-white font-bold text-lg">Invite Member</Text>
               <TouchableOpacity onPress={() => setInviteVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <View className="px-5 py-4" style={{ gap: 14 }}>
               <View>
-                <Text className="text-white/50 text-xs font-medium mb-1.5">Email</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs font-medium mb-1.5">Email</Text>
                 <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-3.5 py-3 text-white text-sm"
+                  className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-3.5 py-3 text-light-text-primary dark:text-white text-sm"
                   placeholder="teammate@company.com"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  placeholderTextColor={colors.textDisabled}
                   autoCapitalize="none"
                   keyboardType="email-address"
                   value={inviteEmail}
@@ -282,26 +287,26 @@ export default function TeamScreen() {
                 />
               </View>
               <View>
-                <Text className="text-white/50 text-xs font-medium mb-1.5">Name (optional)</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs font-medium mb-1.5">Name (optional)</Text>
                 <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-3.5 py-3 text-white text-sm"
-                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-3.5 py-3 text-light-text-primary dark:text-white text-sm"
+                  placeholderTextColor={colors.textDisabled}
                   value={inviteName}
                   onChangeText={setInviteName}
                 />
               </View>
               <View>
-                <Text className="text-white/50 text-xs font-medium mb-2">Role</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs font-medium mb-2">Role</Text>
                 <View className="flex-row flex-wrap gap-2">
                   {INVITABLE_ROLES.map((r) => (
                     <TouchableOpacity
                       key={r}
                       onPress={() => setInviteRole(r)}
                       className={`px-3 py-1.5 rounded-full border ${
-                        inviteRole === r ? 'bg-green border-green' : 'border-white/10'
+                        inviteRole === r ? 'bg-green border-green' : 'border-light-border dark:border-white/10'
                       }`}
                     >
-                      <Text className={`text-xs font-medium ${inviteRole === r ? 'text-white' : 'text-white/50'}`}>{r}</Text>
+                      <Text className={`text-xs font-medium ${inviteRole === r ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>{r}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -332,12 +337,12 @@ export default function TeamScreen() {
           activeOpacity={1}
           onPress={() => setActionsMember(null)}
         >
-          <View className="bg-surface rounded-t-3xl p-5" onStartShouldSetResponder={() => true}>
-            <Text className="text-white font-bold text-base mb-0.5">{actionsMember?.user?.name}</Text>
-            <Text className="text-white/40 text-xs mb-4">{actionsMember?.user?.email}</Text>
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-5" onStartShouldSetResponder={() => true}>
+            <Text className="text-light-text-primary dark:text-white font-bold text-base mb-0.5">{actionsMember?.user?.name}</Text>
+            <Text className="text-light-text-muted dark:text-white/40 text-xs mb-4">{actionsMember?.user?.email}</Text>
 
             {actionsMember?.userId === currentUserId || actionsMember?.role === 'OWNER' ? (
-              <Text className="text-white/40 text-sm py-3">
+              <Text className="text-light-text-muted dark:text-white/40 text-sm py-3">
                 Role: {actionsMember?.role} · {actionsMember?.userId === currentUserId ? 'This is you' : 'Workspace owner'}
               </Text>
             ) : (
@@ -350,7 +355,7 @@ export default function TeamScreen() {
                   }}
                 >
                   <Ionicons name="swap-horizontal-outline" size={18} color="#fff" />
-                  <Text className="text-white text-sm">Change Role</Text>
+                  <Text className="text-light-text-primary dark:text-white text-sm">Change Role</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   className="flex-row items-center gap-3 py-3"
@@ -367,7 +372,7 @@ export default function TeamScreen() {
                     size={18}
                     color="#fff"
                   />
-                  <Text className="text-white text-sm">
+                  <Text className="text-light-text-primary dark:text-white text-sm">
                     {actionsMember?.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}
                   </Text>
                 </TouchableOpacity>
@@ -382,7 +387,7 @@ export default function TeamScreen() {
             )}
 
             <TouchableOpacity className="items-center py-3 mt-1" onPress={() => setActionsMember(null)}>
-              <Text className="text-white/40 text-sm">Cancel</Text>
+              <Text className="text-light-text-muted dark:text-white/40 text-sm">Cancel</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -396,8 +401,8 @@ export default function TeamScreen() {
         onRequestClose={() => setRoleModalMember(null)}
       >
         <View className="flex-1 items-center justify-center px-8" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <View className="bg-surface rounded-2xl p-5 w-full">
-            <Text className="text-white font-bold text-base mb-4">
+          <View className="bg-light-background dark:bg-surface rounded-2xl p-5 w-full">
+            <Text className="text-light-text-primary dark:text-white font-bold text-base mb-4">
               Change role for {roleModalMember?.user?.name}
             </Text>
             <View className="flex-row flex-wrap gap-2 mb-4">
@@ -406,18 +411,18 @@ export default function TeamScreen() {
                   key={r}
                   onPress={() => roleModalMember && editRole.mutate({ id: roleModalMember.id, role: r })}
                   className={`px-3 py-1.5 rounded-full border ${
-                    roleModalMember?.role === r ? 'bg-green border-green' : 'border-white/10'
+                    roleModalMember?.role === r ? 'bg-green border-green' : 'border-light-border dark:border-white/10'
                   }`}
                   disabled={editRole.isPending}
                 >
-                  <Text className={`text-xs font-medium ${roleModalMember?.role === r ? 'text-white' : 'text-white/50'}`}>
+                  <Text className={`text-xs font-medium ${roleModalMember?.role === r ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>
                     {r}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
             <TouchableOpacity onPress={() => setRoleModalMember(null)} className="items-center py-2">
-              <Text className="text-white/50 text-sm">Cancel</Text>
+              <Text className="text-light-text-muted dark:text-white/50 text-sm">Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
