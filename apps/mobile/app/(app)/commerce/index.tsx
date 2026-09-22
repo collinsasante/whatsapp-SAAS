@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Order {
   id: string;
@@ -47,23 +48,30 @@ interface Product {
 const TABS = ['Orders', 'Products'] as const;
 type Tab = (typeof TABS)[number];
 
-const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
-  DRAFT: { bg: 'rgba(255,255,255,0.08)', text: 'rgba(255,255,255,0.5)' },
-  AWAITING_APPROVAL: { bg: 'rgba(249,115,22,0.15)', text: '#f97316' },
-  PENDING_PAYMENT: { bg: 'rgba(234,179,8,0.15)', text: '#eab308' },
-  PAID: { bg: 'rgba(37,211,102,0.15)', text: '#25D366' },
-  FULFILLING: { bg: 'rgba(59,130,246,0.15)', text: '#3b82f6' },
-  COMPLETED: { bg: 'rgba(37,211,102,0.15)', text: '#25D366' },
-  CANCELLED: { bg: 'rgba(255,255,255,0.08)', text: 'rgba(255,255,255,0.4)' },
-  REFUNDED: { bg: 'rgba(239,68,68,0.15)', text: '#ef4444' },
-};
+function getStatusStyle(status: string, isDark: boolean): { bg: string; text: string } {
+  const neutral = isDark
+    ? { bg: 'rgba(255,255,255,0.08)', text: 'rgba(255,255,255,0.5)' }
+    : { bg: 'rgba(15,23,42,0.06)', text: 'rgba(15,23,42,0.5)' };
+  const map: Record<string, { bg: string; text: string }> = {
+    DRAFT: neutral,
+    AWAITING_APPROVAL: { bg: 'rgba(249,115,22,0.15)', text: '#f97316' },
+    PENDING_PAYMENT: { bg: 'rgba(234,179,8,0.15)', text: '#eab308' },
+    PAID: { bg: 'rgba(37,211,102,0.15)', text: '#25D366' },
+    FULFILLING: { bg: 'rgba(59,130,246,0.15)', text: '#3b82f6' },
+    COMPLETED: { bg: 'rgba(37,211,102,0.15)', text: '#25D366' },
+    CANCELLED: neutral,
+    REFUNDED: { bg: 'rgba(239,68,68,0.15)', text: '#ef4444' },
+  };
+  return map[status] ?? neutral;
+}
 
 function money(currency: string, amount: number): string {
   return `${currency} ${amount.toFixed(2)}`;
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_STYLE[status] ?? STATUS_STYLE.DRAFT;
+  const { isDark } = useAppTheme();
+  const style = getStatusStyle(status, isDark);
   return (
     <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: style.bg }}>
       <Text className="text-[10px] font-semibold" style={{ color: style.text }}>
@@ -84,11 +92,12 @@ const BLANK_PRODUCT = {
 };
 
 export default function CommerceScreen() {
+  const { colors } = useAppTheme();
   const [tab, setTab] = useState<Tab>('Orders');
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity
           onPress={() => router.back()}
           className="mr-3 p-1"
@@ -96,7 +105,7 @@ export default function CommerceScreen() {
         >
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Commerce</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Commerce</Text>
       </View>
 
       <View className="flex-row px-4 pt-3 gap-2">
@@ -104,10 +113,10 @@ export default function CommerceScreen() {
           <TouchableOpacity
             key={t}
             onPress={() => setTab(t)}
-            className={`px-4 py-2 rounded-full ${tab === t ? 'bg-green' : 'bg-surface-card border border-white/10'}`}
+            className={`px-4 py-2 rounded-full ${tab === t ? 'bg-green' : 'bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10'}`}
             activeOpacity={0.8}
           >
-            <Text className={`text-sm font-medium ${tab === t ? 'text-white' : 'text-white/50'}`}>{t}</Text>
+            <Text className={`text-sm font-medium ${tab === t ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>{t}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -136,26 +145,26 @@ function OrdersTab() {
           </View>
         ) : (
           <View className="items-center pt-24">
-            <Ionicons name="receipt-outline" size={48} color="rgba(255,255,255,0.15)" style={{ marginBottom: 12 }} />
-            <Text className="text-white/30 text-base font-medium">No orders yet</Text>
+            <Ionicons name="receipt-outline" size={48} color={colors.border} style={{ marginBottom: 12 }} />
+            <Text className="text-light-text-disabled dark:text-white/30 text-base font-medium">No orders yet</Text>
           </View>
         )
       }
       renderItem={({ item }) => (
         <TouchableOpacity
-          className="bg-surface-card border border-white/5 rounded-2xl p-4"
+          className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/5 rounded-2xl p-4"
           activeOpacity={0.8}
           onPress={() => router.push(`/(app)/commerce/orders/${item.id}`)}
         >
           <View className="flex-row items-center justify-between mb-1.5">
-            <Text className="text-white font-semibold text-sm" numberOfLines={1}>
+            <Text className="text-light-text-primary dark:text-white font-semibold text-sm" numberOfLines={1}>
               {item.customerName || item.customerPhone}
             </Text>
             <StatusBadge status={item.status} />
           </View>
           <View className="flex-row items-center justify-between">
-            <Text className="text-white/40 text-xs">{new Date(item.createdAt).toLocaleDateString()}</Text>
-            <Text className="text-white font-semibold text-sm">{money(item.currency, item.totalMajorUnits)}</Text>
+            <Text className="text-light-text-muted dark:text-white/40 text-xs">{new Date(item.createdAt).toLocaleDateString()}</Text>
+            <Text className="text-light-text-primary dark:text-white font-semibold text-sm">{money(item.currency, item.totalMajorUnits)}</Text>
           </View>
         </TouchableOpacity>
       )}
@@ -247,19 +256,19 @@ function ProductsTab() {
             </View>
           ) : (
             <View className="items-center pt-24 w-full">
-              <Ionicons name="cube-outline" size={48} color="rgba(255,255,255,0.15)" style={{ marginBottom: 12 }} />
-              <Text className="text-white/30 text-base font-medium">No products yet</Text>
+              <Ionicons name="cube-outline" size={48} color={colors.border} style={{ marginBottom: 12 }} />
+              <Text className="text-light-text-disabled dark:text-white/30 text-base font-medium">No products yet</Text>
             </View>
           )
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            className="bg-surface-card border border-white/5 rounded-2xl p-3 flex-1"
+            className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/5 rounded-2xl p-3 flex-1"
             activeOpacity={0.8}
             onPress={() => openEdit(item)}
           >
             <View className="flex-row items-start justify-between mb-2">
-              <Text className="text-white font-semibold text-sm flex-1" numberOfLines={2}>
+              <Text className="text-light-text-primary dark:text-white font-semibold text-sm flex-1" numberOfLines={2}>
                 {item.name}
               </Text>
               <Switch
@@ -269,7 +278,7 @@ function ProductsTab() {
             </View>
             <Text className="text-green font-semibold text-sm mb-1">{money(item.currency, item.priceMajorUnits)}</Text>
             {item.stockQuantity != null && (
-              <Text className="text-white/30 text-[11px]">{item.stockQuantity} in stock</Text>
+              <Text className="text-light-text-disabled dark:text-white/30 text-[11px]">{item.stockQuantity} in stock</Text>
             )}
           </TouchableOpacity>
         )}
@@ -290,11 +299,11 @@ function ProductsTab() {
           className="flex-1 justify-end"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
         >
-          <View className="bg-surface rounded-t-3xl max-h-[85%]">
-            <View className="flex-row items-center justify-between px-5 py-4 border-b border-white/5">
-              <Text className="text-white font-bold text-lg">{editingId ? 'Edit Product' : 'New Product'}</Text>
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl max-h-[85%]">
+            <View className="flex-row items-center justify-between px-5 py-4 border-b border-light-border dark:border-white/5">
+              <Text className="text-light-text-primary dark:text-white font-bold text-lg">{editingId ? 'Edit Product' : 'New Product'}</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
             <ScrollView className="px-5 py-4" contentContainerStyle={{ gap: 14 }}>
@@ -325,7 +334,7 @@ function ProductsTab() {
                 </View>
               </View>
             </ScrollView>
-            <View className="px-5 py-4 border-t border-white/5">
+            <View className="px-5 py-4 border-t border-light-border dark:border-white/5">
               <TouchableOpacity
                 className="bg-green rounded-xl py-3.5 items-center"
                 onPress={handleSave}
@@ -357,10 +366,10 @@ function FormField({
 }) {
   return (
     <View>
-      <Text className="text-white/50 text-xs font-medium mb-1.5">{label}</Text>
+      <Text className="text-light-text-muted dark:text-white/50 text-xs font-medium mb-1.5">{label}</Text>
       <TextInput
-        className="bg-surface-card border border-white/10 rounded-xl px-3.5 py-3 text-white text-sm"
-        placeholderTextColor="rgba(255,255,255,0.3)"
+        className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-3.5 py-3 text-light-text-primary dark:text-white text-sm"
+        placeholderTextColor={colors.textDisabled}
         value={value}
         onChangeText={onChangeText}
         multiline={multiline}

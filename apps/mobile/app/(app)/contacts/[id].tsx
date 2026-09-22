@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
 import { MessageDirection } from '@whatsapp-platform/shared-types';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Contact {
   id: string;
@@ -42,6 +43,7 @@ interface Conversation {
 }
 
 export default function ContactDetailScreen() {
+  const { colors } = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const qc = useQueryClient();
   const [isStarting, setIsStarting] = useState(false);
@@ -149,7 +151,7 @@ export default function ContactDetailScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-surface">
+      <SafeAreaView className="flex-1 bg-light-background dark:bg-surface">
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#25D366" size="large" />
         </View>
@@ -159,8 +161,8 @@ export default function ContactDetailScreen() {
 
   if (!contact) {
     return (
-      <SafeAreaView className="flex-1 bg-surface items-center justify-center">
-        <Text className="text-white/40">Contact not found</Text>
+      <SafeAreaView className="flex-1 bg-light-background dark:bg-surface items-center justify-center">
+        <Text className="text-light-text-muted dark:text-white/40">Contact not found</Text>
       </SafeAreaView>
     );
   }
@@ -169,17 +171,17 @@ export default function ContactDetailScreen() {
   const initials = displayName.charAt(0).toUpperCase();
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top', 'bottom']}>
       {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5 gap-3">
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5 gap-3">
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1" numberOfLines={1}>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1" numberOfLines={1}>
           {displayName}
         </Text>
         <TouchableOpacity onPress={openEdit} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="pencil-outline" size={18} color="rgba(255,255,255,0.5)" />
+          <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
@@ -189,7 +191,7 @@ export default function ContactDetailScreen() {
           <View className="w-24 h-24 rounded-full bg-blue-500/20 items-center justify-center border-2 border-blue-500/30 mb-3">
             <Text className="text-blue-400 font-extrabold text-4xl">{initials}</Text>
           </View>
-          <Text className="text-white text-xl font-bold">{displayName}</Text>
+          <Text className="text-light-text-primary dark:text-white text-xl font-bold">{displayName}</Text>
           {contact.isBlocked && (
             <View className="mt-1.5 px-3 py-0.5 bg-red-500/20 rounded-full">
               <Text className="text-red-400 text-xs font-semibold">Blocked</Text>
@@ -216,9 +218,9 @@ export default function ContactDetailScreen() {
         </TouchableOpacity>
 
         {/* Info card */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 overflow-hidden">
-          <View className="px-4 py-2.5 border-b border-white/5">
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider">Contact Info</Text>
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 overflow-hidden">
+          <View className="px-4 py-2.5 border-b border-light-border dark:border-white/5">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider">Contact Info</Text>
           </View>
           <InfoRow label="Phone" value={contact.phone} icon="call-outline" />
           {contact.email && <InfoRow label="Email" value={contact.email} icon="mail-outline" />}
@@ -235,8 +237,8 @@ export default function ContactDetailScreen() {
 
         {/* Labels */}
         {contact.labels.length > 0 && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 p-4">
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">Labels</Text>
+          <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">Labels</Text>
             <View className="flex-row flex-wrap gap-2">
               {contact.labels.map((label) => (
                 <View key={label} className="px-3 py-1 bg-green/15 border border-green/20 rounded-full">
@@ -249,17 +251,17 @@ export default function ContactDetailScreen() {
 
         {/* Notes */}
         {contact.notes && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 p-4">
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Notes</Text>
-            <Text className="text-white/70 text-sm leading-5">{contact.notes}</Text>
+          <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Notes</Text>
+            <Text className="text-light-text-secondary dark:text-white/70 text-sm leading-5">{contact.notes}</Text>
           </View>
         )}
 
         {/* Conversation history */}
         {convs && convs.length > 0 && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 overflow-hidden">
-            <View className="px-4 py-2.5 border-b border-white/5">
-              <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider">
+          <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 overflow-hidden">
+            <View className="px-4 py-2.5 border-b border-light-border dark:border-white/5">
+              <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider">
                 Conversation History
               </Text>
             </View>
@@ -275,19 +277,19 @@ export default function ContactDetailScreen() {
               return (
                 <TouchableOpacity
                   key={conv.id}
-                  className={`flex-row items-center px-4 py-3.5 gap-3 ${i < convs.length - 1 ? 'border-b border-white/5' : ''}`}
+                  className={`flex-row items-center px-4 py-3.5 gap-3 ${i < convs.length - 1 ? 'border-b border-light-border dark:border-white/5' : ''}`}
                   onPress={() => router.push(`/(app)/inbox/${conv.id}`)}
                   activeOpacity={0.7}
                 >
                   <View className={`w-2 h-2 rounded-full flex-shrink-0 ${
                     conv.status === 'OPEN' ? 'bg-green' :
                     conv.status === 'PENDING' ? 'bg-orange-400' :
-                    conv.status === 'RESOLVED' ? 'bg-blue-400' : 'bg-white/20'
+                    conv.status === 'RESOLVED' ? 'bg-blue-400' : 'bg-light-border dark:bg-white/20'
                   }`} />
                   <View className="flex-1 min-w-0">
-                    <Text className="text-white text-sm" numberOfLines={1}>{prefix}{preview}</Text>
+                    <Text className="text-light-text-primary dark:text-white text-sm" numberOfLines={1}>{prefix}{preview}</Text>
                     {conv.lastMessageAt && (
-                      <Text className="text-white/30 text-xs mt-0.5">
+                      <Text className="text-light-text-disabled dark:text-white/30 text-xs mt-0.5">
                         {new Date(conv.lastMessageAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                       </Text>
                     )}
@@ -295,12 +297,12 @@ export default function ContactDetailScreen() {
                   <View className={`px-2 py-0.5 rounded-full ${
                     conv.status === 'OPEN' ? 'bg-green/15' :
                     conv.status === 'PENDING' ? 'bg-orange-500/15' :
-                    conv.status === 'RESOLVED' ? 'bg-blue-500/15' : 'bg-white/5'
+                    conv.status === 'RESOLVED' ? 'bg-blue-500/15' : 'bg-light-elevated dark:bg-white/5'
                   }`}>
                     <Text className={`text-[10px] font-semibold uppercase ${
                       conv.status === 'OPEN' ? 'text-green' :
                       conv.status === 'PENDING' ? 'text-orange-400' :
-                      conv.status === 'RESOLVED' ? 'text-blue-400' : 'text-white/30'
+                      conv.status === 'RESOLVED' ? 'text-blue-400' : 'text-light-text-disabled dark:text-white/30'
                     }`}>{conv.status}</Text>
                   </View>
                 </TouchableOpacity>
@@ -334,11 +336,11 @@ export default function ContactDetailScreen() {
       <Modal visible={showEdit} transparent animationType="slide" onRequestClose={() => setShowEdit(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
           <Pressable className="flex-1 bg-black/50" onPress={() => setShowEdit(false)} />
-          <View className="bg-surface rounded-t-3xl pt-5 pb-8 px-5">
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl pt-5 pb-8 px-5">
             <View className="flex-row items-center justify-between mb-5">
-              <Text className="text-white font-bold text-lg">Edit Contact</Text>
+              <Text className="text-light-text-primary dark:text-white font-bold text-lg">Edit Contact</Text>
               <TouchableOpacity onPress={() => setShowEdit(false)}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -368,11 +370,11 @@ export default function ContactDetailScreen() {
                   autoCapitalize="none"
                 />
                 <View className="mb-2">
-                  <Text className="text-white/50 text-xs mb-1.5">Notes</Text>
+                  <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Notes</Text>
                   <TextInput
-                    className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                    className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                     placeholder="Internal notes about this contact..."
-                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    placeholderTextColor={colors.textDisabled}
                     value={form.notes}
                     onChangeText={(v) => setForm((f) => ({ ...f, notes: v }))}
                     multiline
@@ -407,11 +409,12 @@ export default function ContactDetailScreen() {
 }
 
 function InfoRow({ label, value, icon }: { label: string; value: string; icon: string }) {
+  const { colors } = useAppTheme();
   return (
-    <View className="flex-row items-center px-4 py-3.5 border-b border-white/5 last:border-0 gap-3">
-      <Ionicons name={icon as never} size={15} color="rgba(255,255,255,0.3)" />
-      <Text className="text-white/40 text-sm w-14">{label}</Text>
-      <Text className="text-white text-sm flex-1">{value}</Text>
+    <View className="flex-row items-center px-4 py-3.5 border-b border-light-border dark:border-white/5 last:border-0 gap-3">
+      <Ionicons name={icon as never} size={15} color={colors.textDisabled} />
+      <Text className="text-light-text-muted dark:text-white/40 text-sm w-14">{label}</Text>
+      <Text className="text-light-text-primary dark:text-white text-sm flex-1">{value}</Text>
     </View>
   );
 }
@@ -427,15 +430,16 @@ function FormField({
   autoCapitalize?: 'none' | 'words' | 'sentences' | 'characters';
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
 }) {
+  const { colors } = useAppTheme();
   return (
     <View>
-      <Text className="text-white/50 text-xs mb-1.5">
+      <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">
         {label} {required && <Text className="text-red-400">*</Text>}
       </Text>
       <TextInput
-        className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+        className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
         placeholder={placeholder}
-        placeholderTextColor="rgba(255,255,255,0.25)"
+        placeholderTextColor={colors.textDisabled}
         value={value}
         onChangeText={onChange}
         autoCapitalize={autoCapitalize ?? 'sentences'}

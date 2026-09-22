@@ -3,23 +3,33 @@ import { View, Text, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { getPermissions } from '@whatsapp-platform/auth';
 import { useAuthStore } from '../../../src/store/auth.store';
 import { apiClient } from '../../../src/lib/api';
-import { useQuery } from '@tanstack/react-query';
+import { Avatar } from '../../../src/components/ui';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
+import type { ThemePreference } from '../../../src/theme/themeStorage';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IoniconName }[] = [
+  { value: 'light', label: 'Light', icon: 'sunny-outline' },
+  { value: 'dark', label: 'Dark', icon: 'moon-outline' },
+  { value: 'system', label: 'System', icon: 'phone-portrait-outline' },
+];
+
+// Settings is a primary tab, not a hub of hubs -- content lives directly here,
+// styled as native iOS grouped-list sections (label + divider), not cards.
 export default function SettingsScreen() {
   const { user, tenant, clearAuth } = useAuthStore();
   const permissions = getPermissions(user?.role);
+  const { colors, preference, setPreference } = useAppTheme();
 
   const { data: unreadCount } = useQuery({
     queryKey: ['notifications', 'unread'],
     queryFn: () =>
-      apiClient.notifications
-        .unreadCount()
-        .then((r) => (r.data as { count: number }).count ?? 0),
+      apiClient.notifications.unreadCount().then((r) => (r.data as { count: number }).count ?? 0),
     refetchInterval: 30000,
   });
 
@@ -30,11 +40,7 @@ export default function SettingsScreen() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
-          try {
-            await apiClient.auth.logout();
-          } catch {
-            // ignore
-          }
+          try { await apiClient.auth.logout(); } catch { /* ignore */ }
           clearAuth();
           router.replace('/(auth)/login');
         },
@@ -43,269 +49,131 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5">
-        <Text className="text-white text-xl font-bold">Settings</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 py-3">
+        <Text className="text-light-text-primary dark:text-white text-2xl font-bold">Settings</Text>
       </View>
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
-        {/* Profile card */}
+      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }}>
+        {/* Profile row */}
         <TouchableOpacity
-          className="bg-surface-card rounded-2xl p-4 border border-white/5 mb-4 flex-row items-center gap-4"
+          className="flex-row items-center px-4 py-3 gap-3"
           onPress={() => router.push('/(app)/settings/edit-profile')}
-          activeOpacity={0.8}
-        >
-          <View className="w-14 h-14 rounded-full bg-green/20 items-center justify-center">
-            <Text className="text-green font-extrabold text-xl">
-              {user?.name?.charAt(0).toUpperCase() ?? '?'}
-            </Text>
-          </View>
-          <View className="flex-1 min-w-0">
-            <Text className="text-white font-bold text-base" numberOfLines={1}>{user?.name}</Text>
-            <Text className="text-white/50 text-sm" numberOfLines={1}>{user?.email}</Text>
-            <Text className="text-green text-xs font-semibold mt-0.5 capitalize">
-              {user?.role?.toLowerCase().replace(/_/g, ' ')}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.25)" />
-        </TouchableOpacity>
-
-        {/* Workspace */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="Workspace" />
-          <View className="px-4 py-3">
-            <Text className="text-white font-semibold">{tenant?.name}</Text>
-            <Text className="text-white/40 text-xs mt-0.5 capitalize">
-              {tenant?.plan ?? 'Free'} plan
-            </Text>
-          </View>
-        </View>
-
-        {/* Account */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="Account" />
-          <SettingRow
-            icon="person-outline"
-            label="Edit Profile"
-            onPress={() => router.push('/(app)/settings/edit-profile')}
-          />
-          <SettingRow
-            icon="lock-closed-outline"
-            label="Change PIN"
-            onPress={() => router.push('/(app)/settings/change-pin')}
-          />
-          {permissions.showBilling && (
-            <SettingRow
-              icon="card-outline"
-              label="Billing & Subscription"
-              onPress={() => router.push('/(app)/billing')}
-              accent
-            />
-          )}
-          {permissions.canManageTeam && (
-            <SettingRow
-              icon="people-outline"
-              label="Team"
-              description="Manage members and roles"
-              onPress={() => router.push('/(app)/settings/team')}
-            />
-          )}
-        </View>
-
-        {/* Channels & Integrations */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="Channels & Integrations" />
-          {permissions.showChannels && (
-            <SettingRow
-              icon="logo-whatsapp"
-              iconColor="#25D366"
-              label="Channels"
-              description="Manage WhatsApp, Telegram & more"
-              onPress={() => router.push('/(app)/channels')}
-            />
-          )}
-          <SettingRow
-            icon="call-outline"
-            iconColor="#3b82f6"
-            label="Calls"
-            description="View call history & logs"
-            onPress={() => router.push('/(app)/calls')}
-          />
-        </View>
-
-        {/* AI & Automation */}
-        {(permissions.showAI || permissions.showAutomation || permissions.showChatbot) && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-            <SectionHeader title="AI & Automation" />
-            {permissions.showAI && (
-              <SettingRow
-                icon="sparkles"
-                iconColor="#a855f7"
-                label="Verz AI"
-                description="Configure AI & knowledge base"
-                onPress={() => router.push('/(app)/ai')}
-              />
-            )}
-            {permissions.showAutomation && (
-              <SettingRow
-                icon="flash-outline"
-                iconColor="#f97316"
-                label="Automation"
-                description="Rules & workflow automation"
-                onPress={() => router.push('/(app)/automation')}
-              />
-            )}
-            {permissions.showChatbot && (
-              <SettingRow
-                icon="git-network-outline"
-                iconColor="#06b6d4"
-                label="Chatbot Flows"
-                description="Manage conversational flows"
-                onPress={() => router.push('/(app)/chatbot')}
-              />
-            )}
-          </View>
-        )}
-
-        {/* Commerce */}
-        {permissions.showCommerce && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-            <SectionHeader title="Commerce" />
-            <SettingRow
-              icon="storefront-outline"
-              iconColor="#25D366"
-              label="Orders & Products"
-              description="Manage orders and your product catalog"
-              onPress={() => router.push('/(app)/commerce')}
-            />
-          </View>
-        )}
-
-        {/* Content */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="Content" />
-          <SettingRow
-            icon="images-outline"
-            iconColor="#ec4899"
-            label="Media Library"
-            description="Team & customer files"
-            onPress={() => router.push('/(app)/library')}
-          />
-          {permissions.showTemplates && (
-            <SettingRow
-              icon="document-text-outline"
-              label="Message Templates"
-              description="WhatsApp approved templates"
-              onPress={() => router.push('/(app)/settings/templates')}
-            />
-          )}
-        </View>
-
-        {/* Reports */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="Reports" />
-          <SettingRow
-            icon="bar-chart-outline"
-            iconColor="#10b981"
-            label="Analytics"
-            description="Team performance & trends"
-            onPress={() => router.push('/(app)/analytics')}
-          />
-        </View>
-
-        {/* Tools */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-4 overflow-hidden">
-          <SectionHeader title="Tools" />
-          <SettingRow
-            icon="notifications-outline"
-            label="Notifications"
-            onPress={() => router.push('/(app)/settings/notifications')}
-            badge={unreadCount && unreadCount > 0 ? unreadCount : undefined}
-          />
-          <SettingRow
-            icon="phone-portrait-outline"
-            label="Push Notification Settings"
-            description="Manage alerts on this device"
-            onPress={() => router.push('/(app)/settings/push-preferences')}
-          />
-        </View>
-
-        {/* About */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 mb-6 overflow-hidden">
-          <SectionHeader title="About" />
-          <View className="px-4 py-3 border-b border-white/5">
-            <Text className="text-white/40 text-sm">VerzChat Mobile</Text>
-            <Text className="text-white/20 text-xs mt-0.5">Version 1.0.0</Text>
-          </View>
-        </View>
-
-        {/* Logout */}
-        <TouchableOpacity
-          className="border border-red-500/30 rounded-2xl py-4 items-center"
-          onPress={handleLogout}
           activeOpacity={0.7}
         >
-          <Text className="text-red-400 font-semibold">Sign Out</Text>
+          <Avatar name={user?.name ?? '?'} size="lg" />
+          <View className="flex-1 min-w-0">
+            <Text className="text-light-text-primary dark:text-white font-semibold text-base" numberOfLines={1}>{user?.name}</Text>
+            <Text className="text-light-text-muted dark:text-white/40 text-sm" numberOfLines={1}>{user?.email}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textDisabled} />
+        </TouchableOpacity>
+
+        <GroupedSection title="Account">
+          <Row icon="person-outline" label="Edit Profile" onPress={() => router.push('/(app)/settings/edit-profile')} />
+          <Row icon="lock-closed-outline" label="Change PIN" onPress={() => router.push('/(app)/settings/change-pin')} last />
+        </GroupedSection>
+
+        <GroupedSection title="Workspace">
+          <View className="px-4 py-3 border-b border-light-border dark:border-white/5">
+            <Text className="text-light-text-primary dark:text-white text-[15px]">{tenant?.name}</Text>
+            <Text className="text-light-text-muted dark:text-white/35 text-xs mt-0.5 capitalize">{tenant?.plan ?? 'Free'} plan</Text>
+          </View>
+          {permissions.canManageTeam && (
+            <Row icon="people-outline" label="Team" onPress={() => router.push('/(app)/settings/team')} />
+          )}
+          {permissions.showBilling && (
+            <Row icon="card-outline" label="Billing & Subscription" onPress={() => router.push('/(app)/billing')} last />
+          )}
+        </GroupedSection>
+
+        <GroupedSection title="Notifications">
+          <Row
+            icon="notifications-outline"
+            label="Notifications"
+            badge={unreadCount && unreadCount > 0 ? unreadCount : undefined}
+            onPress={() => router.push('/(app)/settings/notifications')}
+          />
+          <Row icon="phone-portrait-outline" label="Push Notifications" onPress={() => router.push('/(app)/settings/push-preferences')} last />
+        </GroupedSection>
+
+        <GroupedSection title="Appearance">
+          <View className="flex-row gap-2 px-4 py-3">
+            {THEME_OPTIONS.map((opt) => {
+              const active = preference === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  onPress={() => setPreference(opt.value)}
+                  activeOpacity={0.8}
+                  className={`flex-1 items-center gap-1.5 py-3 rounded-xl border ${
+                    active ? 'bg-green/15 border-green/30' : 'bg-light-elevated dark:bg-surface-elevated border-light-border dark:border-white/5'
+                  }`}
+                >
+                  <Ionicons name={opt.icon} size={18} color={active ? '#25D366' : colors.textSecondary} />
+                  <Text className={`text-xs font-medium ${active ? 'text-green' : 'text-light-text-secondary dark:text-white/60'}`}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </GroupedSection>
+
+        {permissions.showChannels && (
+          <GroupedSection title="Channels">
+            <Row icon="logo-whatsapp" label="Connected Channels" onPress={() => router.push('/(app)/channels')} last />
+          </GroupedSection>
+        )}
+
+        {permissions.showAI && (
+          <GroupedSection title="AI">
+            <Row icon="sparkles-outline" label="Verz AI" onPress={() => router.push('/(app)/ai')} last />
+          </GroupedSection>
+        )}
+
+        <GroupedSection title="About">
+          <View className="px-4 py-3 border-b border-light-border dark:border-white/5">
+            <Text className="text-light-text-muted dark:text-white/40 text-sm">VerzChat Mobile</Text>
+            <Text className="text-light-text-disabled dark:text-white/20 text-xs mt-0.5">Version 1.0.0</Text>
+          </View>
+        </GroupedSection>
+
+        <TouchableOpacity className="mx-4 mt-6 py-3.5 items-center" onPress={handleLogout} activeOpacity={0.7}>
+          <Text className="text-red-400 font-medium text-[15px]">Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
+function GroupedSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View className="px-4 py-2.5 border-b border-white/5">
-      <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider">{title}</Text>
+    <View className="mt-6">
+      <Text className="text-light-text-muted dark:text-white/35 text-xs font-semibold uppercase tracking-wider px-4 mb-1.5">{title}</Text>
+      {children}
     </View>
   );
 }
 
-function SettingRow({
-  icon,
-  iconColor,
-  label,
-  description,
-  onPress,
-  badge,
-  accent,
-}: {
-  icon: IoniconName;
-  iconColor?: string;
-  label: string;
-  description?: string;
-  onPress: () => void;
-  badge?: number;
-  accent?: boolean;
-}) {
+function Row({
+  icon, label, onPress, badge, last,
+}: { icon: IoniconName; label: string; onPress: () => void; badge?: number; last?: boolean }) {
+  const { colors } = useAppTheme();
   return (
     <TouchableOpacity
-      className="flex-row items-center px-4 py-3.5 border-b border-white/5 last:border-0 gap-3"
+      className={`flex-row items-center px-4 py-3 gap-3 ${last ? '' : 'border-b border-light-border dark:border-white/5'}`}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      {iconColor ? (
-        <View className="w-7 h-7 rounded-lg items-center justify-center" style={{ backgroundColor: iconColor + '20' }}>
-          <Ionicons name={icon} size={15} color={iconColor} />
+      <Ionicons name={icon} size={19} color={colors.textSecondary} style={{ width: 22 }} />
+      <Text className="flex-1 text-light-text-primary dark:text-white text-[15px]">{label}</Text>
+      {badge != null && (
+        <View className="bg-green rounded-full min-w-[18px] h-[18px] items-center justify-center px-1">
+          <Text className="text-white text-[10px] font-bold">{badge > 99 ? '99+' : badge}</Text>
         </View>
-      ) : (
-        <Ionicons name={icon} size={18} color="rgba(255,255,255,0.4)" />
       )}
-      <View className="flex-1 min-w-0">
-        <Text className={`text-sm ${accent ? 'text-green font-semibold' : 'text-white'}`}>{label}</Text>
-        {description && (
-          <Text className="text-white/30 text-xs mt-0.5" numberOfLines={1}>{description}</Text>
-        )}
-      </View>
-      <View className="flex-row items-center gap-2">
-        {badge != null && (
-          <View className="bg-green rounded-full min-w-[18px] h-[18px] items-center justify-center px-1">
-            <Text className="text-white text-[10px] font-bold">
-              {badge > 99 ? '99+' : badge}
-            </Text>
-          </View>
-        )}
-        <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.25)" />
-      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
     </TouchableOpacity>
   );
 }

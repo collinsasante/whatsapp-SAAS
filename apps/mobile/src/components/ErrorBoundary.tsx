@@ -1,6 +1,16 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colorScheme } from 'nativewind';
+
+// Class component (can't use the useAppTheme hook), so it reads NativeWind's
+// vanilla colorScheme API directly -- same source of truth, just not a hook.
+function currentColors() {
+  const isDark = colorScheme.get() !== 'light';
+  return isDark
+    ? { background: '#0d1117', textPrimary: '#ffffff', textMuted: 'rgba(255,255,255,0.4)' }
+    : { background: '#ffffff', textPrimary: '#0f172a', textMuted: '#94a3b8' };
+}
 
 interface State {
   hasError: boolean;
@@ -26,11 +36,12 @@ export class ErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
+      const colors = currentColors();
       return (
         <View
           style={{
             flex: 1,
-            backgroundColor: '#0d1117',
+            backgroundColor: colors.background,
             alignItems: 'center',
             justifyContent: 'center',
             padding: 32,
@@ -39,7 +50,7 @@ export class ErrorBoundary extends React.Component<
           <Ionicons name="warning-outline" size={48} color="#f97316" style={{ marginBottom: 16 }} />
           <Text
             style={{
-              color: '#ffffff',
+              color: colors.textPrimary,
               fontSize: 20,
               fontWeight: '700',
               marginBottom: 8,
@@ -50,7 +61,7 @@ export class ErrorBoundary extends React.Component<
           </Text>
           <Text
             style={{
-              color: 'rgba(255,255,255,0.4)',
+              color: colors.textMuted,
               fontSize: 13,
               textAlign: 'center',
               marginBottom: 32,

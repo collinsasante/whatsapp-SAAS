@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../../src/lib/api';
+import { useAppTheme } from '../../../../src/theme/useAppTheme';
 
 interface OrderItem {
   id: string;
@@ -54,6 +55,7 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 }
 
 export default function OrderDetailScreen() {
+  const { colors } = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [verifying, setVerifying] = useState(false);
@@ -125,63 +127,63 @@ export default function OrderDetailScreen() {
 
   if (isLoading || !order) {
     return (
-      <SafeAreaView className="flex-1 bg-surface items-center justify-center" edges={['top']}>
+      <SafeAreaView className="flex-1 bg-light-background dark:bg-surface items-center justify-center" edges={['top']}>
         <ActivityIndicator color="#25D366" size="large" />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1">Order</Text>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Order</Text>
       </View>
 
       <ScrollView className="flex-1 px-4 pt-4" contentContainerStyle={{ paddingBottom: 32, gap: 20 }}>
-        <View className="bg-surface-card rounded-2xl border border-white/5 p-4">
-          <Text className="text-white font-bold text-lg mb-1">
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4">
+          <Text className="text-light-text-primary dark:text-white font-bold text-lg mb-1">
             {order.customerName || order.customerPhone}
           </Text>
-          <Text className="text-white/40 text-xs mb-3">{order.customerPhone}</Text>
+          <Text className="text-light-text-muted dark:text-white/40 text-xs mb-3">{order.customerPhone}</Text>
           <View className="flex-row items-center justify-between">
-            <Text className="text-white/50 text-sm">{order.status.replace(/_/g, ' ')}</Text>
-            <Text className="text-white font-bold text-lg">{money(order.currency, order.totalMajorUnits)}</Text>
+            <Text className="text-light-text-muted dark:text-white/50 text-sm">{order.status.replace(/_/g, ' ')}</Text>
+            <Text className="text-light-text-primary dark:text-white font-bold text-lg">{money(order.currency, order.totalMajorUnits)}</Text>
           </View>
           {order.paystackReference && (
-            <View className="mt-3 pt-3 border-t border-white/5">
-              <Text className="text-white/30 text-[11px]">Paystack reference</Text>
-              <Text className="text-white/60 text-xs mt-0.5">{order.paystackReference}</Text>
+            <View className="mt-3 pt-3 border-t border-light-border dark:border-white/5">
+              <Text className="text-light-text-disabled dark:text-white/30 text-[11px]">Paystack reference</Text>
+              <Text className="text-light-text-muted dark:text-white/60 text-xs mt-0.5">{order.paystackReference}</Text>
             </View>
           )}
           {order.paidAt && (
             <View className="mt-2">
-              <Text className="text-white/30 text-[11px]">Paid at</Text>
-              <Text className="text-white/60 text-xs mt-0.5">{new Date(order.paidAt).toLocaleString()}</Text>
+              <Text className="text-light-text-disabled dark:text-white/30 text-[11px]">Paid at</Text>
+              <Text className="text-light-text-muted dark:text-white/60 text-xs mt-0.5">{new Date(order.paidAt).toLocaleString()}</Text>
             </View>
           )}
         </View>
 
         {order.items && order.items.length > 0 && (
           <View>
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Items</Text>
-            <View className="bg-surface-card rounded-2xl border border-white/5 p-4" style={{ gap: 8 }}>
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Items</Text>
+            <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4" style={{ gap: 8 }}>
               {order.items.map((item) => (
                 <View key={item.id} className="flex-row items-center justify-between">
-                  <Text className="text-white/70 text-sm flex-1 mr-2" numberOfLines={2}>
+                  <Text className="text-light-text-secondary dark:text-white/70 text-sm flex-1 mr-2" numberOfLines={2}>
                     {item.quantity}× {item.productNameSnapshot}
                     {item.variantLabelSnapshot ? ` (${item.variantLabelSnapshot})` : ''}
                   </Text>
-                  <Text className="text-white text-sm font-medium">
+                  <Text className="text-light-text-primary dark:text-white text-sm font-medium">
                     {money(order.currency, item.lineTotalMajorUnits)}
                   </Text>
                 </View>
               ))}
-              <View className="flex-row items-center justify-between border-t border-white/5 pt-2 mt-1">
-                <Text className="text-white font-semibold text-sm">Total</Text>
-                <Text className="text-white font-bold text-sm">{money(order.currency, order.totalMajorUnits)}</Text>
+              <View className="flex-row items-center justify-between border-t border-light-border dark:border-white/5 pt-2 mt-1">
+                <Text className="text-light-text-primary dark:text-white font-semibold text-sm">Total</Text>
+                <Text className="text-light-text-primary dark:text-white font-bold text-sm">{money(order.currency, order.totalMajorUnits)}</Text>
               </View>
             </View>
           </View>
@@ -189,12 +191,12 @@ export default function OrderDetailScreen() {
 
         {order.ledgerEntries && order.ledgerEntries.length > 0 && (
           <View>
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Ledger</Text>
-            <View className="bg-surface-card rounded-2xl border border-white/5 p-4" style={{ gap: 6 }}>
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Ledger</Text>
+            <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4" style={{ gap: 6 }}>
               {order.ledgerEntries.map((entry) => (
                 <View key={entry.id} className="flex-row items-center justify-between">
-                  <Text className="text-white/40 text-xs">{entry.type.replace(/_/g, ' ')}</Text>
-                  <Text className={`text-xs font-medium ${entry.amountMajorUnits < 0 ? 'text-red-400' : 'text-white/70'}`}>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs">{entry.type.replace(/_/g, ' ')}</Text>
+                  <Text className={`text-xs font-medium ${entry.amountMajorUnits < 0 ? 'text-red-400' : 'text-light-text-secondary dark:text-white/70'}`}>
                     {money(order.currency, entry.amountMajorUnits)}
                   </Text>
                 </View>
@@ -205,12 +207,12 @@ export default function OrderDetailScreen() {
 
         {order.events && order.events.length > 0 && (
           <View>
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Timeline</Text>
-            <View className="bg-surface-card rounded-2xl border border-white/5 p-4" style={{ gap: 6 }}>
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-2">Timeline</Text>
+            <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4" style={{ gap: 6 }}>
               {order.events.map((ev) => (
                 <View key={ev.id} className="flex-row items-center justify-between">
-                  <Text className="text-white/60 text-xs">{ev.type.replace(/_/g, ' ')}</Text>
-                  <Text className="text-white/30 text-[11px]">{new Date(ev.createdAt).toLocaleString()}</Text>
+                  <Text className="text-light-text-muted dark:text-white/60 text-xs">{ev.type.replace(/_/g, ' ')}</Text>
+                  <Text className="text-light-text-disabled dark:text-white/30 text-[11px]">{new Date(ev.createdAt).toLocaleString()}</Text>
                 </View>
               ))}
             </View>
@@ -219,7 +221,7 @@ export default function OrderDetailScreen() {
       </ScrollView>
 
       {order.status === 'PENDING_PAYMENT' && order.paystackReference && (
-        <View className="px-4 py-4 border-t border-white/5">
+        <View className="px-4 py-4 border-t border-light-border dark:border-white/5">
           <TouchableOpacity
             className="bg-green rounded-xl py-3.5 items-center flex-row justify-center gap-2"
             onPress={verifyPayment}
@@ -233,7 +235,7 @@ export default function OrderDetailScreen() {
       )}
 
       {order.status === 'AWAITING_APPROVAL' && (
-        <View className="px-4 py-4 border-t border-white/5 flex-row gap-3">
+        <View className="px-4 py-4 border-t border-light-border dark:border-white/5 flex-row gap-3">
           <TouchableOpacity
             className="flex-1 bg-green rounded-xl py-3.5 items-center flex-row justify-center gap-2"
             onPress={approveOrder}

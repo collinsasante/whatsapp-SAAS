@@ -12,7 +12,12 @@ import { apiClient } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth.store';
 import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
 
-const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
+const NUMPAD_ROWS = [
+  ['1', '2', '3'],
+  ['4', '5', '6'],
+  ['7', '8', '9'],
+  ['', '0', '⌫'],
+];
 
 export default function VerifyPinScreen() {
   const { tempToken, mode } = useLocalSearchParams<{
@@ -61,16 +66,16 @@ export default function VerifyPinScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface">
       <View className="flex-1 px-6 pt-12">
         <TouchableOpacity className="mb-10" onPress={() => router.back()}>
           <Text className="text-green text-base">← Back</Text>
         </TouchableOpacity>
 
-        <Text className="text-white text-3xl font-bold mb-2">
+        <Text className="text-light-text-primary dark:text-white text-3xl font-bold mb-2">
           {isSetup ? 'Create PIN' : 'Enter PIN'}
         </Text>
-        <Text className="text-white/60 text-base mb-10">
+        <Text className="text-light-text-secondary dark:text-white/60 text-base mb-10">
           {isSetup
             ? 'Set a 6-digit PIN to secure your account.'
             : 'Enter your 6-digit PIN to continue.'}
@@ -82,7 +87,7 @@ export default function VerifyPinScreen() {
             <View
               key={i}
               className={`w-4 h-4 rounded-full ${
-                i < pin.length ? 'bg-green' : 'bg-white/20'
+                i < pin.length ? 'bg-green' : 'bg-light-border dark:bg-white/20'
               }`}
             />
           ))}
@@ -93,19 +98,23 @@ export default function VerifyPinScreen() {
             <ActivityIndicator color="#25D366" size="large" />
           </View>
         ) : (
-          <View className="flex-row flex-wrap justify-center gap-4">
-            {NUMPAD.map((key, i) => (
-              <TouchableOpacity
-                key={i}
-                className={`w-20 h-16 rounded-2xl items-center justify-center ${
-                  key === '' ? 'opacity-0' : 'bg-surface-card active:bg-white/10'
-                }`}
-                onPress={() => key !== '' && handleKey(key)}
-                disabled={key === ''}
-                activeOpacity={0.6}
-              >
-                <Text className="text-white text-2xl font-medium">{key}</Text>
-              </TouchableOpacity>
+          <View className="items-center" style={{ gap: 16 }}>
+            {NUMPAD_ROWS.map((row, rowIndex) => (
+              <View key={rowIndex} className="flex-row" style={{ gap: 16 }}>
+                {row.map((key, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    className={`w-20 h-16 rounded-2xl items-center justify-center ${
+                      key === '' ? 'opacity-0' : 'bg-light-card dark:bg-surface-card active:bg-light-border dark:active:bg-white/10'
+                    }`}
+                    onPress={() => key !== '' && handleKey(key)}
+                    disabled={key === ''}
+                    activeOpacity={0.6}
+                  >
+                    <Text className="text-light-text-primary dark:text-white text-2xl font-medium">{key}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             ))}
           </View>
         )}

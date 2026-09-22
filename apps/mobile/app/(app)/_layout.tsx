@@ -1,7 +1,9 @@
-import React from 'react';
-import { Tabs, Redirect } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Tabs, Redirect, router, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getPermissions, type Permissions } from '@whatsapp-platform/auth';
 import { useAuthStore } from '../../src/store/auth.store';
+import { useAppTheme } from '../../src/theme/useAppTheme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -17,9 +19,38 @@ function TabIcon({
   return <Ionicons name={focused ? name : (`${name}-outline` as IoniconName)} size={22} color={color} />;
 }
 
+// Screens gated behind an admin-only permission flag. Mirrors
+// apps/frontend/src/app/(dashboard)/layout.tsx's canAccess() redirect --
+// hiding the tab/settings row is UX only, this is the actual navigation
+// guard for direct/deep-linked access, same as web. The real enforcement
+// still lives server-side; this just keeps mobile's client-side behavior
+// consistent with web's.
+const GATED_ROUTES: Array<{ prefix: string; allowed: (p: Permissions) => boolean }> = [
+  { prefix: '/settings/templates', allowed: (p) => p.showTemplates },
+  { prefix: '/campaigns', allowed: (p) => p.showCampaigns },
+  { prefix: '/channels', allowed: (p) => p.showChannels },
+  { prefix: '/ai', allowed: (p) => p.showAI },
+  { prefix: '/automation', allowed: (p) => p.showAutomation },
+  { prefix: '/chatbot', allowed: (p) => p.showChatbot },
+  { prefix: '/billing', allowed: (p) => p.showBilling },
+];
+
 export default function AppLayout() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isReady = useAuthStore((s) => s.isReady);
+  const role = useAuthStore((s) => s.user?.role);
+  const pathname = usePathname();
+  const { colors, isDark } = useAppTheme();
+
+  const permissions = getPermissions(role);
+
+  useEffect(() => {
+    if (!isReady || !isAuthenticated || !pathname) return;
+    const blocked = GATED_ROUTES.find((r) => pathname.startsWith(r.prefix) && !r.allowed(permissions));
+    if (blocked) {
+      router.replace('/(app)/inbox');
+    }
+  }, [isReady, isAuthenticated, pathname, permissions]);
 
   if (!isReady) return null;
 
@@ -32,23 +63,23 @@ export default function AppLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#161b22',
-          borderTopColor: 'rgba(255,255,255,0.07)',
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
           paddingBottom: 4,
           height: 60,
         },
         tabBarActiveTintColor: '#25D366',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.4)',
+        tabBarInactiveTintColor: isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted,
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon name="grid" focused={focused} color={color} />
+            <TabIcon name="home" focused={focused} color={color} />
           ),
         }}
       />
@@ -71,15 +102,6 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
-        name="campaigns"
-        options={{
-          title: 'Campaigns',
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon name="megaphone" focused={focused} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
@@ -88,8 +110,19 @@ export default function AppLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'More',
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon name="ellipsis-horizontal-circle" focused={focused} color={color} />
+          ),
+        }}
+      />
 
-      {/* Hidden screens — navigated from Settings, not shown in tab bar */}
+      {/* Hidden screens — navigated from Settings/More, not shown in tab bar */}
+      <Tabs.Screen name="campaigns" options={{ href: null }} />
+      <Tabs.Screen name="commerce" options={{ href: null }} />
       <Tabs.Screen name="channels" options={{ href: null }} />
       <Tabs.Screen name="calls" options={{ href: null }} />
       <Tabs.Screen name="library" options={{ href: null }} />

@@ -13,14 +13,18 @@ import { mobileTokenStorage, refreshTokenStorage } from '../src/lib/storage';
 import { apiClient } from '../src/lib/api';
 import { isTokenExpired } from '@whatsapp-platform/auth';
 import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
+import { initTheme } from '../src/theme/themeStorage';
+import { useAppTheme } from '../src/theme/useAppTheme';
 
 SplashScreen.preventAutoHideAsync();
+initTheme();
 
 function RootLayoutInner() {
   const setAuth = useAuthStore((s) => s.setAuth);
   const setReady = useAuthStore((s) => s.setReady);
   const isReady = useAuthStore((s) => s.isReady);
   const [splashDone, setSplashDone] = useState(false);
+  const { isDark } = useAppTheme();
 
   useEffect(() => {
     const restoreSession = async () => {
@@ -60,7 +64,7 @@ function RootLayoutInner() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <OfflineBanner />
       <Stack screenOptions={{ headerShown: false }} />
       {!splashDone && (

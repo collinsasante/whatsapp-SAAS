@@ -11,16 +11,21 @@ import {
   ScrollView,
 } from 'react-native';
 import { router, Redirect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { apiClient } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth.store';
 import type { AuthUser, AuthTenant } from '@whatsapp-platform/auth';
 import { GoogleSignInButton } from '../../src/components/GoogleSignInButton';
+import { useAppTheme } from '../../src/theme/useAppTheme';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const passwordRef = useRef<TextInput>(null);
+  const { colors, isDark } = useAppTheme();
 
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isReady = useAuthStore((s) => s.isReady);
@@ -98,25 +103,29 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-surface"
+      className="flex-1 bg-light-background dark:bg-surface"
     >
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24 }}
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: '30%' }}
         keyboardShouldPersistTaps="handled"
       >
         <View className="mb-10">
-          <Text className="text-white text-4xl font-extrabold mb-2">VerzChat</Text>
-          <Text className="text-white/60 text-base">Sign in to your workspace</Text>
+          <Image
+            source={isDark ? require('../../assets/images/verz-wordmark-white.png') : require('../../assets/images/verz-wordmark-dark.png')}
+            style={{ width: 150, height: 34, marginBottom: 20 }}
+            contentFit="contain"
+          />
+          <Text className="text-light-text-secondary dark:text-white/60 text-base">Sign in to your workspace</Text>
         </View>
 
         <View className="gap-4">
           {/* Email */}
           <View>
-            <Text className="text-white/70 text-sm font-medium mb-2">Email</Text>
+            <Text className="text-light-text-secondary dark:text-white/70 text-sm font-medium mb-2">Email</Text>
             <TextInput
-              className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
+              className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3.5 text-light-text-primary dark:text-white text-base"
               placeholder="you@company.com"
-              placeholderTextColor="rgba(255,255,255,0.3)"
+              placeholderTextColor={colors.textDisabled}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
@@ -132,23 +141,36 @@ export default function LoginScreen() {
 
           {/* Password */}
           <View>
-            <Text className="text-white/70 text-sm font-medium mb-2">Password</Text>
-            <TextInput
-              ref={passwordRef}
-              className="bg-surface-card border border-white/10 rounded-xl px-4 py-3.5 text-white text-base"
-              placeholder="••••••••"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete={Platform.OS === 'android' ? 'off' : 'current-password'}
-              textContentType="password"
-              returnKeyType="done"
-              value={password}
-              onChangeText={setPassword}
-              onSubmitEditing={handleLogin}
-              editable={!isLoading}
-            />
+            <Text className="text-light-text-secondary dark:text-white/70 text-sm font-medium mb-2">Password</Text>
+            <View className="flex-row items-center bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl">
+              <TextInput
+                ref={passwordRef}
+                className="flex-1 px-4 py-3.5 text-light-text-primary dark:text-white text-base"
+                placeholder="••••••••"
+                placeholderTextColor={colors.textDisabled}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete={Platform.OS === 'android' ? 'off' : 'current-password'}
+                textContentType="password"
+                returnKeyType="done"
+                value={password}
+                onChangeText={setPassword}
+                onSubmitEditing={handleLogin}
+                editable={!isLoading}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword((v) => !v)}
+                className="px-4 py-3.5"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color={colors.textMuted}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <TouchableOpacity
@@ -168,13 +190,13 @@ export default function LoginScreen() {
             className="items-center mt-2"
             onPress={() => router.push('/(auth)/forgot-password')}
           >
-            <Text className="text-white/50 text-sm">Forgot password?</Text>
+            <Text className="text-light-text-muted dark:text-white/50 text-sm">Forgot password?</Text>
           </TouchableOpacity>
 
           <View className="flex-row items-center gap-3 mt-4">
-            <View className="flex-1 h-px bg-white/10" />
-            <Text className="text-white/30 text-xs">or</Text>
-            <View className="flex-1 h-px bg-white/10" />
+            <View className="flex-1 h-px bg-light-border dark:bg-white/10" />
+            <Text className="text-light-text-disabled dark:text-white/30 text-xs">or</Text>
+            <View className="flex-1 h-px bg-light-border dark:bg-white/10" />
           </View>
 
           <GoogleSignInButton

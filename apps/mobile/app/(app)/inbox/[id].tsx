@@ -25,6 +25,9 @@ import { useInboxStore } from '../../../src/store/inbox.store';
 import { useAuthStore } from '../../../src/store/auth.store';
 import type { Message } from '@whatsapp-platform/shared-types';
 import { MessageDirection, MessageType, MessageStatus } from '@whatsapp-platform/shared-types';
+import { Avatar, Badge } from '../../../src/components/ui';
+import { tapLight as tap } from '../../../src/lib/haptics';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 const EMPTY_MESSAGES: Message[] = [];
 
@@ -97,12 +100,78 @@ function SessionBadge({ messages }: { messages: Message[] }) {
   }
   const h = Math.floor(remaining / 3600000);
   const m = Math.floor((remaining % 3600000) / 60000);
-  const isUrgent = remaining < 3600000;
+  // 3-stage escalation matching web: green (plenty of time) -> amber (under 6h)
+  // -> red (under 1h), instead of a flat normal/urgent binary.
+  const stage = remaining < 3600000 ? 'red' : remaining < 6 * 3600000 ? 'amber' : 'green';
+  const styles = {
+    green: { bg: 'bg-green/10', border: 'border-green/20', text: 'text-green' },
+    amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/25', text: 'text-amber-400' },
+    red: { bg: 'bg-red-900/30', border: 'border-red-500/30', text: 'text-red-400' },
+  }[stage];
   return (
-    <View className={`self-center my-2 px-3 py-1 rounded-full border ${isUrgent ? 'bg-red-900/30 border-red-500/30' : 'bg-white/5 border-white/10'}`}>
-      <Text className={`text-[10px] font-semibold ${isUrgent ? 'text-red-400' : 'text-white/40'}`}>
+    <View className={`self-center my-2 px-3 py-1 rounded-full border ${styles.bg} ${styles.border}`}>
+      <Text className={`text-[10px] font-semibold ${styles.text}`}>
         ⏱ Session: {h}h {String(m).padStart(2, '0')}m remaining
       </Text>
+    </View>
+  );
+}
+
+// ─── AI Suggestion card ───────────────────────────────────────────────────────
+
+function AiSuggestionCard({
+  response,
+  confidence,
+  onSendAsIs,
+  onEdit,
+  onDismiss,
+}: {
+  response: string;
+  confidence: number | null;
+  onSendAsIs: () => void;
+  onEdit: () => void;
+  onDismiss: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const confPct = confidence != null ? Math.round(confidence * 100) : null;
+  const lowConfidence = confPct != null && confPct < 70;
+  return (
+    <View className="mx-3 mb-2 bg-green/10 border border-green/25 rounded-2xl p-3.5">
+      <View className="flex-row items-center justify-between mb-2">
+        <View className="flex-row items-center gap-1.5">
+          <Ionicons name="sparkles" size={14} color="#25D366" />
+          <Text className="text-green text-xs font-bold">Verz AI Suggestion</Text>
+        </View>
+        <View className="flex-row items-center gap-2">
+          {confPct != null && (
+            <View className={`px-2 py-0.5 rounded-full ${lowConfidence ? 'bg-orange-500/20' : 'bg-green/20'}`}>
+              <Text className={`text-[10px] font-semibold ${lowConfidence ? 'text-orange-400' : 'text-green'}`}>
+                {confPct}%{lowConfidence ? ' · Review' : ''}
+              </Text>
+            </View>
+          )}
+          <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+      </View>
+      <Text className="text-light-text-primary dark:text-white/90 text-base leading-5 mb-3">{response}</Text>
+      <View className="flex-row gap-2">
+        <TouchableOpacity
+          className="flex-1 bg-green rounded-xl py-2.5 items-center"
+          onPress={onSendAsIs}
+          activeOpacity={0.85}
+        >
+          <Text className="text-white text-xs font-bold">Send as-is</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          className="flex-1 border border-light-border dark:border-white/15 rounded-xl py-2.5 items-center"
+          onPress={onEdit}
+          activeOpacity={0.85}
+        >
+          <Text className="text-light-text-primary dark:text-white text-xs font-bold">Edit & Send</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -110,6 +179,7 @@ function SessionBadge({ messages }: { messages: Message[] }) {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ChatScreen() {
+  const { colors } = useAppTheme();
   const params = useLocalSearchParams<{ id: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
@@ -120,6 +190,9 @@ export default function ChatScreen() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [matchIndex, setMatchIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
 
   // Zustand selectors — each subscribes to only its slice
@@ -128,12 +201,14 @@ export default function ChatScreen() {
   const hasMore = useInboxStore((s) => (id ? s.hasMoreMessages[id] : undefined) ?? false);
   const cursor = useInboxStore((s) => (id ? s.messageCursors[id] : undefined) ?? null);
   const conversation = useInboxStore((s) => s.conversations.find((c) => c.id === id));
+  const aiSuggestion = useInboxStore((s) => (id ? s.aiSuggestions[id] : undefined));
 
   const setMessages = useInboxStore((s) => s.setMessages);
   const addMessage = useInboxStore((s) => s.addMessage);
   const prependMessages = useInboxStore((s) => s.prependMessages);
   const setMessageCursor = useInboxStore((s) => s.setMessageCursor);
   const updateConversation = useInboxStore((s) => s.updateConversation);
+  const clearAiSuggestion = useInboxStore((s) => s.clearAiSuggestion);
 
   const rawTypingUsers = useInboxStore((s) => (id ? s.typingUsers[id] : undefined));
   const typingUsers = rawTypingUsers ?? [];
@@ -298,6 +373,75 @@ export default function ChatScreen() {
     }
   };
 
+  // ── AI suggestion actions ─────────────────────────────────────────────────
+
+  const sendSuggestionAsIs = async () => {
+    if (!id || !aiSuggestion) return;
+    const content = aiSuggestion.response;
+    clearAiSuggestion(id);
+    tap();
+    const optimistic: Message = {
+      id: `temp-${Date.now()}`, tenantId: '', conversationId: id, contactId: '',
+      senderId: userId ?? null, sender: null, content, type: MessageType.TEXT,
+      direction: MessageDirection.OUTBOUND, status: MessageStatus.QUEUED, createdAt: new Date(),
+      mediaUrl: null, mediaType: null, mediaSize: null, mediaCaption: null,
+      templateId: null, templateVariables: null, metadata: null,
+      sentAt: null, deliveredAt: null, readAt: null, failedAt: null, failureReason: null,
+      replyToId: null, replyTo: null,
+      isStarred: false, isPinned: false, isEdited: false, editedAt: null,
+      deletedForEveryone: false, deletedAt: null, whatsappMessageId: null,
+    };
+    addMessage(id, optimistic);
+    try {
+      await apiClient.messages.send(id, { type: 'TEXT', content });
+    } catch { /* offline queue could handle this */ }
+  };
+
+  const editSuggestion = () => {
+    if (!id || !aiSuggestion) return;
+    setText(aiSuggestion.response);
+    setInputMode('message');
+    clearAiSuggestion(id);
+  };
+
+  const dismissSuggestion = () => { if (id) clearAiSuggestion(id); };
+
+  // ── Handoff actions (Intervene / Take Over / Return to AI) ───────────────
+
+  const intervene = async () => {
+    if (!id) return;
+    tap();
+    try {
+      await apiClient.conversations.intervene(id);
+      updateConversation(id, { status: 'OPEN' });
+    } catch { Alert.alert('Error', 'Could not take this conversation'); }
+  };
+
+  const takeOver = async () => {
+    if (!id) return;
+    tap();
+    try {
+      await apiClient.conversations.takeover(id);
+      updateConversation(id, { assignedTo: userId ? { id: userId, name: 'You' } : null });
+    } catch { Alert.alert('Error', 'Could not take over this conversation'); }
+  };
+
+  const releaseToAi = async () => {
+    if (!id) return;
+    Alert.alert('Return to Verz AI', 'Hand this conversation back to Verz AI?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Return to AI',
+        onPress: async () => {
+          try {
+            await apiClient.conversations.releaseToAi(id);
+            updateConversation(id, { assignedTo: null });
+          } catch { Alert.alert('Error', 'Could not return this conversation to AI'); }
+        },
+      },
+    ]);
+  };
+
   // ── Assign agent ──────────────────────────────────────────────────────────
 
   const openAssign = async () => {
@@ -330,6 +474,18 @@ export default function ChatScreen() {
     const status = conversation?.status ?? 'OPEN';
     type ActionItem = { label: string; destructive?: boolean; action: () => void };
     const options: ActionItem[] = [];
+
+    // Handoff actions -- mirrors web's Intervene/Take Over/Return to AI, based
+    // on the closest state mobile has (status + assignment; web additionally
+    // tracks an explicit "intervened" flag mobile's MobileConversation type
+    // doesn't carry today).
+    if (status === 'REQUESTED') {
+      options.push({ label: 'Intervene (take from AI)', action: intervene });
+    } else if (conversation?.assignedTo && conversation.assignedTo.id !== userId) {
+      options.push({ label: `Take over from ${conversation.assignedTo.name}`, action: takeOver });
+    } else if (conversation?.assignedTo && status !== 'RESOLVED') {
+      options.push({ label: 'Return to Verz AI', action: releaseToAi });
+    }
 
     if (status === 'OPEN' || status === 'PENDING' || status === 'REQUESTED') {
       options.push({
@@ -414,12 +570,38 @@ export default function ChatScreen() {
     return result;
   }, [chatMessages, notes]);
 
+  // ── In-conversation search ────────────────────────────────────────────────
+
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [] as number[];
+    return timeline.reduce<number[]>((acc, entry, index) => {
+      if (entry.kind === 'message' && entry.item.content?.toLowerCase().includes(q)) {
+        acc.push(index);
+      }
+      return acc;
+    }, []);
+  }, [timeline, searchQuery]);
+
+  useEffect(() => { setMatchIndex(0); }, [searchQuery]);
+
+  const jumpToMatch = useCallback((direction: 1 | -1) => {
+    if (searchMatches.length === 0) return;
+    const next = (matchIndex + direction + searchMatches.length) % searchMatches.length;
+    setMatchIndex(next);
+    tap();
+    const targetIndex = searchMatches[next]!;
+    listRef.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.4 });
+  }, [matchIndex, searchMatches]);
+
+  const currentMatchTimelineIndex = searchMatches.length > 0 ? searchMatches[matchIndex] : null;
+
   // ── No ID guard ───────────────────────────────────────────────────────────
 
   if (!id) {
     return (
-      <SafeAreaView className="flex-1 bg-surface items-center justify-center" edges={['top', 'bottom']}>
-        <Text className="text-white/50">Conversation not found</Text>
+      <SafeAreaView className="flex-1 bg-light-background dark:bg-surface items-center justify-center" edges={['top', 'bottom']}>
+        <Text className="text-light-text-muted dark:text-white/50">Conversation not found</Text>
       </SafeAreaView>
     );
   }
@@ -427,50 +609,84 @@ export default function ChatScreen() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top', 'bottom']}>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top', 'bottom']}>
 
       {/* Header */}
-      <View className="flex-row items-center px-4 py-2.5 border-b border-white/5 gap-3">
+      <View className="flex-row items-center px-4 py-2.5 border-b border-light-border dark:border-white/5 gap-3">
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="chevron-back" size={22} color="#25D366" />
         </TouchableOpacity>
 
-        <View className="w-9 h-9 rounded-full bg-green/15 items-center justify-center border border-green/20 flex-shrink-0">
-          <Text className="text-green font-bold text-sm">
-            {contactName.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-
-        <View className="flex-1 min-w-0">
-          <Text className="text-white font-semibold text-base" numberOfLines={1}>{contactName}</Text>
-          {typingUsers.length > 0 ? (
-            <Text className="text-green text-xs">typing...</Text>
-          ) : assignedName ? (
-            <Text className="text-white/40 text-xs" numberOfLines={1}>Assigned to {assignedName}</Text>
-          ) : (
-            <Text className="text-white/30 text-xs">Unassigned</Text>
-          )}
-        </View>
+        <TouchableOpacity
+          className="flex-row items-center flex-1 min-w-0 gap-3"
+          activeOpacity={conversation?.contact?.id ? 0.7 : 1}
+          onPress={() => {
+            if (conversation?.contact?.id) router.push(`/(app)/contacts/${conversation.contact.id}`);
+          }}
+        >
+          <Avatar name={contactName} size="sm" />
+          <View className="flex-1 min-w-0">
+            <Text className="text-light-text-primary dark:text-white font-semibold text-lg" numberOfLines={1}>{contactName}</Text>
+            {typingUsers.length > 0 ? (
+              <Text className="text-green text-xs">typing...</Text>
+            ) : assignedName ? (
+              <Text className="text-light-text-muted dark:text-white/40 text-xs" numberOfLines={1}>Assigned to {assignedName}</Text>
+            ) : (
+              <Text className="text-light-text-disabled dark:text-white/30 text-xs">Unassigned</Text>
+            )}
+          </View>
+        </TouchableOpacity>
 
         {/* Status badge */}
         {conversation?.status && (
-          <View className={`px-2 py-0.5 rounded-full ${
-            conversation.status === 'RESOLVED' ? 'bg-green/20' :
-            conversation.status === 'PENDING' ? 'bg-orange-500/20' :
-            conversation.status === 'REQUESTED' ? 'bg-blue-500/20' : 'bg-white/10'
-          }`}>
-            <Text className={`text-[10px] font-semibold uppercase ${
-              conversation.status === 'RESOLVED' ? 'text-green' :
-              conversation.status === 'PENDING' ? 'text-orange-400' :
-              conversation.status === 'REQUESTED' ? 'text-blue-400' : 'text-white/40'
-            }`}>{conversation.status}</Text>
-          </View>
+          <Badge
+            label={conversation.status}
+            tone={
+              conversation.status === 'RESOLVED' ? 'green' :
+              conversation.status === 'PENDING' ? 'orange' :
+              conversation.status === 'REQUESTED' ? 'blue' : 'neutral'
+            }
+          />
         )}
 
+        <TouchableOpacity
+          onPress={() => { setShowSearch((v) => !v); setSearchQuery(''); }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name={showSearch ? 'close' : 'search'} size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+
         <TouchableOpacity onPress={showActions} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="ellipsis-vertical" size={20} color="rgba(255,255,255,0.5)" />
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
+
+      {showSearch && (
+        <View className="flex-row items-center px-4 py-2 border-b border-light-border dark:border-white/5 gap-2">
+          <TextInput
+            className="flex-1 bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-3.5 py-2 text-light-text-primary dark:text-white text-sm"
+            placeholder="Search in conversation..."
+            placeholderTextColor={colors.textDisabled}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+            returnKeyType="search"
+          />
+          {searchQuery.trim() !== '' && (
+            <>
+              <Text className="text-light-text-muted dark:text-white/40 text-xs">
+                {searchMatches.length > 0 ? `${matchIndex + 1}/${searchMatches.length}` : '0/0'}
+              </Text>
+              <TouchableOpacity onPress={() => jumpToMatch(-1)} disabled={searchMatches.length === 0} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="chevron-up" size={18} color={searchMatches.length ? '#25D366' : colors.textDisabled} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => jumpToMatch(1)} disabled={searchMatches.length === 0} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="chevron-down" size={18} color={searchMatches.length ? '#25D366' : colors.textDisabled} />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      )}
 
       {/* Messages */}
       {isLoading ? (
@@ -479,8 +695,8 @@ export default function ChatScreen() {
         </View>
       ) : isError ? (
         <View className="flex-1 items-center justify-center gap-4 px-8">
-          <Ionicons name="alert-circle-outline" size={48} color="rgba(255,255,255,0.2)" />
-          <Text className="text-white/50 text-base text-center">Failed to load messages</Text>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.textDisabled} />
+          <Text className="text-light-text-muted dark:text-white/50 text-base text-center">Failed to load messages</Text>
           <TouchableOpacity onPress={() => refetch()} className="bg-green rounded-xl px-6 py-3">
             <Text className="text-white font-semibold text-sm">Try Again</Text>
           </TouchableOpacity>
@@ -490,12 +706,12 @@ export default function ChatScreen() {
           ref={listRef}
           data={timeline}
           keyExtractor={(item) => item.key}
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             if (item.kind === 'date') {
               return (
                 <View className="items-center my-3">
-                  <View className="bg-white/10 px-3 py-1 rounded-full">
-                    <Text className="text-white/50 text-[11px] font-medium">{item.label}</Text>
+                  <View className="bg-light-elevated dark:bg-white/10 px-3 py-1 rounded-full">
+                    <Text className="text-light-text-muted dark:text-white/50 text-[11px] font-medium">{item.label}</Text>
                   </View>
                 </View>
               );
@@ -503,16 +719,23 @@ export default function ChatScreen() {
             if (item.kind === 'note') {
               return <NoteBubble note={item.item} />;
             }
-            return <MessageBubble message={item.item} />;
+            return <MessageBubble message={item.item} highlighted={index === currentMatchTimelineIndex} />;
           }}
           contentContainerStyle={{ padding: 12, flexGrow: 1 }}
           onContentSizeChange={() => {
             if (!isLoadingMore) listRef.current?.scrollToEnd({ animated: false });
           }}
+          onScrollToIndexFailed={(info) => {
+            // FlatList can't compute the offset for a variable-height item
+            // without measuring first -- retry once layout settles.
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.4 });
+            }, 100);
+          }}
           ListEmptyComponent={
             <View className="flex-1 items-center justify-center">
-              <Ionicons name="chatbubble-outline" size={40} color="rgba(255,255,255,0.15)" style={{ marginBottom: 10 }} />
-              <Text className="text-white/30 text-sm">No messages yet</Text>
+              <Ionicons name="chatbubble-outline" size={40} color={colors.textDisabled} style={{ marginBottom: 10 }} />
+              <Text className="text-light-text-disabled dark:text-white/30 text-sm">No messages yet</Text>
             </View>
           }
           ListHeaderComponent={
@@ -528,39 +751,49 @@ export default function ChatScreen() {
 
       {/* Input area */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        {aiSuggestion && (
+          <AiSuggestionCard
+            response={aiSuggestion.response}
+            confidence={aiSuggestion.confidence}
+            onSendAsIs={sendSuggestionAsIs}
+            onEdit={editSuggestion}
+            onDismiss={dismissSuggestion}
+          />
+        )}
+
         {/* Mode toggle */}
         <View className="flex-row px-4 pt-2 gap-2">
           <TouchableOpacity
             onPress={() => setInputMode('message')}
-            className={`px-3 py-1 rounded-full ${inputMode === 'message' ? 'bg-green' : 'bg-white/10'}`}
+            className={`px-3 py-1 rounded-full ${inputMode === 'message' ? 'bg-green' : 'bg-light-elevated dark:bg-white/10'}`}
           >
-            <Text className={`text-xs font-semibold ${inputMode === 'message' ? 'text-white' : 'text-white/50'}`}>Message</Text>
+            <Text className={`text-xs font-semibold ${inputMode === 'message' ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>Message</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setInputMode('note')}
-            className={`px-3 py-1 rounded-full ${inputMode === 'note' ? 'bg-yellow-600' : 'bg-white/10'}`}
+            className={`px-3 py-1 rounded-full ${inputMode === 'note' ? 'bg-yellow-600' : 'bg-light-elevated dark:bg-white/10'}`}
           >
-            <Text className={`text-xs font-semibold ${inputMode === 'note' ? 'text-white' : 'text-white/50'}`}>📝 Note</Text>
+            <Text className={`text-xs font-semibold ${inputMode === 'note' ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>📝 Note</Text>
           </TouchableOpacity>
         </View>
 
-        <View className="flex-row items-end px-4 py-3 border-t border-white/5 gap-2 mt-1">
+        <View className="flex-row items-end px-4 py-3 border-t border-light-border dark:border-white/5 gap-2 mt-1">
           {/* Attach image */}
           <TouchableOpacity
             onPress={sendImage}
             disabled={isSending || inputMode === 'note'}
-            className="w-9 h-9 items-center justify-center rounded-full bg-white/5"
+            className="w-9 h-9 items-center justify-center rounded-full bg-light-elevated dark:bg-white/5"
             style={{ opacity: inputMode === 'note' ? 0.3 : 1 }}
           >
-            <Ionicons name="image-outline" size={20} color="rgba(255,255,255,0.6)" />
+            <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
           <TextInput
-            className={`flex-1 rounded-2xl px-4 py-3 text-white text-base max-h-32 ${
-              inputMode === 'note' ? 'bg-yellow-900/30 border border-yellow-600/30' : 'bg-surface-card'
+            className={`flex-1 rounded-2xl px-4 py-3 text-light-text-primary dark:text-white text-lg max-h-32 ${
+              inputMode === 'note' ? 'bg-yellow-900/30 border border-yellow-600/30' : 'bg-light-card dark:bg-surface-card'
             }`}
             placeholder={inputMode === 'note' ? 'Write a note (only visible to team)...' : 'Type a message...'}
-            placeholderTextColor={inputMode === 'note' ? 'rgba(253,224,71,0.4)' : 'rgba(255,255,255,0.3)'}
+            placeholderTextColor={inputMode === 'note' ? 'rgba(202,138,4,0.5)' : colors.textDisabled}
             value={text}
             onChangeText={setText}
             multiline
@@ -585,35 +818,35 @@ export default function ChatScreen() {
       {/* Assign Agent Modal */}
       <Modal visible={showAssignModal} transparent animationType="slide" onRequestClose={() => setShowAssignModal(false)}>
         <Pressable className="flex-1 bg-black/50" onPress={() => setShowAssignModal(false)} />
-        <View className="bg-surface rounded-t-3xl pt-4 pb-8 max-h-[60%]">
+        <View className="bg-light-background dark:bg-surface rounded-t-3xl pt-4 pb-8 max-h-[60%]">
           <View className="flex-row items-center justify-between px-5 mb-4">
-            <Text className="text-white font-bold text-lg">Assign to</Text>
+            <Text className="text-light-text-primary dark:text-white font-bold text-lg">Assign to</Text>
             <TouchableOpacity onPress={() => setShowAssignModal(false)}>
-              <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+              <Ionicons name="close" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled">
             <TouchableOpacity
-              className="flex-row items-center px-5 py-3.5 border-b border-white/5"
+              className="flex-row items-center px-5 py-3.5 border-b border-light-border dark:border-white/5"
               onPress={() => assignTo(null)}
             >
-              <View className="w-9 h-9 rounded-full bg-white/10 items-center justify-center mr-3">
-                <Ionicons name="person-remove-outline" size={16} color="rgba(255,255,255,0.5)" />
+              <View className="w-9 h-9 rounded-full bg-light-elevated dark:bg-white/10 items-center justify-center mr-3">
+                <Ionicons name="person-remove-outline" size={16} color={colors.textSecondary} />
               </View>
-              <Text className="text-white/60 text-sm">Unassign</Text>
+              <Text className="text-light-text-secondary dark:text-white/60 text-sm">Unassign</Text>
             </TouchableOpacity>
             {teamMembers.map((m) => (
               <TouchableOpacity
                 key={m.id}
-                className="flex-row items-center px-5 py-3.5 border-b border-white/5"
+                className="flex-row items-center px-5 py-3.5 border-b border-light-border dark:border-white/5"
                 onPress={() => assignTo(m.id)}
               >
-                <View className="w-9 h-9 rounded-full bg-green/15 items-center justify-center mr-3 border border-green/20">
-                  <Text className="text-green font-bold text-sm">{m.name.charAt(0).toUpperCase()}</Text>
+                <View className="mr-3">
+                  <Avatar name={m.name} size="sm" />
                 </View>
                 <View className="flex-1 min-w-0">
-                  <Text className="text-white text-sm font-medium" numberOfLines={1}>{m.name}</Text>
-                  <Text className="text-white/40 text-xs" numberOfLines={1}>{m.role?.toLowerCase()}</Text>
+                  <Text className="text-light-text-primary dark:text-white text-sm font-medium" numberOfLines={1}>{m.name}</Text>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs" numberOfLines={1}>{m.role?.toLowerCase()}</Text>
                 </View>
                 {conversation?.assignedTo?.id === m.id && (
                   <Ionicons name="checkmark-circle" size={18} color="#25D366" />
@@ -637,42 +870,49 @@ function NoteBubble({ note }: { note: Note }) {
           <Text className="text-yellow-400 text-xs">📝</Text>
           <Text className="text-yellow-400/80 text-xs font-semibold">{note.author?.name ?? 'Agent'}</Text>
         </View>
-        <Text className="text-yellow-100 text-sm leading-5 italic">{note.content}</Text>
+        <Text className="text-yellow-100 text-base leading-5 italic">{note.content}</Text>
       </View>
-      <Text className="text-white/25 text-[10px] mt-0.5 text-center">{formatMessageTime(note.createdAt)}</Text>
+      <Text className="text-light-text-disabled dark:text-white/25 text-[10px] mt-0.5 text-center">{formatMessageTime(note.createdAt)}</Text>
     </View>
   );
 }
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, highlighted }: { message: Message; highlighted?: boolean }) {
   const isOutbound = message.direction === MessageDirection.OUTBOUND;
   return (
     <View className={`mb-2 max-w-[80%] ${isOutbound ? 'self-end' : 'self-start'}`}>
-      <View className={`rounded-2xl px-3.5 py-2.5 ${
-        isOutbound ? 'bg-green rounded-br-sm' : 'bg-surface-card rounded-bl-sm'
-      }`}>
-        <MessageContent message={message} />
+      <View
+        className={`rounded-2xl px-3.5 py-2.5 ${
+          isOutbound ? 'bg-green rounded-br-sm' : 'bg-light-card dark:bg-surface-card rounded-bl-sm'
+        }`}
+        style={highlighted ? { borderWidth: 2, borderColor: '#eab308' } : undefined}
+      >
+        <MessageContent message={message} isOutbound={isOutbound} />
       </View>
       <View className={`flex-row items-center mt-1 gap-1 ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-        <Text className="text-white/30 text-[10px]">{formatMessageTime(message.createdAt)}</Text>
+        <Text className="text-light-text-disabled dark:text-white/30 text-[10px]">{formatMessageTime(message.createdAt)}</Text>
         {isOutbound && <StatusTick status={message.status} />}
       </View>
     </View>
   );
 }
 
-function MessageContent({ message }: { message: Message }) {
+function MessageContent({ message, isOutbound }: { message: Message; isOutbound: boolean }) {
+  // Outbound bubbles are always green -- their text stays white in both themes.
+  // Inbound bubbles use the card surface, so their text must flip with theme.
+  const primary = isOutbound ? 'text-white' : 'text-light-text-primary dark:text-white';
+  const muted = isOutbound ? 'text-white/50' : 'text-light-text-muted dark:text-white/40';
   switch (message.type) {
     case MessageType.TEXT:
-      return <Text className="text-white text-sm leading-5">{message.content ?? ''}</Text>;
+      return <Text className={`${primary} text-lg leading-6`}>{message.content ?? ''}</Text>;
 
     case MessageType.NOTE:
       return (
         <View className="flex-row items-start gap-1.5">
-          <Text className="text-yellow-400 text-sm">📝</Text>
-          <Text className="text-yellow-100 text-sm leading-5 italic flex-1">{message.content ?? ''}</Text>
+          <Text className="text-yellow-400 text-base">📝</Text>
+          <Text className="text-yellow-100 text-base leading-5 italic flex-1">{message.content ?? ''}</Text>
         </View>
       );
 
@@ -680,9 +920,9 @@ function MessageContent({ message }: { message: Message }) {
       return message.mediaUrl ? (
         <View>
           <Image source={{ uri: message.mediaUrl }} style={{ width: 200, height: 150, borderRadius: 8 }} contentFit="cover" />
-          {message.mediaCaption ? <Text className="text-white text-xs mt-1.5">{message.mediaCaption}</Text> : null}
+          {message.mediaCaption ? <Text className={`${primary} text-sm mt-1.5`}>{message.mediaCaption}</Text> : null}
         </View>
-      ) : <MediaPlaceholder icon="📷" label="Photo" />;
+      ) : <MediaPlaceholder icon="📷" label="Photo" isOutbound={isOutbound} />;
 
     case MessageType.VIDEO:
       return (
@@ -690,7 +930,7 @@ function MessageContent({ message }: { message: Message }) {
           <View className="w-[200px] h-[150px] rounded-lg bg-black/40 items-center justify-center">
             <Text className="text-4xl">▶️</Text>
           </View>
-          {message.mediaCaption ? <Text className="text-white text-xs mt-1.5">{message.mediaCaption}</Text> : null}
+          {message.mediaCaption ? <Text className={`${primary} text-sm mt-1.5`}>{message.mediaCaption}</Text> : null}
         </View>
       );
 
@@ -699,8 +939,8 @@ function MessageContent({ message }: { message: Message }) {
         <View className="flex-row items-center gap-2 min-w-[140px]">
           <Text className="text-2xl">🎵</Text>
           <View className="flex-1">
-            <Text className="text-white text-xs font-medium">Voice message</Text>
-            {message.mediaSize != null && <Text className="text-white/40 text-[10px]">{formatBytes(message.mediaSize)}</Text>}
+            <Text className={`${primary} text-sm font-medium`}>Voice message</Text>
+            {message.mediaSize != null && <Text className={`${muted} text-xs`}>{formatBytes(message.mediaSize)}</Text>}
           </View>
         </View>
       );
@@ -710,8 +950,8 @@ function MessageContent({ message }: { message: Message }) {
         <View className="flex-row items-center gap-2 min-w-[160px]">
           <Text className="text-2xl">📄</Text>
           <View className="flex-1 min-w-0">
-            <Text className="text-white text-xs font-medium" numberOfLines={2}>{message.content ?? 'Document'}</Text>
-            {message.mediaSize != null && <Text className="text-white/40 text-[10px]">{formatBytes(message.mediaSize)}</Text>}
+            <Text className={`${primary} text-sm font-medium`} numberOfLines={2}>{message.content ?? 'Document'}</Text>
+            {message.mediaSize != null && <Text className={`${muted} text-xs`}>{formatBytes(message.mediaSize)}</Text>}
           </View>
         </View>
       );
@@ -719,8 +959,8 @@ function MessageContent({ message }: { message: Message }) {
     case MessageType.TEMPLATE:
       return (
         <View>
-          <Text className="text-white/50 text-[10px] font-semibold uppercase mb-1">Template</Text>
-          <Text className="text-white text-sm leading-5">{message.content ?? '—'}</Text>
+          <Text className={`${muted} text-xs font-semibold uppercase mb-1`}>Template</Text>
+          <Text className={`${primary} text-lg leading-6`}>{message.content ?? '—'}</Text>
         </View>
       );
 
@@ -728,7 +968,7 @@ function MessageContent({ message }: { message: Message }) {
       return (
         <View className="flex-row items-center gap-2">
           <Text className="text-xl">📍</Text>
-          <Text className="text-white text-sm">Location</Text>
+          <Text className={`${primary} text-base`}>Location</Text>
         </View>
       );
 
@@ -738,15 +978,15 @@ function MessageContent({ message }: { message: Message }) {
         : <Text className="text-4xl">🖼️</Text>;
 
     default:
-      return <Text className="text-white text-sm">{message.content ?? '—'}</Text>;
+      return <Text className={`${primary} text-lg leading-6`}>{message.content ?? '—'}</Text>;
   }
 }
 
-function MediaPlaceholder({ icon, label }: { icon: string; label: string }) {
+function MediaPlaceholder({ icon, label, isOutbound }: { icon: string; label: string; isOutbound: boolean }) {
   return (
     <View className="flex-row items-center gap-2 py-1">
       <Text className="text-xl">{icon}</Text>
-      <Text className="text-white/70 text-sm">{label}</Text>
+      <Text className={isOutbound ? 'text-white/70 text-sm' : 'text-light-text-secondary dark:text-white/70 text-sm'}>{label}</Text>
     </View>
   );
 }
