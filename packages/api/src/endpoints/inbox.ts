@@ -25,6 +25,7 @@ export function createConversationsApi(client: AxiosInstance) {
     request: (id: string, reason?: string) =>
       client.post(`/conversations/${id}/request`, { reason }),
     intervene: (id: string) => client.post(`/conversations/${id}/intervene`),
+    releaseToAi: (id: string) => client.post(`/conversations/${id}/release-to-ai`),
     reopen: (id: string) => client.post(`/conversations/${id}/reopen`),
     transfer: (id: string, toAgentId: string, reason?: string) =>
       client.post(`/conversations/${id}/transfer`, { toAgentId, reason }),
