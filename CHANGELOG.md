@@ -7,10 +7,30 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Changes shipped to staging/production since 2.2.0 that have not yet been
+Changes shipped to staging/production since 2.3.0 that have not yet been
 recorded as a release. Group these into the next release's changelog when
 that release is created (see VERSIONING.md) — don't record them here in the
 meantime.
+
+## [2.3.0] - 2026-09-23
+
+### Added
+- Native mobile refresh-token auth flow, replacing the web-cookie-based session model on iOS/Android
+- Mobile: push notifications, Commerce, Team management, and real avatar upload
+- Mobile: app-wide light/dark theme system, plus a Contact Us page
+- Analytics overview extended with customer, resolution, calls, and CSAT metrics (web + mobile)
+
+### Fixed
+- Fixed a privilege-escalation vulnerability that let a workspace member grant themselves or others a higher role than their own, including OWNER
+- Fixed WhatsApp and Facebook Messenger inbound webhook signature verification being unconfigured in production, which could allow forged inbound messages
+- Fixed channel connection credentials (WhatsApp/Facebook access tokens) not being encrypted at rest in production
+- Fixed an unauthenticated file-upload/serve gap that could allow a stored cross-site-scripting attack via the media library
+- Fixed the server refusing to start in production with a default/placeholder authentication secret, instead of silently running insecurely
+- Removed an unrestricted image-proxy configuration that could be used to process attacker-supplied remote images
+- Fixed dead API/socket hostnames in the mobile app after a backend domain change
+
+### Changed
+- Production now refuses to start if critical authentication secrets are missing or left at their default values
 
 ## [2.2.0] - 2026-09-20
 
