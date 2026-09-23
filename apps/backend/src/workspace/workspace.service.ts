@@ -15,6 +15,12 @@ import { EmailService } from '../common/email.service';
 const WORKSPACE_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'AGENT', 'ANALYST', 'VIEWER'] as const;
 type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
+// Higher number = more privileged. Used to stop an actor from granting a
+// role above their own rank, or editing the role/status of a peer/superior.
+const ROLE_RANK: Record<WorkspaceRole, number> = {
+  OWNER: 5, ADMIN: 4, MANAGER: 3, AGENT: 2, ANALYST: 1, VIEWER: 1,
+};
+
 const INVITE_TTL_HOURS = 72;
 
 const MEMBER_SELECT = {
@@ -74,11 +80,39 @@ export class WorkspaceService {
     if (!member) throw new NotFoundException('Member not found');
 
     const isSelf = member.userId === actorId;
+    const wantsRoleOrStatusChange = dto.role !== undefined || dto.status !== undefined;
 
-    // Only admins/owners can change role or status of others
-    if (!isSelf && (dto.role || dto.status)) {
-      if (dto.role && !WORKSPACE_ROLES.includes(dto.role as WorkspaceRole)) {
+    if (wantsRoleOrStatusChange) {
+      // No self-service role/status changes -- there's no legitimate reason
+      // for this general profile-edit endpoint to let a member promote or
+      // (de)activate themselves. Role/status changes always require acting
+      // on someone else.
+      if (isSelf) {
+        throw new ForbiddenException('You cannot change your own role or status');
+      }
+
+      if (dto.role !== undefined && !WORKSPACE_ROLES.includes(dto.role as WorkspaceRole)) {
         throw new BadRequestException('Invalid role');
+      }
+
+      // Rank check: an actor can only act on someone strictly below their own
+      // rank, and can never grant a role above their own rank. Without this,
+      // any ADMIN-gated actor (which includes workspace MANAGER, per
+      // workspaceRoleToUserRole) could edit a peer or promote anyone to OWNER.
+      const actorMember = await this.prisma.workspaceMember.findFirst({
+        where: { workspaceId: tenantId, userId: actorId },
+        select: { role: true },
+      });
+      const actorRank = ROLE_RANK[(actorMember?.role as WorkspaceRole) ?? 'VIEWER'] ?? 0;
+      const targetCurrentRank = ROLE_RANK[member.role as WorkspaceRole] ?? 0;
+      if (actorRank <= targetCurrentRank) {
+        throw new ForbiddenException('You cannot modify a member at or above your own rank');
+      }
+      if (dto.role !== undefined) {
+        const newRoleRank = ROLE_RANK[dto.role as WorkspaceRole] ?? 0;
+        if (newRoleRank > actorRank) {
+          throw new ForbiddenException('You cannot grant a role above your own rank');
+        }
       }
     }
 

@@ -91,11 +91,15 @@ export class MessengerWebhookController {
   // Same primitive as WhatsApp's assertValidSignature (verifyWhatsAppSignature
   // is provider-agnostic despite the name -- both products are signed with
   // the same Meta App Secret mechanism). Fails open with no secret configured
-  // for the same reason WhatsApp's does: this ships ahead of the secret being
-  // provisioned, not blocking all inbound processing the moment it deploys.
+  // in non-production so this can ship ahead of the secret being provisioned
+  // there; fails CLOSED in production -- see whatsapp.webhook.controller.ts's
+  // assertValidSignature for the same reasoning.
   private assertValidSignature(raw: Buffer | undefined, signature: string | undefined): void {
     const appSecret = process.env['FACEBOOK_APP_SECRET'];
     if (!appSecret) {
+      if (process.env['NODE_ENV'] === 'production') {
+        throw new BadRequestException('Webhook signature verification is not configured');
+      }
       this.logger.warn('FACEBOOK_APP_SECRET not configured -- Messenger webhook signature verification is disabled');
       return;
     }

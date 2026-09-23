@@ -71,6 +71,17 @@ export class MediaController {
     return this.mediaService.findMessageMedia(tenantId, +page, +limit, type, search);
   }
 
+  // Inline-renderable types only -- anything else (including any file
+  // predating the upload allowlist in media.service.ts) is served with
+  // Content-Disposition: attachment below so a browser downloads it instead
+  // of executing it, regardless of what Content-Type is stored.
+  private static readonly INLINE_SAFE_MIME_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'video/mp4', 'video/webm', 'video/quicktime', 'video/3gpp',
+    'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/aac', 'audio/amr',
+    'application/pdf',
+  ]);
+
   @Public()
   @Get('serve/:fileKey')
   async serve(@Param('fileKey') fileKey: string, @Res() res: Response) {
@@ -78,6 +89,13 @@ export class MediaController {
     const { stream, mimeType } = await this.mediaService.getStreamWithMime(normalizedKey);
     if (!stream) return res.status(HttpStatus.NOT_FOUND).send('File not found');
     if (mimeType) res.setHeader('Content-Type', mimeType);
+    // Belt-and-suspenders against stored XSS: never let a browser guess a
+    // more "helpful" (executable) content type than what's declared, and
+    // never render a non-whitelisted type inline in the browser.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!mimeType || !MediaController.INLINE_SAFE_MIME_TYPES.has(mimeType)) {
+      res.setHeader('Content-Disposition', 'attachment');
+    }
     res.setHeader('Cache-Control', 'public, max-age=31536000');
     stream.pipe(res);
   }

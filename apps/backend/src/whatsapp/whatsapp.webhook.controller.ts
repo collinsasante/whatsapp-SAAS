@@ -135,16 +135,18 @@ export class WhatsAppWebhookController {
    * App Secret belongs to the one Meta App those WABAs are connected through),
    * so one global secret is correct here, not a per-tenant one.
    *
-   * Fails OPEN (logs and continues) when WHATSAPP_APP_SECRET isn't configured,
-   * rather than closed -- this is a new check being added to a controller that
-   * has never verified signatures before, and failing closed with no secret
-   * provisioned yet would silently stop all inbound WhatsApp processing for
-   * every tenant the moment this ships. Only rejects once the secret is
-   * actually set and the signature genuinely doesn't match.
+   * Fails open (logs and continues) in non-production environments when
+   * WHATSAPP_APP_SECRET isn't configured, so staging/dev can still receive
+   * webhooks before the secret is provisioned there. In production it fails
+   * CLOSED -- an unconfigured secret must never silently let forged inbound
+   * WhatsApp payloads through for every tenant.
    */
   private assertValidSignature(raw: Buffer | undefined, signature: string | undefined): void {
     const appSecret = process.env['WHATSAPP_APP_SECRET'];
     if (!appSecret) {
+      if (process.env['NODE_ENV'] === 'production') {
+        throw new BadRequestException('Webhook signature verification is not configured');
+      }
       this.logger.warn('WHATSAPP_APP_SECRET not configured -- webhook signature verification is disabled');
       return;
     }

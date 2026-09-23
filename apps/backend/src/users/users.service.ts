@@ -2,6 +2,13 @@ import { Injectable, NotFoundException, ConflictException, ForbiddenException } 
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
+
+// Higher number = more privileged. Mirrors workspace.service.ts's ROLE_RANK
+// so this legacy User.role path can't grant a rank the actor doesn't hold.
+const USER_ROLE_RANK: Record<UserRole, number> = {
+  [UserRole.SUPER_ADMIN]: 4, [UserRole.ADMIN]: 3, [UserRole.AGENT]: 2, [UserRole.VIEWER]: 1,
+};
 
 const USER_SELECT = {
   id: true,
@@ -82,8 +89,19 @@ export class UsersService {
     return user;
   }
 
-  async update(tenantId: string, userId: string, dto: UpdateUserDto) {
+  async update(tenantId: string, userId: string, dto: UpdateUserDto, actor: JwtPayload) {
     await this.findOne(tenantId, userId);
+
+    if (dto.role !== undefined) {
+      if (userId === actor.sub) {
+        throw new ForbiddenException('You cannot change your own role');
+      }
+      const actorRank = USER_ROLE_RANK[actor.role as UserRole] ?? 0;
+      const newRoleRank = USER_ROLE_RANK[dto.role] ?? 0;
+      if (newRoleRank > actorRank) {
+        throw new ForbiddenException('You cannot grant a role above your own rank');
+      }
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.name) data['name'] = dto.name;

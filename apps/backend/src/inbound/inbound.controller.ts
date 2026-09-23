@@ -54,6 +54,8 @@ export class InboundController {
         throw new BadRequestException('Missing webhook signature headers');
       }
       this.verifyResendSignature(secret, svixId, svixTimestamp, req.rawBody as Buffer, svixSignature);
+    } else if (this.config.get<string>('NODE_ENV') === 'production') {
+      throw new BadRequestException('Webhook signature verification is not configured');
     }
 
     await this.inboundService.handleInboundEmail(body);

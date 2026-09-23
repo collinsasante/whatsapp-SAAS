@@ -9,8 +9,11 @@ import * as cookieParser from 'cookie-parser';
 import type { Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
+import { assertProductionSecretsConfigured } from './config/validate-production-secrets';
 
 async function bootstrap() {
+  assertProductionSecretsConfigured();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['log', 'error', 'warn'],
     rawBody: true,

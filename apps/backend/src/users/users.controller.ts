@@ -6,7 +6,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
-import { UserRole } from '@whatsapp-platform/shared-types';
+import { CurrentUser } from '../common/decorators/user.decorator';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -39,10 +40,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Update a team member' })
   update(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() actor: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
   ) {
-    return this.usersService.update(tenantId, id, dto);
+    return this.usersService.update(tenantId, id, dto, actor);
   }
 
   @Delete(':id')

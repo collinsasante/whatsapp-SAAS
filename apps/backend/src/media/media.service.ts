@@ -4,6 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 
+// Also acts as the upload allowlist (see upload() below) -- any mimetype not
+// listed here is rejected outright, not just miscategorized as a generic
+// DOCUMENT. Without this, an authenticated Admin/Agent could upload an
+// .html/.svg file, have it served back with a matching Content-Type from
+// the same origin, and use it for stored XSS (GET /media/serve/:fileKey is
+// @Public() and echoes the stored mimeType verbatim).
 const MIME_TO_MEDIA_TYPE: Record<string, 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'> = {
   'image/jpeg': 'IMAGE',
   'image/png': 'IMAGE',
@@ -11,12 +17,19 @@ const MIME_TO_MEDIA_TYPE: Record<string, 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT
   'image/webp': 'IMAGE',
   'video/mp4': 'VIDEO',
   'video/webm': 'VIDEO',
+  'video/quicktime': 'VIDEO',
+  'video/3gpp': 'VIDEO',
   'audio/mpeg': 'AUDIO',
   'audio/ogg': 'AUDIO',
   'audio/wav': 'AUDIO',
+  'audio/aac': 'AUDIO',
+  'audio/amr': 'AUDIO',
   'application/pdf': 'DOCUMENT',
   'application/msword': 'DOCUMENT',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCUMENT',
+  'application/vnd.ms-excel': 'DOCUMENT',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'DOCUMENT',
+  'text/plain': 'DOCUMENT',
 };
 
 @Injectable()
@@ -27,6 +40,11 @@ export class MediaService {
   ) {}
 
   async upload(tenantId: string, uploadedById: string, file: Express.Multer.File) {
+    const mediaType = MIME_TO_MEDIA_TYPE[file.mimetype];
+    if (!mediaType) {
+      throw new BadRequestException(`Unsupported file type: ${file.mimetype}`);
+    }
+
     const existing = await this.prisma.mediaAsset.findFirst({
       where: { tenantId, originalName: file.originalname },
     });
@@ -35,8 +53,6 @@ export class MediaService {
     }
 
     const { fileKey, fileUrl } = await this.storageService.upload(file, tenantId);
-
-    const mediaType = MIME_TO_MEDIA_TYPE[file.mimetype] ?? 'DOCUMENT';
 
     return this.prisma.mediaAsset.create({
       data: {
