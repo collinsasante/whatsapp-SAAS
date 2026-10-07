@@ -1,14 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { MessageStatus, SocketEvent } from '@whatsapp-platform/shared-types';
+import { WebhookEventsService } from '../manage/webhooks/webhook-events.service';
 
 @Injectable()
 export class RealtimeService {
   private readonly logger = new Logger(RealtimeService.name);
   private readonly realtimeUrl: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    @Optional() private webhookEvents?: WebhookEventsService,
+  ) {
     this.realtimeUrl = this.configService.get<string>('app.realtimeUrl', 'http://realtime:3002');
   }
 
@@ -22,10 +26,14 @@ export class RealtimeService {
 
   emitNewMessage(tenantId: string, conversationId: string, message: Record<string, unknown>) {
     void this.emit('new_message', { tenantId, conversationId, message });
+    if (typeof message?.['id'] === 'string') {
+      this.webhookEvents?.messageCreated(tenantId, message['id'], String(message['direction'] ?? ''), String(message['status'] ?? ''));
+    }
   }
 
   emitMessageStatus(tenantId: string, data: { messageId: string; whatsappMessageId: string; status: MessageStatus; conversationId: string }) {
     void this.emit('message_status_update', { tenantId, ...data });
+    this.webhookEvents?.messageStatusChanged(tenantId, data.messageId, data.status);
   }
 
   emitConversationUpdated(tenantId: string, conversationId: string, data: Record<string, unknown>) {

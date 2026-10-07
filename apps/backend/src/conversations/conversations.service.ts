@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Optional } from '@nestjs/common';
+import { WebhookEventsService } from '../manage/webhooks/webhook-events.service';
 import { ModuleRef } from '@nestjs/core';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -44,6 +45,7 @@ export class ConversationsService {
     private moduleRef: ModuleRef,
     private aiCompletionService: AiCompletionService,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
+    @Optional() private webhookEvents?: WebhookEventsService,
   ) {}
 
   // ─── Finders ─────────────────────────────────────────────────────────────
@@ -454,6 +456,7 @@ export class ConversationsService {
       metadata: transferMeta,
     });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result);
+    this.webhookEvents?.conversationAssigned(tenantId, id);
 
     const contactName = (result.contact as { name?: string | null })?.name ?? (result.contact as { phone: string }).phone;
     void this.notificationsService.notifyUser(dto.toAgentId, tenantId, {
@@ -529,6 +532,7 @@ export class ConversationsService {
     }
     if ('assignedToId' in dto && dto.assignedToId) {
       void this.activityLogService.log({ tenantId, action: ActivityAction.CONVERSATION_ASSIGNED, conversationId: id, contactId: existing.contactId, userId });
+      if (dto.assignedToId !== existing.assignedToId) this.webhookEvents?.conversationAssigned(tenantId, id);
       if (dto.assignedToId !== userId) {
         const contactName = (result.contact as { name?: string | null })?.name ?? (result.contact as { phone: string }).phone;
         void this.notificationsService.notifyUser(dto.assignedToId, tenantId, {

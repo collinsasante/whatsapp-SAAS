@@ -35,6 +35,7 @@ import { ChatbotFlowsModule } from './chatbot-flows/chatbot-flows.module';
 import { TagsModule } from './manage/tags/tags.module';
 import { AttributesModule } from './manage/attributes/attributes.module';
 import { WebhooksModule } from './manage/webhooks/webhooks.module';
+import { WebhookEventsModule } from './manage/webhooks/webhook-events.module';
 import { ManageSettingsModule } from './manage/settings/manage-settings.module';
 import { SegmentsModule } from './segments/segments.module';
 import { BillingModule } from './billing/billing.module';
@@ -121,6 +122,7 @@ import appConfig from './config/app.config';
     TagsModule,
     AttributesModule,
     WebhooksModule,
+    WebhookEventsModule,
     ManageSettingsModule,
     SegmentsModule,
     BillingModule,
