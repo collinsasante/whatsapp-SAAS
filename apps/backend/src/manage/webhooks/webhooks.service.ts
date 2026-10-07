@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { assertPublicWebhookUrl } from '@whatsapp-platform/shared-utils';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export interface CreateWebhookDto {
@@ -65,6 +66,12 @@ export class WebhooksService {
       data: { message: 'This is a test webhook delivery from WhatsApp Platform' },
     };
 
+    try {
+      await assertPublicWebhookUrl(wh.url);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Invalid webhook URL' };
+    }
+
     const customHeaders = (wh.headers as Record<string, string> | null) ?? {};
 
     try {
@@ -76,6 +83,7 @@ export class WebhooksService {
           ...customHeaders,
         },
         body: JSON.stringify(payload),
+        redirect: 'error',
       });
       await this.prisma.webhook.update({
         where: { id },

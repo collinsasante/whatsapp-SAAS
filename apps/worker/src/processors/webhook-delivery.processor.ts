@@ -2,6 +2,7 @@ import { Worker, Job, UnrecoverableError } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { createHmac } from 'crypto';
 import { QueueName, WebhookDeliveryJob } from '@whatsapp-platform/shared-types';
+import { assertPublicWebhookUrl } from '@whatsapp-platform/shared-utils';
 
 const TIMEOUT_MS = 10_000;
 
@@ -54,6 +55,13 @@ export class WebhookDeliveryWorker {
     // Re-read on every attempt: a webhook disabled or deleted meanwhile must not receive data.
     const webhook = await this.prisma.webhook.findFirst({ where: { id: webhookId, tenantId, isActive: true } });
     if (!webhook) return;
+
+    try {
+      await assertPublicWebhookUrl(webhook.url);
+    } catch (error) {
+      // configuration problem, not a transient failure: don't retry
+      throw new UnrecoverableError(error instanceof Error ? error.message : String(error));
+    }
 
     const body = JSON.stringify({ id: deliveryId, event, timestamp: occurredAt, tenantId, data });
     const timestamp = Math.floor(Date.now() / 1000).toString();
