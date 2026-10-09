@@ -824,7 +824,11 @@ export class ConversationsService {
       tenantId,
       taskType: 'SUMMARIZE',
       conversationId,
-      maxTokens: 1200,
+      // deepseek-v4-flash is a reasoning model: its hidden reasoning counts against max_tokens. At 1200 the
+      // reasoning alone often used the whole budget, leaving no answer (finish_reason=length, empty content ->
+      // 'Could not generate summary.') in ~40% of calls, nearly always for long conversations, and truncating
+      // many of the rest. 4000 leaves room for reasoning plus the full Executive Brief.
+      maxTokens: 4000,
       messages: [
         {
           role: 'system',
