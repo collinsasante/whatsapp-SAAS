@@ -243,10 +243,16 @@ export const automationApi = {
 };
 
 export const mediaApi = {
-  upload: (file: File) => {
+  upload: (file: File, onProgress?: (pct: number) => void) => {
     const formData = new FormData();
     formData.append('file', file);
-    return api.post('/media/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
+    return api.post('/media/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+      onUploadProgress: onProgress
+        ? (e) => onProgress(e.total ? Math.round((e.loaded / e.total) * 100) : 0)
+        : undefined,
+    });
   },
   list: (params?: Record<string, unknown>) => api.get('/media', { params }),
   library: (params?: Record<string, unknown>) => api.get('/media/library', { params }),
