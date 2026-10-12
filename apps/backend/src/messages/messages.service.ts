@@ -746,6 +746,7 @@ export class MessagesService {
       button_reply?: { id: string; title: string };
       call_permission_reply?: { response: string };
     };
+    button?: { payload: string; text: string };
   }, profileName?: string, incomingPhoneNumberId?: string, referral?: {
     source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
     image_url?: string; media_type?: string; ctwa_clid?: string;
@@ -959,6 +960,17 @@ export class MessagesService {
 
     let msgType = waMessage.type.toUpperCase() as MessageType;
 
+    // Quick Reply button tap on a business-sent template -- common in real traffic.
+    // "button" has no corresponding MessageType enum value (that's a DB-level enum;
+    // adding one is a migration, out of scope here), so without this it would fall
+    // into the generic unsupported-type branch below -- same ultimate display as a
+    // real text message makes sense, so store it as TEXT with the real tapped label
+    // as content, same as the unsupported branch does for things with no content.
+    if (waMessage.type === 'button' && waMessage.button) {
+      content = waMessage.button.text;
+      msgType = MessageType.TEXT;
+    }
+
     // WhatsApp sends type="unsupported" for polls, ephemeral messages, and other
     // types not yet exposed via the Cloud API. Previously skipped silently (debug-
     // level log only, filtered out in production) -- the customer's message vanished
@@ -967,7 +979,7 @@ export class MessagesService {
     // so at least "the customer tried to send something we can't display yet" is
     // visible rather than nothing at all.
     const validMessageTypes = new Set<string>(Object.values(MessageType));
-    if (!validMessageTypes.has(msgType)) {
+    if (waMessage.type !== 'button' && !validMessageTypes.has(msgType)) {
       this.logger.warn(`[tenant:${tenantId}] Unsupported WA message type "${waMessage.type}" -- persisting a placeholder instead of discarding it`);
       messageMetadata['originalWaType'] = waMessage.type;
       content = `[Sent a message type we can't display yet: ${waMessage.type}. Ask them to resend as text, an image, or a document.]`;
@@ -979,6 +991,14 @@ export class MessagesService {
     }
 
     if (waMessage.text) content = waMessage.text.body;
+
+    // Non-CSAT interactive reply (list/button tap on an interactive message this
+    // business sent). CSAT (`csat_*`) and call_permission_reply are intercepted
+    // earlier and return before reaching here; this covers everything else, which
+    // previously passed the MessageType validity check (INTERACTIVE is a real enum
+    // value) but never had its content populated, so it displayed as empty/"Unsupported".
+    if (waMessage.interactive?.list_reply) content = waMessage.interactive.list_reply.title;
+    else if (waMessage.interactive?.button_reply) content = waMessage.interactive.button_reply.title;
 
     if (waMessage.location) {
       messageMetadata['latitude'] = waMessage.location.latitude;

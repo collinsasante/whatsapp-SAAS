@@ -64,6 +64,13 @@ interface WebhookEntry {
         reaction?: { message_id: string; emoji: string };
         location?: { latitude: number; longitude: number; name?: string; address?: string };
         contacts?: Array<{ name: { formatted_name: string }; phones?: Array<{ phone: string }> }>;
+        button?: { payload: string; text: string };
+        interactive?: {
+          type: 'list_reply' | 'button_reply' | 'call_permission_reply';
+          list_reply?: { id: string; title: string };
+          button_reply?: { id: string; title: string };
+          call_permission_reply?: { response: string };
+        };
         referral?: {
           source_url?: string;
           source_type?: string;  // 'ad' | 'post'
