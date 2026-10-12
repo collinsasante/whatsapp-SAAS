@@ -31,7 +31,7 @@ type Tab = 'ALL' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 
 interface Props {
   onClose: () => void;
-  onSend: (items: MediaItem[]) => Promise<void>;
+  onSend: (items: MediaItem[]) => void;
 }
 
 const PAGE_SIZE = 40;
@@ -77,7 +77,6 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
   const [agentItems, setAgentItems] = useState<MediaItem[]>([]);
   const [agentLoading, setAgentLoading] = useState(true);
 
-  const [sending, setSending] = useState(false);
   const [tab, setTab] = useState<Tab>('ALL');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -137,12 +136,13 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
     else setSelected(new Set(allVisible.map(i => i.id)));
   };
 
-  const handleSend = async () => {
+  const handleSend = () => {
     const toSend = allVisible.filter(i => selected.has(i.id));
     if (!toSend.length) return;
-    setSending(true);
-    try { await onSend(toSend); onClose(); }
-    finally { setSending(false); }
+    // Fire-and-forget: sends now run in the background (tracked as temp bubbles in the
+    // conversation thread), so the modal doesn't need to stay open or block on them.
+    void onSend(toSend);
+    onClose();
   };
 
   const customerTotalPages = Math.ceil(customerTotal / PAGE_SIZE);
@@ -331,15 +331,11 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
               Cancel
             </button>
             <button
-              onClick={() => { void handleSend(); }}
-              disabled={selected.size === 0 || sending}
+              onClick={handleSend}
+              disabled={selected.size === 0}
               className="flex items-center gap-2 px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {sending ? (
-                <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
-              ) : (
-                <Send size={13} />
-              )}
+              <Send size={13} />
               Send {selected.size > 0 ? `(${selected.size})` : ''}
             </button>
           </div>
