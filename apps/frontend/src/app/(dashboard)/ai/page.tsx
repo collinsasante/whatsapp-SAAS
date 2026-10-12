@@ -6,6 +6,7 @@ import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
   Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield, Eraser, Activity, GraduationCap,
+  Search,
 } from 'lucide-react';
 import { billingApi, knowledgeBaseApi, manageSettingsApi, aiLogsApi } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -84,6 +85,7 @@ export default function AiPage() {
   const [scrapingUrl, setScrapingUrl] = useState(false);
   const [selectedLearnedIds, setSelectedLearnedIds] = useState<Set<string>>(new Set());
   const [deduplicating, setDeduplicating] = useState(false);
+  const [learnedSearch, setLearnedSearch] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -287,6 +289,12 @@ export default function AiPage() {
 
   const kbArticles = articles.filter(a => a.source !== 'learned');
   const learnedArticles = articles.filter(a => a.source === 'learned');
+  const filteredLearnedArticles = learnedSearch.trim()
+    ? learnedArticles.filter(a => {
+        const q = learnedSearch.trim().toLowerCase();
+        return a.title.toLowerCase().includes(q) || a.content.toLowerCase().includes(q);
+      })
+    : learnedArticles;
 
   const cleanDuplicates = async () => {
     if (!await showConfirm('Clean duplicate AI-learned articles?', {
@@ -803,14 +811,26 @@ export default function AiPage() {
                       <input
                         type="checkbox"
                         className="rounded border-gray-300 text-teal-600 cursor-pointer"
-                        checked={selectedLearnedIds.size === learnedArticles.length && learnedArticles.length > 0}
-                        onChange={e => setSelectedLearnedIds(e.target.checked ? new Set(learnedArticles.map(a => a.id)) : new Set())}
+                        checked={selectedLearnedIds.size === filteredLearnedArticles.length && filteredLearnedArticles.length > 0}
+                        onChange={e => setSelectedLearnedIds(e.target.checked ? new Set(filteredLearnedArticles.map(a => a.id)) : new Set())}
                         title="Select all"
                       />
                     )}
-                    <p className="text-xs text-gray-500">Verz analyses your agent conversations and extracts recurring patterns</p>
+                    <p className="text-xs text-gray-500 hidden sm:block">Verz analyses your agent conversations and extracts recurring patterns</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {learnedArticles.length > 0 && (
+                      <div className="relative">
+                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          value={learnedSearch}
+                          onChange={e => setLearnedSearch(e.target.value)}
+                          placeholder="Search what Verz has learned…"
+                          className="pl-7 pr-3 py-1.5 w-48 sm:w-56 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400 transition-colors"
+                        />
+                      </div>
+                    )}
                     {selectedLearnedIds.size > 0 && (
                       <button
                         onClick={() => downloadLearnedArticles(selectedLearnedIds)}
@@ -857,9 +877,19 @@ export default function AiPage() {
                       Click &ldquo;Learn Now&rdquo; to have Verz scan the last 30 days of agent conversations and build knowledge articles automatically.
                     </p>
                   </div>
+                ) : filteredLearnedArticles.length === 0 ? (
+                  <div className="py-14 text-center px-6">
+                    <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                      <Search size={20} className="text-gray-400" />
+                    </div>
+                    <p className="text-sm font-medium text-gray-700 mb-1">No matches for &ldquo;{learnedSearch}&rdquo;</p>
+                    <p className="text-xs text-gray-500 max-w-xs mx-auto leading-relaxed">
+                      Try a different search term, or clear the search to see everything Verz has learned.
+                    </p>
+                  </div>
                 ) : (
                   <div className="divide-y divide-gray-100">
-                    {learnedArticles.map(a => (
+                    {filteredLearnedArticles.map(a => (
                       <ArticleRow
                         key={a.id}
                         article={a}
