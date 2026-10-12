@@ -11,9 +11,9 @@ import { MessagesService } from './messages.service';
 function buildDeps() {
   return {
     prisma: {
-      tenantSettings: { findUnique: jest.fn() },
+      tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
       tenant: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null) },
+      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(1) },
       conversation: { update: jest.fn().mockResolvedValue({ id: 'conv1' }) },
       $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)),
     },
@@ -30,13 +30,13 @@ function buildDeps() {
     contactsService: { findOrCreate: jest.fn().mockResolvedValue({ id: 'contact1', phone: '+233555000111', name: 'Jane' }) },
     realtimeService: { emitAiSuggestion: jest.fn(), emitNewMessage: jest.fn(), emitConversationUpdated: jest.fn() },
     storageService: { downloadBuffer: jest.fn().mockResolvedValue({ buffer: Buffer.from('img'), mimeType: 'image/jpeg' }) },
-    chatbotFlowsService: {},
+    chatbotFlowsService: { findMatchingFlow: jest.fn().mockResolvedValue(null) },
     activityLogService: {},
     aiResponderService: {
       findOrCreateVerzAgent: jest.fn().mockResolvedValue({ id: 'agent-1', name: 'Verz', avatarUrl: null }),
       generateSuggestion: jest.fn().mockResolvedValue({ response: 'Hi there', confidence: 80, blocked: false }),
       shouldRespond: jest.fn().mockResolvedValue(true),
-      getMode: jest.fn(),
+      getMode: jest.fn().mockResolvedValue(null),
     },
     knowledgeBaseService: {},
     aiLogsService: { create: jest.fn().mockResolvedValue({ id: 'log-1' }) },
@@ -514,6 +514,37 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ content: "[Sent a message type we can't display yet]" }),
       }));
+    });
+  });
+
+  describe('handleInbound (real WhatsApp Cloud API webhook path) -- Business-Scoped User ID fallback', () => {
+    it('resolves the contact by from_user_id instead of dropping the message when "from" is omitted', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      await service.handleInbound('t1', {
+        id: 'wamid.bsuid-1', timestamp: '1700000000', type: 'text',
+        text: { body: 'Hello! Can I get more info on this?' },
+        from_user_id: 'GH.1115168874544553',
+      } as any);
+
+      expect(deps.contactsService.findOrCreate).toHaveBeenCalledWith('t1', 'GH.1115168874544553', undefined);
+      expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ content: 'Hello! Can I get more info on this?' }),
+      }));
+    });
+
+    it('still skips a message with neither "from" nor "from_user_id"', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      const result = await service.handleInbound('t1', {
+        id: 'wamid.malformed-1', timestamp: '1700000000', type: 'text', text: { body: 'hi' },
+      } as any);
+
+      expect(result).toBeNull();
+      expect(deps.contactsService.findOrCreate).not.toHaveBeenCalled();
+      expect(deps.prisma.message.create).not.toHaveBeenCalled();
     });
   });
 });
