@@ -101,21 +101,38 @@ export class PostgresAuthStateStore {
     }, this.flushDebounceMs);
   }
 
-  /** Force an immediate write, bypassing the debounce -- used before a clean shutdown. */
-  async flush(): Promise<void> {
+  /**
+   * Force an immediate write, bypassing the debounce -- used before a clean
+   * shutdown, and before reconnecting (see session-manager.ts) so a stale
+   * in-memory state is never discarded ahead of a write that was still
+   * pending. Returns whether the write actually succeeded rather than
+   * throwing: every existing caller before this one only ever needed
+   * best-effort fire-and-forget semantics (a session row deleted by a
+   * concurrent disconnect/logout mid-flush is expected and fine to ignore),
+   * so this keeps that exact behavior for them unchanged -- but a caller
+   * that's about to discard this exact in-memory state and reload fresh
+   * from Postgres right after (the pre-reconnect flush) has real reason to
+   * care whether the write it's relying on actually landed, and can check
+   * the return value instead of silently proceeding either way.
+   */
+  async flush(): Promise<boolean> {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
     const serialized = JSON.stringify(this.state, BufferJSON.replacer);
     const encrypted = encryptCredential(serialized, ENCRYPTION_KEY);
-    await this.prisma.whatsAppWebSession.update({
-      where: { id: this.sessionId },
-      data: { encryptedAuthState: encrypted },
-    }).catch(() => {
+    try {
+      await this.prisma.whatsAppWebSession.update({
+        where: { id: this.sessionId },
+        data: { encryptedAuthState: encrypted },
+      });
+      return true;
+    } catch {
       // Session row may have been deleted (disconnect/logout) between the
-      // debounce firing and this write landing -- not an error worth
-      // crashing the process over.
-    });
+      // debounce firing and this write landing, or a transient DB issue --
+      // either way, not worth crashing the process over.
+      return false;
+    }
   }
 }

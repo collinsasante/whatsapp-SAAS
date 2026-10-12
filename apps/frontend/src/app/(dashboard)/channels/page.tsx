@@ -761,6 +761,26 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
   useEffect(() => {
     if (!sessionId) return;
     const socket = getSocket();
+    // Guards a late GET /status response from overwriting a newer state the
+    // socket already pushed in the meantime (e.g. the fetch was in flight
+    // when a real 'connected' event arrived) -- always trust the freshest
+    // known state, never let a slower, older read win.
+    let cancelled = false;
+
+    const applyStatus = (status: string, phoneNumber?: string) => {
+      if (status === 'CONNECTED') {
+        setPhoneNumber(phoneNumber ?? null);
+        setStep('connected');
+        toast.success('WhatsApp connected!');
+        onConnected();
+      } else if (status === 'QR_EXPIRED') {
+        setErrorMsg('This QR code expired before it was scanned. Please try again to get a new one.');
+        setStep('error');
+      } else if (status === 'ERROR' || status === 'LOGGED_OUT') {
+        setErrorMsg('The connection failed or was closed before pairing finished. Please try again.');
+        setStep('error');
+      }
+    };
 
     const onQr = (data: { sessionId: string; qrDataUrl: string }) => {
       if (data.sessionId !== sessionId) return;
@@ -769,25 +789,44 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
     };
     const onStatus = (data: { sessionId: string; status: string; phoneNumber?: string }) => {
       if (data.sessionId !== sessionId) return;
-      if (data.status === 'CONNECTED') {
-        setPhoneNumber(data.phoneNumber ?? null);
-        setStep('connected');
-        toast.success('WhatsApp connected!');
-        onConnected();
-      } else if (data.status === 'QR_EXPIRED') {
-        setErrorMsg('This QR code expired before it was scanned. Please try again to get a new one.');
-        setStep('error');
-      } else if (data.status === 'ERROR' || data.status === 'LOGGED_OUT') {
-        setErrorMsg('The connection failed or was closed before pairing finished. Please try again.');
-        setStep('error');
+      applyStatus(data.status, data.phoneNumber);
+    };
+
+    // Socket.IO does not replay missed room broadcasts to a socket that
+    // (re)connects after an event was published -- so a client whose socket
+    // was mid-reconnect at the exact moment the one-shot 'qr'/'status' push
+    // happened would otherwise just spin on the loading screen forever,
+    // with no recovery short of closing and reopening the modal (which
+    // starts an entirely new session rather than resuming this one).
+    // Pulling the current state explicitly -- once now, and again on every
+    // socket (re)connect -- closes that gap using the same GET endpoint the
+    // "disclosure"/"qr" steps already have no other reason to call.
+    const syncCurrentState = async () => {
+      try {
+        const res = await whatsappWebApi.getStatus(sessionId);
+        if (cancelled) return;
+        const data = res.data as { status: string; phoneNumber?: string; qrDataUrl?: string };
+        if (data.status === 'QR_PENDING' && data.qrDataUrl) {
+          setQrDataUrl(data.qrDataUrl);
+          setStep('qr');
+        } else if (data.status !== 'QR_PENDING') {
+          applyStatus(data.status, data.phoneNumber);
+        }
+      } catch {
+        // Best-effort catch-up only -- the socket push remains the primary
+        // path and a failed poll shouldn't itself surface an error.
       }
     };
 
+    void syncCurrentState();
     socket.on(SocketEvent.WHATSAPP_WEB_QR, onQr);
     socket.on(SocketEvent.WHATSAPP_WEB_STATUS, onStatus);
+    socket.on('connect', syncCurrentState);
     return () => {
+      cancelled = true;
       socket.off(SocketEvent.WHATSAPP_WEB_QR, onQr);
       socket.off(SocketEvent.WHATSAPP_WEB_STATUS, onStatus);
+      socket.off('connect', syncCurrentState);
     };
   }, [sessionId, onConnected]);
 

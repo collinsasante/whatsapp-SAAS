@@ -116,6 +116,15 @@ describe('WhatsAppWebService tenant isolation', () => {
 
     await expect(service.reconnectSession('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
   });
+
+  it('getSessionStatus never contacts the session-manager for a foreign tenant\'s session -- the QR fetch is unreachable code for a cross-tenant request', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue(null); // scoped query finds nothing for a foreign tenant, same as every other method here
+    const service = buildService(deps);
+
+    await expect(service.getSessionStatus('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+  });
 });
 
 describe('WhatsAppWebService.reconnectSession', () => {
@@ -241,5 +250,48 @@ describe('WhatsAppWebService.handleInternalEvent', () => {
       { content: 'hi', mediaType: undefined, mediaBase64: undefined, mimetype: undefined, caption: undefined },
       'Jane',
     );
+  });
+});
+
+describe('WhatsAppWebService.getSessionStatus -- QR catch-up fetch', () => {
+  // The QR image is never persisted to Postgres (session-manager keeps it
+  // in memory only) -- these cover the fix for a client that missed the
+  // one-shot realtime 'qr'/'status' push being able to catch up by asking
+  // for the current state directly instead of spinning forever.
+  it('fetches and includes the live QR from the session-manager when the session is QR_PENDING', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'QR_PENDING', phoneNumber: null, lastError: null, lastConnectedAt: null });
+    mockedAxios.request.mockResolvedValue({ data: { active: true, qrDataUrl: 'data:image/png;base64,AAAA' } });
+    const service = buildService(deps);
+
+    const result = await service.getSessionStatus('t1', 'sess1');
+
+    expect(mockedAxios.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'get', url: expect.stringContaining('/sessions/sess1/status'),
+    }));
+    expect(result.qrDataUrl).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('does not call the session-manager at all for a non-QR_PENDING session -- nothing to catch up to', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'CONNECTED', phoneNumber: '233555000111', lastError: null, lastConnectedAt: new Date() });
+    const service = buildService(deps);
+
+    const result = await service.getSessionStatus('t1', 'sess1');
+
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+    expect(result.qrDataUrl).toBeUndefined();
+  });
+
+  it('fails soft -- a session-manager hiccup while fetching the QR must not break the status check itself', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'QR_PENDING', phoneNumber: null, lastError: null, lastConnectedAt: null });
+    mockedAxios.request.mockRejectedValue(new Error('ECONNREFUSED'));
+    const service = buildService(deps);
+
+    const result = await service.getSessionStatus('t1', 'sess1');
+
+    expect(result.status).toBe('QR_PENDING');
+    expect(result.qrDataUrl).toBeUndefined();
   });
 });

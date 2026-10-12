@@ -63,7 +63,8 @@ app.post('/sessions/:sessionId/logout', async (req: Request, res: Response) => {
 });
 
 app.get('/sessions/:sessionId/status', (req: Request, res: Response) => {
-  res.json({ active: sessionManager.isActive(req.params['sessionId']!) });
+  const sessionId = req.params['sessionId']!;
+  res.json({ active: sessionManager.isActive(sessionId), qrDataUrl: sessionManager.getQrDataUrl(sessionId) });
 });
 
 app.post('/sessions/:sessionId/send-text', async (req: Request, res: Response) => {
