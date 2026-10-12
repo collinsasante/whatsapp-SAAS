@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search, X, CheckCircle2, AlertCircle, RefreshCw, Clock,
   Settings, ChevronDown, Radio, Zap, Activity, Shield,
-  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert, Copy,
+  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert, Copy, Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { channelsApi, facebookPagesApi, whatsappWebApi, tenantApi } from '@/lib/api';
@@ -936,6 +936,17 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
     } finally { setBusyId(null); }
   };
 
+  const handleDelete = async (channelId: string) => {
+    if (!window.confirm('Permanently remove this number from your list? This cannot be undone. Past conversation history is kept.')) return;
+    setBusyId(channelId);
+    try {
+      await channelsApi.delete(channelId);
+      onChanged();
+    } catch {
+      toast.error('Failed to delete this number.');
+    } finally { setBusyId(null); }
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
       <div className="pl-5 pr-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -999,12 +1010,21 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
                   </button>
                 )}
                 {!canReconnectLater && (
-                  <button
-                    onClick={onConnectMore}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors"
-                  >
-                    <QrCode size={12} /> Scan again
-                  </button>
+                  <>
+                    <button
+                      onClick={onConnectMore}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors"
+                    >
+                      <QrCode size={12} /> Scan again
+                    </button>
+                    <button
+                      onClick={() => { void handleDelete(s.id); }}
+                      disabled={busyId === s.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </>
                 )}
               </div>
             </div>

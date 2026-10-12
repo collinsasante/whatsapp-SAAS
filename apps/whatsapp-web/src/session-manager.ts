@@ -228,7 +228,15 @@ export class SessionManager {
       // closed the connection -- terminal until the user explicitly starts a
       // fresh pairing attempt, not something worth the reconnect backoff
       // below (nothing to reconnect to; auth never completed).
-      if (!entry.hasConnectedOnce) {
+      //
+      // Exception: code 515 (restartRequired) is WhatsApp's normal mid-
+      // handshake signal sent right after a successful QR scan -- Baileys
+      // is expected to reconnect once more using the now-negotiated auth
+      // state to actually complete pairing. Treating this the same as a
+      // real unscanned-QR timeout killed every single successful scan
+      // before the reconnect could happen, always reporting "QR expired"
+      // even when the user scanned it in time.
+      if (!entry.hasConnectedOnce && statusCode !== DisconnectReason.restartRequired) {
         await this.prisma.whatsAppWebSession.update({
           where: { id: sessionId },
           data: { status: 'QR_EXPIRED', lastError: 'QR code expired before it was scanned', lastErrorAt: new Date(), ownerInstanceId: null, lockHeartbeatAt: null },
