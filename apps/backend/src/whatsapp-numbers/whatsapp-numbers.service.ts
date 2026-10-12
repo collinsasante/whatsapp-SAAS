@@ -10,6 +10,8 @@ import { AuditService } from '../audit/audit.service';
 import { CreateWhatsAppNumberDto, UpdateWhatsAppNumberDto } from './dto/whatsapp-number.dto';
 import { Prisma } from '@prisma/client';
 
+const GRAPH_API_BASE = 'https://graph.facebook.com/v23.0';
+
 // Fields never returned to the frontend -- accessToken is write-only from the
 // API's perspective (the settings/channels UI already treats it that way:
 // edit forms always start blank with a "leave blank to keep existing"
@@ -61,6 +63,11 @@ export class WhatsAppNumbersService {
     if (existing) {
       throw new ConflictException(`Phone number ID ${dto.phoneNumberId} is already registered for this workspace`);
     }
+
+    // Must happen before anything is persisted: fails fast on a bad
+    // wabaId/accessToken instead of silently storing a number that looks
+    // connected but will never actually receive any webhooks.
+    await this.subscribeAppToWaba(dto.wabaId, dto.accessToken);
 
     // First number created is auto-default
     const count = await this.prisma.whatsAppNumber.count({ where: { tenantId } });
@@ -119,10 +126,21 @@ export class WhatsAppNumbersService {
       select: PUBLIC_SELECT,
     });
 
-    // Keep tenant creds in sync if this is the default number
-    if (updated.isDefault && (dto.phoneNumberId || dto.wabaId || dto.accessToken)) {
+    if (dto.phoneNumberId !== undefined || dto.wabaId !== undefined || dto.accessToken !== undefined) {
       const full = await this.prisma.whatsAppNumber.findUniqueOrThrow({ where: { id } });
-      await this.syncDefaultToTenant(tenantId, full.phoneNumberId, full.wabaId, this.encryption.decrypt(full.accessToken));
+      const decryptedToken = this.encryption.decrypt(full.accessToken);
+
+      // Re-subscribe on a WABA/token change -- otherwise a number that was
+      // working can silently stop receiving webhooks after an edit (or
+      // never start, if it was never subscribed to begin with; see create()).
+      if (dto.wabaId !== undefined || dto.accessToken !== undefined) {
+        await this.subscribeAppToWaba(full.wabaId, decryptedToken);
+      }
+
+      // Keep tenant creds in sync if this is the default number
+      if (updated.isDefault) {
+        await this.syncDefaultToTenant(tenantId, full.phoneNumberId, full.wabaId, decryptedToken);
+      }
     }
 
     void this.audit.log({
@@ -229,6 +247,28 @@ export class WhatsAppNumbersService {
     });
     await this.prisma.whatsAppNumber.update({ where: { id: whatsAppNumberId }, data: { channelId: channel.id } });
     return channel.id;
+  }
+
+  /**
+   * A correctly configured app-level webhook (Callback URL + verify token +
+   * subscribed fields, all set in the Meta Dashboard) is NOT sufficient on
+   * its own -- Meta additionally requires this app to be explicitly
+   * subscribed to each individual WABA via this endpoint before it will
+   * route that WABA's events anywhere. Without it, everything in the
+   * Dashboard can look correctly configured while zero webhooks ever
+   * arrive, with no error surfaced anywhere. Already done for Facebook
+   * Pages in ChannelsService.connectFacebookPages(); this is the same
+   * requirement for WhatsApp, just missing until now.
+   */
+  private async subscribeAppToWaba(wabaId: string, accessToken: string): Promise<void> {
+    const res = await fetch(`${GRAPH_API_BASE}/${wabaId}/subscribed_apps`, {
+      method: 'POST',
+      body: new URLSearchParams({ access_token: accessToken }),
+    });
+    const data = (await res.json()) as { success?: boolean; error?: { message: string } };
+    if (!data.success) {
+      throw new BadRequestException(`Failed to subscribe this app to WhatsApp Business Account ${wabaId}: ${data.error?.message ?? 'unknown error'}`);
+    }
   }
 
   private async clearDefault(tenantId: string) {
