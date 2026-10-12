@@ -925,6 +925,17 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
     } finally { setBusyId(null); }
   };
 
+  const handleReconnect = async (sessionId: string) => {
+    setBusyId(sessionId);
+    try {
+      await whatsappWebApi.reconnect(sessionId);
+      toast.success('Reconnecting -- this may take a few seconds.');
+      onChanged();
+    } catch {
+      toast.error('Failed to reconnect. You may need to scan a new QR code instead.');
+    } finally { setBusyId(null); }
+  };
+
   const handleLogout = async (sessionId: string) => {
     if (!window.confirm('Log out this number? You\'ll need to scan a new QR code to reconnect it.')) return;
     setBusyId(sessionId);
@@ -972,6 +983,10 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
           const meta = WA_WEB_STATUS_META[s.whatsappWebStatus ?? 'ERROR'];
           const isConnected = s.whatsappWebStatus === 'CONNECTED';
           const canReconnectLater = s.whatsappWebStatus === 'CONNECTED' || s.whatsappWebStatus === 'RECONNECTING';
+          // RECONNECTING only ever means "disconnected, waiting to be resumed" --
+          // nothing in the backend auto-resumes it, so without this button it
+          // was a permanent dead end (see reconnectSession() for the full story).
+          const isDisconnected = s.whatsappWebStatus === 'RECONNECTING';
           return (
             <div key={s.id} className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors', isConnected ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100')}>
               <LiveDot color={meta.dot} />
@@ -991,6 +1006,15 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
                 <p className="text-xs text-gray-400 mt-0.5">{s.lastError ? s.lastError : 'Unofficial linked device'}</p>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                {isDisconnected && (
+                  <button
+                    onClick={() => { void handleReconnect(s.sessionId!); }}
+                    disabled={busyId === s.sessionId}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
+                  >
+                    <Power size={12} /> Reconnect
+                  </button>
+                )}
                 {canReconnectLater && (
                   <button
                     onClick={() => { void handleDisconnect(s.sessionId!); }}

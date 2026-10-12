@@ -147,6 +147,40 @@ export class WhatsAppWebService {
     });
   }
 
+  /**
+   * Resumes a RECONNECTING (or ERROR) session using its persisted auth state
+   * -- no fresh QR scan needed, fulfilling the promise made when the session
+   * was disconnected. Previously there was no code path that ever called
+   * this: disconnectSession() leaves a session in RECONNECTING, but nothing
+   * ever re-invoked the session-manager's connect() for it afterward except
+   * a full process restart (SessionManager.restoreConnectedSessions(), which
+   * only runs once at startup) -- so a disconnected channel was permanently
+   * stuck with no way to resume short of restarting the whole whatsapp-web
+   * container. The underlying /sessions session-manager endpoint already
+   * supports resuming an existing session id (it's the same call
+   * startPairing() makes for a brand-new one, and SessionManager.connect()
+   * is already idempotent + loads persisted auth state) -- this just exposes
+   * an on-demand way to invoke it for an existing session instead of only at
+   * process bootstrap.
+   */
+  async reconnectSession(tenantId: string, sessionId: string, actorId?: string): Promise<void> {
+    const session = await this.prisma.whatsAppWebSession.findFirst({ where: { id: sessionId, tenantId } });
+    if (!session) throw new NotFoundException('WhatsApp Web session not found');
+    if (session.status !== 'RECONNECTING' && session.status !== 'ERROR') {
+      throw new BadRequestException(
+        `Cannot reconnect a session with status "${session.status}" -- only a disconnected or failed session can be resumed this way. Scan a new QR code instead.`,
+      );
+    }
+
+    await this.callSessionManager('post', '/sessions', { sessionId, tenantId, channelId: session.channelId });
+    await this.prisma.channel.update({ where: { id: session.channelId }, data: { isActive: true } });
+
+    void this.audit.log({
+      tenantId, userId: actorId, action: 'UPDATE', resource: 'channel', resourceId: session.channelId,
+      metadata: { action: 'WHATSAPP_WEB_RECONNECT_REQUESTED' },
+    });
+  }
+
   /** Fully unlinks the device (unlike disconnect, this can't be resumed -- a fresh QR scan is needed to reconnect). */
   async logoutSession(tenantId: string, sessionId: string, actorId?: string): Promise<void> {
     const session = await this.prisma.whatsAppWebSession.findFirst({ where: { id: sessionId, tenantId } });

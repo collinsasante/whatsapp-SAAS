@@ -108,6 +108,64 @@ describe('WhatsAppWebService tenant isolation', () => {
 
     await expect(service.logoutSession('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
   });
+
+  it('reconnectSession is tenant-scoped the same way', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue(null);
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('WhatsAppWebService.reconnectSession', () => {
+  // Previously nothing ever called connect() again for a disconnected
+  // session outside of process bootstrap -- disconnectSession() left it
+  // RECONNECTING forever with no real path back to CONNECTED. This covers
+  // the fix: reconnectSession() must call the session-manager with the
+  // existing session/channel ids (not create a new session the way
+  // startPairing() does) so it resumes from the already-persisted auth
+  // state instead of requiring a fresh QR scan.
+  it('resumes a RECONNECTING session by calling the session-manager with its existing session/channel ids, and re-activates the channel', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'RECONNECTING' });
+    mockedAxios.request.mockResolvedValue({ data: { ok: true } });
+    const service = buildService(deps);
+
+    await service.reconnectSession('t1', 'sess1', 'user1');
+
+    expect(mockedAxios.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'post', url: expect.stringContaining('/sessions'),
+      data: { sessionId: 'sess1', tenantId: 't1', channelId: 'chan1' },
+    }));
+    expect(deps.prisma.channel.update).toHaveBeenCalledWith({ where: { id: 'chan1' }, data: { isActive: true } });
+  });
+
+  it('also resumes a session stuck in ERROR (e.g. exceeded max reconnect attempts)', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'ERROR' });
+    mockedAxios.request.mockResolvedValue({ data: { ok: true } });
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('t1', 'sess1')).resolves.toBeUndefined();
+  });
+
+  it('refuses to "reconnect" a session that was never connected in the first place -- a QR_PENDING/QR_EXPIRED/LOGGED_OUT session has no usable saved auth state', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'QR_EXPIRED' });
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('t1', 'sess1')).rejects.toThrow(BadRequestException);
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+  });
+
+  it('refuses to reconnect an already-CONNECTED session -- nothing to resume', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'CONNECTED' });
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('t1', 'sess1')).rejects.toThrow(BadRequestException);
+  });
 });
 
 describe('WhatsAppWebService.sendText', () => {

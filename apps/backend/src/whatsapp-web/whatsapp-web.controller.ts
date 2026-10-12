@@ -54,6 +54,14 @@ export class WhatsAppWebController {
     return this.whatsAppWebService.disconnectSession(tenantId, sessionId, user.sub);
   }
 
+  @Post('sessions/:sessionId/reconnect')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({ summary: 'Resume a disconnected WhatsApp Web session using its saved credentials -- no QR scan needed' })
+  reconnect(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('sessionId') sessionId: string) {
+    return this.whatsAppWebService.reconnectSession(tenantId, sessionId, user.sub);
+  }
+
   @Post('sessions/:sessionId/logout')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @Throttle({ default: { limit: 10, ttl: 60000 } })

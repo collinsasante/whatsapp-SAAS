@@ -345,6 +345,7 @@ export const whatsappWebApi = {
   startPairing: (name?: string) => api.post<{ channelId: string; sessionId: string }>('/channels/whatsapp-web/sessions', { name }),
   getStatus: (sessionId: string) => api.get(`/channels/whatsapp-web/sessions/${sessionId}`),
   disconnect: (sessionId: string) => api.post(`/channels/whatsapp-web/sessions/${sessionId}/disconnect`),
+  reconnect: (sessionId: string) => api.post(`/channels/whatsapp-web/sessions/${sessionId}/reconnect`),
   logout: (sessionId: string) => api.post(`/channels/whatsapp-web/sessions/${sessionId}/logout`),
 };
 
