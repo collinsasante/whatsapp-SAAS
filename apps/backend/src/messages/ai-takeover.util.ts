@@ -2,7 +2,7 @@
  * (TenantSettings.aiTakeoverWhenAgentAway), off by default everywhere. Long enough
  * that an agent actively reading/typing isn't interrupted, short enough that a
  * customer isn't left waiting indefinitely. See messages.service.ts's handleInbound. */
-export const AI_TAKEOVER_AWAY_MS = 15 * 60 * 1000;
+export const AI_TAKEOVER_AWAY_MS = 3 * 60 * 60 * 1000;
 
 export interface TakeoverAssignee {
   isAiAgent?: boolean;

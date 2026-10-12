@@ -7,10 +7,24 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Changes shipped to staging/production since 2.3.0 that have not yet been
-recorded as a release. Group these into the next release's changelog when
-that release is created (see VERSIONING.md) — don't record them here in the
-meantime.
+Changes shipped to staging since 2.3.0 that have not yet been recorded as a
+release. Group these into the next release's changelog when that release is
+created (see VERSIONING.md) — don't record them here in the meantime.
+
+## [2.2.1] - 2026-10-12
+
+Shipped directly to production as a hotfix branch off 2.2.0, independent of
+2.3.0 below (which was on `staging` at the time and not yet in production).
+Both are now merged together here — 2.2.1 is currently the actual `isLatest`
+version recorded in `app_versions`, despite 2.3.0 having a higher number;
+2.3.0 was written here but never recorded via the release API. Whichever
+version staging eventually releases next should account for both.
+
+### Fixed
+- Replying to a message on desktop no longer jumps the scroll position away from where you were reading.
+- The message input no longer loses focus after sending — you can keep typing the next message without clicking back into the box.
+- Voice notes: fixed a silent failure on some recording errors, fixed a file-type labeling issue that could make your own sent voice notes fail to play back in some browsers, and added a visible "uploading" state while a voice note is sending.
+- Sending multiple files or Verz Media (File Library) items no longer blocks the chat while they upload — you can keep working, and failed sends now show clearly with a retry option instead of silently disappearing.
 
 ## [2.3.0] - 2026-09-23
 

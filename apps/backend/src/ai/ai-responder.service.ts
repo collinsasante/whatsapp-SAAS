@@ -161,15 +161,22 @@ export class AiResponderService {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return { response: '', confidence: null, blocked: false };
 
+    // Scope history by contact (across all of that contact's conversations with this
+    // tenant), not just the current conversation row -- a returning customer's earlier
+    // context should still inform replies even if their conversation got re-created
+    // rather than reopened. Also raised from 12 to 200 messages so AI has enough of the
+    // actual back-and-forth to understand a long-running conversation, not just the last
+    // few exchanges.
+    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
     const [settings, history] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId },
         select: { businessName: true, aiPersonality: true },
       }),
       this.prisma.message.findMany({
-        where: { conversationId, type: 'TEXT', content: { not: null } },
+        where: { conversation: { contactId: conv?.contactId }, type: 'TEXT', content: { not: null } },
         orderBy: { createdAt: 'desc' },
-        take: 12,
+        take: 200,
         select: { direction: true, content: true },
       }),
     ]);

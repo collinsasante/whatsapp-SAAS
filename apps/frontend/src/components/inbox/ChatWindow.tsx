@@ -320,6 +320,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const inputPaneRef = useRef<HTMLDivElement>(null);
+  const inputPaneHeightRef = useRef(0);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -589,6 +591,31 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     }
   }, [conversation.id, convMessages, hasMoreOlder, loadingOlder, prependMessages]);
 
+  // Compensate scroll position whenever the input pane resizes (reply preview appearing/
+  // disappearing, banners toggling, etc). The scroll container is a flex sibling of the
+  // input pane, so any height change there resizes the scroll viewport with zero
+  // compensation otherwise -- this is what causes the reply-bar scroll jump. Mirrors the
+  // same scrollTop-delta approach loadOlderMessages uses above, generalized to any
+  // input-pane resize instead of just pagination.
+  useEffect(() => {
+    const pane = inputPaneRef.current;
+    const container = scrollContainerRef.current;
+    if (!pane || !container) return;
+
+    inputPaneHeightRef.current = pane.getBoundingClientRect().height;
+
+    const observer = new ResizeObserver((entries) => {
+      const newHeight = entries[0]?.contentRect.height;
+      if (newHeight === undefined) return;
+      const delta = newHeight - inputPaneHeightRef.current;
+      inputPaneHeightRef.current = newHeight;
+      if (delta === 0 || isAtBottomRef.current) return;
+      container.scrollTop += delta;
+    });
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [conversation.id]);
+
   // Auto-scroll when new messages arrive (only if already at bottom)
   useEffect(() => {
     const len = convMessages.length;
@@ -734,17 +761,49 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       const mr = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onerror = () => {
+        toast.error('Recording failed');
+        stream.getTracks().forEach((t) => t.stop());
+        mediaRecorderRef.current = null;
+        setRecording(false);
+      };
       mr.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         if (blob.size === 0) return;
-        const file = new File([blob], 'voice-note.ogg', { type: 'audio/ogg' });
+        // Declare the real recorded MIME (webm) instead of mislabeling it as ogg --
+        // the mislabel only "worked" because the backend's WhatsApp-outbound path
+        // transcodes by sniffing real bytes regardless of declared type, but it made
+        // the sender's own in-app playback fragile (wrong Content-Type vs actual codec).
+        const ext = mimeType.includes('webm') ? 'webm' : 'ogg';
+        const file = new File([blob], `voice-note.${ext}`, { type: mimeType });
         setSending(true);
+        // Optimistic temp bubble, same shape sendFiles uses -- without this the new
+        // AUDIO uploading-overlay has nothing to attach to during upload+send.
+        const tempId = `temp-${Date.now()}-voice`;
+        addMessage(conversation.id, {
+          id: tempId, content: null, type: 'AUDIO', status: 'QUEUED' as MessageStatus,
+          direction: MessageDirection.OUTBOUND,
+          createdAt: new Date().toISOString(), conversationId: conversation.id,
+          tenantId: '', contactId: '', senderId: null, whatsappMessageId: null,
+          mediaUrl: null, mediaType: null, mediaSize: null,
+          mediaCaption: 'Voice note',
+          templateId: null, templateVariables: null, metadata: null,
+          sentAt: null, deliveredAt: null, readAt: null, failedAt: null, failureReason: null,
+          replyToId: null, isStarred: false, isPinned: false, isEdited: false,
+          editedAt: null, deletedForEveryone: false, deletedAt: null,
+        } as unknown as Message);
         try {
           const uploadRes = await mediaApi.upload(file);
           const { fileUrl: url } = uploadRes.data as { fileUrl: string };
-          await messagesApi.send(conversation.id, { type: 'AUDIO', mediaUrl: url, mediaCaption: 'Voice note' });
-        } catch { toast.error('Failed to send voice note'); }
+          const res = await messagesApi.send(conversation.id, { type: 'AUDIO', mediaUrl: url, mediaCaption: 'Voice note' });
+          const real = res.data as Message;
+          removeMessage(conversation.id, tempId);
+          if (real?.id) addMessage(conversation.id, real);
+        } catch {
+          removeMessage(conversation.id, tempId);
+          toast.error('Failed to send voice note');
+        }
         finally { setSending(false); }
       };
       mediaRecorderRef.current = mr;
@@ -843,6 +902,102 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     }
   };
 
+  // Retained so a FAILED media bubble can be retried without re-prompting the file picker
+  // or the Library modal. Discriminated by `kind` since a file-attachment retry needs to
+  // re-upload the original File, while a Library-item retry already has a mediaUrl and just
+  // needs to re-call messagesApi.send.
+  const mediaRetryMapRef = useRef(new Map<string,
+    | { kind: 'file'; file: File; type: string; carriesFilename: boolean; previewUrl: string | null }
+    | { kind: 'library'; type: string; mediaUrl: string; mediaCaption: string | null }
+  >());
+  // In-flight library-item ids, to prevent double-sending the same item if the picker is
+  // reopened and the same selection made again before the first batch finishes.
+  const libraryItemsInFlightRef = useRef(new Set<string>());
+
+  const uploadAndSendOneFile = useCallback(async (
+    tempId: string, file: File, type: string, carriesFilename: boolean, previewUrl: string | null,
+  ) => {
+    try {
+      const uploadRes = await mediaApi.upload(file, (pct) => {
+        updateMessage(conversation.id, tempId, { uploadProgress: pct } as Partial<Message>);
+      });
+      const { fileUrl: url } = uploadRes.data as { fileUrl: string };
+      const res = await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(carriesFilename ? { mediaCaption: file.name } : {}) });
+      const real = res.data as Message;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      mediaRetryMapRef.current.delete(tempId);
+      removeMessage(conversation.id, tempId);
+      if (real?.id) addMessage(conversation.id, real);
+    } catch (err: unknown) {
+      mediaRetryMapRef.current.set(tempId, { kind: 'file', file, type, carriesFilename, previewUrl });
+      updateMessage(conversation.id, tempId, {
+        status: MessageStatus.FAILED,
+        failureReason: getApiError(err, `Failed to send ${file.name}`),
+      } as Partial<Message>);
+      toast.error(getApiError(err, `Failed to send ${file.name}`));
+    }
+  }, [conversation.id, updateMessage, removeMessage, addMessage]);
+
+  // Shared by the initial Library batch-send and by retrying a single failed item -- the
+  // mediaUrl already exists (it's a library asset), so there's no upload step, just a
+  // direct send with the same optimistic-bubble/FAILED-in-place pattern as file uploads.
+  const sendOneLibraryItem = useCallback(async (tempId: string, type: string, mediaUrl: string, mediaCaption: string | null) => {
+    try {
+      const res = await messagesApi.send(conversation.id, { type, mediaUrl, ...(mediaCaption ? { mediaCaption } : {}) });
+      const real = res.data as Message;
+      mediaRetryMapRef.current.delete(tempId);
+      removeMessage(conversation.id, tempId);
+      if (real?.id) addMessage(conversation.id, real);
+    } catch (err) {
+      mediaRetryMapRef.current.set(tempId, { kind: 'library', type, mediaUrl, mediaCaption });
+      updateMessage(conversation.id, tempId, {
+        status: MessageStatus.FAILED,
+        failureReason: getApiError(err, 'Failed to send item'),
+      } as Partial<Message>);
+    }
+  }, [conversation.id, updateMessage, removeMessage, addMessage]);
+
+  const retryMediaSend = useCallback((tempId: string) => {
+    const retry = mediaRetryMapRef.current.get(tempId);
+    if (!retry) return;
+    updateMessage(conversation.id, tempId, { status: 'QUEUED' as MessageStatus, failureReason: null, uploadProgress: 0 } as Partial<Message>);
+    if (retry.kind === 'file') {
+      void uploadAndSendOneFile(tempId, retry.file, retry.type, retry.carriesFilename, retry.previewUrl);
+    } else {
+      void sendOneLibraryItem(tempId, retry.type, retry.mediaUrl, retry.mediaCaption);
+    }
+  }, [conversation.id, updateMessage, uploadAndSendOneFile, sendOneLibraryItem]);
+
+  // Fire-and-forget background send for File Library ("Verz Media") items. The picker modal
+  // closes immediately on click; sends happen concurrently here while the user keeps using
+  // the rest of the app. Each item gets its own optimistic temp bubble in the thread.
+  const sendLibraryItemsInBackground = useCallback((items: Array<{ id: string; type: string; mediaUrl: string; mediaCaption: string | null }>) => {
+    const toSend = items.filter((item) => !libraryItemsInFlightRef.current.has(item.id));
+    if (!toSend.length) return;
+
+    void Promise.allSettled(toSend.map(async (item, i) => {
+      libraryItemsInFlightRef.current.add(item.id);
+      const cap = (item.type === 'IMAGE' || item.type === 'VIDEO') ? null : item.mediaCaption;
+      const tempId = `temp-lib-${Date.now()}-${i}`;
+      addMessage(conversation.id, {
+        id: tempId, content: null, type: item.type, status: 'QUEUED' as MessageStatus,
+        direction: MessageDirection.OUTBOUND,
+        createdAt: new Date().toISOString(), conversationId: conversation.id,
+        tenantId: '', contactId: '', senderId: null, whatsappMessageId: null,
+        mediaUrl: item.mediaUrl, mediaType: null, mediaSize: null, mediaCaption: cap,
+        templateId: null, templateVariables: null, metadata: null,
+        sentAt: null, deliveredAt: null, readAt: null, failedAt: null, failureReason: null,
+        replyToId: null, isStarred: false, isPinned: false, isEdited: false,
+        editedAt: null, deletedForEveryone: false, deletedAt: null,
+      } as unknown as Message);
+      try {
+        await sendOneLibraryItem(tempId, item.type, item.mediaUrl, cap);
+      } finally {
+        libraryItemsInFlightRef.current.delete(item.id);
+      }
+    }));
+  }, [conversation.id, addMessage, sendOneLibraryItem]);
+
   const sendFiles = useCallback(async (files: File[]) => {
     if (!files.length) return;
     if (!isOnline) {
@@ -877,25 +1032,13 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         replyToId: null, isStarred: false, isPinned: false, isEdited: false,
         editedAt: null, deletedForEveryone: false, deletedAt: null,
       } as unknown as Message);
-      try {
-        const uploadRes = await mediaApi.upload(file);
-        const { fileUrl: url } = uploadRes.data as { fileUrl: string };
-        const res = await messagesApi.send(conversation.id, { type, mediaUrl: url, ...(carriesFilename ? { mediaCaption: file.name } : {}) });
-        const real = res.data as Message;
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        removeMessage(conversation.id, tempId);
-        if (real?.id) addMessage(conversation.id, real);
-      } catch (err: unknown) {
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        removeMessage(conversation.id, tempId);
-        toast.error(getApiError(err, `Failed to send ${file.name}`));
-      }
+      await uploadAndSendOneFile(tempId, file, type, carriesFilename, previewUrl);
     }
     if (toastId) toast.success(`${total} file${total > 1 ? 's' : ''} sent`, { id: toastId });
     setSending(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (photoInputRef.current) photoInputRef.current.value = '';
-  }, [conversation.id, addMessage, removeMessage]);
+  }, [conversation.id, addMessage, uploadAndSendOneFile]);
 
   const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -1692,6 +1835,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                           onScrollToMessage={scrollToMessage}
                           searchQuery={showSearch ? searchQuery : ''}
                           isCurrentResult={showSearch && searchResultIds[searchCurrentIdx] === entry.item.id}
+                          onRetryMedia={retryMediaSend}
                         />
                       )}
                     </div>
@@ -1726,7 +1870,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
           </div>
 
           {/* Input area */}
-          <div className="border-t border-gray-100 dark:border-gray-700 px-4 pt-2 pb-3 flex-shrink-0 bg-white dark:bg-gray-900 relative">
+          <div ref={inputPaneRef} className="border-t border-gray-100 dark:border-gray-700 px-4 pt-2 pb-3 flex-shrink-0 bg-white dark:bg-gray-900 relative">
             {/* Resolved banner */}
             {isResolved && (
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200">
@@ -1939,8 +2083,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
 
-            {/* Mode tabs + input row — hidden while another agent owns this active chat */}
-            {!(assignedToOther && !isResolved && localStatus !== 'ARCHIVED') && (<>
+            {/* Mode tabs + input row — stays mounted while another agent owns this chat (inputDisabled below already covers that case); previously fully unmounted here, which was stealing focus from the textarea whenever assignedToOther flipped transiently during a send */}
             <div className="flex items-center gap-1 mb-1.5">
               <button
                 onClick={() => setInputMode('message')}
@@ -2078,6 +2221,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   savingNote ? 'Saving note…' :
                   sending ? 'Sending…' :
                   inputMode === 'note' ? 'Use @ to mention a team member…' :
+                  assignedToOther && !isResolved && localStatus !== 'ARCHIVED' ? 'Take over this chat to reply' :
                   isResolved ? 'Reopen conversation to send messages' :
                   isRequested ? 'Intervene to start messaging…' :
                   sessionBlocked ? 'Session expired — send a template to re-engage' :
@@ -2156,7 +2300,6 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 </button>
               )}
             </div>
-            </>)}
           </div>
         </div>
 
@@ -2279,33 +2422,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       {showLibraryPicker && (
         <LibraryPickerModal
           onClose={() => setShowLibraryPicker(false)}
-          onSend={async (items) => {
-            for (let i = 0; i < items.length; i++) {
-              const item = items[i];
-              const cap = (item.type === 'IMAGE' || item.type === 'VIDEO') ? null : (item.mediaCaption ?? null);
-              const tempId = `temp-lib-${Date.now()}-${i}`;
-              addMessage(conversation.id, {
-                id: tempId, content: null, type: item.type, status: 'QUEUED' as MessageStatus,
-                direction: MessageDirection.OUTBOUND,
-                createdAt: new Date().toISOString(), conversationId: conversation.id,
-                tenantId: '', contactId: '', senderId: null, whatsappMessageId: null,
-                mediaUrl: item.mediaUrl, mediaType: null, mediaSize: null, mediaCaption: cap,
-                templateId: null, templateVariables: null, metadata: null,
-                sentAt: null, deliveredAt: null, readAt: null, failedAt: null, failureReason: null,
-                replyToId: null, isStarred: false, isPinned: false, isEdited: false,
-                editedAt: null, deletedForEveryone: false, deletedAt: null,
-              } as unknown as Message);
-              try {
-                const res = await messagesApi.send(conversation.id, { type: item.type, mediaUrl: item.mediaUrl, ...(cap ? { mediaCaption: cap } : {}) });
-                const real = res.data as Message;
-                removeMessage(conversation.id, tempId);
-                if (real?.id) addMessage(conversation.id, real);
-              } catch (err) {
-                removeMessage(conversation.id, tempId);
-                toast.error(getApiError(err, 'Failed to send item'));
-              }
-            }
-          }}
+          onSend={sendLibraryItemsInBackground}
         />
       )}
 
@@ -2692,6 +2809,7 @@ const MessageBubble = memo(function MessageBubble({
   onScrollToMessage,
   searchQuery,
   isCurrentResult,
+  onRetryMedia,
 }: {
   message: Message;
   currentUserId?: string;
@@ -2701,6 +2819,7 @@ const MessageBubble = memo(function MessageBubble({
   onScrollToMessage?: (msgId: string) => void;
   searchQuery?: string;
   isCurrentResult?: boolean;
+  onRetryMedia?: (messageId: string) => void;
 }) {
   const isOutbound = message.direction === MessageDirection.OUTBOUND;
   const isVerzAi = isOutbound && !!(message as unknown as { metadata?: Record<string, unknown> }).metadata?.aiGenerated;
@@ -2928,9 +3047,10 @@ const MessageBubble = memo(function MessageBubble({
                 </div>
               )}
 
-              {message.mediaUrl && (() => {
+              {(message.mediaUrl || (message.id.startsWith('temp-') && ['IMAGE', 'VIDEO', 'AUDIO', 'DOCUMENT'].includes(message.type))) && (() => {
                 const proxied = getProxiedMediaUrl(message.mediaUrl);
                 const isUploading = message.status === 'QUEUED' && message.id.startsWith('temp-');
+                const uploadProgress = (message as unknown as { uploadProgress?: number }).uploadProgress;
                 return (
                   <div className="mt-1">
                     {message.type === 'IMAGE' && (
@@ -2957,16 +3077,26 @@ const MessageBubble = memo(function MessageBubble({
                         {isUploading && (
                           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-xl gap-2">
                             <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            <span className="text-white text-xs font-medium">Uploading…</span>
+                            <span className="text-white text-xs font-medium">{uploadProgress ? `${uploadProgress}%` : 'Uploading…'}</span>
                           </div>
                         )}
                       </div>
                     )}
-                    {message.type === 'AUDIO' && <audio controls className="w-full max-w-[224px] mt-1"><source src={proxied} /></audio>}
+                    {message.type === 'AUDIO' && (
+                      <div className="relative w-full max-w-[224px] mt-1">
+                        <audio controls={!isUploading} className={cn('w-full', isUploading && 'opacity-60')}><source src={proxied} /></audio>
+                        {isUploading && (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none gap-1.5 text-xs font-medium text-gray-500">
+                            <div className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                            {uploadProgress ? `${uploadProgress}%` : 'Uploading…'}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {message.type === 'DOCUMENT' && (
                       <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                         {isUploading
-                          ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{message.mediaCaption ?? 'Uploading…'}</span></>
+                          ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{uploadProgress ? `${uploadProgress}% — ${message.mediaCaption ?? ''}` : (message.mediaCaption ?? 'Uploading…')}</span></>
                           : <a href={proxied} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Open document'}</span></a>
                         }
                       </div>
@@ -2981,6 +3111,14 @@ const MessageBubble = memo(function MessageBubble({
                     )}
                     {message.mediaCaption && message.type !== 'DOCUMENT' && message.type !== 'VIDEO' && message.type !== 'STICKER' && (
                       <p className={cn('text-xs mt-1', isOutbound ? 'text-teal-200' : 'text-gray-500')}>{message.mediaCaption}</p>
+                    )}
+                    {message.status === MessageStatus.FAILED && message.id.startsWith('temp-') && onRetryMedia && (
+                      <button
+                        onClick={() => onRetryMedia(message.id)}
+                        className="flex items-center gap-1 text-[11px] font-semibold text-red-400 hover:text-red-200 mt-1"
+                      >
+                        <RefreshCw size={10} /> Retry
+                      </button>
                     )}
                   </div>
                 );
