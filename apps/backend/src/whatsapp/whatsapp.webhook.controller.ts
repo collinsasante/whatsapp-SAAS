@@ -52,6 +52,12 @@ interface WebhookEntry {
       messages?: Array<{
         id: string;
         from: string;
+        // Present instead of `from` once the sender has enabled a WhatsApp
+        // username and hasn't messaged this business in 30+ days -- see
+        // normalizePhone's BSUID handling in shared-utils for why this is
+        // stored/sent through the same `phone` field rather than requiring
+        // a real phone number everywhere.
+        from_user_id?: string;
         timestamp: string;
         type: string;
         context?: { id: string; from?: string; forwarded?: boolean };
