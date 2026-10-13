@@ -210,6 +210,7 @@ export class AuthService {
     // Skip 2FA in local development
     if (process.env['SKIP_2FA'] === 'true') {
       await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
+      await this.touchLastSeen(user.id);
       const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
       await this.updateRefreshToken(user.id, tokens.refreshToken);
       const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
@@ -524,6 +525,19 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
+    // lastSeenAt used to be touched only at login -- for an agent whose
+    // 15-minute access token keeps getting silently refreshed throughout a
+    // long active session (the normal case; refresh tokens last up to 90
+    // days), that left lastSeenAt frozen at login time. Any consumer treating
+    // a stale lastSeenAt as "this agent is away" -- notably
+    // ai-takeover.util.ts's isAgentAway(), which lets VerzAI auto-reply over
+    // a human agent once their lastSeenAt is old enough -- would incorrectly
+    // conclude an actively-working agent had gone quiet after
+    // AI_TAKEOVER_AWAY_MS, even while they were online the entire time. A
+    // refresh only happens when the client actually makes a request with an
+    // expired access token, so this stays a reasonable (if imperfect, see
+    // that file's own limitations) proxy for real activity, not a blind timer.
+    await this.touchLastSeen(user.id);
     return tokens;
   }
 
@@ -810,6 +824,20 @@ export class AuthService {
     // Previously hardcoded to 30 days regardless of the actual configured expiry (e.g.
     // staging's 15m) -- unused by the frontend today, but a misleading value to hand back.
     return { accessToken, refreshToken, expiresIn: parseDurationToSeconds(accessExpiry) };
+  }
+
+  /**
+   * Best-effort presence bump. A failed write must never fail an otherwise
+   * successful login/refresh, but it is logged -- a persistently failing
+   * lastSeenAt makes ai-takeover.util's isAgentAway() read an active agent as
+   * away. Logs the user id and the error message only (no token or credential).
+   */
+  private async touchLastSeen(userId: string): Promise<void> {
+    try {
+      await this.prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } });
+    } catch (err) {
+      this.logger.warn(`Failed to update lastSeenAt for user ${userId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async updateRefreshToken(userId: string, refreshToken: string) {
