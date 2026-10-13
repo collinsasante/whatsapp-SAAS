@@ -344,6 +344,16 @@ export class SessionManager {
     else if (m.audioMessage) { mediaType = 'audio'; mimetype = m.audioMessage.mimetype ?? undefined; }
     else if (m.documentMessage) { mediaType = 'document'; caption = m.documentMessage.caption ?? undefined; mimetype = m.documentMessage.mimetype ?? undefined; }
 
+    if (!content && !mediaType) {
+      // Structure only (field names, never message text) so unsupported inbound types can be identified.
+      const keys = Object.keys(m).filter((k) => m[k as keyof typeof m] != null);
+      const nested = Object.fromEntries(keys.map((k) => {
+        const v = m[k as keyof typeof m];
+        return [k, v && typeof v === 'object' ? Object.keys(v as object).slice(0, 12) : typeof v];
+      }));
+      logger.warn({ sessionId, keys, nested }, 'inbound WhatsApp Web message has no text or supported media');
+    }
+
     let mediaBase64: string | undefined;
     const entry = this.active.get(sessionId);
     if (mediaType && entry) {
