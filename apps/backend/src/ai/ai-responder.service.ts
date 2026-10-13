@@ -3,6 +3,7 @@ import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { buildHistoryWhere } from '../ai-core/context/history-scope.util';
 
 interface OffHoursDay { enabled?: boolean; start?: string; end?: string }
 
@@ -167,18 +168,22 @@ export class AiResponderService {
     // rather than reopened. Also raised from 12 to 200 messages so AI has enough of the
     // actual back-and-forth to understand a long-running conversation, not just the last
     // few exchanges.
-    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { contactId: true } });
+    const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { id: true, contactId: true } });
+    const historyWhere = buildHistoryWhere(tenantId, conv);
     const [settings, history] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId },
         select: { businessName: true, aiPersonality: true },
       }),
-      this.prisma.message.findMany({
-        where: { conversation: { contactId: conv?.contactId }, type: 'TEXT', content: { not: null } },
-        orderBy: { createdAt: 'desc' },
-        take: 200,
-        select: { direction: true, content: true },
-      }),
+      // No verified conversation => empty history, never an unscoped query.
+      historyWhere
+        ? this.prisma.message.findMany({
+            where: historyWhere,
+            orderBy: { createdAt: 'desc' },
+            take: 200,
+            select: { direction: true, content: true },
+          })
+        : Promise.resolve([] as { direction: string; content: string | null }[]),
     ]);
 
     const businessName = settings?.businessName ?? 'our business';

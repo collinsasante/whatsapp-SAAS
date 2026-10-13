@@ -110,4 +110,51 @@ describe('ContextAssemblyStage', () => {
 
     expect(ctx.trace.stageTimings.context_assembly).toBeGreaterThanOrEqual(0);
   });
+
+  it('queries only the current conversation, scoped to the tenant, with the original 12-message limit', async () => {
+    prisma.tenantSettings.findUnique.mockResolvedValue({ businessName: 'Acme' });
+    prisma.message.findMany.mockResolvedValue([]);
+
+    await stage.execute(buildCtx('hi'));
+
+    expect(prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tenantId: 't1', conversationId: 'c1', type: 'TEXT', content: { not: null } },
+      take: 12,
+      orderBy: { createdAt: 'desc' },
+    }));
+  });
+
+  it('does NOT widen to contact scope even when the conversation has a contactId (the 200-message/contact expansion is split out)', async () => {
+    prisma.tenantSettings.findUnique.mockResolvedValue({ businessName: 'Acme' });
+    prisma.conversation.findFirst.mockResolvedValue({ adSourceId: null, adHeadline: null, adImageUrl: null, contactId: 'contact-42' });
+    prisma.message.findMany.mockResolvedValue([]);
+
+    await stage.execute(buildCtx('hi'));
+
+    const call = prisma.message.findMany.mock.calls[0][0];
+    expect(call.where).not.toHaveProperty('conversation');
+    expect(call.take).toBe(12);
+  });
+
+  it('is tenant-scoped: the query can only match rows of the calling tenant', async () => {
+    prisma.tenantSettings.findUnique.mockResolvedValue({ businessName: 'Acme' });
+    prisma.message.findMany.mockResolvedValue([]);
+    const ctx = buildCtx('hi');
+    ctx.input.conversationId = 'conv-owned-by-tenant-2';
+
+    await stage.execute(ctx);
+
+    expect(prisma.message.findMany.mock.calls[0][0].where).toEqual(expect.objectContaining({ tenantId: 't1', conversationId: 'conv-owned-by-tenant-2' }));
+  });
+
+  it('runs no message query and yields empty history when the conversation id is blank (never an absent filter)', async () => {
+    prisma.tenantSettings.findUnique.mockResolvedValue({ businessName: 'Acme' });
+    const ctx = buildCtx('hi');
+    ctx.input.conversationId = '';
+
+    await stage.execute(ctx);
+
+    expect(prisma.message.findMany).not.toHaveBeenCalled();
+    expect(ctx.historyMessages).toEqual([]);
+  });
 });
