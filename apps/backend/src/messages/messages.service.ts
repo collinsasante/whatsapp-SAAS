@@ -1250,7 +1250,7 @@ export class MessagesService {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode));
         }
       } else if (aiMode === 'SUGGESTION') {
         // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
@@ -1263,16 +1263,57 @@ export class MessagesService {
           // a second inbound message arriving before this one finishes doesn't launch
           // a second, racing AI generation for the same conversation.
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled));
+            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled, takeoverEnabled, !!aiMode));
         }
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode));
         }
       }
     }
+  }
+
+  /**
+   * Re-reads conversation ownership directly from the DB and recomputes the
+   * same humanOwned/agentAway decision dispatchAiAndChatbot made at dispatch
+   * time. Called immediately before a paid provider call and again
+   * immediately before delivering its result, to narrow the gap between that
+   * initial dispatch-time check (fresh at the instant the inbound message
+   * arrived) and the point -- possibly several seconds later, after sitting
+   * behind runExclusiveForConversation's per-conversation lock and/or a real
+   * provider round-trip -- where the AI is actually about to generate or
+   * send. A human agent can take over a conversation, or newly register as
+   * present, at any point in that gap. This narrows the race; it does not
+   * eliminate it -- a takeover can still land between the final check and the
+   * external provider send.
+   *
+   * Fails CLOSED: a lookup failure, or the conversation having vanished, is
+   * treated as "human-handled" (returns true -- AI must stay back), never as
+   * "safe to proceed." An ambiguous or failed ownership check must never be
+   * read as "this conversation is unowned."
+   */
+  private async isConversationHumanHandled(
+    tenantId: string,
+    conversationId: string,
+    takeoverEnabled: boolean,
+    aiEnabledForTenant: boolean,
+  ): Promise<boolean> {
+    const fresh = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { assignedTo: { select: { id: true, isAiAgent: true, lastSeenAt: true } } },
+    }).catch((err) => {
+      this.logger.warn(`AI ownership recheck failed for conversation ${conversationId} -- failing closed (treating as human-handled, suppressing this AI turn): ${String(err)}`);
+      return undefined;
+    });
+    if (fresh === undefined || fresh === null) return true; // lookup failed or conversation vanished -- fail closed
+
+    const assignedTo = fresh.assignedTo;
+    const humanOwned = !!assignedTo && !assignedTo.isAiAgent;
+    if (!humanOwned) return false; // not human-owned -- AI may proceed
+    const agentAway = isAgentAway(assignedTo, takeoverEnabled, aiEnabledForTenant);
+    return !agentAway; // humanOwned && !agentAway => still human-handled, AI must stay back
   }
 
   /**
@@ -1370,7 +1411,20 @@ export class MessagesService {
     contact: { id: string; phone: string; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
+    takeoverEnabled: boolean,
+    aiEnabledForTenant: boolean,
   ) {
+    // Re-check ownership right before the paid provider call below -- this
+    // closure may have sat behind runExclusiveForConversation's per-conversation
+    // lock since dispatchAiAndChatbot's own (now possibly stale) check. See
+    // isConversationHumanHandled's doc comment.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI suggestion suppressed for conversation ${conversation.id}: a human agent is now handling this conversation (ownership recheck) -- no provider call made.`);
+      return;
+    }
+
+    // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
+    // ownership check above -- never for a human-handled conversation or on a failed lookup.
     this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
 
     const startMs = Date.now();
@@ -1402,6 +1456,16 @@ export class MessagesService {
       // honest here -- but the handoff itself should still be real and retried, not a
       // swallowed .catch(() => null).
       await this.conversationsService.requestWithRetry(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence');
+    }
+
+    // Re-check again right before storing/surfacing the suggestion. Generation
+    // (a real provider round-trip) can take several seconds -- long enough for
+    // a human agent to take over mid-flight. SUGGESTION mode never reaches the
+    // customer either way, but there is no reason to log an AI suggestion or
+    // notify agents about one for a conversation a human has since taken over.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI suggestion generated but NOT surfaced for conversation ${conversation.id}: a human agent took over during generation (ownership recheck) -- the generated suggestion was discarded.`);
+      return;
     }
 
     const log = await this.aiLogsService.create({
@@ -1437,7 +1501,20 @@ export class MessagesService {
     content: string,
     commerceEnabled: boolean,
     assignedTo: { id: string; isAiAgent?: boolean } | null | undefined,
+    takeoverEnabled: boolean,
+    aiEnabledForTenant: boolean,
   ) {
+    // Re-check ownership right before the paid provider call below -- this
+    // closure may have sat behind runExclusiveForConversation's per-conversation
+    // lock since dispatchAiAndChatbot's own (now possibly stale) check. See
+    // isConversationHumanHandled's doc comment.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI auto-reply suppressed for conversation ${conversation.id}: a human agent is now handling this conversation (ownership recheck) -- no provider call made.`);
+      return;
+    }
+
+    // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
+    // ownership check above -- never for a human-handled conversation or on a failed lookup.
     this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
 
     const startMs = Date.now();
@@ -1451,6 +1528,20 @@ export class MessagesService {
       }),
       this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
     ]);
+
+    // Re-check again right before delivering anything to the customer.
+    // generateAiReply() above is a real provider round-trip that can take
+    // several seconds -- long enough for a human agent to take over
+    // mid-flight. That call has already happened and, in the ordinary success
+    // case, already cost real money; this check cannot refund it. It only
+    // stops delivery when a takeover is already visible in the database.
+    // Limitation: the database read and the external provider send are not
+    // atomic, so ownership can still change between this check and the send.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI auto-reply generated but NOT delivered for conversation ${conversation.id}: a human agent took over during generation (ownership recheck before send) -- the generated reply was discarded, not sent.`);
+      return;
+    }
+
     if (!result?.response) {
       // Verz-AI unification, Phase L: this used to be a silent early return -- if
       // generateAiReply() threw outright (rather than returning a handled failure
@@ -1468,6 +1559,13 @@ export class MessagesService {
       const fallbackText = escalated
         ? PROVIDER_FAILURE_FALLBACK_TEXT
         : HANDOFF_FAILED_TEXT;
+      // requestWithRetry above is an awaited DB round-trip after the post-generation
+      // check -- re-verify before the fallback text reaches the customer. The handoff
+      // request itself is kept (it is the legitimate escalation, not a customer reply).
+      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+        this.logger.log(`AI fallback reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
+        return;
+      }
       await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: fallbackText })
         .catch((err) => this.logger.warn(`Failed to send fallback message for conversation ${conversation.id}: ${String(err)}`));
       return;
@@ -1488,15 +1586,21 @@ export class MessagesService {
         this.logger.warn(`Handoff failed (after retry) for conversation ${conversation.id} -- rewriting response to avoid a false claim`);
         result.response = HANDOFF_FAILED_TEXT;
       }
+      // Same reasoning as the no-response branch: requestWithRetry was awaited after
+      // the post-generation check, so re-verify before the send below.
+      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+        this.logger.log(`AI escalation reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
+        return;
+      }
     }
 
     // Verz AI Credits: the flat -1-per-send decrement that used to live here is gone --
     // real usage-based charging now happens automatically as part of generateAiReply()
     // above (either via AiExecutionsService.record()'s central settlement hook, or the
     // legacy path's explicit chargeFlat), right when real token usage is known. By the
-    // time we're here the AI call already happened and already cost real money; there's
-    // no additional gate before sending -- withholding an already-generated, already-
-    // charged-for reply would waste the spend without helping the customer.
+    // time we're here the AI call already happened and already cost real money --
+    // the ownership recheck just above this is what decides whether the ALREADY-PAID-FOR
+    // reply is still worth delivering; reaching this line means it passed that check.
     await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: result.response }).catch(() => null);
 
     const log = await this.aiLogsService.create({
@@ -1545,6 +1649,12 @@ export class MessagesService {
     // so images follow it -- matches natural WhatsApp UX. Persisted as its own
     // Message row so it's visible in the inbox like any other outbound message.
     for (const effect of result.mediaToSend ?? []) {
+      // The text reply above and the awaits since (log, link, persist) leave a gap in
+      // which a human can take over -- re-verify before EACH media send.
+      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+        this.logger.log(`AI-triggered media NOT delivered for conversation ${conversation.id}: a human agent took over after the text reply (ownership recheck before media send).`);
+        break;
+      }
       const whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: 'IMAGE' as MessageType, mediaUrl: effect.mediaUrl, caption: effect.caption }).catch((err) => {
         this.logger.warn(`Failed to deliver AI-triggered media for conversation ${conversation.id}: ${String(err)}`);
         return undefined;
@@ -1574,18 +1684,25 @@ export class MessagesService {
     }
 
     if (verzAgent && !assignedTo) {
-      const updated = await this.prisma.conversation.update({
-        where: { id: conversation.id },
+      // Compare-and-set: a single UPDATE ... WHERE assigned_to_id IS NULL. `assignedTo`
+      // is a snapshot from dispatch time, so a plain update here could silently
+      // overwrite a human who took over since (reassigning the conversation to the AI).
+      // With the condition in the WHERE, Postgres makes this atomic: if a human got
+      // there first, count is 0 and nothing is written or emitted.
+      const claimed = await this.prisma.conversation.updateMany({
+        where: { id: conversation.id, tenantId, assignedToId: null },
         data: { assignedToId: verzAgent.id, status: 'OPEN' },
       }).catch((err) => {
         this.logger.warn(`Failed to self-assign conversation ${conversation.id}: ${String(err)}`);
         return null;
       });
-      if (updated) {
+      if (claimed && claimed.count > 0) {
         this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
           assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
           status: 'OPEN',
         });
+      } else if (claimed) {
+        this.logger.log(`AI self-assign skipped for conversation ${conversation.id}: it was assigned to someone else in the meantime.`);
       }
     }
     this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
