@@ -25,7 +25,7 @@ function buildDeps() {
     config: { get: jest.fn((_key: string, fallback?: string) => fallback) },
     realtime: { emitWhatsAppWebQr: jest.fn(), emitWhatsAppWebStatus: jest.fn() },
     audit: { log: jest.fn().mockResolvedValue(undefined) },
-    messagesService: { handleInboundWhatsAppWeb: jest.fn().mockResolvedValue({ id: 'msg1' }) },
+    messagesService: { handleInboundWhatsAppWeb: jest.fn().mockResolvedValue({ id: 'msg1' }), updateStatus: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -293,5 +293,28 @@ describe('WhatsAppWebService.getSessionStatus -- QR catch-up fetch', () => {
 
     expect(result.status).toBe('QR_PENDING');
     expect(result.qrDataUrl).toBeUndefined();
+  });
+});
+
+describe('WhatsAppWebService.handleInternalEvent -- message_status receipts', () => {
+  it.each(['SENT', 'DELIVERED', 'READ'])('forwards a %s receipt to MessagesService.updateStatus, scoped to the event tenant', async (status) => {
+    const deps = buildDeps();
+    await buildService(deps).handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC123', status });
+    expect(deps.messagesService.updateStatus).toHaveBeenCalledWith('ABC123', status, 't1');
+  });
+
+  it('drops malformed receipts and statuses a provider must not be able to set (e.g. FAILED, unknown)', async () => {
+    const deps = buildDeps();
+    const svc = buildService(deps);
+    await svc.handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', status: 'READ' });
+    await svc.handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'FAILED' });
+    await svc.handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'PLAYED' });
+    expect(deps.messagesService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('does not propagate a failure while applying a receipt', async () => {
+    const deps = buildDeps();
+    deps.messagesService.updateStatus.mockRejectedValue(new Error('db down'));
+    await expect(buildService(deps).handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'READ' })).resolves.toBeUndefined();
   });
 });

@@ -5,11 +5,14 @@ import makeWASocket, {
   DisconnectReason,
   Browsers,
   downloadMediaMessage,
+  normalizeMessageContent,
   fetchLatestBaileysVersion,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import { isViewOnceMessage, VIEW_ONCE_PLACEHOLDER } from './view-once';
+import { mapBaileysReceiptStatus } from './receipt-status';
 import pino from 'pino';
 import { randomUUID } from 'crypto';
 import { PostgresAuthStateStore } from './auth-state-store';
@@ -54,6 +57,11 @@ interface ActiveSession {
 
 export class SessionManager {
   private readonly active = new Map<string, ActiveSession>();
+  // Digits -> the exact JID a contact last messaged us from. Contacts addressed by
+  // WhatsApp's anonymous "@lid" id have no phone number in the JID; sending to
+  // `<digits>@s.whatsapp.net` for them is accepted but never delivered. In-memory
+  // only: after a restart a contact must message once before replies route correctly.
+  private readonly replyJids = new Map<string, string>();
 
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -178,6 +186,17 @@ export class SessionManager {
 
     sock.ev.on('connection.update', (update) => {
       void this.handleConnectionUpdate(sessionId, tenantId, channelId, entry, update);
+    });
+
+    // Delivery/read receipts for messages WE sent. Baileys status: 2 = server ack (sent),
+    // 3 = delivered, 4 = read, 5 = played (voice note, treated as read). Backend ignores regressions.
+    sock.ev.on('messages.update', (updates) => {
+      for (const u of updates) {
+        if (!u.key.fromMe || !u.key.id) continue;
+        const status = mapBaileysReceiptStatus(u.update.status);
+        if (!status) continue;
+        void this.notifyBackend({ type: 'message_status', tenantId, channelId, sessionId, providerMessageId: u.key.id, status });
+      }
     });
 
     sock.ev.on('messages.upsert', (upsert) => {
@@ -320,11 +339,26 @@ export class SessionManager {
 
     const fromPhone = msg.key.remoteJid?.split('@')[0];
     if (!fromPhone) return;
+    this.replyJids.set(`${sessionId}:${fromPhone}`, msg.key.remoteJid!);
 
     // Media/text parsing lives here (not in the backend) -- this is the one
     // place that actually understands Baileys' payload shape, mirroring how
     // WhatsApp Cloud's own payload parsing stays inside its own service.
-    const m = msg.message;
+    if (isViewOnceMessage(msg.message)) {
+      // Never download or store view-once media; tell the agent it exists instead.
+      await this.notifyBackend({
+        type: 'inbound_message', tenantId, channelId, fromPhone,
+        providerMessageId: msg.key.id,
+        timestamp: typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Date.now(),
+        content: VIEW_ONCE_PLACEHOLDER,
+        pushName: msg.pushName ?? undefined,
+      });
+      return;
+    }
+
+    // Unwrap ephemeral (disappearing-messages), view-once and caption wrappers;
+    // otherwise the text/media sits one level down and reads as "unsupported".
+    const m = normalizeMessageContent(msg.message) ?? msg.message;
     const content = m.conversation ?? m.extendedTextMessage?.text ?? undefined;
 
     let mediaType: 'image' | 'video' | 'audio' | 'document' | undefined;
@@ -334,6 +368,16 @@ export class SessionManager {
     else if (m.videoMessage) { mediaType = 'video'; caption = m.videoMessage.caption ?? undefined; mimetype = m.videoMessage.mimetype ?? undefined; }
     else if (m.audioMessage) { mediaType = 'audio'; mimetype = m.audioMessage.mimetype ?? undefined; }
     else if (m.documentMessage) { mediaType = 'document'; caption = m.documentMessage.caption ?? undefined; mimetype = m.documentMessage.mimetype ?? undefined; }
+
+    if (!content && !mediaType) {
+      // Structure only (field names, never message text) so unsupported inbound types can be identified.
+      const keys = Object.keys(m).filter((k) => m[k as keyof typeof m] != null);
+      const nested = Object.fromEntries(keys.map((k) => {
+        const v = m[k as keyof typeof m];
+        return [k, v && typeof v === 'object' ? Object.keys(v as object).slice(0, 12) : typeof v];
+      }));
+      logger.warn({ sessionId, keys, nested }, 'inbound WhatsApp Web message has no text or supported media');
+    }
 
     let mediaBase64: string | undefined;
     const entry = this.active.get(sessionId);
@@ -367,10 +411,17 @@ export class SessionManager {
     });
   }
 
+  private resolveJid(sessionId: string, toPhone: string): string {
+    const digits = toPhone.replace(/[^\d]/g, '');
+    const jid = this.replyJids.get(`${sessionId}:${digits}`) ?? `${digits}@s.whatsapp.net`;
+    logger.info({ sessionId, jidServer: jid.split('@')[1] }, 'resolved outbound WhatsApp Web recipient');
+    return jid;
+  }
+
   async sendText(sessionId: string, toPhone: string, text: string): Promise<string> {
     const entry = this.active.get(sessionId);
     if (!entry) throw new Error('This WhatsApp Web session is not currently connected.');
-    const jid = `${toPhone.replace(/[^\d]/g, '')}@s.whatsapp.net`;
+    const jid = this.resolveJid(sessionId, toPhone);
     const result = await entry.sock.sendMessage(jid, { text });
     return result?.key.id ?? '';
   }
@@ -378,7 +429,7 @@ export class SessionManager {
   async sendMedia(sessionId: string, toPhone: string, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string): Promise<string> {
     const entry = this.active.get(sessionId);
     if (!entry) throw new Error('This WhatsApp Web session is not currently connected.');
-    const jid = `${toPhone.replace(/[^\d]/g, '')}@s.whatsapp.net`;
+    const jid = this.resolveJid(sessionId, toPhone);
     const { data } = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(data);
     const payload = mediaType === 'document'

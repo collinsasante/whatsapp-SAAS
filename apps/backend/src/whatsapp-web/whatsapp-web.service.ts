@@ -7,9 +7,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AuditService } from '../audit/audit.service';
 import { MessagesService } from '../messages/messages.service';
+import { MessageStatus } from '@whatsapp-platform/shared-types';
 
 interface WhatsAppWebEventPayload {
-  type: 'qr' | 'status' | 'inbound_message';
+  type: 'qr' | 'status' | 'inbound_message' | 'message_status';
   tenantId: string;
   sessionId?: string;
   channelId: string;
@@ -262,6 +263,19 @@ export class WhatsAppWebService {
         });
       }
       this.realtime.emitWhatsAppWebStatus(payload.tenantId, sessionId, payload.channelId, status, phoneNumber);
+      return;
+    }
+
+    if (payload.type === 'message_status') {
+      const providerMessageId = payload['providerMessageId'] as string | undefined;
+      const status = payload['status'] as string | undefined;
+      if (!providerMessageId || (status !== 'SENT' && status !== 'DELIVERED' && status !== 'READ')) {
+        this.logger.warn(`Dropping malformed WhatsApp Web message_status event for channel ${payload.channelId}`);
+        return;
+      }
+      await this.messagesService.updateStatus(providerMessageId, status as MessageStatus, payload.tenantId).catch((err) => {
+        this.logger.error(`Failed to apply WhatsApp Web receipt for channel ${payload.channelId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
       return;
     }
 
