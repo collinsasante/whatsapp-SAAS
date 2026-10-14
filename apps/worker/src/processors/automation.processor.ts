@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { MessageDirection, MessageType, MessageStatus } from '@whatsapp-platform/shared-types';
 import axios from 'axios';
 import { QueueName, AutomationTriggerJob, AutomationActionConfig, AutomationAction } from '@whatsapp-platform/shared-types';
+import { automationMayChangeOwnership } from '../lib/automation-ownership';
 import { resolveWhatsAppCredentials, GRAPH_API_BASE, WhatsAppCredentials } from '../lib/whatsapp-credentials';
 
 export class AutomationWorker {
@@ -72,7 +73,7 @@ export class AutomationWorker {
         // narrow the whole `contact` object's static type once it's passed
         // by reference into executeAction's differently-typed param).
         await this.executeAction(action, {
-          tenantId, conversationId, contactId, contact: { ...contact, phone: contact.phone! }, credentials,
+          tenantId, ruleId, conversationId, contactId, contact: { ...contact, phone: contact.phone! }, credentials,
           whatsappNumberId: conversation?.whatsappNumberId ?? null,
           whatsAppWebChannelId: isWhatsAppWeb ? (conversation?.channelId ?? null) : null,
         });
@@ -87,10 +88,30 @@ export class AutomationWorker {
     });
   }
 
+  /** Automation never takes a conversation from a human agent who is actively working it. */
+  private async mayChangeOwnership(ctx: { tenantId: string; ruleId: string; conversationId: string }, action: string): Promise<boolean> {
+    const conv = await this.prisma.conversation.findFirst({
+      where: { id: ctx.conversationId, tenantId: ctx.tenantId },
+      select: { assignedTo: { select: { isAiAgent: true, lastSeenAt: true } } },
+    });
+    if (!conv) return false;
+    const allowed = automationMayChangeOwnership(conv.assignedTo);
+    if (!allowed) console.warn(`Automation ${ctx.ruleId}: ${action} skipped, conversation ${ctx.conversationId} is actively handled by a human agent`);
+    return allowed;
+  }
+
+  /** Audit trail for automated ownership/status changes (actor null = system; ids only, no message content). */
+  private async recordEvent(ctx: { tenantId: string; ruleId: string; conversationId: string }, type: 'RESOLVED' | 'ASSIGNED' | 'UNASSIGNED', extra: Record<string, unknown> = {}) {
+    await this.prisma.conversationEvent.create({
+      data: { tenantId: ctx.tenantId, conversationId: ctx.conversationId, actorId: null, type, payload: { source: 'automation', ruleId: ctx.ruleId, ...extra } },
+    });
+  }
+
   private async executeAction(
     action: AutomationActionConfig,
     ctx: {
       tenantId: string;
+      ruleId: string;
       conversationId: string;
       contactId: string;
       contact: { phone: string; name: string | null };
@@ -142,10 +163,15 @@ export class AutomationWorker {
       case AutomationAction.ASSIGN_AGENT: {
         const agentId = payload['agentId'];
         if (agentId) {
-          await this.prisma.conversation.update({
-            where: { id: ctx.conversationId },
-            data: { assignedToId: agentId },
+          // The agent must belong to this tenant (a rule payload is not trusted to name any user id).
+          const agent = await this.prisma.user.findFirst({ where: { id: agentId, tenantId: ctx.tenantId }, select: { id: true } });
+          if (!agent) { console.warn(`Automation ${ctx.ruleId}: ASSIGN_AGENT skipped, agent not in tenant`); break; }
+          if (!(await this.mayChangeOwnership(ctx, 'ASSIGN_AGENT'))) break;
+          const { count } = await this.prisma.conversation.updateMany({
+            where: { id: ctx.conversationId, tenantId: ctx.tenantId },
+            data: { assignedToId: agent.id },
           });
+          if (count > 0) await this.recordEvent(ctx, 'ASSIGNED', { assignedToId: agent.id });
         }
         break;
       }
@@ -162,18 +188,23 @@ export class AutomationWorker {
       }
 
       case AutomationAction.RESOLVE_CONVERSATION: {
-        await this.prisma.conversation.update({
-          where: { id: ctx.conversationId },
-          data: { status: 'RESOLVED', resolvedAt: new Date() },
+        if (!(await this.mayChangeOwnership(ctx, 'RESOLVE_CONVERSATION'))) break;
+        // Conditional + tenant-scoped: never re-stamp an already-resolved chat or touch another tenant's.
+        const { count } = await this.prisma.conversation.updateMany({
+          where: { id: ctx.conversationId, tenantId: ctx.tenantId, status: { not: 'RESOLVED' } },
+          data: { status: 'RESOLVED', resolvedAt: new Date(), slaDeadline: null },
         });
+        if (count > 0) await this.recordEvent(ctx, 'RESOLVED');
         break;
       }
 
       case AutomationAction.UNASSIGN_AGENT: {
-        await this.prisma.conversation.update({
-          where: { id: ctx.conversationId },
+        if (!(await this.mayChangeOwnership(ctx, 'UNASSIGN_AGENT'))) break;
+        const { count } = await this.prisma.conversation.updateMany({
+          where: { id: ctx.conversationId, tenantId: ctx.tenantId, assignedToId: { not: null } },
           data: { assignedToId: null },
         });
+        if (count > 0) await this.recordEvent(ctx, 'UNASSIGNED');
         break;
       }
 

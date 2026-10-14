@@ -45,8 +45,9 @@ export class MediaController {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file: Express.Multer.File,
+    @Query('uniqueName') uniqueName?: string,
   ) {
-    return this.mediaService.upload(tenantId, user.sub, file);
+    return this.mediaService.upload(tenantId, user.sub, file, uniqueName === 'true');
   }
 
   @Get()

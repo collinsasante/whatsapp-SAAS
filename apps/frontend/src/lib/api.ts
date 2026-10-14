@@ -243,10 +243,12 @@ export const automationApi = {
 };
 
 export const mediaApi = {
-  upload: (file: File, onProgress?: (pct: number) => void) => {
+  // `uniqueName` rejects a file whose name is already in the File Library -- pass it only from the Library page.
+  upload: (file: File, onProgress?: (pct: number) => void, opts?: { uniqueName?: boolean }) => {
     const formData = new FormData();
     formData.append('file', file);
     return api.post('/media/upload', formData, {
+      params: opts?.uniqueName ? { uniqueName: 'true' } : undefined,
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 0,
       onUploadProgress: onProgress

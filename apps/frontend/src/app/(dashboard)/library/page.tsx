@@ -170,7 +170,7 @@ export default function LibraryPage() {
     }
     setUploading(true);
     try {
-      const res = await mediaApi.upload(file);
+      const res = await mediaApi.upload(file, undefined, { uniqueName: true });
       const asset = res.data as AgentAsset & { fileUrl: string };
       setAgentAssets((prev) => [asset, ...prev]);
       toast.success('File uploaded to Agent Library');

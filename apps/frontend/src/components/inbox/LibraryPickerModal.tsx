@@ -52,6 +52,11 @@ function formatBytes(b: number | null) {
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Agent-library assets and customer messages are different tables; namespace the key so an id can never collide across the two. */
+export function itemKey(i: { id: string; isAsset?: boolean }): string {
+  return `${i.isAsset ? 'asset' : 'msg'}:${i.id}`;
+}
+
 function assetToMediaItem(a: AgentAsset): MediaItem {
   return {
     id: a.id,
@@ -131,13 +136,27 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
     });
   };
 
+  // Selection only ever means "visible items": drop anything hidden by a tab, search or page change so
+  // counts, "Select all" and Send always agree with what the user can see.
+  useEffect(() => {
+    const visibleKeys = new Set(allVisible.map(itemKey));
+    setSelected(prev => {
+      const next = new Set([...prev].filter(k => visibleKeys.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentItems, customerItems, tab, search]);
+
+  const selectedCount = allVisible.filter(i => selected.has(itemKey(i))).length;
+  const allSelected = allVisible.length > 0 && selectedCount === allVisible.length;
+
   const selectAll = () => {
-    if (selected.size === allVisible.length) setSelected(new Set());
-    else setSelected(new Set(allVisible.map(i => i.id)));
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(allVisible.map(itemKey)));
   };
 
   const handleSend = () => {
-    const toSend = allVisible.filter(i => selected.has(i.id));
+    const toSend = allVisible.filter(i => selected.has(itemKey(i)));
     if (!toSend.length) return;
     // Fire-and-forget: sends now run in the background (tracked as temp bubbles in the
     // conversation thread), so the modal doesn't need to stay open or block on them.
@@ -163,9 +182,9 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
             <Images size={18} className="text-teal-600" />
             <h2 className="font-semibold text-gray-900">File Library</h2>
             <span className="text-xs text-gray-400">{totalFiles.toLocaleString()} files</span>
-            {selected.size > 0 && (
+            {selectedCount > 0 && (
               <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-medium">
-                {selected.size} selected
+                {selectedCount} selected
               </span>
             )}
           </div>
@@ -206,7 +225,7 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
         {allVisible.length > 0 && (
           <div className="px-4 pt-3 pb-1 flex items-center justify-between flex-shrink-0">
             <button onClick={selectAll} className="text-xs text-teal-600 hover:text-teal-700 font-medium">
-              {selected.size === allVisible.length ? 'Deselect all' : `Select all (${allVisible.length})`}
+              {allSelected ? 'Deselect all' : `Select all (${allVisible.length})`}
             </button>
           </div>
         )}
@@ -240,14 +259,14 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
                 {filteredAgent.some(i => i.type === 'IMAGE' || i.type === 'VIDEO') && (
                   <div className="grid grid-cols-5 gap-2 mb-3">
                     {filteredAgent.filter(i => i.type === 'IMAGE' || i.type === 'VIDEO').map(item => (
-                      <GridTile key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item.id)} />
+                      <GridTile key={item.id} item={item} selected={selected.has(itemKey(item))} onToggle={() => toggle(itemKey(item))} />
                     ))}
                   </div>
                 )}
                 {filteredAgent.some(i => i.type === 'AUDIO' || i.type === 'DOCUMENT') && (
                   <div className="space-y-1">
                     {filteredAgent.filter(i => i.type === 'AUDIO' || i.type === 'DOCUMENT').map(item => (
-                      <ListTile key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item.id)} />
+                      <ListTile key={item.id} item={item} selected={selected.has(itemKey(item))} onToggle={() => toggle(itemKey(item))} />
                     ))}
                   </div>
                 )}
@@ -284,14 +303,14 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
                 {customerItems.some(i => i.type === 'IMAGE' || i.type === 'VIDEO') && (
                   <div className="grid grid-cols-5 gap-2 mb-3">
                     {customerItems.filter(i => i.type === 'IMAGE' || i.type === 'VIDEO').map(item => (
-                      <GridTile key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item.id)} />
+                      <GridTile key={item.id} item={item} selected={selected.has(itemKey(item))} onToggle={() => toggle(itemKey(item))} />
                     ))}
                   </div>
                 )}
                 {customerItems.some(i => i.type === 'AUDIO' || i.type === 'DOCUMENT') && (
                   <div className="space-y-1">
                     {customerItems.filter(i => i.type === 'AUDIO' || i.type === 'DOCUMENT').map(item => (
-                      <ListTile key={item.id} item={item} selected={selected.has(item.id)} onToggle={() => toggle(item.id)} />
+                      <ListTile key={item.id} item={item} selected={selected.has(itemKey(item))} onToggle={() => toggle(itemKey(item))} />
                     ))}
                   </div>
                 )}
@@ -324,7 +343,7 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
         {/* Footer */}
         <div className="px-5 py-3.5 border-t border-gray-100 flex items-center justify-between flex-shrink-0 bg-gray-50">
           <p className="text-sm text-gray-500">
-            {selected.size === 0 ? 'Select files to send' : `${selected.size} file${selected.size > 1 ? 's' : ''} selected`}
+            {selectedCount === 0 ? 'Select files to send' : `${selectedCount} file${selectedCount > 1 ? 's' : ''} selected`}
           </p>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors">
@@ -332,11 +351,11 @@ export default function LibraryPickerModal({ onClose, onSend }: Props) {
             </button>
             <button
               onClick={handleSend}
-              disabled={selected.size === 0}
+              disabled={selectedCount === 0}
               className="flex items-center gap-2 px-4 py-2 text-sm bg-teal-600 text-white rounded-xl hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send size={13} />
-              Send {selected.size > 0 ? `(${selected.size})` : ''}
+              Send {selectedCount > 0 ? `(${selectedCount})` : ''}
             </button>
           </div>
         </div>

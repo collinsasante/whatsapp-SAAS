@@ -1,5 +1,7 @@
 'use client';
 import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import { channelHasCustomerServiceWindow } from '@/lib/customer-service-window';
+import { matchesExplicitFilters, serverStatusParam } from '@/lib/inbox-search';
 import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn, formatMessageTime, getInitials } from '@/lib/utils';
@@ -224,6 +226,9 @@ const ConvRow = memo(function ConvRow({
         </div>
       )}
       <button
+        // Read-only hover/focus tooltip built from the already-loaded latest message: no API call,
+        // no read-marking, no state change. A multi-message preview needs a new fetch and is not done.
+        title={lastMsg?.content ? `${name}: ${lastMsg.content.length > 300 ? `${lastMsg.content.slice(0, 300)}…` : lastMsg.content}` : undefined}
         onClick={() => onSelect(conv.id)}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -351,6 +356,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const importFileRef = useRef<HTMLInputElement>(null);
   const [searchResults, setSearchResults] = useState<Conversation[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Conversation[]>([]);
   const [resolvedLoading, setResolvedLoading] = useState(false);
   const [requestedConversations, setRequestedConversations] = useState<Conversation[]>([]);
@@ -406,17 +412,27 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   }, []);
 
   useEffect(() => {
-    if (!search.trim()) { setSearchResults([]); setSearchLoading(false); return; }
+    if (!search.trim()) { setSearchResults([]); setSearchLoading(false); setSearchError(false); return; }
     setSearchLoading(true);
+    // `cancelled` makes the latest search win: a slower response for an older term (or one that
+    // lands after the box was cleared) must never overwrite newer results.
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const res = await conversationsApi.list({ search: search.trim(), limit: 100, status: statusFilter !== 'All' ? statusFilter : undefined });
-        const data = (res.data as { data: Conversation[] }).data;
-        setSearchResults(data);
-      } catch { /* silent */ }
-      finally { setSearchLoading(false); }
+        const res = await conversationsApi.list({ search: search.trim(), limit: 100, status: serverStatusParam(statusFilter) });
+        if (cancelled) return;
+        setSearchResults((res.data as { data: Conversation[] }).data);
+        setSearchError(false);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[inbox] conversation search failed', err instanceof Error ? err.message : err);
+        setSearchResults([]);
+        setSearchError(true);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
     }, 350);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [search, statusFilter]);
 
   const openCompose = useCallback(async () => {
@@ -477,7 +493,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         if (!c.contact) return false;
         // Hide expired (24h session elapsed) conversations from the default "All" view only —
         // an explicit tab like Requests must still surface stale unactioned conversations.
-        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED') {
+        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED' && channelHasCustomerServiceWindow(c.channel?.type)) {
           const elapsed = now - new Date(c.lastInboundAt).getTime();
           if (elapsed > TWENTY_FOUR_HOURS) return false;
         }
@@ -522,7 +538,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       if (!c.assignedTo) return false;
       if (c.assignedTo.id === currentUserId) return false;
       if (!c.contact) return false;
-      if (c.lastInboundAt) {
+      if (c.lastInboundAt && channelHasCustomerServiceWindow(c.channel?.type)) {
         const elapsed = now - new Date(c.lastInboundAt).getTime();
         if (elapsed > TWENTY_FOUR_HOURS) return false;
       }
@@ -739,13 +755,15 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
           </div>
         ) : (() => {
-          const displayList = search.trim() ? searchResults : filtered;
+          const displayList = search.trim()
+            ? searchResults.filter((c) => matchesExplicitFilters(c, { channelFilter, labelFilter, memberFilter }))
+            : filtered;
           const hasMain = displayList.length > 0;
           const hasGroups = intervenedGroups.length > 0;
 
           if (!hasMain && !hasGroups) return (
             <div className="flex flex-col items-center justify-center h-32 gap-3 text-gray-400 text-sm">
-              <p>{search.trim() && !searchLoading ? `No results for "${search}"` : 'No conversations found'}</p>
+              <p>{search.trim() && !searchLoading ? (searchError ? "Search failed. Check your connection and try again." : `No results for "${search}"`) : 'No conversations found'}</p>
               {!search && (
                 <button onClick={() => { void openCompose(); }} className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium">
                   <Plus size={13} /> New conversation

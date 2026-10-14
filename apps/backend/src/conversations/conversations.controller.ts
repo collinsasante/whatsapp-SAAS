@@ -110,7 +110,7 @@ export class ConversationsController {
   @Roles(UserRole.AGENT)
   @ApiOperation({ summary: 'Resolve a conversation (→ RESOLVED)' })
   resolve(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.conversationsService.resolve(tenantId, id, user.sub);
+    return this.conversationsService.resolve(tenantId, id, user.sub, user.role);
   }
 
   @Post(':id/takeover')

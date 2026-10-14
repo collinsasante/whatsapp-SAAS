@@ -200,10 +200,15 @@ export class ConversationsService {
       { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: new Date() } }] },
     ];
     if (search) {
+      // Phones are stored normalized (digits with a leading +), so "+233 55 500-0111" must also
+      // match on its digits alone.
+      const searchDigits = search.replace(/\D/g, '');
+      const phoneClauses: unknown[] = [{ contact: { phone: { contains: search } } }];
+      if (searchDigits.length >= 3 && searchDigits !== search) phoneClauses.push({ contact: { phone: { contains: searchDigits } } });
       andClauses.push({
         OR: [
           { contact: { name: { contains: search, mode: 'insensitive' } } },
-          { contact: { phone: { contains: search } } },
+          ...phoneClauses,
           { messages: { some: { content: { contains: search, mode: 'insensitive' }, deletedForEveryone: false } } },
         ],
       });
@@ -378,8 +383,18 @@ export class ConversationsService {
   }
 
   /** Agent resolves conversation → INTERVENED/OPEN → RESOLVED */
-  async resolve(tenantId: string, id: string, userId?: string) {
+  async resolve(tenantId: string, id: string, userId?: string, role?: string) {
     const existing = await this.findOne(tenantId, id);
+
+    // A conversation owned by another human agent can only be closed by them or an admin; the
+    // UI hides this, but the server must not rely on it (stale clients / direct API calls).
+    const owner = existing.assignedTo;
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    if (owner && !owner.isAiAgent && owner.id !== userId && !isAdmin) {
+      throw new ForbiddenException('This conversation is being handled by another agent.');
+    }
+    // Idempotent: a stale client re-sending resolve must not overwrite who/when it was closed.
+    if (existing.status === ConversationStatus.RESOLVED) return existing;
 
     const result = await this.prisma.conversation.update({
       where: { id },
@@ -727,6 +742,10 @@ export class ConversationsService {
     await this.prisma.message.deleteMany({ where: { conversationId, tenantId } });
     await this.prisma.conversation.delete({ where: { id: conversationId } });
     return { success: true };
+  }
+
+  async touchLastMessage(conversationId: string) {
+    await this.prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   }
 
   async incrementUnread(conversationId: string) {

@@ -94,8 +94,9 @@ export class CallsController {
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: UpdateCallDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.callsService.update(tenantId, id, dto);
+    return this.callsService.update(tenantId, id, dto, { userId: user.sub, role: user.role });
   }
 
   @Patch(':id/archive')
@@ -110,8 +111,9 @@ export class CallsController {
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: MuteCallDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.callsService.mute(tenantId, id, dto);
+    return this.callsService.mute(tenantId, id, dto, { userId: user.sub, role: user.role });
   }
 
   @Patch(':id/hold')
@@ -120,8 +122,9 @@ export class CallsController {
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: HoldCallDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.callsService.hold(tenantId, id, dto);
+    return this.callsService.hold(tenantId, id, dto, { userId: user.sub, role: user.role });
   }
 
   @Post(':id/transfer')
@@ -132,7 +135,7 @@ export class CallsController {
     @CurrentUser() user: JwtPayload,
     @Body() dto: TransferCallDto,
   ) {
-    return this.callsService.transfer(tenantId, id, user.sub, dto);
+    return this.callsService.transfer(tenantId, id, user.sub, dto, user.role);
   }
 
   @Post(':id/respond')

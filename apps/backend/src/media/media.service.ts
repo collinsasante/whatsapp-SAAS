@@ -39,17 +39,24 @@ export class MediaService {
     private storageService: StorageService,
   ) {}
 
-  async upload(tenantId: string, uploadedById: string, file: Express.Multer.File) {
+  /**
+   * `enforceUniqueName` is only for deliberate File Library uploads. Chat attachments, voice notes,
+   * call recordings and product/profile images share this endpoint and legitimately reuse names
+   * (WhatsApp exports, "voice-note.webm"), so they must not be rejected as library duplicates.
+   */
+  async upload(tenantId: string, uploadedById: string, file: Express.Multer.File, enforceUniqueName = false) {
     const mediaType = MIME_TO_MEDIA_TYPE[file.mimetype];
     if (!mediaType) {
       throw new BadRequestException(`Unsupported file type: ${file.mimetype}`);
     }
 
-    const existing = await this.prisma.mediaAsset.findFirst({
-      where: { tenantId, originalName: file.originalname },
-    });
-    if (existing) {
-      throw new BadRequestException(`A file named "${file.originalname}" already exists in your library`);
+    if (enforceUniqueName) {
+      const existing = await this.prisma.mediaAsset.findFirst({
+        where: { tenantId, originalName: file.originalname },
+      });
+      if (existing) {
+        throw new BadRequestException(`A file named "${file.originalname}" already exists in your library`);
+      }
     }
 
     const { fileKey, fileUrl } = await this.storageService.upload(file, tenantId);

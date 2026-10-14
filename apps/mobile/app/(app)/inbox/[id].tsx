@@ -293,6 +293,14 @@ export default function ChatScreen() {
 
   // ── Send text / note ──────────────────────────────────────────────────────
 
+  // A rejected send used to vanish silently and leave the bubble stuck as "queued". Mark it failed
+  // and say why (e.g. another agent owns the chat, or the 24h window closed).
+  const failOptimistic = (tempId: string, err: unknown) => {
+    useInboxStore.getState().updateMessageStatus(tempId, null, MessageStatus.FAILED);
+    const reason = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+    Alert.alert('Message not sent', (Array.isArray(reason) ? reason[0] : reason) ?? 'Check your connection and try again.');
+  };
+
   const sendMessage = async () => {
     const content = text.trim();
     if (!content || isSending || !id) return;
@@ -334,8 +342,9 @@ export default function ChatScreen() {
     };
     addMessage(id, optimistic);
     try {
-      await apiClient.messages.send(id, { type: 'TEXT', content });
-    } catch { /* offline queue could handle this */ } finally {
+      // clientMessageId lets the server ignore an accidental re-send of this same message.
+      await apiClient.messages.send(id, { type: 'TEXT', content, clientMessageId: optimistic.id });
+    } catch (err) { failOptimistic(optimistic.id, err); } finally {
       setIsSending(false);
     }
   };
@@ -393,8 +402,8 @@ export default function ChatScreen() {
     };
     addMessage(id, optimistic);
     try {
-      await apiClient.messages.send(id, { type: 'TEXT', content });
-    } catch { /* offline queue could handle this */ }
+      await apiClient.messages.send(id, { type: 'TEXT', content, clientMessageId: optimistic.id });
+    } catch (err) { failOptimistic(optimistic.id, err); }
   };
 
   const editSuggestion = () => {

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
+import { isCustomerServiceWindowExpired, latestInboundMs } from '@/lib/customer-service-window';
 import { messagesApi, mediaApi, contactsApi, conversationsApi, usersApi, activityLogApi, tagsApi, templatesApi, aiLogsApi } from '@/lib/api';
 import CannedPicker from './CannedPicker';
 import LibraryPickerModal from './LibraryPickerModal';
@@ -31,6 +32,7 @@ import { useOfflineStore } from '@/store/offline.store';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const META_VIDEO_LIMIT_MB = 2048;
+const MAX_PENDING_FILES = 10;
 import { MessageStatus, MessageDirection } from '@whatsapp-platform/shared-types';
 import type { Message } from '@whatsapp-platform/shared-types';
 import type { ActivityEntry } from '@/store/inbox.store';
@@ -203,6 +205,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const { setQueuedCounts } = useOfflineStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  // Files pasted into the composer wait here (with a preview) until the agent presses Send.
+  const [pendingFiles, setPendingFiles] = useState<Array<{ key: string; file: File; previewUrl: string | null }>>([]);
   const [loading, setLoading] = useState(false);
   // Support-reported bug: "previous chats don't load even though the chat exists" --
   // messagesApi.list() failing (network blip, transient backend error, etc.) was
@@ -364,8 +368,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const avatarColor = getAvatarColor(name);
 
   const lastInboundMsg = [...convMessages].reverse().find((m) => m.direction === MessageDirection.INBOUND);
-  const sessionExpiredMs = 24 * 60 * 60 * 1000;
-  const sessionExpired = !lastInboundMsg || (Date.now() - new Date(lastInboundMsg.createdAt).getTime()) > sessionExpiredMs;
+  // The loaded messages are only a recent page, so also trust the server's lastInboundAt;
+  // otherwise an active chat whose last inbound is off-page reads as "expired".
+  const sessionExpired = isCustomerServiceWindowExpired(
+    conversation.channel?.type,
+    latestInboundMs(conversation.lastInboundAt, lastInboundMsg?.createdAt),
+  );
   const isExpiredResolved = isResolved && sessionExpired;
 
   type TimelineItem =
@@ -828,8 +836,63 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setRecording(false);
   };
 
+  // Mirror of pendingFiles readable synchronously, so toasts/object URLs never run inside a state updater.
+  const pendingFilesRef = useRef<Array<{ key: string; file: File; previewUrl: string | null }>>([]);
+  const commitPendingFiles = useCallback((next: Array<{ key: string; file: File; previewUrl: string | null }>) => {
+    pendingFilesRef.current = next;
+    setPendingFiles(next);
+  }, []);
+
+  const clearPendingFiles = useCallback(() => {
+    pendingFilesRef.current.forEach((p) => { if (p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
+    commitPendingFiles([]);
+  }, [commitPendingFiles]);
+
+  const removePendingFile = useCallback((key: string) => {
+    pendingFilesRef.current.filter((p) => p.key === key).forEach((p) => { if (p.previewUrl) URL.revokeObjectURL(p.previewUrl); });
+    commitPendingFiles(pendingFilesRef.current.filter((p) => p.key !== key));
+  }, [commitPendingFiles]);
+
+  // Same limits sendFiles enforces, applied up front so the agent sees a problem before sending.
+  const stagePendingFiles = useCallback((files: File[]) => {
+    const current = pendingFilesRef.current;
+    const seen = new Set(current.map((p) => p.key));
+    const staged: Array<{ key: string; file: File; previewUrl: string | null }> = [];
+    for (const file of files) {
+      const key = `${file.name}:${file.size}:${file.lastModified}`;
+      if (file.type.startsWith('text/')) { toast.error(`${file.name || 'That item'}: unsupported file type`); continue; }
+      const maxBytes = file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB * 1024 * 1024 : 64 * 1024 * 1024;
+      if (file.size > maxBytes) { toast.error(`${file.name}: too large. Max ${file.type.startsWith('video/') ? META_VIDEO_LIMIT_MB + 'MB' : '64MB'}`); continue; }
+      if (seen.has(key)) continue;
+      if (current.length + staged.length >= MAX_PENDING_FILES) { toast.error(`You can attach up to ${MAX_PENDING_FILES} files at a time`); break; }
+      seen.add(key);
+      staged.push({ key, file, previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null });
+    }
+    if (staged.length) commitPendingFiles([...current, ...staged]);
+  }, [commitPendingFiles]);
+
+  // Clipboard files only: normal text paste is untouched. If the clipboard carries text too
+  // (e.g. cells copied from a spreadsheet also expose an image) we paste the text.
+  const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (inputDisabled || inputMode !== 'message') return;
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (!files.length || e.clipboardData.getData('text/plain')) return;
+    e.preventDefault();
+    stagePendingFiles(files);
+  };
+
+  useEffect(() => () => { clearPendingFiles(); }, [clearPendingFiles]);
+  // Pending attachments belong to the conversation they were pasted into.
+  useEffect(() => { clearPendingFiles(); }, [conversation.id, clearPendingFiles]);
+
   const sendMessage = async () => {
-    if (!text.trim() || sending) return;
+    if (sending) return;
+    if (pendingFiles.length > 0 && inputMode === 'message') {
+      const files = pendingFiles.map((p) => p.file);
+      clearPendingFiles();
+      await sendFiles(files); // upload failures surface as FAILED bubbles with retry; the text draft is untouched
+    }
+    if (!text.trim()) return;
     const content = text.trim();
 
     const replyToId = replyTo?.id;
@@ -885,7 +948,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
     setSending(true);
     try {
-      const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', ...(replyToId ? { replyToId } : {}) });
+      const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', clientMessageId: tempId, ...(replyToId ? { replyToId } : {}) });
       // Replace temp immediately from API response — don't wait for socket (socket may be down)
       const real = res.data as Message;
       if (real?.id) {
@@ -1348,6 +1411,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const assignedToOther = !tookOver && !!assigneeId && assigneeId !== user?.id;
   // VIEWERs are read-only — they can observe but never send or note.
   const inputDisabled = isViewer || assignedToOther || isBlocked || (inputMode === 'note' ? savingNote : (savingNote || isResolved || isRequested || sessionBlocked));
+  const canDropFiles = !(isViewer || assignedToOther || isBlocked || isResolved || isRequested || sessionBlocked);
   const sendDisabled = sending || inputDisabled;
   const statusColor =
     localStatus === 'RESOLVED' ? 'text-gray-400' :
@@ -1359,13 +1423,20 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   return (
     <div
       className="flex-1 flex flex-col bg-white dark:bg-gray-900 min-h-0 relative"
-      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragOver={(e) => { e.preventDefault(); if (canDropFiles) setIsDragging(true); }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); }}
       onDrop={(e) => {
         e.preventDefault();
         setIsDragging(false);
         const files = Array.from(e.dataTransfer.files).filter((f) => !f.type.startsWith('text/'));
-        if (files.length) void sendFiles(files);
+        if (!files.length) return;
+        // A drop sends immediately, so it must obey the same gates as the composer: otherwise
+        // it sends into (and the server auto-reopens) a resolved/owned-by-someone-else chat.
+        if (!canDropFiles) {
+          toast.error(assignedToOther ? 'This conversation is handled by another agent. Take it over first.' : 'You can\'t send files in this conversation right now.');
+          return;
+        }
+        void sendFiles(files);
       }}
     >
       {isDragging && (
@@ -2186,6 +2257,27 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               </div>
             )}
 
+            {pendingFiles.length > 0 && inputMode === 'message' && (
+              <div className="flex flex-wrap gap-2 px-1 pb-2" role="list" aria-label="Attachments ready to send">
+                {pendingFiles.map((p) => (
+                  <div key={p.key} role="listitem" className="relative w-16 h-16 rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 overflow-hidden flex items-center justify-center">
+                    {p.previewUrl
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={p.previewUrl} alt={p.file.name || 'Pasted image'} className="w-full h-full object-cover" />
+                      : <div className="flex flex-col items-center px-1 text-gray-500"><FileText size={18} /><span className="text-[9px] leading-tight truncate w-14 text-center">{p.file.name}</span></div>}
+                    <button
+                      type="button"
+                      onClick={() => removePendingFile(p.key)}
+                      aria-label={`Remove ${p.file.name || 'attachment'}`}
+                      className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,.csv,image/*" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
               <input ref={photoInputRef} type="file" accept="image/*,.heic,.heif,video/*" multiple className="hidden" onChange={(e) => { void sendFile(e); }} />
@@ -2213,9 +2305,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 value={text}
                 spellCheck={true}
                 onChange={(e) => { void handleTextChange(e.target.value); }}
+                onPaste={handleComposerPaste}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') { setShowMentions(false); }
-                  if (!showCanned && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); }
+                  if (!showCanned && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (text.trim() || pendingFiles.length) void sendMessage(); }
                 }}
                 placeholder={
                   savingNote ? 'Saving note…' :
@@ -2243,7 +2336,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   <button onClick={cancelRecording} className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-200"><X size={14} /></button>
                   <button onClick={stopRecording} className="w-8 h-8 bg-red-500 rounded-xl flex items-center justify-center text-white hover:bg-red-600 animate-pulse"><Square size={13} fill="white" /></button>
                 </div>
-              ) : text.trim() ? (
+              ) : (text.trim() || (inputMode === 'message' && pendingFiles.length > 0)) ? (
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {/* Emoji button — RIGHT when typing */}
                   <button
@@ -2968,7 +3061,8 @@ const MessageBubble = memo(function MessageBubble({
           >
             <ChevronDown size={14} className="text-gray-500" />
           </button>
-          <div className="flex flex-col gap-0.5">
+          {/* min-w-0: lets this flex child shrink below its content so long unbroken strings wrap instead of widening the bubble */}
+          <div className="flex flex-col gap-0.5 min-w-0">
             {/* Reply-to quote */}
             {message.replyTo && (
               <div
@@ -3019,7 +3113,7 @@ const MessageBubble = memo(function MessageBubble({
 
               {message.content ? (
                 <>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {searchQuery ? highlightText(message.content, searchQuery) : renderWithLinks(message.content, isOutbound)}
                   </p>
                   {message.type === 'TEXT' && (() => {

@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConversationStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,8 +29,18 @@ const TERMINAL_STATUSES = [
   CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.BUSY, CallStatus.FAILED, CallStatus.VOICEMAIL,
 ];
 
+const TERMINAL_CALL_STATUSES: ReadonlySet<CallStatus> = new Set([
+  CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED,
+  CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.FAILED,
+]);
+
+// A call that never progressed past ringing, or whose end event was lost, must not stay "active" forever.
+export const STALE_RINGING_MS = 2 * 60 * 1000;
+export const STALE_ONGOING_MS = 6 * 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 60 * 1000;
+
 @Injectable()
-export class CallsService {
+export class CallsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CallsService.name);
 
   constructor(
@@ -103,7 +113,64 @@ export class CallsService {
     return call;
   }
 
+  private sweepTimer?: NodeJS.Timeout;
+
+  onModuleInit() {
+    this.sweepTimer = setInterval(() => {
+      this.expireStaleCalls().catch((err) => this.logger.warn(`stale call sweep failed: ${err instanceof Error ? err.message : String(err)}`));
+    }, SWEEP_INTERVAL_MS);
+    this.sweepTimer.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+  }
+
+  /**
+   * Closes calls stuck in a non-terminal state (lost webhook, closed tab, crashed client). Idempotent and
+   * condition-guarded, so it is safe with several replicas and cannot overwrite a call that just progressed.
+   */
+  async expireStaleCalls(now: number = Date.now()): Promise<number> {
+    const ringingCutoff = new Date(now - STALE_RINGING_MS);
+    const ongoingCutoff = new Date(now - STALE_ONGOING_MS);
+    const ringing = [CallStatus.INITIATED, CallStatus.RINGING];
+    const ongoing = [CallStatus.ONGOING, CallStatus.RECONNECTING];
+    const stale = await this.prisma.callLog.findMany({
+      where: { OR: [{ status: { in: ringing }, updatedAt: { lt: ringingCutoff } }, { status: { in: ongoing }, updatedAt: { lt: ongoingCutoff } }] },
+      select: { id: true, tenantId: true, status: true },
+      take: 200,
+    });
+    let closed = 0;
+    for (const c of stale) {
+      const wasRinging = ringing.includes(c.status as CallStatus);
+      const { count } = await this.prisma.callLog.updateMany({
+        where: { id: c.id, status: c.status, updatedAt: { lt: wasRinging ? ringingCutoff : ongoingCutoff } },
+        data: { status: wasRinging ? CallStatus.UNANSWERED : CallStatus.ENDED, endedAt: new Date(now), endReason: 'timeout' },
+      });
+      if (count === 0) continue;
+      closed++;
+      const call = await this.prisma.callLog.findFirst({ where: { id: c.id, tenantId: c.tenantId }, include: CALL_INCLUDE });
+      if (call) this.emit('call_updated', c.tenantId, call);
+    }
+    if (closed) this.logger.log(`[calls] expired ${closed} stale call(s)`);
+    return closed;
+  }
+
+  /**
+   * A call owned by an agent can only be controlled (update/mute/hold/transfer) by that agent or an
+   * admin; an unclaimed call (no owner yet) can be handled by any agent in the tenant.
+   */
+  private assertMayControl(call: { userId?: string | null }, actor?: { userId: string; role?: string }) {
+    if (!actor || !call.userId || call.userId === actor.userId) return;
+    if (actor.role === 'ADMIN' || actor.role === 'SUPER_ADMIN') return;
+    throw new ForbiddenException('This call is being handled by another agent.');
+  }
+
   async create(tenantId: string, userId: string, dto: CreateCallDto) {
+    if (dto.contactId) {
+      const contact = await this.prisma.contact.findFirst({ where: { id: dto.contactId, tenantId }, select: { id: true } });
+      if (!contact) throw new BadRequestException('Contact not found');
+    }
     const call = await this.prisma.callLog.create({
       data: {
         tenantId,
@@ -126,12 +193,17 @@ export class CallsService {
     return call;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateCallDto) {
+  async update(tenantId: string, id: string, dto: UpdateCallDto, actor?: { userId: string; role?: string }) {
     const existing = await this.findOne(tenantId, id);
+    this.assertMayControl(existing, actor);
+    // A finished call stays finished: a stale client or late event must not revive it (calls that
+    // "keep appearing active"). Notes/duration/recording can still be filled in afterwards.
+    const alreadyTerminal = existing.status != null && TERMINAL_CALL_STATUSES.has(existing.status as CallStatus);
+    const applyStatus = dto.status !== undefined && !(alreadyTerminal && dto.status !== existing.status);
     const call = await this.prisma.callLog.update({
       where: { id },
       data: {
-        ...(dto.status !== undefined && { status: dto.status }),
+        ...(applyStatus && { status: dto.status }),
         ...(dto.duration !== undefined && { duration: dto.duration }),
         ...(dto.notes !== undefined && { notes: dto.notes }),
         ...(dto.startedAt && { startedAt: new Date(dto.startedAt) }),
@@ -145,12 +217,8 @@ export class CallsService {
 
     // Log call activity when a terminal status is set via the app (hang-up, cancel, etc.)
     // The Meta webhook path already calls logCallActivity; guard against double-logging.
-    const TERMINAL_STATUSES = new Set([
-      CallStatus.ENDED, CallStatus.MISSED, CallStatus.DECLINED,
-      CallStatus.CANCELED, CallStatus.UNANSWERED, CallStatus.FAILED,
-    ]);
-    const wasAlreadyTerminal = existing?.status != null && TERMINAL_STATUSES.has(existing.status as CallStatus);
-    if (dto.status && TERMINAL_STATUSES.has(dto.status as CallStatus) && !wasAlreadyTerminal) {
+    const wasAlreadyTerminal = alreadyTerminal;
+    if (applyStatus && dto.status && TERMINAL_CALL_STATUSES.has(dto.status as CallStatus) && !wasAlreadyTerminal) {
       void this.logCallActivity(
         tenantId,
         call as unknown as CallRecord,
@@ -198,8 +266,9 @@ export class CallsService {
     return call;
   }
 
-  async mute(tenantId: string, id: string, dto: MuteCallDto) {
+  async mute(tenantId: string, id: string, dto: MuteCallDto, actor?: { userId: string; role?: string }) {
     const existing = await this.findOne(tenantId, id);
+    this.assertMayControl(existing, actor);
     const meta = (existing.metadata as Record<string, unknown>) ?? {};
     const call = await this.prisma.callLog.update({
       where: { id },
@@ -210,8 +279,9 @@ export class CallsService {
     return call;
   }
 
-  async hold(tenantId: string, id: string, dto: HoldCallDto) {
+  async hold(tenantId: string, id: string, dto: HoldCallDto, actor?: { userId: string; role?: string }) {
     const existing = await this.findOne(tenantId, id);
+    this.assertMayControl(existing, actor);
     const meta = (existing.metadata as Record<string, unknown>) ?? {};
     const call = await this.prisma.callLog.update({
       where: { id },
@@ -222,8 +292,9 @@ export class CallsService {
     return call;
   }
 
-  async transfer(tenantId: string, id: string, fromUserId: string, dto: TransferCallDto) {
+  async transfer(tenantId: string, id: string, fromUserId: string, dto: TransferCallDto, role?: string) {
     const existing = await this.findOne(tenantId, id);
+    this.assertMayControl(existing, { userId: fromUserId, role });
     const toUser = await this.prisma.user.findFirst({ where: { id: dto.toUserId, tenantId } });
     if (!toUser) throw new BadRequestException('Target agent not found in tenant');
 
@@ -317,7 +388,24 @@ export class CallsService {
     const phone = dto.phone.trim();
     if (!phone) throw new BadRequestException('Phone number is required');
 
+    // A double-click must not place two real WhatsApp calls to the same customer.
+    const inProgress = await this.prisma.callLog.findFirst({
+      where: {
+        tenantId, phone,
+        OR: [
+          { status: { in: [CallStatus.INITIATED, CallStatus.RINGING] }, updatedAt: { gt: new Date(Date.now() - STALE_RINGING_MS) } },
+          { status: { in: [CallStatus.ONGOING, CallStatus.RECONNECTING] }, updatedAt: { gt: new Date(Date.now() - STALE_ONGOING_MS) } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (inProgress) throw new BadRequestException('A call to this number is already in progress.');
+
     let contactId = dto.contactId;
+    if (contactId) {
+      const known = await this.prisma.contact.findFirst({ where: { id: contactId, tenantId }, select: { id: true } });
+      if (!known) throw new BadRequestException('Contact not found');
+    }
     if (!contactId) {
       const contact = await this.prisma.contact.findFirst({
         where: { tenantId, phone: { contains: phone.replace(/^\+/, '') } },

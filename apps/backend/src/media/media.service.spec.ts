@@ -61,3 +61,21 @@ describe('MediaService.upload -- file-type allowlist (stored XSS regression)', (
     expect(storageService.upload).not.toHaveBeenCalled();
   });
 });
+
+describe('MediaService.upload -- duplicate file names', () => {
+  it('allows a reused name for chat/voice/other uploads (default)', async () => {
+    const { service, prisma } = build();
+    prisma.mediaAsset.findFirst.mockResolvedValue({ id: 'existing' });
+    await service.upload('tenant-1', 'user-1', file('image/png', 'WhatsApp Image.jpeg'));
+    expect(prisma.mediaAsset.findFirst).not.toHaveBeenCalled();
+    expect(prisma.mediaAsset.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a duplicate name for File Library uploads, within the tenant only', async () => {
+    const { service, prisma, storageService } = build();
+    prisma.mediaAsset.findFirst.mockResolvedValue({ id: 'existing' });
+    await expect(service.upload('tenant-1', 'user-1', file('image/png', 'a.png'), true)).rejects.toThrow('already exists');
+    expect(prisma.mediaAsset.findFirst).toHaveBeenCalledWith({ where: { tenantId: 'tenant-1', originalName: 'a.png' } });
+    expect(storageService.upload).not.toHaveBeenCalled();
+  });
+});

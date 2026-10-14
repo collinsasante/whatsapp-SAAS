@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw, Copy, Check, Target } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi, leadsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
+import { isAgentSentMedia } from '@/lib/media-provenance';
 import { useInboxStore } from '@/store/inbox.store';
 import { getInitials, formatRelativeTime, getProxiedMediaUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -107,6 +108,8 @@ export default function ConversationDetails({ conversation }: Props) {
   const [notes, setNotes] = useState<{ id: string; content: string; author: { id: string; name: string }; createdAt: string }[]>([]);
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [mediaExpanded, setMediaExpanded] = useState(false);
+  const [mediaTab, setMediaTab] = useState<'all' | 'agents'>('all');
+  const [mediaShowAll, setMediaShowAll] = useState(false);
   const [voiceNotesExpanded, setVoiceNotesExpanded] = useState(false);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [activityLoaded, setActivityLoaded] = useState(false);
@@ -125,6 +128,9 @@ export default function ConversationDetails({ conversation }: Props) {
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
   const mediaMessages = convMessages.filter((m) => (m.type === 'IMAGE' || m.type === 'VIDEO') && m.mediaUrl);
+  const agentMediaMessages = mediaMessages.filter(isAgentSentMedia);
+  const shownMedia = mediaTab === 'agents' ? agentMediaMessages : mediaMessages;
+  const mediaLimit = mediaShowAll ? shownMedia.length : 5;
   const audioMessages = convMessages.filter((m) => m.type === 'AUDIO' && m.mediaUrl);
   const templateMessages = convMessages.filter((m) => m.type === MessageType.TEMPLATE);
   const sessionMessages = convMessages.filter((m) => m.type !== MessageType.TEMPLATE);
@@ -552,11 +558,24 @@ export default function ConversationDetails({ conversation }: Props) {
         </button>
         {mediaExpanded && (
           <div className="px-4 pb-4">
-            {mediaMessages.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-3">No media shared yet</p>
+            <div className="flex gap-1 mb-2" role="tablist" aria-label="Media filter">
+              {([['all', `All Media (${mediaMessages.length})`], ['agents', `Sent by Agents (${agentMediaMessages.length})`]] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={mediaTab === id}
+                  onClick={() => { setMediaTab(id); setMediaShowAll(false); }}
+                  className={cn('px-2.5 py-1 rounded-lg text-xs font-medium transition-colors', mediaTab === id ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {shownMedia.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">{mediaTab === 'agents' ? 'No media sent by agents yet' : 'No media shared yet'}</p>
             ) : (
               <div className="grid grid-cols-3 gap-1.5">
-                {mediaMessages.slice(0, 5).map((msg) => (
+                {shownMedia.slice(0, mediaLimit).map((msg) => (
                   <a key={msg.id} href={getProxiedMediaUrl(msg.mediaUrl) || '#'} target="_blank" rel="noopener noreferrer"
                     className="aspect-square rounded-xl overflow-hidden bg-gray-100 block relative group">
                     {msg.type === 'IMAGE' && getProxiedMediaUrl(msg.mediaUrl) ? (
@@ -568,10 +587,10 @@ export default function ConversationDetails({ conversation }: Props) {
                     )}
                   </a>
                 ))}
-                {mediaMessages.length > 5 && (
-                  <div className="aspect-square rounded-xl bg-gray-800 flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">+{mediaMessages.length - 5}</span>
-                  </div>
+                {!mediaShowAll && shownMedia.length > 5 && (
+                  <button onClick={() => setMediaShowAll(true)} aria-label={`Show ${shownMedia.length - 5} more`} className="aspect-square rounded-xl bg-gray-800 flex items-center justify-center hover:bg-gray-700">
+                    <span className="text-white text-sm font-bold">+{shownMedia.length - 5}</span>
+                  </button>
                 )}
               </div>
             )}
