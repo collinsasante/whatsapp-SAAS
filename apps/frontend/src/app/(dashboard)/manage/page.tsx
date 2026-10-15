@@ -40,7 +40,7 @@ const SECTIONS = [
 ];
 
 const WEBHOOK_EVENTS = [
-  'message.received', 'message.sent', 'message.delivered', 'message.read',
+  'message.received', 'message.sent', 'message.delivered', 'message.read', 'message.failed',
   'conversation.created', 'conversation.resolved', 'conversation.assigned',
   'contact.created', 'contact.updated', 'campaign.completed',
 ];

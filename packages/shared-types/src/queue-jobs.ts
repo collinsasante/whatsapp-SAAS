@@ -5,6 +5,19 @@ export interface CampaignSendJob {
   recipientIds: string[];
 }
 
+/**
+ * One outbound delivery of a tenant webhook (Manage > Webhooks).
+ * Enqueued by the backend's WebhookEventsService, delivered by apps/worker.
+ */
+export interface WebhookDeliveryJob {
+  deliveryId: string;
+  webhookId: string;
+  tenantId: string;
+  event: string;
+  occurredAt: string;
+  data: Record<string, unknown>;
+}
+
 export interface MessageRetryJob {
   messageId: string;
   tenantId: string;

@@ -3,3 +3,4 @@ export * from './slug';
 export * from './pagination';
 export * from './template-variables';
 export * from './credentials-encryption';
+export * from './webhook-url';
