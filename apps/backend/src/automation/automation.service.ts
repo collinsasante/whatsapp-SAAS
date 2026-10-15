@@ -1,18 +1,27 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAutomationRuleDto, UpdateAutomationRuleDto } from './dto/automation.dto';
 import { AutomationCondition, AutomationActionConfig } from '@whatsapp-platform/shared-types';
+import { toAutomationTrigger } from './automation-trigger';
 
 @Injectable()
 export class AutomationService {
+  private readonly logger = new Logger(AutomationService.name);
+
   constructor(private prisma: PrismaService) {}
+
+  private requireTrigger(value: unknown) {
+    const trigger = toAutomationTrigger(value);
+    if (!trigger) throw new BadRequestException(`Unsupported automation trigger: ${String(value)}`);
+    return trigger;
+  }
 
   async create(tenantId: string, dto: CreateAutomationRuleDto) {
     return this.prisma.automationRule.create({
       data: {
         tenantId,
         name: dto.name,
-        trigger: dto.trigger as never,
+        trigger: this.requireTrigger(dto.trigger),
         conditions: dto.conditions as never,
         actions: dto.actions as never,
         priority: dto.priority ?? 0,
@@ -43,9 +52,14 @@ export class AutomationService {
     await this.prisma.automationRule.delete({ where: { id } });
   }
 
-  async findMatchingRules(tenantId: string, trigger: string, context: Record<string, unknown>) {
+  async findMatchingRules(tenantId: string, triggerValue: string, context: Record<string, unknown>) {
+    const trigger = toAutomationTrigger(triggerValue);
+    if (!trigger) {
+      this.logger.warn(`Ignoring unsupported automation trigger "${triggerValue}" for tenant ${tenantId}`);
+      return [];
+    }
     const rules = await this.prisma.automationRule.findMany({
-      where: { tenantId, trigger: trigger as never, isActive: true },
+      where: { tenantId, trigger, isActive: true },
       orderBy: { priority: 'desc' },
     });
 
