@@ -33,6 +33,7 @@ UPDATE _phone_cand x SET
   conflict = EXISTS (SELECT 1 FROM contacts c2 WHERE c2.tenant_id = x.tenant_id AND c2.external_id_type = 'WHATSAPP_JID'
                      AND c2.external_id = x.digits || '@lid' AND c2.id <> x.id);
 UPDATE _phone_cand SET verdict = CASE
+  WHEN digits = '' THEN 'status_feed_ghost' -- phone is just "+": WhatsApp Status updates collapsed into one contact. Report only, never converted
   WHEN conflict THEN 'conflict'              -- the address already exists as another contact: a person decides, never an automatic merge
   WHEN on_qr AND NOT on_other THEN 'convert' -- only ever seen through the QR channel: this is the anonymous ID
   ELSE 'review'                              -- could be a real (unusual) number: leave it alone

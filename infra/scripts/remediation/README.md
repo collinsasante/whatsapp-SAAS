@@ -45,6 +45,7 @@ Each script runs in one transaction, so a failure changes nothing. Re-running af
 - A contact whose odd-looking number could be real (it has conversations outside the WhatsApp Web channel) is listed
   as **review**, not converted.
 - A contact whose anonymous address already exists as another contact is listed as **conflict**. Contacts are never merged.
+- A contact whose phone is just "+" (digits empty) is listed as **status_feed_ghost**. It comes from old code treating WhatsApp Status updates as a contact. It is report only; archive it from the app, do not delete.
 - Members whose workspace role is *lower* than their legacy role, or who might have been over-granted by the old
   "create user" path, are listed for an admin to decide. Permissions are not reduced automatically.
 - Platform staff (legacy role `SUPER_ADMIN`) are never touched.

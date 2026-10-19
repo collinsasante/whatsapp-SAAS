@@ -36,7 +36,23 @@ export default function AccountPage() {
   const { user, tenant, updateUser } = useAuthStore();
   const [idCopied, setIdCopied] = useState(false);
   // The ID of the workspace this session is signed in to (set by the server at sign-in, never typed by the user).
-  const workspaceId = tenant?.id && /^[0-9a-fA-F-]{8,}$/.test(tenant.id) ? tenant.id : null;
+  // Older persisted sessions may lack the tenant, so fall back to the user's tenantId and then to the server.
+  const [fetchedId, setFetchedId] = useState<string | null>(null);
+  const storedId = tenant?.id || user?.tenantId || null;
+  const workspaceId = storedId || fetchedId;
+
+  useEffect(() => {
+    if (storedId) return;
+    let cancelled = false;
+    authApi.getMe()
+      .then((res) => {
+        const body = res.data?.data ?? res.data;
+        const id = body?.tenant?.id;
+        if (!cancelled && typeof id === 'string' && id) setFetchedId(id);
+      })
+      .catch((error: unknown) => console.error('Failed to load workspace id', error));
+    return () => { cancelled = true; };
+  }, [storedId]);
 
   const handleCopyWorkspaceId = async () => {
     if (!workspaceId) return;
@@ -424,7 +440,7 @@ export default function AccountPage() {
                 </button>
               </div>
             ) : (
-              <p className="text-sm text-gray-500">Workspace ID is not available for this session. Sign out and back in to load it.</p>
+              <p className="text-sm text-gray-500">Loading workspace ID...</p>
             )}
             <p className="text-xs text-gray-400">Share this ID with support when you ask for help with this workspace.</p>
           </div>
