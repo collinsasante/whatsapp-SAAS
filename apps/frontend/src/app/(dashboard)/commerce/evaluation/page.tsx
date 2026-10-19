@@ -126,7 +126,7 @@ export default function CommerceEvaluationPage() {
     try {
       const res = await commerceEvaluationApi.trigger();
       const run = res.data as RunSummary;
-      toast.success(`Evaluation run started (${run.scenarioCount} scenarios) — this takes 1-3 minutes`);
+      toast.success(`Evaluation run started (${run.scenarioCount} scenarios), this takes 1-3 minutes`);
       setRuns(prev => [run, ...prev]);
       setSelectedRunId(run.id);
     } catch (e) {
@@ -158,7 +158,7 @@ export default function CommerceEvaluationPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900">Evaluation Runs</h1>
-              <p className="text-xs text-gray-500">Scripted conversations against the live commerce AI — check before enabling it for real customers</p>
+              <p className="text-xs text-gray-500">Scripted conversations against the live commerce AI, check before enabling it for real customers</p>
             </div>
           </div>
           <button
@@ -182,7 +182,7 @@ export default function CommerceEvaluationPage() {
             </div>
           ) : runs.length === 0 ? (
             <div className="text-center py-16 text-gray-400 text-sm">
-              No evaluation runs yet — click &quot;Run Evaluation&quot; to test the commerce AI against ~18 scripted conversations.
+              No evaluation runs yet, click &quot;Run Evaluation&quot; to test the commerce AI against ~18 scripted conversations.
             </div>
           ) : (
             runs.map(run => {

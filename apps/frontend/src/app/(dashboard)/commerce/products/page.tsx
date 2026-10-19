@@ -217,7 +217,7 @@ export default function CommerceProductsPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900">Products</h1>
-              <p className="text-xs text-gray-500">Your Managed Commerce catalogue — what the AI can sell</p>
+              <p className="text-xs text-gray-500">Your Managed Commerce catalogue, what the AI can sell</p>
             </div>
           </div>
           <button
@@ -239,7 +239,7 @@ export default function CommerceProductsPage() {
             </div>
           ) : products.length === 0 ? (
             <div className="text-center py-16 text-gray-400 text-sm">
-              No products yet — click &quot;Add Product&quot; to create your first one.
+              No products yet, click &quot;Add Product&quot; to create your first one.
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">

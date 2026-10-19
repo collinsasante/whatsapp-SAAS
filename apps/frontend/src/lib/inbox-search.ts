@@ -10,6 +10,12 @@ export function serverStatusParam(statusFilter: string): string | undefined {
   return (SERVER_STATUSES as readonly string[]).includes(statusFilter) ? statusFilter : undefined;
 }
 
+/** Stable channel id: the stored Channel.type, with the legacy spelling folded in. No type means WhatsApp Cloud. */
+export function channelKindOf(channelType: string | null | undefined): string {
+  const type = (channelType ?? 'WHATSAPP').toUpperCase();
+  return type === 'MESSENGER' ? 'FACEBOOK_MESSENGER' : type;
+}
+
 export interface SearchableConversation {
   channel?: { type?: string } | null;
   labels?: string[];
@@ -21,8 +27,7 @@ export function matchesExplicitFilters(
   c: SearchableConversation,
   f: { channelFilter: string; labelFilter: string; memberFilter: string },
 ): boolean {
-  const channel = c.channel?.type?.toUpperCase() ?? 'WHATSAPP';
-  if (f.channelFilter !== 'All' && channel !== f.channelFilter) return false;
+  if (f.channelFilter !== 'All' && channelKindOf(c.channel?.type) !== f.channelFilter) return false;
   if (f.labelFilter !== 'All' && !(c.labels ?? []).includes(f.labelFilter)) return false;
   if (f.memberFilter === 'unassigned') return c.assignedTo === null;
   if (f.memberFilter !== 'All') return c.assignedTo?.id === f.memberFilter;

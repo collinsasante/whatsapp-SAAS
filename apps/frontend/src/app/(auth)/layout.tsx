@@ -40,7 +40,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             All your customer<br />conversations,<br />one smart inbox.
           </h2>
           <p className="text-white/65 text-base mb-10 leading-relaxed">
-            The WhatsApp Business platform built for growing teams — send campaigns, automate responses, and close deals faster.
+            The WhatsApp Business platform built for growing teams, send campaigns, automate responses, and close deals faster.
           </p>
           <div className="space-y-3.5">
             {[

@@ -28,6 +28,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { shouldApplyStatus } from './message-status.util';
+import { isOggBuffer, isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
 import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
@@ -153,7 +154,7 @@ export class MessagesService {
   private async dispatchOutbound(
     tenantId: string,
     conversation: { channel?: { id: string; type: string } | null; whatsappNumberId?: string | null },
-    contact: { phone: string | null; externalId?: string | null },
+    contact: { phone: string | null; externalId?: string | null; externalIdType?: string | null },
     payload:
       | { kind: 'TEXT'; text: string; replyToWaMessageId?: string }
       | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string },
@@ -174,13 +175,22 @@ export class MessagesService {
     // id. Still needs its own branch: the send transport is a live Baileys
     // socket via apps/whatsapp-web, not the Cloud API Graph client below.
     if (conversation.channel?.type === 'WHATSAPP_WEB') {
-      if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
       if (!conversation.channel.id) throw new BadRequestException('This conversation has no WhatsApp Web channel on file.');
+      // Contacts WhatsApp only identifies by an anonymous address are replied to at that exact address.
+      const target: string | { jid: string } | null = contact.phone
+        ? contact.phone
+        : (contact.externalIdType === 'WHATSAPP_JID' && contact.externalId ? { jid: contact.externalId } : null);
+      if (!target) throw new BadRequestException('This contact has no phone number on file.');
       if (payload.kind === 'TEXT') {
-        return this.whatsAppWebService.sendText(tenantId, conversation.channel.id, contact.phone, payload.text);
+        return this.whatsAppWebService.sendText(tenantId, conversation.channel.id, target, payload.text);
+      }
+      if (payload.mediaType === MessageType.AUDIO) {
+        const audio = await this.prepareWhatsAppWebAudio(tenantId, payload.mediaUrl);
+        // WhatsApp ignores captions on audio, and the composer's "Voice note" label is not one.
+        return this.whatsAppWebService.sendMedia(tenantId, conversation.channel.id, target, audio.url, 'audio', undefined, { voiceNote: audio.voiceNote });
       }
       return this.whatsAppWebService.sendMedia(
-        tenantId, conversation.channel.id, contact.phone, payload.mediaUrl, payload.mediaType.toLowerCase() as 'image' | 'video' | 'audio' | 'document', payload.caption,
+        tenantId, conversation.channel.id, target, payload.mediaUrl, payload.mediaType.toLowerCase() as 'image' | 'video' | 'audio' | 'document', payload.caption,
       );
     }
 
@@ -277,7 +287,7 @@ export class MessagesService {
       });
       if (!isCustomerServiceWindowOpen(lastInbound?.createdAt)) {
         throw new BadRequestException(
-          "This contact hasn't messaged in over 24 hours. WhatsApp requires an approved template message to re-engage them — free-form messages will be rejected.",
+          "This contact hasn't messaged in over 24 hours. WhatsApp requires an approved template message to re-engage them, free-form messages will be rejected.",
         );
       }
     }
@@ -438,7 +448,7 @@ export class MessagesService {
       const updatedMessage = await this.prisma.message.findUnique({
         where: { id: message.id },
         include: {
-          sender: { select: { id: true, name: true, avatarUrl: true } },
+          sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
           replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
         },
       });
@@ -469,6 +479,47 @@ export class MessagesService {
    * Second caller: handleAiAutoReply, when a tool (e.g. send_product_image)
    * triggered a media side effect this turn.
    */
+  /**
+   * Fetches the bytes behind a stored media URL: straight from our own storage when it is one of our
+   * /media/serve links, otherwise over HTTP. Shared by the WhatsApp Cloud and WhatsApp Web send paths.
+   */
+  private async loadMediaBuffer(mediaUrl: string, fallbackMime: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const proxyMatch = mediaUrl.match(/\/api\/v1\/media\/serve\/(.+)/);
+    if (proxyMatch) {
+      const fileKey = proxyMatch[1].replace(/~/g, '/');
+      const downloaded = await this.storageService.downloadBuffer(fileKey);
+      if (downloaded) return { buffer: downloaded.buffer, mimeType: downloaded.mimeType || fallbackMime };
+    }
+    const dlRes = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
+    return { buffer: Buffer.from(dlRes.data), mimeType: (dlRes.headers['content-type'] as string | undefined) ?? fallbackMime };
+  }
+
+  /**
+   * WhatsApp only plays voice notes as OGG/Opus, but browsers record WebM/Opus. For a WhatsApp Web send, remux
+   * the recording to OGG here (this container has ffmpeg; the WhatsApp Web container does not) and report whether
+   * the result should go out as a push-to-talk voice note. Anything that cannot be made playable fails the send
+   * with a clear reason instead of delivering a message the customer cannot play.
+   */
+  private async prepareWhatsAppWebAudio(tenantId: string, mediaUrl: string): Promise<{ url: string; voiceNote: boolean }> {
+    const { buffer, mimeType } = await this.loadMediaBuffer(mediaUrl, 'audio/ogg');
+    if (isWebmBuffer(buffer)) {
+      try {
+        const ogg = await transcodeWebmToOgg(buffer);
+        const stored = await this.storageService.uploadRaw(ogg, 'audio/ogg', tenantId, 'voice-note.ogg');
+        return { url: stored.fileUrl, voiceNote: true };
+      } catch (err) {
+        this.logger.warn(`Voice note could not be converted for WhatsApp Web: ${err instanceof Error ? err.message : String(err)}`);
+        throw new BadRequestException('The voice note could not be converted to a format WhatsApp can play. Please record it again.');
+      }
+    }
+    if (isOggBuffer(buffer)) return { url: mediaUrl, voiceNote: true };
+    // MP3, M4A/AAC and similar are sent as an ordinary audio file rather than a voice-note bubble.
+    if (!mimeType.toLowerCase().startsWith('audio/')) {
+      throw new BadRequestException('That file is not an audio recording WhatsApp can play.');
+    }
+    return { url: mediaUrl, voiceNote: false };
+  }
+
   private async deliverMedia(
     tenantId: string, toPhone: string, type: MessageType, mediaUrl: string, caption?: string, replyToWaMessageId?: string,
     whatsappNumberId?: string | null,
@@ -480,30 +531,14 @@ export class MessagesService {
       [MessageType.DOCUMENT]: 'application/pdf',
     };
     try {
-      let mediaBuffer: Buffer | null = null;
-      let mimeType = defaultMime[type as string] ?? 'application/octet-stream';
-
-      const proxyMatch = mediaUrl.match(/\/api\/v1\/media\/serve\/(.+)/);
-      if (proxyMatch) {
-        const fileKey = proxyMatch[1].replace(/~/g, '/');
-        const downloaded = await this.storageService.downloadBuffer(fileKey);
-        if (downloaded) {
-          mediaBuffer = downloaded.buffer;
-          mimeType = downloaded.mimeType || mimeType;
-        }
-      }
-
-      if (!mediaBuffer) {
-        const dlRes = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
-        mediaBuffer = Buffer.from(dlRes.data);
-        mimeType = (dlRes.headers['content-type'] as string | undefined) ?? mimeType;
-      }
+      const { buffer: mediaBuffer, mimeType } = await this.loadMediaBuffer(mediaUrl, defaultMime[type as string] ?? 'application/octet-stream');
 
       const ext = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
       const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, mediaBuffer, mimeType, `media.${ext}`, whatsappNumberId);
       return await this.whatsappService.sendMediaMessageById(tenantId, toPhone, type.toLowerCase(), metaMediaId, caption, replyToWaMessageId, whatsappNumberId);
-    } catch {
-      // fallback to link-based send
+    } catch (err) {
+      // Fall back to a link-based send, but say why: this used to hide every upload failure.
+      this.logger.warn(`Media upload to Meta failed for ${type}; falling back to a link send: ${err instanceof Error ? err.message : String(err)}`);
       return this.whatsappService.sendMediaMessage(tenantId, toPhone, type.toLowerCase(), mediaUrl, caption, replyToWaMessageId, whatsappNumberId);
     }
   }
@@ -512,7 +547,7 @@ export class MessagesService {
     const conversation = await this.conversationsService.findOne(tenantId, conversationId);
 
     const msgInclude = {
-      sender: { select: { id: true, name: true, avatarUrl: true } },
+      sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
       replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
       reactions: { select: { id: true, emoji: true, userId: true } },
     };
@@ -624,7 +659,7 @@ export class MessagesService {
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound Messenger media download failed for attachment type "${attachment.type}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+          message: `Inbound Messenger media download failed for attachment type "${attachment.type}": ${err instanceof Error ? err.message : String(err)}, customer's file was not saved`,
         }).catch(() => {});
       }
     }
@@ -634,8 +669,9 @@ export class MessagesService {
     }
 
     let created: Message;
+    let updatedConversation: { unreadCount?: number | null; status?: string } | undefined;
     try {
-      const [msg] = await this.prisma.$transaction([
+      const [msg, updatedConv] = await this.prisma.$transaction([
         this.prisma.message.create({
           data: {
             tenantId, conversationId: conversation.id, contactId: contact.id,
@@ -650,6 +686,7 @@ export class MessagesService {
         }),
       ]);
       created = msg;
+      updatedConversation = updatedConv;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: message.mid, tenantId } });
@@ -661,11 +698,13 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      // From the row the database just returned from the atomic increment. The in-memory copy was read before
+      // it, so two quick customer messages both reported N+1 and the badge undercounted until a refresh.
+      unreadCount: updatedConversation?.unreadCount ?? (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: created.createdAt,
       lastInboundAt: created.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
-      status: conversation.status,
+      status: updatedConversation?.status ?? conversation.status,
     });
 
     return created;
@@ -682,7 +721,9 @@ export class MessagesService {
   async handleInboundWhatsAppWeb(
     tenantId: string,
     channelId: string,
-    fromPhone: string,
+    // A phone number, or { jid } for a contact WhatsApp only exposes as an anonymous address
+    // (@lid). Those are stored as their own provider identity, never as a fake phone number.
+    sender: string | { jid: string },
     providerMessageId: string,
     payload: {
       content?: string;
@@ -690,6 +731,9 @@ export class MessagesService {
       mediaBase64?: string;
       mimetype?: string;
       caption?: string;
+      // The text is a label for something we cannot or must not ingest (view-once, sticker...), not
+      // something the customer wrote, so the AI and chatbot must not reply to it.
+      placeholder?: boolean;
     },
     pushName?: string,
   ) {
@@ -699,7 +743,9 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const contact = await this.contactsService.findOrCreate(tenantId, fromPhone, pushName);
+    const contact = typeof sender === 'string'
+      ? await this.contactsService.findOrCreate(tenantId, sender, pushName)
+      : await this.contactsService.findOrCreateByExternalId(tenantId, 'WHATSAPP_JID', sender.jid, pushName);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, undefined, channelId);
 
     // Tag conversation with the receiving channel the first time only,
@@ -732,7 +778,7 @@ export class MessagesService {
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound WhatsApp Web media download failed for type "${payload.mediaType}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+          message: `Inbound WhatsApp Web media download failed for type "${payload.mediaType}": ${err instanceof Error ? err.message : String(err)}, customer's file was not saved`,
         }).catch(() => {});
       }
     } else if (payload.mediaType && !payload.mediaBase64) {
@@ -746,8 +792,9 @@ export class MessagesService {
     }
 
     let created: Message;
+    let updatedConversation: { unreadCount?: number | null; status?: string } | undefined;
     try {
-      const [msg] = await this.prisma.$transaction([
+      const [msg, updatedConv] = await this.prisma.$transaction([
         this.prisma.message.create({
           data: {
             tenantId, conversationId: conversation.id, contactId: contact.id,
@@ -762,6 +809,7 @@ export class MessagesService {
         }),
       ]);
       created = msg;
+      updatedConversation = updatedConv;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: providerMessageId, tenantId } });
@@ -773,14 +821,19 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      // From the row the database just returned from the atomic increment. The in-memory copy was read before
+      // it, so two quick customer messages both reported N+1 and the badge undercounted until a refresh.
+      unreadCount: updatedConversation?.unreadCount ?? (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: created.createdAt,
       lastInboundAt: created.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
-      status: conversation.status,
+      status: updatedConversation?.status ?? conversation.status,
     });
 
-    await this.dispatchAiAndChatbot(tenantId, conversation, contact, content, created.id);
+    const isPlaceholder = payload.placeholder === true || (!payload.content && !mediaUrl);
+    if (!isPlaceholder) {
+      await this.dispatchAiAndChatbot(tenantId, conversation, contact, content, created.id);
+    }
 
     return created;
   }
@@ -1101,7 +1154,7 @@ export class MessagesService {
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}": ${downloaded.reason} — customer's file was not saved`,
+          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}": ${downloaded.reason}, customer's file was not saved`,
         }).catch(() => {});
       }
     }
@@ -1126,9 +1179,10 @@ export class MessagesService {
     // race to create here. The whatsappMessageId+tenantId unique constraint is
     // the real guard; on P2002 the other delivery won the race, so fetch and
     // return what it created instead of erroring the whole webhook out.
+    let updatedConversation: { unreadCount?: number | null; status?: string } | undefined;
     let message: Prisma.MessageGetPayload<{ include: { replyTo: { select: { id: true; content: true; type: true; direction: true; mediaCaption: true } } } }>;
     try {
-      [message] = await this.prisma.$transaction([
+      [message, updatedConversation] = await this.prisma.$transaction([
         this.prisma.message.create({
           data: {
             tenantId,
@@ -1169,11 +1223,13 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, message);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      // From the row the database just returned from the atomic increment. The in-memory copy was read before
+      // it, so two quick customer messages both reported N+1 and the badge undercounted until a refresh.
+      unreadCount: updatedConversation?.unreadCount ?? (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: message.createdAt,
       lastInboundAt: message.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
-      status: conversation.status,
+      status: updatedConversation?.status ?? conversation.status,
       assignedTo: (conversation as Record<string, unknown>)['assignedTo'],
       labels: (conversation as Record<string, unknown>)['labels'] ?? [],
       channel: (conversation as Record<string, unknown>)['channel'] ?? null,
@@ -1252,7 +1308,7 @@ export class MessagesService {
   private async dispatchAiAndChatbot(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null; assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null },
-    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string | undefined,
     excludeMessageId: string,
   ): Promise<void> {
@@ -1269,7 +1325,7 @@ export class MessagesService {
     // only -- every other contact on the tenant is treated as if AI were off
     // entirely (fed into aiActive too, so chatbot-flow-matching doesn't think
     // AI is live for a contact it will never actually respond to).
-    const aiAllowedForThisContact = isAiAllowedForContact(tenantSettings?.aiRestrictedToPhone, contact.phone);
+    const aiAllowedForThisContact = isAiAllowedForContact(tenantSettings?.aiRestrictedToPhone, contact.phone ?? '');
     const aiActive = (aiMode === 'SUGGESTION' || aiMode === 'AUTO_REPLY') && aiAllowedForThisContact;
 
     // Trigger chatbot flow if one matches this message
@@ -1468,7 +1524,7 @@ export class MessagesService {
   private async handleAiSuggestion(
     tenantId: string,
     conversation: { id: string },
-    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
     takeoverEnabled: boolean,
@@ -1494,7 +1550,7 @@ export class MessagesService {
     // withheld until AUTO_REPLY or a human sends the reply themselves. New safeguard
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
-      tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
+      tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
       { commerceEnabled, readOnlyTools: true },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
@@ -1557,7 +1613,7 @@ export class MessagesService {
   private async handleAiAutoReply(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
-    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
     assignedTo: { id: string; isAiAgent?: boolean } | null | undefined,
@@ -1580,7 +1636,7 @@ export class MessagesService {
     const startMs = Date.now();
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
-        tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
+        tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
         { commerceEnabled, readOnlyTools: false },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
@@ -1696,7 +1752,7 @@ export class MessagesService {
         // message metadata, so anything already keying off it keeps working.
         metadata: commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true },
       },
-      include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+      include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
     }).catch((err) => {
       this.logger.warn(`Failed to persist AI auto-reply message for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1735,7 +1791,7 @@ export class MessagesService {
           sentAt: whatsappMessageId ? new Date() : undefined,
           metadata: { aiGenerated: true, productId: effect.productId },
         },
-        include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+        include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
       }).catch((err) => {
         this.logger.warn(`Failed to persist AI-triggered media message for conversation ${conversation.id}: ${String(err)}`);
         return null;
@@ -1771,7 +1827,7 @@ export class MessagesService {
   private async runBotFlow(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
-    contact: { id: string; phone: string; externalId?: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; externalIdType?: string | null },
     rawNodes: FlowNode[] | Record<string, unknown>,
   ) {
     if (!rawNodes) return;
@@ -2023,7 +2079,7 @@ export class MessagesService {
           createdAt: true,
           conversationId: true,
           contact: { select: { id: true, name: true, phone: true, avatarUrl: true } },
-          sender: { select: { id: true, name: true, avatarUrl: true } },
+          sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
         },
       }),
       this.prisma.message.count({ where }),

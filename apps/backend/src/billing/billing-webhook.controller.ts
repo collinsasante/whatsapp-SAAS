@@ -150,7 +150,10 @@ export class BillingWebhookController {
     if (!payment.invoiceId) {
       const purchase = await this.prisma.creditPurchase.findFirst({ where: { paystackRef: payment.gatewayReference ?? undefined } });
       if (purchase && purchase.status !== PaymentStatus.SUCCEEDED) {
-        await this.prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: PaymentStatus.SUCCEEDED } });
+        // Grant FIRST, then mark the purchase done. The grant is idempotent (unique creditPurchaseId), so
+        // if marking fails and the gateway retries, the retry safely re-runs. The old order marked it done
+        // first: a failed grant then left a paid purchase that every retry skipped, so the customer paid
+        // and never received credits.
         await this.aiCreditsService.grant(
           purchase.tenantId,
           AiCreditTransactionType.PURCHASE,
@@ -158,13 +161,12 @@ export class BillingWebhookController {
           `Credit pack purchase (${purchase.packSlug}) via ${gateway}`,
           { creditPurchaseId: purchase.id },
         );
+        await this.prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: PaymentStatus.SUCCEEDED } });
         this.logger.log(`${purchase.credits} AI credits added to tenant ${purchase.tenantId} via ${gateway}`);
       }
     } else {
       const invoice = await this.prisma.invoice.findUnique({ where: { id: payment.invoiceId } });
       if (invoice && invoice.status !== 'PAID') {
-        await this.invoiceService.markPaid(invoice.id);
-
         const meta = invoice.metadata as { planId?: string; planSlug?: string; cycle?: BillingCycle } | null;
         const plan = meta?.planId
           ? await this.prisma.plan.findUnique({ where: { id: meta.planId } })
@@ -196,6 +198,9 @@ export class BillingWebhookController {
             });
           }
         }
+        // Marked paid only after activation succeeded (activateFromPayment is an upsert, so a retry is safe).
+        // Marking first meant a failed activation left a PAID invoice that no retry would ever activate.
+        await this.invoiceService.markPaid(invoice.id);
         this.logger.log(`Subscription activated for tenant ${payment.tenantId} via ${gateway}`);
       } else if (invoice && parsed.isRenewal && parsed.periodEnd) {
         // Recurring renewal charge — extend the current period, no re-activation needed
@@ -213,6 +218,9 @@ export class BillingWebhookController {
   private async handlePaymentFailed(parsed: ParsedWebhookEvent) {
     const payment = await this.findPayment(parsed);
     if (!payment) return;
+    // Only a still-pending payment can fail. A late or replayed failure event must never turn a payment
+    // that already succeeded back into FAILED.
+    if (payment.status !== PaymentStatus.PENDING) return;
     await this.prisma.payment.update({
       where: { id: payment.id },
       data: { status: PaymentStatus.FAILED, failReason: 'Payment failed' },

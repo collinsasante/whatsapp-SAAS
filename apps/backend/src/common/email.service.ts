@@ -158,7 +158,7 @@ export class EmailService {
   </table>
 </body></html>`;
 
-    await this.send({ to: opts.to, subject: `${opts.code} — your VerzChat sign-in code`, html });
+    await this.send({ to: opts.to, subject: `${opts.code}, your VerzChat sign-in code`, html });
   }
 
   async sendPasswordReset(opts: { to: string; name: string; resetLink: string }): Promise<void> {

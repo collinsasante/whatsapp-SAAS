@@ -44,6 +44,12 @@ export class CallsController {
     return this.callsService.requestCallPermission(tenantId, phone);
   }
 
+  @Get('calling-status')
+  @ApiOperation({ summary: 'Read-only check of whether Meta reports calling as enabled for this workspace\'s number' })
+  callingStatus(@CurrentTenant() tenantId: string) {
+    return this.callsService.getCallingStatus(tenantId);
+  }
+
   @Post('initiate')
   @ApiOperation({ summary: 'Initiate a real WhatsApp call via Meta API' })
   initiateCall(

@@ -16,9 +16,10 @@ import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../common/email.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { AuthTokens, JwtPayload } from '@whatsapp-platform/shared-types';
+import { AuthTokens, JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { UpdateProfileDto, ChangePasswordDto } from './dto/update-profile.dto';
 import { workspaceRoleToUserRole } from './strategies/jwt.strategy';
+import { legacyToWorkspaceRole, workspaceRoleToLegacyUserRole } from './role-mapping.util';
 
 // jwtExpiresIn/jwtRefreshExpiresIn are always simple '<n><s|m|h|d>' strings (see
 // app.config.ts's defaults and the staging/production env overrides) -- no need for a
@@ -211,9 +212,10 @@ export class AuthService {
     if (process.env['SKIP_2FA'] === 'true') {
       await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
       await this.touchLastSeen(user.id);
-      const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+      const session = await this.resolveSessionRole(user.id, tenant.id, user.role);
+      const tokens = await this.generateTokens(user.id, user.email, tenant.id, session.role);
       await this.updateRefreshToken(user.id, tokens.refreshToken);
-      const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+      const safeUser = { id: user.id, email: user.email, name: user.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user.tenantId };
       const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
       return { ...tokens, user: safeUser, tenant: safeTenant };
     }
@@ -260,10 +262,11 @@ export class AuthService {
     if (!tenant) throw new UnauthorizedException('Workspace not found');
 
     await this.auditService.log({ tenantId, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
-    const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+    const session = await this.resolveSessionRole(user.id, tenant.id, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, tenant.id, session.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
-    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user.tenantId };
     const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -291,10 +294,12 @@ export class AuthService {
 
     await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
 
-    const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+    const session = await this.resolveSessionRole(user.id, tenant.id, user.role);
+
+    const tokens = await this.generateTokens(user.id, user.email, tenant.id, session.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
-    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user.tenantId };
     const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -322,10 +327,12 @@ export class AuthService {
 
     await this.auditService.log({ tenantId: tenant.id, userId: user.id, action: 'LOGIN', resource: 'auth', ipAddress });
 
-    const tokens = await this.generateTokens(user.id, user.email, tenant.id, user.role);
+    const session = await this.resolveSessionRole(user.id, tenant.id, user.role);
+
+    const tokens = await this.generateTokens(user.id, user.email, tenant.id, session.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
-    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user.tenantId };
     const safeTenant = { id: tenant.id, name: tenant.name, onboardingCompleted: tenant.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -391,10 +398,12 @@ export class AuthService {
       tenant = result.tenant;
     }
 
-    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, user!.role);
+    const session = await this.resolveSessionRole(user!.id, tenant!.id, user!.role);
+
+    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, session.role);
     await this.updateRefreshToken(user!.id, tokens.refreshToken);
 
-    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: user!.role, tenantId: user!.tenantId };
+    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user!.tenantId };
     const safeTenant = { id: tenant!.id, name: tenant!.name, onboardingCompleted: tenant!.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -450,10 +459,12 @@ export class AuthService {
       tenant = result.tenant;
     }
 
-    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, user!.role);
+    const session = await this.resolveSessionRole(user!.id, tenant!.id, user!.role);
+
+    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, session.role);
     await this.updateRefreshToken(user!.id, tokens.refreshToken);
 
-    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: user!.role, tenantId: user!.tenantId };
+    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user!.tenantId };
     const safeTenant = { id: tenant!.id, name: tenant!.name, onboardingCompleted: tenant!.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -500,9 +511,11 @@ export class AuthService {
       tenant = result.tenant;
     }
 
-    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, user!.role);
+    const session = await this.resolveSessionRole(user!.id, tenant!.id, user!.role);
+
+    const tokens = await this.generateTokens(user!.id, user!.email, tenant!.id, session.role);
     await this.updateRefreshToken(user!.id, tokens.refreshToken);
-    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: user!.role, tenantId: user!.tenantId };
+    const safeUser = { id: user!.id, email: user!.email, name: user!.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user!.tenantId };
     const safeTenant = { id: tenant!.id, name: tenant!.name, onboardingCompleted: tenant!.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -523,7 +536,9 @@ export class AuthService {
     const isValid = await bcrypt.compare(refreshToken, user.refreshToken);
     if (!isValid) throw new UnauthorizedException('Access denied');
 
-    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, user.role);
+    const session = await this.resolveSessionRole(user.id, user.tenantId, user.role);
+
+    const tokens = await this.generateTokens(user.id, user.email, user.tenantId, session.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
     // lastSeenAt used to be touched only at login -- for an agent whose
     // 15-minute access token keeps getting silently refreshed throughout a
@@ -576,18 +591,24 @@ export class AuthService {
     return { message: 'Password reset successfully' };
   }
 
-  async getMe(userId: string) {
+  /**
+   * `workspaceId` is the workspace in the caller's token. Without it a person who switched workspaces got their
+   * home workspace back from /me. JwtStrategy has already verified they are a member of it.
+   */
+  async getMe(userId: string, workspaceId?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, name: true, role: true, tenantId: true, avatarUrl: true },
     });
     if (!user) throw new UnauthorizedException('User not found');
+    const activeWorkspaceId = workspaceId ?? user.tenantId;
     const tenant = await this.prisma.tenant.findUnique({
-      where: { id: user.tenantId },
+      where: { id: activeWorkspaceId },
       select: { id: true, name: true, onboardingCompleted: true, plan: true, logoUrl: true },
     });
     if (!tenant) throw new UnauthorizedException('Tenant not found');
-    return { user, tenant };
+    const session = await this.resolveSessionRole(user.id, activeWorkspaceId, user.role);
+    return { user: { ...user, role: session.role, workspaceRole: session.workspaceRole }, tenant };
   }
 
   async updateMe(userId: string, dto: UpdateProfileDto) {
@@ -698,7 +719,7 @@ export class AuthService {
     const tokens = await this.generateTokens(targetUser.id, targetUser.email, workspaceId, effectiveRole);
     await this.updateRefreshToken(targetUser.id, tokens.refreshToken);
 
-    const safeUser = { id: targetUser.id, email: targetUser.email, name: targetUser.name, role: effectiveRole, tenantId: workspaceId };
+    const safeUser = { id: targetUser.id, email: targetUser.email, name: targetUser.name, role: effectiveRole, workspaceRole: membership?.role ?? legacyToWorkspaceRole(String(effectiveRole)), tenantId: workspaceId };
     const safeTenant = { id: workspace.id, name: workspace.name, onboardingCompleted: workspace.onboardingCompleted };
     return { ...tokens, user: safeUser, tenant: safeTenant };
   }
@@ -756,7 +777,9 @@ export class AuthService {
             email: inv.email,
             name: data.name!,
             passwordHash,
-            role: 'AGENT',
+            // Legacy fallback column only (membership below is the real role). Was hardcoded to AGENT, which
+            // is what made invited Owners and Admins read as Agents anywhere the legacy column was used.
+            role: workspaceRoleToLegacyUserRole(inv.role),
             emailVerified: true, // invited via email — already verified
           },
         });
@@ -798,12 +821,28 @@ export class AuthService {
     }
 
     const effectiveRole = workspaceRoleToUserRole(inv.role);
+    const session = { role: effectiveRole, workspaceRole: inv.role };
     const tokens = await this.generateTokens(user.id, user.email, inv.workspaceId, effectiveRole);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
-    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role, tenantId: user.tenantId };
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: session.role, workspaceRole: session.workspaceRole, tenantId: user.tenantId };
     const safeTenant = { id: workspace.id, name: workspace.name };
     return { ...tokens, user: safeUser, tenant: safeTenant };
+  }
+
+  /**
+   * The role a person actually holds in a workspace. Their membership is the source of truth; the
+   * legacy User.role column is only a fallback for accounts that predate memberships. Reading the
+   * legacy column everywhere else made an invited Owner sign in, refresh and render as an Agent even
+   * though the API (JwtStrategy) already authorised them as an Owner.
+   */
+  private async resolveSessionRole(userId: string, workspaceId: string, legacyRole: string): Promise<{ role: UserRole; workspaceRole: string }> {
+    const membership = await this.prisma.workspaceMember.findFirst({
+      where: { userId, workspaceId, status: 'ACTIVE' },
+      select: { role: true },
+    });
+    if (!membership) return { role: legacyRole as UserRole, workspaceRole: legacyToWorkspaceRole(legacyRole) };
+    return { role: workspaceRoleToUserRole(membership.role), workspaceRole: membership.role };
   }
 
   private async generateTokens(userId: string, email: string, tenantId: string, role: string): Promise<AuthTokens> {

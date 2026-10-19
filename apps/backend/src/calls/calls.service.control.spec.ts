@@ -130,3 +130,61 @@ describe('CallsService.initiateCall -- duplicate and tenancy guards', () => {
     expect(initiate).not.toHaveBeenCalled();
   });
 });
+
+describe('CallsService -- contact lookup is exact, never a substring', () => {
+  it('an inbound call from +18601671151 attaches only to that exact number', async () => {
+    const { svc, prisma } = build(null);
+    const findUnique = jest.fn().mockResolvedValue(null);
+    (prisma as unknown as { contact: Record<string, jest.Mock> }).contact['findUnique'] = findUnique;
+    (svc as unknown as Record<string, unknown>)['whatsapp'] = { initiateWhatsAppCall: jest.fn().mockResolvedValue({ callId: 'w1' }) };
+    (prisma.callLog as unknown as Record<string, jest.Mock>)['findFirst'] = jest.fn().mockResolvedValue(null);
+    await svc.initiateCall('t1', 'u1', { phone: '+18601671151' } as never).catch(() => undefined);
+    expect(findUnique).toHaveBeenCalledWith({ where: { tenantId_phone: { tenantId: 't1', phone: '+18601671151' } }, select: { id: true } });
+  });
+});
+
+describe('CallsService.initiateCall -- Meta calling errors become actionable', () => {
+  const reported = 'Calling API not enabled. Enable calling for this phone number in WhatsApp Manager, or via the settings API: POST /{phone_number_id}/settings with calling configuration.';
+
+  function withMetaFailure(error: Error & { metaCode?: number }, status: { state: string; sipEnabled: boolean; checked: boolean } = { state: 'DISABLED', sipEnabled: false, checked: true }) {
+    const { svc, prisma } = build(null);
+    prisma.callLog.findFirst = jest.fn().mockResolvedValue(null);
+    (prisma.contact as unknown as Record<string, jest.Mock>)['findUnique'] = jest.fn().mockResolvedValue(null);
+    const getCallingStatus = jest.fn().mockResolvedValue(status);
+    (svc as unknown as Record<string, unknown>)['whatsapp'] = { initiateWhatsAppCall: jest.fn().mockRejectedValue(error), getCallingStatus };
+    return { svc, prisma, getCallingStatus };
+  }
+  const bodyOf = async (p: Promise<unknown>) => { try { await p; } catch (e) { if (!(e instanceof BadRequestException)) throw e; return (e as BadRequestException).getResponse() as Record<string, unknown>; } throw new Error('expected a rejection'); };
+
+  it('the reported error becomes a plain explanation with steps, plus what Meta reports (read-only)', async () => {
+    const { svc, getCallingStatus, prisma } = withMetaFailure(new Error(reported));
+    const body = await bodyOf(svc.initiateCall('t1', 'u1', { phone: '+233555000111' } as never));
+    expect(body).toMatchObject({ code: 'CALLING_NOT_ENABLED', message: 'Calling is not turned on for this WhatsApp number yet.', callingStatus: { state: 'DISABLED' } });
+    expect((body['steps'] as string[]).join(' ')).toContain('WhatsApp Manager');
+    expect(body['message']).not.toContain('{phone_number_id}'); // the headline is plain language, not Meta's raw text
+    expect(getCallingStatus).toHaveBeenCalledWith('t1');
+    expect(prisma.callLog.create).not.toHaveBeenCalled(); // no call record for a call that never started
+  });
+
+  it('only the read-only status check is made; nothing on the Meta account is changed', async () => {
+    const { svc, getCallingStatus } = withMetaFailure(new Error(reported));
+    await bodyOf(svc.initiateCall('t1', 'u1', { phone: '+233555000111' } as never));
+    expect(Object.keys((svc as unknown as { whatsapp: object }).whatsapp).sort()).toEqual(['getCallingStatus', 'initiateWhatsAppCall']);
+    expect(getCallingStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('other failures do not trigger the status lookup and carry a code for the UI', async () => {
+    const err = Object.assign(new Error('(#138006) no approved call permission'), { metaCode: 138006 });
+    const { svc, getCallingStatus } = withMetaFailure(err);
+    const body = await bodyOf(svc.initiateCall('t1', 'u1', { phone: '+233555000111' } as never));
+    expect(body).toMatchObject({ code: 'CALL_PERMISSION_REQUIRED' });
+    expect(getCallingStatus).not.toHaveBeenCalled();
+  });
+
+  it('an unexpected provider failure never leaks its raw text to the user', async () => {
+    const { svc } = withMetaFailure(new Error('socket hang up at internal-host:3001 token=abc'));
+    const body = await bodyOf(svc.initiateCall('t1', 'u1', { phone: '+233555000111' } as never));
+    expect(body['code']).toBe('CALLING_UNAVAILABLE');
+    expect(JSON.stringify(body)).not.toContain('abc');
+  });
+});

@@ -57,7 +57,7 @@ export default function CommerceFeeLedgerPage() {
       {data && data.anomalies.duplicateGmvOrderIds.length > 0 && (
         <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-4 py-3 mb-6 text-sm">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          {data.anomalies.duplicateGmvOrderIds.length} order(s) have more than one GMV entry — worth investigating:{' '}
+          {data.anomalies.duplicateGmvOrderIds.length} order(s) have more than one GMV entry, worth investigating:{' '}
           {data.anomalies.duplicateGmvOrderIds.map((id, i) => (
             <span key={id}>
               {i > 0 && ', '}

@@ -78,7 +78,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Login with email and password — returns requiresPin, requiresPinSetup, requiresWorkspaceSelection, or full tokens' })
+  @ApiOperation({ summary: 'Login with email and password, returns requiresPin, requiresPinSetup, requiresWorkspaceSelection, or full tokens' })
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -175,7 +175,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: '[Mobile] Login with email and password — returns tokens in the body' })
+  @ApiOperation({ summary: '[Mobile] Login with email and password, returns tokens in the body' })
   async mobileLogin(@Body() dto: LoginDto, @Req() req: Request) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     const result = await this.authService.login(dto, ip);
@@ -187,7 +187,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: '[Mobile] Set login PIN for the first time — returns tokens in the body' })
+  @ApiOperation({ summary: '[Mobile] Set login PIN for the first time, returns tokens in the body' })
   async mobileSetupPin(@Body() body: { tempToken: string; pin: string }, @Req() req: Request) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     return this.authService.setupPin(body.tempToken, body.pin, ip);
@@ -197,7 +197,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: '[Mobile] Complete login by selecting a workspace — returns tokens in the body' })
+  @ApiOperation({ summary: '[Mobile] Complete login by selecting a workspace, returns tokens in the body' })
   async mobileSelectWorkspace(@Body() body: { tempToken: string; tenantId: string }, @Req() req: Request) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     return this.authService.selectWorkspace(body.tempToken, body.tenantId, ip);
@@ -207,7 +207,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: '[Mobile] Verify login PIN and complete sign-in — returns tokens in the body' })
+  @ApiOperation({ summary: '[Mobile] Verify login PIN and complete sign-in, returns tokens in the body' })
   async mobileVerify2FA(@Body() body: { tempToken: string; code: string }, @Req() req: Request) {
     const ip = req.ip ?? req.socket?.remoteAddress;
     return this.authService.verify2FA(body.tempToken, body.code, ip);
@@ -215,7 +215,7 @@ export class AuthController {
 
   @Post('mobile/refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[Mobile] Refresh access token via X-Refresh-Token header — returns a rotated refresh token in the body' })
+  @ApiOperation({ summary: '[Mobile] Refresh access token via X-Refresh-Token header, returns a rotated refresh token in the body' })
   async mobileRefresh(@Req() req: Request) {
     const token = req.header('x-refresh-token');
     if (!token) {
@@ -226,7 +226,7 @@ export class AuthController {
 
   @Post('mobile/firebase')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[Mobile] Sign in with a Firebase ID token — returns tokens in the body' })
+  @ApiOperation({ summary: '[Mobile] Sign in with a Firebase ID token, returns tokens in the body' })
   async mobileFirebaseLogin(@Body() body: { idToken: string }) {
     return this.authService.loginWithFirebase(body.idToken);
   }
@@ -236,7 +236,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current authenticated user and tenant' })
   me(@CurrentUser() user: JwtPayload) {
-    return this.authService.getMe(user.sub);
+    return this.authService.getMe(user.sub, user.tenantId);
   }
 
   @Patch('me')

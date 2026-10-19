@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Changelog — VerzChat',
-  description: 'VerzChat product changelog — see what\'s new, improved, and fixed in each release.',
+  title: 'Changelog: VerzChat',
+  description: 'VerzChat product changelog, see what\'s new, improved, and fixed in each release.',
   alternates: { canonical: '/changelog' },
 };
 
@@ -13,8 +13,8 @@ const entries = [
     tag: 'Major',
     tagColor: 'bg-purple-100 text-purple-700',
     items: [
-      { type: 'new', text: 'Verz AI assistant — AI-powered reply suggestions trained on your knowledge base. Enable it per workspace in Settings > AI.' },
-      { type: 'new', text: 'Universal takeover system — any agent can take over a conversation assigned to another agent or Verz, with a clear handover state so nothing gets confused.' },
+      { type: 'new', text: 'Verz AI assistant: AI-powered reply suggestions trained on your knowledge base. Enable it per workspace in Settings > AI.' },
+      { type: 'new', text: 'Universal takeover system, any agent can take over a conversation assigned to another agent or Verz, with a clear handover state so nothing gets confused.' },
       { type: 'new', text: 'Single Pro plan at $25/month. Simplified billing, one flat price for your whole team.' },
       { type: 'new', text: 'Automated Postgres backups running daily on the server with 7-day retention.' },
       { type: 'improved', text: 'Onboarding reduced from 5 steps to 2. Connect your WhatsApp number, get your profile auto-fetched from Meta, done.' },
@@ -39,9 +39,9 @@ const entries = [
     tag: 'Feature',
     tagColor: 'bg-blue-100 text-blue-700',
     items: [
-      { type: 'new', text: 'Optimistic media send in inbox — images and videos appear in the chat immediately when you hit send, no waiting for the server round-trip.' },
-      { type: 'new', text: 'Specific address picker in the compose area — choose which connected WhatsApp number to send from when you have multiple channels.' },
-      { type: 'new', text: 'Call accept guard — prevents double-accepting an incoming call if two agents click at the same time.' },
+      { type: 'new', text: 'Optimistic media send in inbox, images and videos appear in the chat immediately when you hit send, no waiting for the server round-trip.' },
+      { type: 'new', text: 'Specific address picker in the compose area, choose which connected WhatsApp number to send from when you have multiple channels.' },
+      { type: 'new', text: 'Call accept guard, prevents double-accepting an incoming call if two agents click at the same time.' },
       { type: 'improved', text: 'Emoji picker replaced with a WhatsApp-style picker with search and recently used emojis.' },
       { type: 'improved', text: 'Mark as unread right-click option on conversations in the list.' },
     ],
@@ -52,9 +52,9 @@ const entries = [
     tag: 'Feature',
     tagColor: 'bg-blue-100 text-blue-700',
     items: [
-      { type: 'new', text: 'Platform admin panel — manage all workspaces, view usage, impersonate accounts for support. Secured with a separate admin secret.' },
-      { type: 'new', text: 'Knowledge base — create articles that Verz uses to generate replies. Also has a manual "learn from recent chats" mode.' },
-      { type: 'new', text: 'Feedback system — agents can submit feedback directly from the platform.' },
+      { type: 'new', text: 'Platform admin panel, manage all workspaces, view usage, impersonate accounts for support. Secured with a separate admin secret.' },
+      { type: 'new', text: 'Knowledge base, create articles that Verz uses to generate replies. Also has a manual "learn from recent chats" mode.' },
+      { type: 'new', text: 'Feedback system, agents can submit feedback directly from the platform.' },
       { type: 'improved', text: 'Roles and permissions are now enforced on the backend. Previously only the frontend was checking.' },
     ],
   },

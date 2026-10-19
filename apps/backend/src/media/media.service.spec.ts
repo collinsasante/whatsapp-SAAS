@@ -79,3 +79,32 @@ describe('MediaService.upload -- duplicate file names', () => {
     expect(storageService.upload).not.toHaveBeenCalled();
   });
 });
+
+describe('MediaService.upload -- recorded voice notes (the reported failure)', () => {
+  it.each([
+    ['audio/webm;codecs=opus', 'what Chrome and Firefox record'],
+    ['audio/webm', 'WebM without a parameter'],
+    ['audio/mp4', 'what Safari records'],
+    ['audio/ogg; codecs=opus', 'OGG with a spaced parameter'],
+    ['AUDIO/WEBM;CODECS=OPUS', 'case differences'],
+  ])('accepts %s (%s) as AUDIO and stores the bare type', async (mimetype) => {
+    const { service, prisma, storageService } = build();
+    const f = file(mimetype, 'voice-note.webm');
+    await service.upload('tenant-1', 'user-1', f);
+    expect(prisma.mediaAsset.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'AUDIO', mimeType: mimetype.split(';')[0]!.trim().toLowerCase() }) }));
+    expect(storageService.upload.mock.calls[0][0].mimetype).not.toContain(';');
+  });
+
+  it('stripping parameters does not open a hole: dangerous types are still rejected, with or without a parameter', async () => {
+    for (const bad of ['text/html', 'text/html;charset=utf-8', 'image/svg+xml', 'application/javascript;charset=utf-8', 'application/x-msdownload', '']) {
+      const { service, storageService } = build();
+      await expect(service.upload('tenant-1', 'user-1', file(bad))).rejects.toThrow(BadRequestException);
+      expect(storageService.upload).not.toHaveBeenCalled();
+    }
+  });
+
+  it('names the offending type in the error so the UI can show something useful', async () => {
+    const { service } = build();
+    await expect(service.upload('tenant-1', 'user-1', file('video/x-weird;foo=bar'))).rejects.toThrow('Unsupported file type: video/x-weird');
+  });
+});

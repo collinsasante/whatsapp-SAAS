@@ -5,10 +5,12 @@ import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, Shie
 import { conversationsApi, activityLogApi, contactsApi, leadsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
 import { isAgentSentMedia } from '@/lib/media-provenance';
+import { VoiceNotePlayer } from './VoiceNotePlayer';
 import { useInboxStore } from '@/store/inbox.store';
 import { getInitials, formatRelativeTime, getProxiedMediaUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { contactDisplayName } from '@/lib/contact-display';
 
 function formatJourneyLabel(entry: { action: string; metadata: Record<string, unknown>; user?: { id: string; name: string } | null }): string | null {
   const who = entry.user?.name ?? null;
@@ -226,7 +228,7 @@ export default function ConversationDetails({ conversation }: Props) {
     }
   };
 
-  const name = conversation.contact?.name ?? conversation.contact?.phone ?? 'Unknown';
+  const name = contactDisplayName(conversation.contact);
   const avatarColor = getAvatarColor(name);
 
   return (
@@ -272,17 +274,17 @@ export default function ConversationDetails({ conversation }: Props) {
             {([
               { label: 'Status', value: conversation.status },
               { label: 'Intervened', value: conversation.assignedTo ? 'Yes' : 'No' },
-              { label: 'Transferred To', value: conversation.assignedTo?.name ?? '—' },
-              { label: 'Last Active', value: conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—' },
+              { label: 'Transferred To', value: conversation.assignedTo?.name ?? '-' },
+              { label: 'Last Active', value: conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '-' },
               { label: 'Template Messages', value: String(templateMessages.length) },
               { label: 'Session Messages', value: String(sessionMessages.length) },
               { label: 'Unresolved Queries', value: '0' },
-              { label: 'Source', value: conversation.contactSource === 'ad' ? `Ad${conversation.adHeadline ? ` — ${conversation.adHeadline}` : ''}` : conversation.contactSource === 'post' ? 'Social Post' : 'Organic' },
-              { label: 'First Message', value: firstMessage ? new Date(firstMessage.createdAt as unknown as string).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—' },
+              { label: 'Source', value: conversation.contactSource === 'ad' ? `Ad${conversation.adHeadline ? `: ${conversation.adHeadline}` : ''}` : conversation.contactSource === 'post' ? 'Social Post' : 'Organic' },
+              { label: 'First Message', value: firstMessage ? new Date(firstMessage.createdAt as unknown as string).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '-' },
               { label: 'WA Conversation', value: waConvActive ? 'Active' : 'Inactive', color: waConvActive ? 'text-green-600' : 'text-gray-500' },
               { label: 'MAU Status', value: mauActive ? 'Active' : 'Inactive', color: mauActive ? 'text-green-600' : 'text-gray-500' },
-              { label: 'Incoming', value: contactDetail == null ? '—' : contactDetail.isBlocked ? 'Blocked' : 'Allowed', color: contactDetail?.isBlocked ? 'text-red-500' : 'text-green-600' },
-              { label: 'Opted In', value: contactDetail == null ? '—' : contactDetail.optedOut ? 'No' : 'Yes', color: contactDetail?.optedOut ? 'text-red-500' : 'text-green-600' },
+              { label: 'Incoming', value: contactDetail == null ? '-' : contactDetail.isBlocked ? 'Blocked' : 'Allowed', color: contactDetail?.isBlocked ? 'text-red-500' : 'text-green-600' },
+              { label: 'Opted In', value: contactDetail == null ? '-' : contactDetail.optedOut ? 'No' : 'Yes', color: contactDetail?.optedOut ? 'text-red-500' : 'text-green-600' },
             ] as { label: string; value: string; color?: string }[]).map(({ label, value, color }) => (
               <div key={label} className="flex items-start justify-between gap-2 py-0.5">
                 <span className="text-xs text-gray-400 shrink-0">{label}</span>
@@ -362,7 +364,7 @@ export default function ConversationDetails({ conversation }: Props) {
             ) : (
               <div className="text-center py-3">
                 <p className="text-xs text-gray-400 mb-3 leading-relaxed">
-                  AI-generated summary of this conversation — topic, key points, next steps, and sentiment.
+                  AI-generated summary of this conversation, topic, key points, next steps, and sentiment.
                 </p>
                 <button
                   onClick={() => { void generateBrief(); }}
@@ -616,12 +618,7 @@ export default function ConversationDetails({ conversation }: Props) {
               <div className="space-y-2">
                 {audioMessages.slice(0, 10).map((msg) => (
                   <div key={msg.id} className="flex flex-col gap-1 p-2 hover:bg-gray-50 rounded-xl transition-colors">
-                    <audio
-                      src={getProxiedMediaUrl(msg.mediaUrl) || ''}
-                      controls
-                      className="w-full h-8"
-                      style={{ minWidth: 0 }}
-                    />
+                    <VoiceNotePlayer src={getProxiedMediaUrl(msg.mediaUrl) || ''} tone="neutral" />
                     <p className="text-xs text-gray-400">{formatRelativeTime(msg.createdAt)}</p>
                   </div>
                 ))}

@@ -125,7 +125,7 @@ export function DialPad() {
     if (permission === 'granted') return { text: '✓ Call permission granted', color: '#25D366' };
     if (permission === 'pending') return { text: '⏳ Permission request pending', color: '#3b82f6' };
     if (permission === 'denied') return { text: '✗ Permission denied', color: '#ef4444' };
-    if (permission === 'expired') return { text: '⚠ Permission expired — request again', color: '#eab308' };
+    if (permission === 'expired') return { text: '⚠ Permission expired, request again', color: '#eab308' };
     if (permission === 'no_permission') return { text: '⚠ No call permission', color: '#eab308' };
     if (permission === 'requesting') return { text: 'Sending request…', color: colors.textMuted };
     return null;

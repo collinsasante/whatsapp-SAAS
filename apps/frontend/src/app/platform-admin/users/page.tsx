@@ -96,7 +96,7 @@ function WorkspaceUsers({ tenantId }: { tenantId: string }) {
                   : <XCircle className="w-4 h-4 text-gray-300" />}
               </td>
               <td className="px-4 py-2.5 text-xs text-gray-400">
-                {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
               </td>
               <td className="px-4 py-2.5 text-xs text-gray-400">
                 {new Date(user.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -158,7 +158,7 @@ export default function UsersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-gray-500 text-sm mt-1">Grouped by workspace — {total.toLocaleString()} workspaces</p>
+          <p className="text-gray-500 text-sm mt-1">Grouped by workspace: {total.toLocaleString()} workspaces</p>
         </div>
         <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
       </div>
@@ -209,12 +209,12 @@ export default function UsersPage() {
                             {expanded === t.id ? <ChevronDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" /> : <ChevronRightIcon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />}
                             <div>
                               <div className="font-medium text-gray-900">{t.name}</div>
-                              <div className="text-xs text-gray-400">{t.billingEmail ?? '—'}</div>
+                              <div className="text-xs text-gray-400">{t.billingEmail ?? '-'}</div>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-gray-600">{t.teammateCount}</td>
-                        <td className="px-4 py-3 text-gray-600 text-xs">{t.plan ?? '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 text-xs">{t.plan ?? '-'}</td>
                         <td className="px-4 py-3 text-xs text-gray-400">{new Date(t.createdAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3">
                           <Link

@@ -3,6 +3,8 @@ import { ConversationStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { normalizePhone } from '@whatsapp-platform/shared-utils';
+import { classifyCallingError } from './calling-errors.util';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import {
@@ -384,6 +386,11 @@ export class CallsService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Initiate outbound call ────────────────────────────────────────────────
 
+  /** Read-only. Safe for any agent: it reveals nothing beyond whether calling is on. */
+  getCallingStatus(tenantId: string) {
+    return this.whatsapp.getCallingStatus(tenantId);
+  }
+
   async initiateCall(tenantId: string, userId: string, dto: InitiateCallDto) {
     const phone = dto.phone.trim();
     if (!phone) throw new BadRequestException('Phone number is required');
@@ -407,8 +414,10 @@ export class CallsService implements OnModuleInit, OnModuleDestroy {
       if (!known) throw new BadRequestException('Contact not found');
     }
     if (!contactId) {
-      const contact = await this.prisma.contact.findFirst({
-        where: { tenantId, phone: { contains: phone.replace(/^\+/, '') } },
+      // Exact match on the normalized number: a substring match attached the call to whichever
+      // contact's number merely contained these digits.
+      const contact = await this.prisma.contact.findUnique({
+        where: { tenantId_phone: { tenantId, phone: normalizePhone(phone) } },
         select: { id: true },
       });
       contactId = contact?.id;
@@ -416,8 +425,12 @@ export class CallsService implements OnModuleInit, OnModuleDestroy {
 
     const { callId: whatsappCallId } = await this.whatsapp.initiateWhatsAppCall(
       tenantId, phone, dto.type ?? 'audio', dto.sdpOffer,
-    ).catch((err: Error) => {
-      throw new BadRequestException(err.message ?? 'Could not initiate WhatsApp call');
+    ).catch(async (err: Error & { metaCode?: number; metaSubcode?: number }) => {
+      // Explain it in plain words instead of passing Meta's raw text to the screen.
+      const info = classifyCallingError({ message: err.message, metaCode: err.metaCode, metaSubcode: err.metaSubcode });
+      // For "not enabled", also ask Meta (read-only) what it reports, so the message can say what we saw.
+      const callingStatus = info.code === 'CALLING_NOT_ENABLED' ? await this.whatsapp.getCallingStatus(tenantId) : undefined;
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', code: info.code, message: info.message, steps: info.steps, ...(callingStatus && { callingStatus }) });
     });
 
     const call = await this.prisma.callLog.create({
@@ -653,8 +666,8 @@ export class CallsService implements OnModuleInit, OnModuleDestroy {
     // Inbound: customer calling the agent (event=connect, no existing record)
     if (!existing && event.event === 'connect' && event.from && event.direction !== 'BUSINESS_INITIATED') {
       const phone = event.from;
-      const contact = await this.prisma.contact.findFirst({
-        where: { tenantId, phone: { contains: phone } },
+      const contact = await this.prisma.contact.findUnique({
+        where: { tenantId_phone: { tenantId, phone: normalizePhone(phone) } },
         select: { id: true, name: true, phone: true },
       });
 
@@ -720,7 +733,7 @@ export class CallsService implements OnModuleInit, OnModuleDestroy {
     ]);
     if (TERMINAL_STATUSES.has(existing.status as CallStatus)) {
       this.logger.log(
-        `[calls] webhook event=${event.event} skipped — call already terminal status=${existing.status} callLogId=${existing.id}`,
+        `[calls] webhook event=${event.event} skipped, call already terminal status=${existing.status} callLogId=${existing.id}`,
       );
       return;
     }

@@ -30,7 +30,7 @@ export default function SystemHealthPage() {
     <div className="p-4 sm:p-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">System Health</h1>
-        <p className="text-gray-500 text-sm mt-1">Real infrastructure signals — no synthetic uptime numbers</p>
+        <p className="text-gray-500 text-sm mt-1">Real infrastructure signals, no synthetic uptime numbers</p>
       </div>
 
       {error && (
@@ -93,7 +93,7 @@ export default function SystemHealthPage() {
           </div>
 
           <Panel title="Directional gross-margin estimate per tenant (30d)" icon={Activity} className="mb-6">
-            <p className="text-xs text-gray-400 mb-3">Estimated Meta conversation cost vs. revenue — directional only, not real cost accounting. Worst margin first.</p>
+            <p className="text-xs text-gray-400 mb-3">Estimated Meta conversation cost vs. revenue, directional only, not real cost accounting. Worst margin first.</p>
             <div className="space-y-1.5 max-h-64 overflow-auto">
               {health.costEstimatePerTenant.length === 0 && <div className="text-sm text-gray-400 text-center py-4">No data</div>}
               {health.costEstimatePerTenant.map((t) => (

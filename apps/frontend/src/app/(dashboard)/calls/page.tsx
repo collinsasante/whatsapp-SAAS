@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { showConfirm } from '@/store/confirm.store';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/modern-ui/table';
 import { BottomSheet } from '@/components/mobile';
+import { contactDisplayName } from '@/lib/contact-display';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ function downloadCallLog(call: CallLog) {
     id: call.id,
     direction: call.direction,
     status: call.status,
-    contact: call.contact?.name ?? call.phone ?? 'Unknown',
+    contact: contactDisplayName(call.contact, call.phone),
     phone: call.contact?.phone ?? call.phone,
     agent: call.user?.name ?? 'Unassigned',
     duration: call.duration ? formatDuration(call.duration) : null,
@@ -271,7 +272,7 @@ function TransferModal({ call, agents, onClose, onTransferred }: { call: CallLog
       <div className="px-6 py-4 space-y-3">
         <div className="bg-gray-50 rounded-xl px-3 py-2.5 flex items-center gap-2 text-sm text-gray-700">
           <Phone size={13} className="text-gray-400" />
-          <span className="font-medium">{call.contact?.name ?? call.phone ?? 'Unknown'}</span>
+          <span className="font-medium">{contactDisplayName(call.contact, call.phone)}</span>
           <ChevronRight size={13} className="text-gray-300 mx-1" />
           <UserCheck size={13} className="text-teal-500" />
           <span className="text-gray-500">New agent</span>
@@ -386,8 +387,8 @@ function CallDetail({
 }) {
   const [note, setNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
-  const displayName = call.contact?.name ?? call.phone ?? 'Unknown';
-  const displayPhone = call.contact?.phone ?? call.phone ?? '—';
+  const displayName = contactDisplayName(call.contact, call.phone);
+  const displayPhone = call.contact?.phone ?? call.phone ?? '-';
 
   const handleAddNote = async () => {
     if (!note.trim()) return;
@@ -458,7 +459,7 @@ function CallDetail({
               {call.direction === 'INCOMING' ? 'Incoming' : 'Outgoing'}
             </span>
             <span className="text-gray-500">Duration</span>
-            <span className="text-right font-mono font-medium text-gray-700">{call.duration ? formatDuration(call.duration) : '—'}</span>
+            <span className="text-right font-mono font-medium text-gray-700">{call.duration ? formatDuration(call.duration) : '-'}</span>
             <span className="text-gray-500">Agent</span>
             <span className="text-right text-gray-700 font-medium truncate">{call.user?.name ?? 'Unassigned'}</span>
             <span className="text-gray-500">Time</span>
@@ -534,7 +535,7 @@ function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
     { label: 'Avg Duration', value: formatDuration(analytics.avgDuration), icon: <Clock size={14} className="text-teal-500" />, color: 'text-teal-700' },
     { label: 'Missed Rate', value: `${analytics.missedRate}%`, icon: <PhoneMissed size={14} className="text-red-500" />, color: analytics.missedRate > 20 ? 'text-red-600' : 'text-gray-700' },
     { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: <TrendingUp size={14} className="text-emerald-500" />, color: 'text-emerald-700' },
-    { label: 'Avg Response', value: analytics.avgResponseTime > 0 ? formatDuration(analytics.avgResponseTime) : '—', icon: <Activity size={14} className="text-blue-500" />, color: 'text-blue-700' },
+    { label: 'Avg Response', value: analytics.avgResponseTime > 0 ? formatDuration(analytics.avgResponseTime) : '-', icon: <Activity size={14} className="text-blue-500" />, color: 'text-blue-700' },
   ];
 
   return (
@@ -579,8 +580,8 @@ function CallRow({
   onTransfer: (call: CallLog) => void; onMessage: (call: CallLog) => void; onRefresh: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const name = call.contact?.name ?? call.phone ?? 'Unknown';
-  const phone = call.contact?.phone ?? call.phone ?? '—';
+  const name = contactDisplayName(call.contact, call.phone);
+  const phone = call.contact?.phone ?? call.phone ?? '-';
 
   return (
     <TableRow
@@ -609,7 +610,7 @@ function CallRow({
 
       {/* Duration */}
       <TableCell className="hidden md:table-cell">
-        <span className="text-sm font-mono text-gray-600">{call.duration ? formatDuration(call.duration) : '—'}</span>
+        <span className="text-sm font-mono text-gray-600">{call.duration ? formatDuration(call.duration) : '-'}</span>
       </TableCell>
 
       {/* Status */}
@@ -624,7 +625,7 @@ function CallRow({
             <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0', avatarColor(call.user.id))}>{call.user.name[0]}</div>
             <span className="text-sm text-gray-700 truncate">{call.user.name.split(' ')[0]}</span>
           </div>
-        ) : <span className="text-sm text-gray-400">—</span>}
+        ) : <span className="text-sm text-gray-400">-</span>}
       </TableCell>
 
       {/* Time + actions */}
@@ -894,7 +895,7 @@ export default function CallsPage() {
               <span className="text-[11px] text-gray-400 font-medium whitespace-nowrap">From</span>
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
                 className="bg-transparent text-xs text-gray-700 focus:outline-none w-28" />
-              <span className="text-gray-300">—</span>
+              <span className="text-gray-300">-</span>
               <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
                 className="bg-transparent text-xs text-gray-700 focus:outline-none w-28" />
               {(dateFrom || dateTo) && (
@@ -969,8 +970,8 @@ export default function CallsPage() {
                 {/* Mobile call cards */}
                 <div className="md:hidden divide-y divide-gray-100">
                   {calls.map(call => {
-                    const name = call.contact?.name ?? call.phone ?? 'Unknown';
-                    const phone = call.contact?.phone ?? call.phone ?? '—';
+                    const name = contactDisplayName(call.contact, call.phone);
+                    const phone = call.contact?.phone ?? call.phone ?? '-';
                     const isMissed = MISSED_STATUSES.has(call.status);
                     const isActive = ACTIVE_STATUSES.has(call.status);
                     return (

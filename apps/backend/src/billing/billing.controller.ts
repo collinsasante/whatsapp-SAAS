@@ -6,7 +6,8 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
-import { UserRole } from '@whatsapp-platform/shared-types';
+import { CurrentUser } from '../common/decorators/user.decorator';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { ApplyPromoCodeDto, CancelSubscriptionDto, InitiateCheckoutDto, InitiateCreditCheckoutDto, UpdateBillingEmailDto } from './dto/billing.dto';
 
 @ApiTags('Billing')
@@ -48,16 +49,16 @@ export class BillingController {
 
   @Post('checkout/stripe')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Start a Stripe subscription checkout — returns a client secret for Stripe Elements' })
-  initiateStripeCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto) {
-    return this.billingService.initiateStripeCheckout(tenantId, dto);
+  @ApiOperation({ summary: 'Start a Stripe subscription checkout, returns a client secret for Stripe Elements' })
+  initiateStripeCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto, @CurrentUser() user: JwtPayload) {
+    return this.billingService.initiateStripeCheckout(tenantId, dto, user.sub);
   }
 
   @Post('checkout/paystack')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Start a Paystack subscription checkout — returns an access code for Paystack Inline' })
-  initiatePaystackCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto) {
-    return this.billingService.initiatePaystackCheckout(tenantId, dto);
+  @ApiOperation({ summary: 'Start a Paystack subscription checkout, returns an access code for Paystack Inline' })
+  initiatePaystackCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCheckoutDto, @CurrentUser() user: JwtPayload) {
+    return this.billingService.initiatePaystackCheckout(tenantId, dto, user.sub);
   }
 
   @Post('promo')
@@ -117,15 +118,15 @@ export class BillingController {
 
   @Post('credits/checkout/stripe')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Buy AI credits via Stripe — returns a client secret for Stripe Elements' })
-  initiateStripeCreditCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCreditCheckoutDto) {
-    return this.billingService.initiateStripeCreditCheckout(tenantId, dto);
+  @ApiOperation({ summary: 'Buy AI credits via Stripe, returns a client secret for Stripe Elements' })
+  initiateStripeCreditCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCreditCheckoutDto, @CurrentUser() user: JwtPayload) {
+    return this.billingService.initiateStripeCreditCheckout(tenantId, dto, user.sub);
   }
 
   @Post('credits/checkout/paystack')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Buy AI credits via Paystack — returns an access code for Paystack Inline' })
-  initiatePaystackCreditCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCreditCheckoutDto) {
-    return this.billingService.initiatePaystackCreditCheckout(tenantId, dto);
+  @ApiOperation({ summary: 'Buy AI credits via Paystack, returns an access code for Paystack Inline' })
+  initiatePaystackCreditCheckout(@CurrentTenant() tenantId: string, @Body() dto: InitiateCreditCheckoutDto, @CurrentUser() user: JwtPayload) {
+    return this.billingService.initiatePaystackCreditCheckout(tenantId, dto, user.sub);
   }
 }

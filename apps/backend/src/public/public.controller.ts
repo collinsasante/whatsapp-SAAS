@@ -50,7 +50,7 @@ export class PublicController {
 
   @Get('c/:code')
   @Redirect()
-  @ApiOperation({ summary: 'Campaign link click tracker — logs the click and redirects to destination' })
+  @ApiOperation({ summary: 'Campaign link click tracker, logs the click and redirects to destination' })
   async trackClick(@Param('code') code: string, @Req() req: Request) {
     const url = await this.publicService.recordClick(code, req.ip, req.headers['user-agent']);
     return { url: url ?? 'https://verzchat.com', statusCode: 302 };

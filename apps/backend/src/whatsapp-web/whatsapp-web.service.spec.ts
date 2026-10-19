@@ -247,7 +247,7 @@ describe('WhatsAppWebService.handleInternalEvent', () => {
 
     expect(deps.messagesService.handleInboundWhatsAppWeb).toHaveBeenCalledWith(
       't1', 'chan1', '+233555000111', 'wa-msg-1',
-      { content: 'hi', mediaType: undefined, mediaBase64: undefined, mimetype: undefined, caption: undefined },
+      { content: 'hi', mediaType: undefined, mediaBase64: undefined, mimetype: undefined, caption: undefined, placeholder: false },
       'Jane',
     );
   });
@@ -316,5 +316,43 @@ describe('WhatsAppWebService.handleInternalEvent -- message_status receipts', ()
     const deps = buildDeps();
     deps.messagesService.updateStatus.mockRejectedValue(new Error('db down'));
     await expect(buildService(deps).handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'READ' })).resolves.toBeUndefined();
+  });
+});
+
+describe('WhatsAppWebService.handleInternalEvent -- sender identity', () => {
+  const base = { type: 'inbound_message' as const, tenantId: 't1', channelId: 'chan1', providerMessageId: 'wa-1', content: 'hi' };
+
+  it('accepts an anonymous @lid sender and forwards it as { jid }, never as a phone number', async () => {
+    const deps = buildDeps();
+    await buildService(deps).handleInternalEvent({ ...base, fromJid: '1587145059558262@lid' });
+    expect(deps.messagesService.handleInboundWhatsAppWeb).toHaveBeenCalledWith(
+      't1', 'chan1', { jid: '1587145059558262@lid' }, 'wa-1', expect.any(Object), undefined,
+    );
+  });
+
+  it.each([
+    ['both identities', { fromPhone: '+233555000111', fromJid: '1587145059558262@lid' }],
+    ['no identity', {}],
+    ['a group address', { fromJid: '120363025246125486@g.us' }],
+    ['the status broadcast feed', { fromJid: 'status@broadcast' }],
+    ['a malformed address', { fromJid: 'GH.1587145059558262' }],
+  ])('drops an event with %s', async (_label, identity) => {
+    const deps = buildDeps();
+    await buildService(deps).handleInternalEvent({ ...base, ...identity });
+    expect(deps.messagesService.handleInboundWhatsAppWeb).not.toHaveBeenCalled();
+  });
+});
+
+describe('WhatsAppWebService outbound target', () => {
+  it('sends to an explicit address with toJid and to a phone with toPhone', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', status: 'CONNECTED' });
+    mockedAxios.request = jest.fn().mockResolvedValue({ data: { providerMessageId: 'p1' } }) as never;
+    const service = buildService(deps);
+    await service.sendText('t1', 'chan1', { jid: '1587145059558262@lid' }, 'hello');
+    await service.sendText('t1', 'chan1', '+233555000111', 'hello');
+    const bodies = (mockedAxios.request as jest.Mock).mock.calls.map((c) => c[0].data);
+    expect(bodies[0]).toEqual({ toJid: '1587145059558262@lid', text: 'hello' });
+    expect(bodies[1]).toEqual({ toPhone: '+233555000111', text: 'hello' });
   });
 });

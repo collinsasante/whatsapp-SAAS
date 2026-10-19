@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { X, Search, Check, Send, Images, Play, FileText, Music, ChevronLeft, ChevronRight, User, Users } from 'lucide-react';
 import { mediaApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { contactDisplayName } from '@/lib/contact-display';
 
 interface MediaItem {
   id: string;
@@ -407,7 +408,7 @@ function GridTile({ item, selected, onToggle }: { item: MediaItem; selected: boo
 }
 
 function ListTile({ item, selected, onToggle }: { item: MediaItem; selected: boolean; onToggle: () => void }) {
-  const name = item.contact.name ?? item.contact.phone;
+  const name = contactDisplayName(item.contact);
   return (
     <div
       onClick={onToggle}

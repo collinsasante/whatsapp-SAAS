@@ -58,7 +58,7 @@ function StatusBadge({ status }: { status: ExecutionStatus }) {
 }
 
 function formatCost(estCostUsd: number | null): string {
-  if (estCostUsd === null || estCostUsd === undefined) return '—';
+  if (estCostUsd === null || estCostUsd === undefined) return '-';
   if (estCostUsd < 0.0001) return '<$0.0001';
   return `$${estCostUsd.toFixed(4)}`;
 }
@@ -85,7 +85,7 @@ function ToolCallRow({ call }: { call: SanitizedToolCall }) {
           </span>
           <span className="text-gray-700 font-mono">{call.name}</span>
         </span>
-        <span className="text-gray-400">{call.durationMs !== null ? `${call.durationMs}ms` : '—'}</span>
+        <span className="text-gray-400">{call.durationMs !== null ? `${call.durationMs}ms` : '-'}</span>
       </button>
       {open && (
         <div className="px-3 pb-2.5 space-y-2 text-[11px] font-mono">
@@ -168,7 +168,7 @@ export default function AiActivityTab() {
         </div>
       ) : executions.length === 0 ? (
         <div className="text-center py-16 text-gray-400 text-sm">
-          No AI executions yet — this fills in once the Verz-AI v2 pipeline is enabled and has handled a message.
+          No AI executions yet, this fills in once the Verz-AI v2 pipeline is enabled and has handled a message.
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -197,11 +197,11 @@ export default function AiActivityTab() {
                   <td className="py-2.5 pr-4"><StatusBadge status={e.status} /></td>
                   <td className="py-2.5 pr-4 text-gray-500 whitespace-nowrap">{e.modelKey}</td>
                   <td className="py-2.5 pr-4 text-gray-500 whitespace-nowrap">
-                    {e.inputTokens !== null ? `${e.inputTokens} in / ${e.outputTokens} out` : '—'}
+                    {e.inputTokens !== null ? `${e.inputTokens} in / ${e.outputTokens} out` : '-'}
                   </td>
                   <td className="py-2.5 pr-4 text-gray-500">{formatCost(e.estCostUsd)}</td>
-                  <td className="py-2.5 pr-4 text-gray-500">{e.confidence !== null ? `${e.confidence}%` : '—'}</td>
-                  <td className="py-2.5 pr-4 text-gray-500">{e.latencyMs !== null ? `${e.latencyMs}ms` : '—'}</td>
+                  <td className="py-2.5 pr-4 text-gray-500">{e.confidence !== null ? `${e.confidence}%` : '-'}</td>
+                  <td className="py-2.5 pr-4 text-gray-500">{e.latencyMs !== null ? `${e.latencyMs}ms` : '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -260,10 +260,10 @@ export default function AiActivityTab() {
                   <div className="grid grid-cols-2 gap-3">
                     <div><div className="text-[11px] text-gray-400">Task</div><div className="text-gray-700">{selected.taskType}</div></div>
                     <div><div className="text-[11px] text-gray-400">Provider / Model</div><div className="text-gray-700">{selected.provider} / {selected.modelKey}</div></div>
-                    <div><div className="text-[11px] text-gray-400">Tokens</div><div className="text-gray-700">{selected.inputTokens ?? '—'} in / {selected.outputTokens ?? '—'} out</div></div>
+                    <div><div className="text-[11px] text-gray-400">Tokens</div><div className="text-gray-700">{selected.inputTokens ?? '-'} in / {selected.outputTokens ?? '-'} out</div></div>
                     <div><div className="text-[11px] text-gray-400">Est. cost</div><div className="text-gray-700">{formatCost(selected.estCostUsd)}</div></div>
-                    <div><div className="text-[11px] text-gray-400">Confidence</div><div className="text-gray-700">{selected.confidence !== null ? `${selected.confidence}%` : '—'}</div></div>
-                    <div><div className="text-[11px] text-gray-400">Total latency</div><div className="text-gray-700">{selected.latencyMs !== null ? `${selected.latencyMs}ms` : '—'}</div></div>
+                    <div><div className="text-[11px] text-gray-400">Confidence</div><div className="text-gray-700">{selected.confidence !== null ? `${selected.confidence}%` : '-'}</div></div>
+                    <div><div className="text-[11px] text-gray-400">Total latency</div><div className="text-gray-700">{selected.latencyMs !== null ? `${selected.latencyMs}ms` : '-'}</div></div>
                   </div>
                   {selected.stageTimings && Object.keys(selected.stageTimings).length > 0 && (
                     <div>

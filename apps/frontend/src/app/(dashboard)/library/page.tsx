@@ -12,7 +12,9 @@ import { getPermissions } from '@/lib/permissions';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { formatRelativeTime, cn } from '@/lib/utils';
+import { formatRelativeTime, cn, getApiError } from '@/lib/utils';
+import { contactDisplayName } from '@/lib/contact-display';
+import { CHANNEL_LABELS } from '@/components/inbox/ChannelBadge';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface MediaItem {
@@ -48,6 +50,21 @@ interface ConvOption {
 }
 
 type Tab = 'ALL' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
+
+// All Media: everything in the workspace (the team's uploaded library plus files in conversations).
+// Sent by Agents: files a human team member sent to a customer. AI replies, automations and customer
+// uploads are not included. The server decides this (media-library.query.ts), the page only asks.
+type View = 'all' | 'agents';
+
+interface LibraryFilters {
+  channelType: string;
+  direction: string;
+  agentId: string;
+  from: string;
+  to: string;
+}
+const NO_FILTERS: LibraryFilters = { channelType: '', direction: '', agentId: '', from: '', to: '' };
+interface MediaAgent { id: string; name: string; count: number }
 
 const PAGE_SIZE = 48;
 
@@ -104,6 +121,13 @@ export default function LibraryPage() {
   const [deduplicating, setDeduplicating] = useState(false);
   const [tab, setTab] = useState<Tab>('ALL');
   const [search, setSearch] = useState('');
+  const [view, setView] = useState<View>('all');
+  const [filters, setFilters] = useState<LibraryFilters>(NO_FILTERS);
+  const [agents, setAgents] = useState<MediaAgent[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Only the newest request may update the screen: switching tabs or typing quickly must not let a slow
+  // older response overwrite newer results.
+  const requestId = useRef(0);
 
   const [lightbox, setLightbox] = useState<MediaItem | null>(null);
   const [sendTarget, setSendTarget] = useState<MediaItem | null>(null);
@@ -118,17 +142,34 @@ export default function LibraryPage() {
     } finally { setAgentLoading(false); }
   }, []);
 
-  const load = useCallback(async (pg: number, t: Tab, q: string) => {
+  const load = useCallback(async (pg: number, t: Tab, q: string, v: View, f: LibraryFilters) => {
+    const myRequest = ++requestId.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const params: Record<string, unknown> = { page: pg, limit: PAGE_SIZE };
       if (t !== 'ALL') params.type = t;
       if (q) params.search = q;
+      if (v === 'agents') params.source = 'agents';
+      if (f.channelType) params.channelType = f.channelType;
+      if (v === 'all' && f.direction) params.direction = f.direction;
+      if (v === 'agents' && f.agentId) params.agentId = f.agentId;
+      if (f.from) params.from = f.from;
+      if (f.to) params.to = f.to;
       const res = await mediaApi.library(params);
+      if (myRequest !== requestId.current) return;
       const data = res.data as { data: MediaItem[]; meta: { total: number } };
       setItems(data.data);
       setTotal(data.meta.total);
-    } finally { setLoading(false); }
+    } catch (err) {
+      if (myRequest !== requestId.current) return;
+      console.error('[library] failed to load media', err instanceof Error ? err.message : err);
+      setItems([]);
+      setTotal(0);
+      setLoadError(getApiError(err, 'Could not load media. Check your connection and try again.'));
+    } finally {
+      if (myRequest === requestId.current) setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -149,12 +190,28 @@ export default function LibraryPage() {
   }, [loadAgentAssets]);
 
   useEffect(() => {
-    const t = setTimeout(() => { setPage(1); void load(1, tab, search); }, 300);
+    const t = setTimeout(() => { setPage(1); void load(1, tab, search, view, filters); }, 300);
     return () => clearTimeout(t);
-  }, [search, tab, load]);
+  }, [search, tab, view, filters, load]);
+
+  // Agents who have sent media, for the "Agent" filter.
+  useEffect(() => {
+    mediaApi.libraryAgents()
+      .then((res) => setAgents((res.data as MediaAgent[]) ?? []))
+      .catch((err) => console.error('[library] failed to load agent list', err instanceof Error ? err.message : err));
+  }, []);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
-  const goPage = (p: number) => { setPage(p); void load(p, tab, search); };
+  const goPage = (p: number) => { setPage(p); void load(p, tab, search, view, filters); };
+  const setFilter = <K extends keyof LibraryFilters>(key: K, value: LibraryFilters[K]) => setFilters((f) => ({ ...f, [key]: value }));
+  const hasFilters = Object.values(filters).some(Boolean);
+  const switchView = (v: View) => {
+    if (v === view) return;
+    setView(v);
+    // direction only applies to All Media and agent only to Sent by Agents: drop the one that no longer applies.
+    setFilters((f) => (v === 'agents' ? { ...f, direction: '' } : { ...f, agentId: '' }));
+    setPage(1);
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -234,8 +291,10 @@ export default function LibraryPage() {
     isAsset: true,
   });
 
+  // Library uploads have no channel, sender or direction, so they only belong to the unfiltered All Media view.
+  const showLibraryUploads = view === 'all' && !filters.channelType && !filters.direction && !filters.from && !filters.to;
   const filteredAgentAssets = agentAssets.filter(a =>
-    (tab === 'ALL' || a.type === tab) &&
+    showLibraryUploads && (tab === 'ALL' || a.type === tab) &&
     (!search || a.originalName.toLowerCase().includes(search.toLowerCase())),
   );
   const filteredItems = items.filter(i => tab === 'ALL' || i.type === tab);
@@ -279,7 +338,7 @@ export default function LibraryPage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-bold text-gray-900 truncate">File Library</h1>
-              <p className="text-xs sm:text-sm text-gray-500 mt-0.5 truncate">{(agentAssets.length + total).toLocaleString()} media files</p>
+              <p className="text-xs sm:text-sm text-gray-500 mt-0.5 truncate">{((showLibraryUploads ? agentAssets.length : 0) + total).toLocaleString()} media files</p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
@@ -318,6 +377,68 @@ export default function LibraryPage() {
           </div>
         </div>
 
+        {/* View: All Media vs Sent by Agents */}
+        <div className="mb-3" role="tablist" aria-label="Media view">
+          <div className="inline-flex rounded-xl bg-gray-100 p-1">
+            {([['all', 'All Media'], ['agents', 'Sent by Agents']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={view === key}
+                onClick={() => switchView(key)}
+                className={cn('px-3 sm:px-4 py-1.5 rounded-lg text-sm font-medium transition-colors', view === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {view === 'agents'
+              ? 'Files your team members sent to customers. AI replies, automations and customer uploads are not included.'
+              : 'Your team library and every file shared in conversations, sent or received.'}
+          </p>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <label className="sr-only" htmlFor="lib-channel">Channel</label>
+          <select id="lib-channel" value={filters.channelType} onChange={(e) => setFilter('channelType', e.target.value)}
+            className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+            <option value="">All channels</option>
+            {(['WHATSAPP', 'WHATSAPP_WEB', 'FACEBOOK_MESSENGER', 'INSTAGRAM'] as const).map((c) => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}
+          </select>
+          {view === 'all' ? (
+            <>
+              <label className="sr-only" htmlFor="lib-direction">Direction</label>
+              <select id="lib-direction" value={filters.direction} onChange={(e) => setFilter('direction', e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <option value="">Sent and received</option>
+                <option value="OUTBOUND">Sent to customers</option>
+                <option value="INBOUND">Received from customers</option>
+              </select>
+            </>
+          ) : (
+            <>
+              <label className="sr-only" htmlFor="lib-agent">Agent</label>
+              <select id="lib-agent" value={filters.agentId} onChange={(e) => setFilter('agentId', e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <option value="">All agents</option>
+                {agents.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.count})</option>)}
+              </select>
+            </>
+          )}
+          <label className="sr-only" htmlFor="lib-from">From date</label>
+          <input id="lib-from" type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilter('from', e.target.value)}
+            className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          <span className="text-xs text-gray-400" aria-hidden="true">to</span>
+          <label className="sr-only" htmlFor="lib-to">To date</label>
+          <input id="lib-to" type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilter('to', e.target.value)}
+            className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          {hasFilters && (
+            <button type="button" onClick={() => setFilters(NO_FILTERS)} className="text-xs text-teal-600 hover:text-teal-700 font-medium px-1">Clear filters</button>
+          )}
+        </div>
+
         {/* Tabs */}
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0">
           {tabs.map((t) => (
@@ -338,7 +459,8 @@ export default function LibraryPage() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-4 sm:p-6">
 
-        {/* Agent Library */}
+        {/* Agent Library (team uploads): only in the unfiltered All Media view */}
+        {showLibraryUploads && (
         <div className="mb-10">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-6 h-6 bg-teal-50 rounded-lg flex items-center justify-center">
@@ -394,25 +516,36 @@ export default function LibraryPage() {
             </>
           )}
         </div>
+        )}
 
-        {/* Customer Files */}
+        {/* Conversation media */}
         <div>
           <div className="flex items-center gap-2 mb-4">
             <div className="w-6 h-6 bg-blue-50 rounded-lg flex items-center justify-center">
               <Users size={13} className="text-blue-600" />
             </div>
-            <h2 className="text-sm font-semibold text-gray-700">Customer Files</h2>
-            <span className="text-xs text-gray-400">· Media shared in conversations</span>
+            <h2 className="text-sm font-semibold text-gray-700">{view === 'agents' ? 'Sent by Agents' : 'Conversation Files'}</h2>
+            <span className="text-xs text-gray-400">· {view === 'agents' ? 'Sent by your team to customers' : 'Media shared in conversations'}</span>
+            {!loading && !loadError && <span className="text-xs text-gray-400 ml-auto">{total.toLocaleString()} {total === 1 ? 'file' : 'files'}</span>}
           </div>
           {loading ? (
             <div className="flex justify-center py-10">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
             </div>
+          ) : loadError ? (
+            <div role="alert" className="flex flex-col items-center justify-center py-10 bg-red-50 rounded-xl border border-red-100">
+              <p className="text-sm text-red-700">{loadError}</p>
+              <button type="button" onClick={() => { void load(page, tab, search, view, filters); }} className="mt-3 text-sm text-red-700 underline font-medium">Try again</button>
+            </div>
           ) : filteredItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 bg-white rounded-xl border border-dashed border-gray-200">
               <Users size={24} className="text-gray-300 mb-2" />
-              <p className="text-sm text-gray-400">No customer files{search ? ' matching your search' : ' yet'}</p>
-              {!search && <p className="text-xs text-gray-300 mt-1">Media shared in conversations will appear here</p>}
+              <p className="text-sm text-gray-400">
+                {view === 'agents' ? 'No files sent by agents' : 'No conversation files'}{search || hasFilters ? ' matching your search or filters' : ' yet'}
+              </p>
+              {hasFilters ? (
+                <button type="button" onClick={() => setFilters(NO_FILTERS)} className="mt-2 text-xs text-teal-600 hover:text-teal-700 font-medium">Clear filters</button>
+              ) : !search && <p className="text-xs text-gray-300 mt-1">{view === 'agents' ? 'Files your team sends in conversations will appear here' : 'Media shared in conversations will appear here'}</p>}
             </div>
           ) : (
             <>
@@ -517,7 +650,7 @@ function MediaGrid({
 
 function MediaTile({ item, onPreview, onSend, onDelete }: { item: MediaItem; onPreview: (i: MediaItem) => void; onSend: (i: MediaItem) => void; onDelete?: (i: MediaItem) => void }) {
   const [imgErr, setImgErr] = useState(false);
-  const name = item.contact.name ?? item.contact.phone;
+  const name = contactDisplayName(item.contact);
 
   return (
     <div className="group relative aspect-square rounded-xl overflow-hidden bg-gray-100 cursor-pointer border border-gray-200"
@@ -580,7 +713,7 @@ function MediaList({ items, onSend, onDelete, title }: { items: MediaItem[]; onS
       {title && <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">{title}</h2>}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
         {items.map((item) => {
-          const name = item.contact.name ?? item.contact.phone;
+          const name = contactDisplayName(item.contact);
           const color = avatarColor(name);
           const filename = item.mediaCaption ?? item.mediaType ?? item.type.toLowerCase();
           return (
@@ -644,7 +777,7 @@ function Lightbox({ item, items, onClose, onSend, onNavigate }: { item: MediaIte
   const idx = items.findIndex(i => i.id === item.id);
   const prev = idx > 0 ? items[idx - 1] : null;
   const next = idx < items.length - 1 ? items[idx + 1] : null;
-  const name = item.contact.name ?? item.contact.phone;
+  const name = contactDisplayName(item.contact);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -767,7 +900,7 @@ function SendToModal({ item, onClose, onSend }: { item: MediaItem; onClose: () =
           ) : convs.length === 0 ? (
             <p className="text-center text-gray-400 text-sm py-8">No open conversations found</p>
           ) : convs.map((conv) => {
-            const name = conv.contact.name ?? conv.contact.phone;
+            const name = contactDisplayName(conv.contact);
             const color = avatarColor(name);
             return (
               <button key={conv.id} onClick={() => { void handleSend(conv); }} disabled={!!sending}

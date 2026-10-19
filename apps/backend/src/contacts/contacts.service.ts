@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationStatus, Contact } from '@prisma/client';
 import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/contact.dto';
-import { normalizePhone, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
+import { normalizePhone, usableContactName, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
 
 type DatePreset = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
@@ -210,8 +210,14 @@ export class ContactsService {
   // `string | null` post-Messenger-channel work) -- this method's where/create
   // clauses are both scoped to a normalized phone value, so it can never
   // resolve to a Messenger-style (phone: null) contact by construction.
-  async findOrCreate(tenantId: string, phone: string, name?: string): Promise<Contact & { phone: string }> {
+  async findOrCreate(tenantId: string, phone: string, rawName?: string): Promise<Contact & { phone: string }> {
+    // Identity is the normalized phone number only. A profile name is just a label: it is never
+    // used to find or merge a contact, and an opaque provider id is not stored as one.
+    const name = usableContactName(rawName);
     const normalized = normalizePhone(phone);
+    // normalizePhone('status') is just '+': a value with no digits must never become a contact
+    // (this is how the WhatsApp status feed used to create phantom conversations).
+    if (!/^\+\d{5,}$/.test(normalized)) throw new BadRequestException('Invalid phone number');
     // upsert (not find-then-create) -- two concurrent inbound webhooks for the same
     // phone number can both pass a plain existence check before either commits,
     // then race on contact_tenant_id_phone_key. upsert lets Postgres resolve the
@@ -241,8 +247,9 @@ export class ContactsService {
     tenantId: string,
     externalIdType: string,
     externalId: string,
-    name?: string,
+    rawName?: string,
   ): Promise<Contact & { externalId: string; externalIdType: string }> {
+    const name = usableContactName(rawName);
     const contact = await this.prisma.contact.upsert({
       where: { tenantId_externalIdType_externalId: { tenantId, externalIdType, externalId } },
       update: {},

@@ -8,6 +8,7 @@ import {
 import { campaignsApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { contactDisplayName } from '@/lib/contact-display';
 
 interface Campaign {
   id: string;
@@ -307,7 +308,7 @@ export default function CampaignDetailPage() {
                   {recipients.map((r) => {
                     const rMeta = RECIPIENT_STATUS_META[r.status] ?? RECIPIENT_STATUS_META['PENDING'];
                     const StatusIcon = rMeta.icon;
-                    const displayName = r.contact.name ?? r.contact.phone;
+                    const displayName = contactDisplayName(r.contact);
                     const color = avatarColor(displayName);
                     return (
                       <tr key={r.id} className="hover:bg-gray-50 transition-colors">
@@ -329,7 +330,7 @@ export default function CampaignDetailPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-xs text-gray-400">
-                          {r.sentAt ? formatRelativeTime(r.sentAt) : <span className="text-gray-300">—</span>}
+                          {r.sentAt ? formatRelativeTime(r.sentAt) : <span className="text-gray-300">-</span>}
                         </td>
                         <td className="px-4 py-3 text-xs text-red-500 max-w-48 truncate">
                           {r.errorMessage ? (
@@ -337,7 +338,7 @@ export default function CampaignDetailPage() {
                               <AlertCircle size={11} className="flex-shrink-0" />
                               {r.errorMessage}
                             </span>
-                          ) : <span className="text-gray-300">—</span>}
+                          ) : <span className="text-gray-300">-</span>}
                         </td>
                       </tr>
                     );

@@ -123,7 +123,7 @@ export default function AiTestChatPage() {
             <div>
               <h1 className="text-lg font-bold text-gray-900">Test Chat</h1>
               <p className="text-xs text-gray-500">
-                Chat as a customer with Verz AI through the real message pipeline — no WhatsApp needed. In Suggestion mode replies are drafts only (not sent); in Auto-Reply mode they're real sent messages.
+                Chat as a customer with Verz AI through the real message pipeline, no WhatsApp needed. In Suggestion mode replies are drafts only (not sent); in Auto-Reply mode they're real sent messages.
               </p>
             </div>
           </div>
@@ -141,7 +141,7 @@ export default function AiTestChatPage() {
           <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading conversation...</div>
         ) : entries.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">
-            Say hi like a customer would — try &quot;How much is delivery?&quot; or ask something from your knowledge base.
+            Say hi like a customer would, try &quot;How much is delivery?&quot; or ask something from your knowledge base.
           </div>
         ) : (
           entries.map((e) => (
@@ -160,7 +160,7 @@ export default function AiTestChatPage() {
               </div>
               {e.kind === 'suggestion' && (
                 <span className="flex items-center gap-1 text-[11px] text-violet-500 mt-1 px-1">
-                  <Sparkles size={10} /> Suggested — not sent{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
+                  <Sparkles size={10} /> Suggested, not sent{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
                 </span>
               )}
               {e.kind === 'note' && (

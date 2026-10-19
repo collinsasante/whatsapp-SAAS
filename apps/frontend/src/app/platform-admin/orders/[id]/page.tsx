@@ -55,7 +55,7 @@ export default function OrderDetailPage() {
           <dl className="text-sm space-y-2">
             <div className="flex justify-between"><dt className="text-gray-500">Total</dt><dd className="font-medium">{order.currency} {order.totalMajorUnits.toFixed(2)}</dd></div>
             <div className="flex justify-between"><dt className="text-gray-500">Created</dt><dd>{new Date(order.createdAt).toLocaleString()}</dd></div>
-            <div className="flex justify-between"><dt className="text-gray-500">Paid</dt><dd>{order.paidAt ? new Date(order.paidAt).toLocaleString() : '—'}</dd></div>
+            <div className="flex justify-between"><dt className="text-gray-500">Paid</dt><dd>{order.paidAt ? new Date(order.paidAt).toLocaleString() : '-'}</dd></div>
             <div className="flex justify-between"><dt className="text-gray-500">Customer phone</dt><dd>{order.customerPhone}</dd></div>
           </dl>
         </Panel>

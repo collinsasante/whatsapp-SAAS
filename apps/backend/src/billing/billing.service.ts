@@ -15,6 +15,8 @@ function genRef(prefix: string) {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
@@ -54,6 +56,24 @@ export class BillingService {
     return this.subscriptionService.getPlans();
   }
 
+  /**
+   * The address payment receipts and the gateway customer use. Order: an email typed for this
+   * purchase, the workspace's saved billing email, then the signed-in user's own account email.
+   * Everything is looked up inside the caller's tenant, so another workspace's email can never be used.
+   */
+  async resolveBillingEmail(tenantId: string, userId: string | undefined, requested: string | undefined, saved: string | null): Promise<string> {
+    const candidates: Array<string | null | undefined> = [requested?.trim(), saved?.trim()];
+    if (!candidates.some(Boolean) && userId) {
+      const user = await this.prisma.user.findFirst({ where: { id: userId, tenantId }, select: { email: true } });
+      candidates.push(user?.email?.trim());
+    }
+    const email = candidates.find((c) => !!c);
+    if (!email || !EMAIL_PATTERN.test(email)) {
+      throw new BadRequestException('Add a billing email to continue. You can set one in Billing settings.');
+    }
+    return email;
+  }
+
   private async requireTenant(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -65,7 +85,7 @@ export class BillingService {
 
   // ─── Stripe: subscription checkout (embedded Elements) ───────────────────
 
-  async initiateStripeCheckout(tenantId: string, dto: InitiateCheckoutDto) {
+  async initiateStripeCheckout(tenantId: string, dto: InitiateCheckoutDto, userId?: string) {
     const tenant = await this.requireTenant(tenantId);
     const plan = await this.prisma.plan.findUnique({ where: { slug: dto.planSlug } });
     if (!plan) throw new NotFoundException(`Plan not found: ${dto.planSlug}`);
@@ -78,8 +98,7 @@ export class BillingService {
     const priceId = dto.cycle === BillingCycle.YEARLY ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
     if (!priceId) throw new BadRequestException(`Plan "${plan.slug}" is not yet provisioned for Stripe`);
 
-    const billingEmail = dto.billingEmail ?? tenant.billingEmail;
-    if (!billingEmail) throw new BadRequestException('A billing email is required');
+    const billingEmail = await this.resolveBillingEmail(tenantId, userId, dto.billingEmail, tenant.billingEmail);
 
     const existingSub = await this.subscriptionService.getSubscription(tenantId);
     const customerId = await this.stripeGateway.getOrCreateCustomer({
@@ -136,7 +155,7 @@ export class BillingService {
 
   // ─── Paystack: subscription checkout (embedded Inline) ───────────────────
 
-  async initiatePaystackCheckout(tenantId: string, dto: InitiateCheckoutDto) {
+  async initiatePaystackCheckout(tenantId: string, dto: InitiateCheckoutDto, userId?: string) {
     const tenant = await this.requireTenant(tenantId);
     const plan = await this.prisma.plan.findUnique({ where: { slug: dto.planSlug } });
     if (!plan) throw new NotFoundException(`Plan not found: ${dto.planSlug}`);
@@ -150,8 +169,7 @@ export class BillingService {
     const ghsAmount = dto.cycle === BillingCycle.YEARLY ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
     if (!planCode || !ghsAmount) throw new BadRequestException(`Plan "${plan.slug}" is not yet provisioned for Paystack`);
 
-    const billingEmail = dto.billingEmail ?? tenant.billingEmail;
-    if (!billingEmail) throw new BadRequestException('A billing email is required');
+    const billingEmail = await this.resolveBillingEmail(tenantId, userId, dto.billingEmail, tenant.billingEmail);
 
     const { invoice } = await this.subscriptionService.createCheckoutInvoice({
       tenantId,
@@ -281,12 +299,11 @@ export class BillingService {
 
   // ─── Stripe: one-off credit pack purchase (USD) ────────────────────────────
 
-  async initiateStripeCreditCheckout(tenantId: string, dto: InitiateCreditCheckoutDto) {
+  async initiateStripeCreditCheckout(tenantId: string, dto: InitiateCreditCheckoutDto, userId?: string) {
     const tenant = await this.requireTenant(tenantId);
     const pack = await this.getCreditPack(dto.packSlug);
     if (pack.priceUsd == null) throw new BadRequestException('This credit pack is not available via card payment');
-    const billingEmail = dto.billingEmail ?? tenant.billingEmail;
-    if (!billingEmail) throw new BadRequestException('A billing email is required');
+    const billingEmail = await this.resolveBillingEmail(tenantId, userId, dto.billingEmail, tenant.billingEmail);
 
     const reference = genRef('VRZ-C');
     const customerId = await this.stripeGateway.getOrCreateCustomer({
@@ -331,12 +348,11 @@ export class BillingService {
 
   // ─── Paystack: one-off credit pack purchase (GHS) ──────────────────────────
 
-  async initiatePaystackCreditCheckout(tenantId: string, dto: InitiateCreditCheckoutDto) {
+  async initiatePaystackCreditCheckout(tenantId: string, dto: InitiateCreditCheckoutDto, userId?: string) {
     const tenant = await this.requireTenant(tenantId);
     const pack = await this.getCreditPack(dto.packSlug);
     if (pack.priceGhs == null) throw new BadRequestException('This credit pack is not available via Paystack');
-    const billingEmail = dto.billingEmail ?? tenant.billingEmail;
-    if (!billingEmail) throw new BadRequestException('A billing email is required');
+    const billingEmail = await this.resolveBillingEmail(tenantId, userId, dto.billingEmail, tenant.billingEmail);
 
     const checkout = await this.paystackGateway.initializeTransaction({
       email: billingEmail,

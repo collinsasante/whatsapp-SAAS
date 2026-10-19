@@ -37,6 +37,8 @@ function setup(opts: { channelType?: string; lastInboundAt?: Date | null; assign
 }
 
 describe('MessagesService.sendMessage -- ownership', () => {
+  beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(NOW));
+  afterEach(() => jest.restoreAllMocks());
   it('rejects a send into a conversation owned by another human agent, without persisting or reopening anything', async () => {
     const { service, prisma, conversationsService, whatsappService } = setup({ lastInboundAt: new Date(NOW - H), assignedTo: { id: 'other', isAiAgent: false }, status: 'RESOLVED' });
     await expect(service.sendMessage('t1', 'c1', 'u1', { type: 'IMAGE', mediaUrl: 'http://x/y.png' } as never)).rejects.toThrow('another agent');

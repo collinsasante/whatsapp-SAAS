@@ -112,7 +112,7 @@ export default function CommerceChatPage() {
       const res = await commerceOrdersApi.verifyPayment(order.id);
       const data = res.data as { verified: boolean; reason?: string; order: Order };
       if (data.verified) {
-        toast.success('Payment verified with Paystack — order is PAID');
+        toast.success('Payment verified with Paystack, order is PAID');
         setOrder(prev => (prev ? { ...prev, ...data.order } : data.order));
       } else {
         toast.error(data.reason || 'Payment not confirmed by Paystack yet');
@@ -136,7 +136,7 @@ export default function CommerceChatPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900">Test Chat</h1>
-              <p className="text-xs text-gray-500">Chat as a customer with your commerce AI — real orders, real (test-mode) payments, no WhatsApp needed</p>
+              <p className="text-xs text-gray-500">Chat as a customer with your commerce AI, real orders, real (test-mode) payments, no WhatsApp needed</p>
             </div>
           </div>
           <button
@@ -156,7 +156,7 @@ export default function CommerceChatPage() {
               <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading conversation...</div>
             ) : messages.length === 0 ? (
               <div className="text-center py-16 text-gray-400 text-sm">
-                Say hi like a customer would — try &quot;What do you sell?&quot; or &quot;How much is the Blue Denim Jacket?&quot;
+                Say hi like a customer would, try &quot;What do you sell?&quot; or &quot;How much is the Blue Denim Jacket?&quot;
               </div>
             ) : (
               messages.map(m => (
@@ -254,17 +254,17 @@ export default function CommerceChatPage() {
                       className="flex items-center justify-center gap-1.5 w-full px-3 py-2 text-sm text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors font-medium"
                     >
                       {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
-                      I&apos;ve paid — verify now
+                      I&apos;ve paid, verify now
                     </button>
                     <p className="text-[11px] text-gray-400">
-                      Use a Paystack test card (e.g. 4084 0840 8408 4081, any future expiry, CVV 408). After paying, click verify — it asks Paystack directly.
+                      Use a Paystack test card (e.g. 4084 0840 8408 4081, any future expiry, CVV 408). After paying, click verify, it asks Paystack directly.
                     </p>
                   </div>
                 )}
 
                 {order.status === 'PAID' && (
                   <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 rounded-lg px-3 py-2">
-                    <BadgeCheck className="w-4 h-4" /> Paid & verified — GMV and take-rate recorded
+                    <BadgeCheck className="w-4 h-4" /> Paid & verified: GMV and take-rate recorded
                   </div>
                 )}
               </div>

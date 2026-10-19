@@ -94,7 +94,7 @@ function SessionBadge({ messages }: { messages: Message[] }) {
   if (remaining <= 0) {
     return (
       <View className="self-center my-2 px-3 py-1 rounded-full bg-red-900/40 border border-red-500/30">
-        <Text className="text-red-400 text-[10px] font-semibold">⏱ Session Expired — customer must message first</Text>
+        <Text className="text-red-400 text-[10px] font-semibold">⏱ Session Expired, customer must message first</Text>
       </View>
     );
   }
@@ -443,9 +443,24 @@ export default function ChatScreen() {
         text: 'Return to AI',
         onPress: async () => {
           try {
-            await apiClient.conversations.releaseToAi(id);
-            updateConversation(id, { assignedTo: null });
-          } catch { Alert.alert('Error', 'Could not return this conversation to AI'); }
+            const res = await apiClient.conversations.releaseToAi(id);
+            const data = res.data as { assignedTo?: { id: string; name: string } | null; aiHandling?: { mode: string | null; willAutoReply: boolean; reason: string | null } };
+            // Use the server's new owner (the AI agent), not a guess: clearing it left the chat looking unassigned.
+            updateConversation(id, { assignedTo: data.assignedTo ?? null });
+            const h = data.aiHandling;
+            const note = !h ? ''
+              : h.willAutoReply ? ' It will reply to new messages.'
+              : h.reason === 'AI_DISABLED' ? ' AI is switched off for this workspace, so nobody will reply until it is turned on.'
+              : h.reason === 'NO_CREDITS' ? ' There are no AI credits left, so it will not reply.'
+              : h.reason === 'TRIAL_NOT_APPROVED' ? ' AI is not approved for this workspace yet, so it will not reply.'
+              : h.reason === 'OUTSIDE_SCHEDULE' ? ' Auto-reply only runs outside your configured hours, so your team needs to reply until then.'
+              : h.mode === 'SUGGESTION' ? ' It is in suggestion mode, so it drafts replies for your team and does not send them.'
+              : '';
+            Alert.alert('Returned to Verz AI', note.trim() || 'Done.');
+          } catch (err) {
+            const reason = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+            Alert.alert('Could not return to AI', (Array.isArray(reason) ? reason[0] : reason) ?? 'Check your connection and try again.');
+          }
         },
       },
     ]);
@@ -969,7 +984,7 @@ function MessageContent({ message, isOutbound }: { message: Message; isOutbound:
       return (
         <View>
           <Text className={`${muted} text-xs font-semibold uppercase mb-1`}>Template</Text>
-          <Text className={`${primary} text-lg leading-6`}>{message.content ?? '—'}</Text>
+          <Text className={`${primary} text-lg leading-6`}>{message.content ?? '-'}</Text>
         </View>
       );
 
@@ -987,7 +1002,7 @@ function MessageContent({ message, isOutbound }: { message: Message; isOutbound:
         : <Text className="text-4xl">🖼️</Text>;
 
     default:
-      return <Text className={`${primary} text-lg leading-6`}>{message.content ?? '—'}</Text>;
+      return <Text className={`${primary} text-lg leading-6`}>{message.content ?? '-'}</Text>;
   }
 }
 

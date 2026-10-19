@@ -78,8 +78,8 @@ export default function AiCreditPackagesPage() {
   const columns: DataTableColumn<AiCreditPackageRow>[] = [
     { key: 'name', header: 'Package', render: (r) => <div><div className="font-medium text-gray-900">{r.name}</div><div className="text-xs text-gray-400">{r.slug}</div></div> },
     { key: 'credits', header: 'Credits', render: (r) => `${r.credits.toLocaleString()}${r.bonusCredits ? ` +${r.bonusCredits}` : ''}` },
-    { key: 'priceGhs', header: 'Price (GHS)', render: (r) => r.priceGhs != null ? `GHS ${r.priceGhs}` : '—' },
-    { key: 'priceUsd', header: 'Price (USD)', render: (r) => r.priceUsd != null ? `$${r.priceUsd}` : '—' },
+    { key: 'priceGhs', header: 'Price (GHS)', render: (r) => r.priceGhs != null ? `GHS ${r.priceGhs}` : '-' },
+    { key: 'priceUsd', header: 'Price (USD)', render: (r) => r.priceUsd != null ? `$${r.priceUsd}` : '-' },
     { key: 'status', header: 'Status', render: (r) => <Badge tone={r.isActive ? 'success' : 'neutral'}>{r.isActive ? 'Active' : 'Inactive'}</Badge> },
     {
       key: 'actions', header: '', render: (r) => (

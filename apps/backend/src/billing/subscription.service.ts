@@ -100,7 +100,7 @@ export class SubscriptionService {
   }) {
     const plan = await this.prisma.plan.findUnique({ where: { slug: opts.planSlug } });
     if (!plan) throw new NotFoundException(`Plan not found: ${opts.planSlug}`);
-    if (plan.monthlyPrice < 0) throw new BadRequestException('Enterprise plan requires custom quote — contact sales');
+    if (plan.monthlyPrice < 0) throw new BadRequestException('Enterprise plan requires custom quote, contact sales');
 
     let baseAmount = opts.cycle === BillingCycle.YEARLY ? plan.yearlyPrice : plan.monthlyPrice;
     let discount = 0;

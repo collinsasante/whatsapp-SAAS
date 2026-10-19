@@ -386,19 +386,19 @@ export default function DashboardScreen() {
                     },
                     {
                       label: 'Quality Rating',
-                      value: waStatus.qualityRating || '—',
+                      value: waStatus.qualityRating || '-',
                       dotColor: waStatus.qualityRating === 'GREEN' ? '#22c55e' : waStatus.qualityRating === 'YELLOW' ? '#eab308' : '#ef4444',
                       valueColor: waStatus.qualityRating === 'GREEN' ? '#22c55e' : waStatus.qualityRating === 'YELLOW' ? '#eab308' : colors.textSecondary,
                     },
                     {
                       label: 'Verification',
-                      value: waStatus.verificationStatus || '—',
+                      value: waStatus.verificationStatus || '-',
                       dotColor: waStatus.verificationStatus === 'VERIFIED' ? '#22c55e' : '#eab308',
                       valueColor: waStatus.verificationStatus === 'VERIFIED' ? '#22c55e' : colors.textSecondary,
                     },
                     {
                       label: 'Messaging Limit',
-                      value: waStatus.messagingLimit || '—',
+                      value: waStatus.messagingLimit || '-',
                       dotColor: '#25D366',
                       valueColor: colors.textSecondary,
                     },
@@ -472,7 +472,7 @@ export default function DashboardScreen() {
                   <Text className="text-green font-bold text-xl">
                     {overview?.avgConfidence != null
                       ? `${Math.round(overview.avgConfidence * 100)}%`
-                      : '—'}
+                      : '-'}
                   </Text>
                 </View>
                 <View className="w-px bg-light-elevated dark:bg-white/5" />

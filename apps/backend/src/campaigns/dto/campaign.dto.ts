@@ -43,7 +43,7 @@ export class CreateCampaignDto {
   @IsDateString()
   scheduledAt?: string;
 
-  @ApiProperty({ required: false, description: 'API-only campaign — no recipients; messages are sent individually via the send API' })
+  @ApiProperty({ required: false, description: 'API-only campaign, no recipients; messages are sent individually via the send API' })
   @IsOptional()
   @IsBoolean()
   apiOnly?: boolean;

@@ -35,6 +35,8 @@ describe('AuthService.refreshTokens -- lastSeenAt freshness', () => {
         findUnique: jest.fn().mockResolvedValue(user),
         update: overrides.userUpdate ?? jest.fn().mockResolvedValue(user),
       },
+      // refreshTokens now signs the role the person holds in the workspace (their membership).
+      workspaceMember: { findFirst: jest.fn().mockResolvedValue({ role: 'AGENT' }) },
     };
     const jwtService = {
       verify: jest.fn().mockReturnValue({ sub: user.id, email: user.email, tenantId: user.tenantId, role: user.role }),

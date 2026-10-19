@@ -133,7 +133,7 @@ export default function CommerceRevenuePage() {
               </div>
             ) : !data || data.entries.length === 0 ? (
               <div className="text-center py-16 text-gray-400 text-sm">
-                No revenue yet — a paid order will show up here once a customer completes checkout.
+                No revenue yet, a paid order will show up here once a customer completes checkout.
               </div>
             ) : (
               <div className="space-y-2">

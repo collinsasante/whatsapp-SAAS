@@ -61,15 +61,29 @@ export class MediaController {
   }
 
   @Get('library')
-  @ApiOperation({ summary: 'Get all media sent/received in conversations' })
+  @ApiOperation({ summary: 'Get media sent/received in conversations, with optional filters' })
   library(
     @CurrentTenant() tenantId: string,
     @Query('page') page = 1,
     @Query('limit') limit = 50,
     @Query('type') type?: string,
     @Query('search') search?: string,
+    @Query('source') source?: string,
+    @Query('agentId') agentId?: string,
+    @Query('channelType') channelType?: string,
+    @Query('direction') direction?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.mediaService.findMessageMedia(tenantId, +page, +limit, type, search);
+    return this.mediaService.findMessageMedia(tenantId, +page, +limit, {
+      type, search, source: source as 'all' | 'agents' | undefined, agentId, channelType, direction, from, to,
+    });
+  }
+
+  @Get('library/agents')
+  @ApiOperation({ summary: 'Team members who have sent media (for the agent filter)' })
+  libraryAgents(@CurrentTenant() tenantId: string) {
+    return this.mediaService.listMediaAgents(tenantId);
   }
 
   // Inline-renderable types only -- anything else (including any file
@@ -79,7 +93,7 @@ export class MediaController {
   private static readonly INLINE_SAFE_MIME_TYPES = new Set([
     'image/jpeg', 'image/png', 'image/gif', 'image/webp',
     'video/mp4', 'video/webm', 'video/quicktime', 'video/3gpp',
-    'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/aac', 'audio/amr',
+    'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/aac', 'audio/amr', 'audio/webm', 'audio/mp4',
     'application/pdf',
   ]);
 

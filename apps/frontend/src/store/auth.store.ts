@@ -2,12 +2,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { UserRole } from '@whatsapp-platform/shared-types';
+import { normalizeUserRole } from '@/lib/workspace-role';
+
+/** Repairs a session user whose role is not one of the four coarse roles (see normalizeUserRole). */
+function sanitizeUser<T extends { role: UserRole | string; workspaceRole?: string } | null>(user: T): T {
+  if (!user) return user;
+  const role = normalizeUserRole(user.role);
+  const workspaceRole = user.workspaceRole ?? (role === user.role ? undefined : String(user.role));
+  return { ...user, role, ...(workspaceRole ? { workspaceRole } : {}) };
+}
 
 interface AuthUser {
   id: string;
   email: string;
   name: string;
   role: UserRole;
+  /** The role held in the current workspace (OWNER, ADMIN, MANAGER, AGENT, ANALYST, VIEWER). */
+  workspaceRole?: string;
   tenantId: string;
   avatarUrl?: string | null;
 }
@@ -59,7 +70,7 @@ export const useAuthStore = create<AuthState>()(
         if (typeof window !== 'undefined') {
           localStorage.setItem('access_token', accessToken);
         }
-        set({ user, tenant, accessToken, isAuthenticated: true });
+        set({ user: sanitizeUser(user), tenant, accessToken, isAuthenticated: true });
       },
 
       setAccessToken: (token) => {
@@ -79,7 +90,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       updateUser: (patch) => set((state) => ({
-        user: state.user ? { ...state.user, ...patch } : state.user,
+        user: state.user ? sanitizeUser({ ...state.user, ...patch }) : state.user,
       })),
 
       clearAuth: () => {
@@ -102,6 +113,8 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state) => {
+        // A role saved by an older build (e.g. a raw workspace role name) would crash role-gated screens.
+        if (state?.user) state.updateUser({});
         state?.setHasHydrated(true);
       },
     },

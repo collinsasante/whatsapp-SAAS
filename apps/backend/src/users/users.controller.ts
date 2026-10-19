@@ -19,8 +19,8 @@ export class UsersController {
   @Post()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new team member' })
-  create(@CurrentTenant() tenantId: string, @Body() dto: CreateUserDto) {
-    return this.usersService.create(tenantId, dto);
+  create(@CurrentTenant() tenantId: string, @Body() dto: CreateUserDto, @CurrentUser() actor: JwtPayload) {
+    return this.usersService.create(tenantId, dto, actor);
   }
 
   @Get()

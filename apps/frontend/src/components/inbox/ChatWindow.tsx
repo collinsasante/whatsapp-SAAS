@@ -36,6 +36,11 @@ const MAX_PENDING_FILES = 10;
 import { MessageStatus, MessageDirection } from '@whatsapp-platform/shared-types';
 import type { Message } from '@whatsapp-platform/shared-types';
 import type { ActivityEntry } from '@/store/inbox.store';
+import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
+import { describeAiHandling, type AiHandling } from '@/lib/ai-handling';
+import { ChannelBadge } from './ChannelBadge';
+import { VoiceNotePlayer } from './VoiceNotePlayer';
+import { describeRecorderError, pickRecorderMime, voiceFileName } from '@/lib/voice-recorder';
 
 interface TeamMember { id: string; name: string; email: string; avatarUrl?: string | null; }
 
@@ -82,7 +87,7 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 // outside the 24-hour customer service window) -- confusing as-is, since it
 // reads like a description of what was sent rather than why it failed.
 const FAILURE_REASON_LABELS: Record<string, string> = {
-  'Re-engagement message': "24-hour window expired — send a template message to re-engage",
+  'Re-engagement message': "24-hour window expired, send a template message to re-engage",
 };
 function formatFailureReason(reason: string): string {
   return FAILURE_REASON_LABELS[reason] ?? reason;
@@ -101,36 +106,6 @@ function getAvatarColor(name: string) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-function ChannelBadge({ channelType }: { channelType?: string }) {
-  const type = (channelType ?? 'WHATSAPP').toUpperCase();
-  if (type === 'MESSENGER' || type === 'FACEBOOK_MESSENGER') {
-    return (
-      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white">
-        <svg className="w-2.5 h-2.5 text-white fill-current" viewBox="0 0 24 24">
-          <path d="M12 2C6.477 2 2 6.145 2 11.259c0 2.906 1.408 5.501 3.604 7.21V22l3.29-1.813C10.012 20.38 10.985 20.52 12 20.52c5.523 0 10-4.147 10-9.261C22 6.145 17.523 2 12 2zm1.05 12.474l-2.549-2.718-4.974 2.718 5.467-5.804 2.612 2.718 4.911-2.718-5.467 5.804z" />
-        </svg>
-      </div>
-    );
-  }
-  if (type === 'INSTAGRAM') {
-    return (
-      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white overflow-hidden" style={{ background: 'radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)' }}>
-        <svg className="w-2.5 h-2.5 text-white fill-current" viewBox="0 0 24 24">
-          <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
-        </svg>
-      </div>
-    );
-  }
-  // Default: WhatsApp
-  return (
-    <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center border-2 border-white">
-      <svg className="w-2.5 h-2.5 text-white fill-current" viewBox="0 0 24 24">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
-      </svg>
-    </div>
-  );
 }
 
 function SessionCountdown({ lastInboundAt }: { lastInboundAt: string | null | undefined }) {
@@ -291,7 +266,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const [showCanned, setShowCanned] = useState(false);
   const cannedQuery = text.startsWith('/') ? text.slice(1) : '';
   const cannedVars = useMemo(() => ({
-    customer_name: conversation.contact?.name ?? conversation.contact?.phone ?? '',
+    customer_name: contactDisplayName(conversation.contact, undefined, ''),
     agent_name: user?.name ?? 'Agent',
     phone: conversation.contact?.phone ?? '',
     email: (conversation.contact as { email?: string } | undefined)?.email ?? '',
@@ -364,7 +339,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const typing = typingUsers[conversation.id] ?? [];
   const isResolved = localStatus === 'RESOLVED';
   const isArchived = localStatus === 'ARCHIVED';
-  const name = conversation.contact?.name ?? conversation.contact?.phone ?? '';
+  const name = contactDisplayName(conversation.contact, undefined, '');
   const avatarColor = getAvatarColor(name);
 
   const lastInboundMsg = [...convMessages].reverse().find((m) => m.direction === MessageDirection.INBOUND);
@@ -764,9 +739,19 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const startRecording = async () => {
     if (recording) return;
     try {
+      if (typeof MediaRecorder === 'undefined') { toast.error(describeRecorderError({ name: 'NotSupportedError' })); return; }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      const mr = new MediaRecorder(stream, { mimeType });
+      let mr: MediaRecorder;
+      try {
+        // A type this browser can really record (Safari has no WebM); undefined lets the browser pick its default.
+        const preferred = pickRecorderMime((t) => MediaRecorder.isTypeSupported(t));
+        mr = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+      } catch (err) {
+        stream.getTracks().forEach((t) => t.stop());
+        toast.error(describeRecorderError(err));
+        return;
+      }
+      const mimeType = mr.mimeType || 'audio/webm';
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onerror = () => {
@@ -783,8 +768,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         // the mislabel only "worked" because the backend's WhatsApp-outbound path
         // transcodes by sniffing real bytes regardless of declared type, but it made
         // the sender's own in-app playback fragile (wrong Content-Type vs actual codec).
-        const ext = mimeType.includes('webm') ? 'webm' : 'ogg';
-        const file = new File([blob], `voice-note.${ext}`, { type: mimeType });
+        const file = new File([blob], voiceFileName(mimeType), { type: mimeType });
         setSending(true);
         // Optimistic temp bubble, same shape sendFiles uses -- without this the new
         // AUDIO uploading-overlay has nothing to attach to during upload+send.
@@ -804,20 +788,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         try {
           const uploadRes = await mediaApi.upload(file);
           const { fileUrl: url } = uploadRes.data as { fileUrl: string };
-          const res = await messagesApi.send(conversation.id, { type: 'AUDIO', mediaUrl: url, mediaCaption: 'Voice note' });
+          const res = await messagesApi.send(conversation.id, { type: 'AUDIO', mediaUrl: url, mediaCaption: 'Voice note', clientMessageId: tempId });
           const real = res.data as Message;
           removeMessage(conversation.id, tempId);
           if (real?.id) addMessage(conversation.id, real);
-        } catch {
+          // The server records a failed delivery as a FAILED message instead of an error, so say so here.
+          if (real?.status === 'FAILED') toast.error(real.failureReason ? `Voice note was not delivered: ${real.failureReason}` : 'Voice note was not delivered.');
+        } catch (err) {
           removeMessage(conversation.id, tempId);
-          toast.error('Failed to send voice note');
+          toast.error(getApiError(err, 'Failed to send voice note'));
         }
         finally { setSending(false); }
       };
       mediaRecorderRef.current = mr;
       mr.start();
       setRecording(true);
-    } catch { toast.error('Microphone access denied'); }
+    } catch (err) { toast.error(describeRecorderError(err)); }
   };
 
   const stopRecording = () => {
@@ -1174,7 +1160,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setShowContactPicker(false);
     setSending(true);
     try {
-      await messagesApi.send(conversation.id, { type: 'CONTACTS', contactName: c.name ?? c.phone, contactPhone: c.phone });
+      await messagesApi.send(conversation.id, { type: 'CONTACTS', contactName: contactDisplayName(c), contactPhone: c.phone });
     } catch { toast.error('Failed to send contact'); }
     finally { setSending(false); }
   };
@@ -1218,7 +1204,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const handleReleaseToAi = async () => {
     try {
       const res = await conversationsApi.releaseToAi(conversation.id);
-      const data = res.data as { status: string; assignedTo?: { id: string; name: string; isAiAgent?: boolean } };
+      const data = res.data as { status: string; assignedTo?: { id: string; name: string; isAiAgent?: boolean }; aiHandling?: AiHandling };
       setLocalStatus('OPEN');
       setTookOver(false);
       updateConversation(conversation.id, {
@@ -1227,7 +1213,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         slaDeadline: undefined,
         intervenedAt: undefined,
       });
-      toast.success('Returned to Verz AI');
+      const outcome = describeAiHandling(data.aiHandling);
+      if (outcome.level === 'warning') toast(outcome.text, { icon: '!', duration: 8000 });
+      else toast.success(outcome.text, { duration: outcome.level === 'success' ? 4000 : 7000 });
     } catch (err) { toast.error(getApiError(err, 'Failed to return conversation to AI')); }
   };
 
@@ -1244,7 +1232,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         intervenedAt: data.intervenedAt,
       });
       toast.success('You are now handling this conversation');
-    } catch (err) { toast.error(getApiError(err, 'Failed to intervene — conversation may have been taken by another agent')); }
+    } catch (err) { toast.error(getApiError(err, 'Failed to intervene, conversation may have been taken by another agent')); }
   };
 
   const handleMarkPending = async () => {
@@ -1687,7 +1675,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               {/* Call — desktop only */}
               <button
                 onClick={() => {
-                  if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone, contactId: conversation.contact.id });
+                  if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: contactDisplayName(conversation.contact), contactId: conversation.contact.id });
                 }}
                 title="Call"
                 className="hidden md:flex w-8 h-8 items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
@@ -1750,7 +1738,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                       <Search size={14} className="text-gray-400" /> Search
                     </button>
                     <button onClick={() => {
-                      if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: conversation.contact.name ?? conversation.contact.phone, contactId: conversation.contact.id });
+                      if (conversation.contact?.phone) setConfirmDial({ phone: conversation.contact.phone, contactName: contactDisplayName(conversation.contact), contactId: conversation.contact.id });
                       setShowHeaderMenu(false);
                     }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 text-left">
                       <Phone size={14} className="text-gray-400" /> Call
@@ -1994,7 +1982,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               <div className="flex items-center gap-3 mb-2 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200">
                 <AlertCircle size={13} className="text-orange-500 flex-shrink-0" />
                 <span className="text-xs text-orange-700 flex-1">
-                  <span className="font-medium">Customer has requested support</span> — click Intervene to start messaging.
+                  <span className="font-medium">Customer has requested support</span>, click Intervene to start messaging.
                 </span>
                 <button
                   onClick={() => { void handleIntervene(); }}
@@ -2168,7 +2156,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
               >
                 <NoteIcon size={11} /> Note
               </button>
-              {inputMode === 'note' && <span className="text-xs text-yellow-600 ml-1">Private — customers can't see this</span>}
+              {inputMode === 'note' && <span className="text-xs text-yellow-600 ml-1">Private, customers can't see this</span>}
             </div>
 
             {/* Backdrop */}
@@ -2317,7 +2305,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   assignedToOther && !isResolved && localStatus !== 'ARCHIVED' ? 'Take over this chat to reply' :
                   isResolved ? 'Reopen conversation to send messages' :
                   isRequested ? 'Intervene to start messaging…' :
-                  sessionBlocked ? 'Session expired — send a template to re-engage' :
+                  sessionBlocked ? 'Session expired, send a template to re-engage' :
                   'Send your message... (Shift+Enter for new line)'
                 }
                 className={cn(
@@ -2408,8 +2396,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             </div>
             {contacts.map((c) => (
               <button key={c.id} onClick={() => { void sendContact(c); }} className="w-full flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg text-left">
-                <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold', getAvatarColor(c.name ?? c.phone))}>{getInitials(c.name ?? c.phone)}</div>
-                <div><p className="text-sm font-medium text-gray-800">{c.name ?? c.phone}</p><p className="text-xs text-gray-500">{c.phone}</p></div>
+                <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold', getAvatarColor(contactDisplayName(c)))}>{getInitials(contactDisplayName(c))}</div>
+                <div><p className="text-sm font-medium text-gray-800">{contactDisplayName(c)}</p><p className="text-xs text-gray-500">{c.phone}</p></div>
               </button>
             ))}
           </div>
@@ -2809,8 +2797,7 @@ function ForwardModal({ message, conversations, onClose }: {
 
   const filtered = conversations.filter((c) => {
     if (!c.contact) return false;
-    const name = c.contact.name ?? c.contact.phone;
-    return name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
+    return contactMatchesSearch(c.contact, search);
   });
 
   const forward = async (targetConvId: string) => {
@@ -2852,7 +2839,7 @@ function ForwardModal({ message, conversations, onClose }: {
           {filtered.length === 0 ? (
             <p className="text-center text-sm text-gray-400 py-6">No other conversations</p>
           ) : filtered.map((c) => {
-            const name = c.contact.name ?? c.contact.phone;
+            const name = contactDisplayName(c.contact);
             return (
               <button key={c.id} onClick={() => { void forward(c.id); }} disabled={!!forwarding}
                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-teal-50 rounded-xl text-left transition-colors disabled:opacity-50">
@@ -3177,20 +3164,14 @@ const MessageBubble = memo(function MessageBubble({
                       </div>
                     )}
                     {message.type === 'AUDIO' && (
-                      <div className="relative w-full max-w-[224px] mt-1">
-                        <audio controls={!isUploading} className={cn('w-full', isUploading && 'opacity-60')}><source src={proxied} /></audio>
-                        {isUploading && (
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none gap-1.5 text-xs font-medium text-gray-500">
-                            <div className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                            {uploadProgress ? `${uploadProgress}%` : 'Uploading…'}
-                          </div>
-                        )}
+                      <div className="mt-1">
+                        <VoiceNotePlayer src={proxied} tone={isOutbound ? 'outbound' : 'inbound'} uploading={isUploading} uploadProgress={uploadProgress} />
                       </div>
                     )}
                     {message.type === 'DOCUMENT' && (
                       <div className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mt-1', isOutbound ? 'bg-teal-800 text-white' : 'bg-gray-100 text-gray-700')}>
                         {isUploading
-                          ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{uploadProgress ? `${uploadProgress}% — ${message.mediaCaption ?? ''}` : (message.mediaCaption ?? 'Uploading…')}</span></>
+                          ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin flex-shrink-0" /><span>{uploadProgress ? `${uploadProgress}%: ${message.mediaCaption ?? ''}` : (message.mediaCaption ?? 'Uploading…')}</span></>
                           : <a href={proxied} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:opacity-80"><FileText size={14} /><span>{message.mediaCaption ?? 'Open document'}</span></a>
                         }
                       </div>

@@ -47,7 +47,7 @@ export default function WhatsAppAccountsPage() {
           </div>
           <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-3 py-2 mt-4 text-xs">
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            A per-number cross-tenant directory (which tenant owns which number, sync history) isn&apos;t built yet — this
+            A per-number cross-tenant directory (which tenant owns which number, sync history) isn&apos;t built yet, this
             page shows the real aggregate quality distribution only. See each tenant&apos;s detail page for its own numbers.
           </div>
         </Panel>

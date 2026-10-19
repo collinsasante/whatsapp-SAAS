@@ -159,7 +159,7 @@ export default function EditProfileScreen() {
               <Text className="text-light-text-secondary dark:text-white/70 text-sm font-medium mb-2">Role</Text>
               <View className="bg-light-card dark:bg-surface-card/50 border border-light-border dark:border-white/5 rounded-xl px-4 py-3.5">
                 <Text className="text-light-text-muted dark:text-white/40 text-base capitalize">
-                  {user?.role?.toLowerCase().replace(/_/g, ' ') ?? '—'}
+                  {user?.role?.toLowerCase().replace(/_/g, ' ') ?? '-'}
                 </Text>
               </View>
             </View>
