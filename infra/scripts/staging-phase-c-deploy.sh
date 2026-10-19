@@ -102,12 +102,12 @@ echo "frontend will be built with: $(grep -E '^NEXT_PUBLIC_(API|SOCKET)_URL' "$A
 
 echo "== 5. Build on the host (no schema change, no new dependencies)"
 cd /root/release-src || fail cd
-pnpm install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 || fail "pnpm install"
-pnpm --filter @whatsapp-platform/backend prisma:generate >/dev/null 2>&1 || fail "prisma generate"
-pnpm --filter @whatsapp-platform/shared-types --filter @whatsapp-platform/shared-utils build >/dev/null 2>&1 || fail "shared build"
+echo "  5a installing dependencies"; pnpm install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 || fail "pnpm install"
+echo "  5b prisma generate"; pnpm --filter @whatsapp-platform/backend prisma:generate >/dev/null 2>&1 || fail "prisma generate"
+echo "  5c shared packages"; pnpm --filter @whatsapp-platform/shared-types --filter @whatsapp-platform/shared-utils build >/dev/null 2>&1 || fail "shared build"
 node -e "const u=require('./packages/shared-utils/dist');if(typeof u.classifyJid!=='function'||typeof u.usableContactName!=='function')process.exit(1)" || fail "built shared-utils does not export the new functions"
-for p in backend whatsapp-web; do pnpm --filter "@whatsapp-platform/$p" build >/dev/null 2>&1 || fail "build $p"; [ -d apps/$p/dist ] || fail "no dist for $p"; done
-docker build -q -f apps/frontend/Dockerfile $(sed 's/^/--build-arg /' "$ARGS" | tr '\n' ' ') -t wa-staging-frontend-new:$TS . >/dev/null || fail "frontend image build (nothing deployed yet)"
+for p in backend whatsapp-web; do echo "  5d build $p"; pnpm --filter "@whatsapp-platform/$p" build >/dev/null 2>&1 || fail "build $p"; [ -d apps/$p/dist ] || fail "no dist for $p"; done
+echo "  5e frontend image (slowest, several minutes)"; docker build -q -f apps/frontend/Dockerfile $(sed 's/^/--build-arg /' "$ARGS" | tr '\n' ' ') -t wa-staging-frontend-new:$TS . >/dev/null || fail "frontend image build (nothing deployed yet)"
 echo "build OK (nothing on staging has changed yet)"
 
 rollback_now() { echo "!! $1 -> rolling back"; restore_all "$D"; exit 1; }
