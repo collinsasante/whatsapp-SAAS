@@ -35,6 +35,8 @@ export interface Message {
     id: string;
     name: string;
     avatarUrl: string | null;
+    /** True when the sender is the AI's synthetic user rather than a team member. */
+    isAiAgent?: boolean;
   } | null;
   replyTo?: {
     id: string;
