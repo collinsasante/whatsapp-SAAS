@@ -132,6 +132,7 @@ export default function AppLayout() {
       <Tabs.Screen name="chatbot" options={{ href: null }} />
       <Tabs.Screen name="analytics" options={{ href: null }} />
       <Tabs.Screen name="billing" options={{ href: null }} />
+      <Tabs.Screen name="tasks" options={{ href: null }} />
     </Tabs>
   );
 }

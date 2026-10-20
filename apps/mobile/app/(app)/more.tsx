@@ -63,6 +63,13 @@ export default function MoreScreen() {
       visible: true,
     },
     {
+      icon: 'clipboard-outline',
+      label: 'Tasks',
+      description: 'Work Verz AI handed off to your team',
+      href: '/(app)/tasks',
+      visible: true,
+    },
+    {
       icon: 'call-outline',
       label: 'Calls',
       description: 'Call history and logs',
