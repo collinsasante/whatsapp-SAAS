@@ -112,6 +112,17 @@ echo "build OK (nothing on staging has changed yet)"
 
 rollback_now() { echo "!! $1 -> rolling back"; restore_all "$D"; exit 1; }
 
+# Optional backend settings that the hot-swap cannot set (the container's own environment is fixed at creation).
+# /root/staging-backend.env is copied to /app/.env, which the app reads for any variable the container does not define.
+EXTRA=/root/staging-backend.env
+MARK="# managed by staging deploy script"
+if [ -f "$EXTRA" ]; then
+  [ "$(head -n1 "$EXTRA")" = "$MARK" ] || fail "$EXTRA must start with the line: $MARK"
+  if docker exec wa_staging_backend test -e /app/.env; then
+    [ "$(docker exec wa_staging_backend head -n1 /app/.env)" = "$MARK" ] || fail "wa_staging_backend already has an /app/.env this script did not create"
+  fi
+fi
+
 echo "== 6. Swap backend and WhatsApp Web (shared packages first, verified, then code, then restart)"
 for s in $CODE_SERVICES; do
   c=wa_staging_$s
@@ -121,6 +132,7 @@ for s in $CODE_SERVICES; do
   done
   verify_shared "$s" || rollback_now "$s does not see the new shared-utils functions"
   docker cp "apps/$(app_name "$s")/dist/." "$c:/app/dist/" >/dev/null || rollback_now "copy code into $s"
+  if [ "$s" = backend ] && [ -f "$EXTRA" ]; then docker cp "$EXTRA" "$c:/app/.env" >/dev/null || rollback_now "copy backend env"; fi
   docker restart "$c" >/dev/null || rollback_now "restart $s"
   sleep 25; healthy "$s" || rollback_now "$s unhealthy"; echo "healthy: $s"
 done
