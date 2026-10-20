@@ -841,6 +841,10 @@ export class MessagesService {
   async handleInbound(tenantId: string, waMessage: {
     id: string;
     from: string;
+    // Present instead of `from` once the sender has enabled a WhatsApp
+    // username and hasn't messaged this business in 30+ days -- see
+    // normalizePhone's BSUID handling in shared-utils.
+    from_user_id?: string;
     timestamp: string;
     type: string;
     context?: { id: string; from?: string; forwarded?: boolean };
@@ -864,11 +868,18 @@ export class MessagesService {
     source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
     image_url?: string; media_type?: string; ctwa_clid?: string;
   }) {
-    // Some webhook payload shapes (e.g. certain system/edge-case events) omit `from`
-    // despite the type declaring it required — every downstream path needs a phone
-    // number to identify/create the contact, so there's nothing useful to do without it.
-    if (!waMessage.from) {
-      this.logger.warn(`[tenant:${tenantId}] Skipping inbound message with no "from" phone number: type="${waMessage.type}" id="${waMessage.id}"`);
+    // Meta omits `from` (and sends `from_user_id` instead -- a stable
+    // "CC.digits" Business-Scoped User ID) once the sender has enabled a
+    // WhatsApp username and hasn't messaged this business in 30+ days. This
+    // is expected, documented Meta behavior, not a malformed payload --
+    // every downstream path in this function uses `identity` instead of
+    // `waMessage.from` directly, and normalizePhone() passes a BSUID
+    // through unchanged so it round-trips correctly as this contact's
+    // `phone` (Meta's Send API accepts a BSUID in the "to" field exactly
+    // like a real phone number).
+    const identity = waMessage.from || waMessage.from_user_id;
+    if (!identity) {
+      this.logger.warn(`[tenant:${tenantId}] Skipping inbound message with no "from" phone number or from_user_id: type="${waMessage.type}" id="${waMessage.id}"`);
       return null;
     }
 
@@ -876,9 +887,9 @@ export class MessagesService {
     // as a regular inbound message or reopens a conversation.
     if (waMessage.type === 'interactive' && waMessage.interactive?.type === 'call_permission_reply') {
       const response = waMessage.interactive.call_permission_reply?.response ?? '';
-      console.log(`[call_permission] ${response} from ${waMessage.from}`);
+      console.log(`[call_permission] ${response} from ${identity}`);
       this.realtimeService.emitCallEvent(tenantId, 'call_permission_updated', {
-        phone: waMessage.from,
+        phone: identity,
         response,
         granted: response === 'ACCEPTED',
       });
@@ -893,7 +904,7 @@ export class MessagesService {
       if (replyId.startsWith('csat_')) {
         const score = parseInt(replyId.replace('csat_', ''), 10);
         if (score >= 1 && score <= 5) {
-          const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
+          const contact = await this.contactsService.findOrCreate(tenantId, identity, profileName);
           // Find the most-recently resolved conversation for this contact that hasn't been rated yet
           const resolvedConv = await this.prisma.conversation.findFirst({
             where: { tenantId, contactId: contact.id, csatScore: null, resolvedAt: { not: null } },
@@ -952,7 +963,7 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const contact = await this.contactsService.findOrCreate(tenantId, waMessage.from, profileName);
+    const contact = await this.contactsService.findOrCreate(tenantId, identity, profileName);
 
     // Mirror the Facebook CDN ad-preview image to our own storage so the URL never expires.
     let permanentAdImageUrl: string | undefined;

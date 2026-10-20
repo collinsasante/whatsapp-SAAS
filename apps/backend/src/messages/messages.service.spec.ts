@@ -978,4 +978,35 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       }));
     });
   });
+
+  describe('handleInbound (real WhatsApp Cloud API webhook path) -- Business-Scoped User ID fallback', () => {
+    it('resolves the contact by from_user_id instead of dropping the message when "from" is omitted', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      await service.handleInbound('t1', {
+        id: 'wamid.bsuid-1', timestamp: '1700000000', type: 'text',
+        text: { body: 'Hello! Can I get more info on this?' },
+        from_user_id: 'GH.1115168874544553',
+      } as any);
+
+      expect(deps.contactsService.findOrCreate).toHaveBeenCalledWith('t1', 'GH.1115168874544553', undefined);
+      expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ content: 'Hello! Can I get more info on this?' }),
+      }));
+    });
+
+    it('still skips a message with neither "from" nor "from_user_id"', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      const result = await service.handleInbound('t1', {
+        id: 'wamid.malformed-1', timestamp: '1700000000', type: 'text', text: { body: 'hi' },
+      } as any);
+
+      expect(result).toBeNull();
+      expect(deps.contactsService.findOrCreate).not.toHaveBeenCalled();
+      expect(deps.prisma.message.create).not.toHaveBeenCalled();
+    });
+  });
 });
