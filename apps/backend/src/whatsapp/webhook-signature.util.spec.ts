@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { verifyWhatsAppSignature } from './webhook-signature.util';
+import { checkWebhookSignature, verifyWhatsAppSignature } from './webhook-signature.util';
 
 const SECRET = 'test-app-secret';
 
@@ -58,5 +58,22 @@ describe('verifyWhatsAppSignature', () => {
     const body = Buffer.from('{}');
     expect(() => verifyWhatsAppSignature(body, 'sha256=abcd', SECRET)).not.toThrow();
     expect(verifyWhatsAppSignature(body, 'sha256=abcd', SECRET)).toBe(false);
+  });
+});
+
+describe('checkWebhookSignature', () => {
+  const body = Buffer.from(JSON.stringify({ object: 'whatsapp_business_account' }));
+
+  it('is "unconfigured" when no secret is set, whatever the request carries', () => {
+    expect(checkWebhookSignature(body, sign(body, SECRET), undefined)).toBe('unconfigured');
+    expect(checkWebhookSignature(body, undefined, '')).toBe('unconfigured');
+  });
+
+  it('is "valid" for a correct signature and "invalid" for every other case once a secret is set', () => {
+    expect(checkWebhookSignature(body, sign(body, SECRET), SECRET)).toBe('valid');
+    expect(checkWebhookSignature(body, sign(body, 'wrong'), SECRET)).toBe('invalid');
+    expect(checkWebhookSignature(body, undefined, SECRET)).toBe('invalid');
+    expect(checkWebhookSignature(undefined, sign(body, SECRET), SECRET)).toBe('invalid');
+    expect(checkWebhookSignature(Buffer.from('{"tampered":true}'), sign(body, SECRET), SECRET)).toBe('invalid');
   });
 });
