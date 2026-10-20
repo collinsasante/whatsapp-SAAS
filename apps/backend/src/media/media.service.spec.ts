@@ -108,3 +108,43 @@ describe('MediaService.upload -- recorded voice notes (the reported failure)', (
     await expect(service.upload('tenant-1', 'user-1', file('video/x-weird;foo=bar'))).rejects.toThrow('Unsupported file type: video/x-weird');
   });
 });
+
+describe('MediaService.remove / deduplicateAssets -- files still shown in conversations', () => {
+  function buildForDelete(messageCount: number) {
+    const prisma = {
+      mediaAsset: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'a1', fileKey: 'tenant-1/abc.png' }),
+        delete: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'new', originalName: 'x.png', fileKey: 'tenant-1/new.png' },
+          { id: 'old', originalName: 'x.png', fileKey: 'tenant-1/old.png' },
+        ]),
+        deleteMany: jest.fn().mockResolvedValue({}),
+      },
+      message: { count: jest.fn().mockResolvedValue(messageCount) },
+    };
+    const storageService = { delete: jest.fn().mockResolvedValue(undefined) };
+    return { service: new MediaService(prisma as never, storageService as never), prisma, storageService };
+  }
+
+  it('removes the library record but keeps the file when a message still uses it', async () => {
+    const { service, prisma, storageService } = buildForDelete(1);
+    await service.remove('tenant-1', 'a1');
+    expect(prisma.message.count).toHaveBeenCalledWith({ where: { tenantId: 'tenant-1', mediaUrl: { contains: 'tenant-1~abc.png' } } });
+    expect(storageService.delete).not.toHaveBeenCalled();
+    expect(prisma.mediaAsset.delete).toHaveBeenCalledWith({ where: { id: 'a1' } });
+  });
+
+  it('deletes the file when nothing uses it', async () => {
+    const { service, storageService } = buildForDelete(0);
+    await service.remove('tenant-1', 'a1');
+    expect(storageService.delete).toHaveBeenCalledWith('tenant-1/abc.png');
+  });
+
+  it('deduplicate keeps files that messages still use but removes their records', async () => {
+    const { service, prisma, storageService } = buildForDelete(1);
+    await expect(service.deduplicateAssets('tenant-1')).resolves.toEqual({ removed: 1 });
+    expect(storageService.delete).not.toHaveBeenCalled();
+    expect(prisma.mediaAsset.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['old'] } } });
+  });
+});

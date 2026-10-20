@@ -117,8 +117,17 @@ export class MediaService {
 
   async remove(tenantId: string, id: string) {
     const asset = await this.findOne(tenantId, id);
-    await this.storageService.delete(asset.fileKey);
+    // Keep the stored file while a conversation still shows it, otherwise old messages end up with a broken image.
+    if (!(await this.isUsedByMessage(tenantId, asset.fileKey))) {
+      await this.storageService.delete(asset.fileKey);
+    }
     await this.prisma.mediaAsset.delete({ where: { id } });
+  }
+
+  private isUsedByMessage(tenantId: string, fileKey: string): Promise<boolean> {
+    return this.prisma.message
+      .count({ where: { tenantId, mediaUrl: { contains: fileKey.replace(/\//g, '~') } } })
+      .then((n) => n > 0);
   }
 
   async deduplicateAssets(tenantId: string): Promise<{ removed: number }> {
@@ -137,8 +146,9 @@ export class MediaService {
       }
     }
     if (toDelete.length === 0) return { removed: 0 };
+    const inUse = await Promise.all(toDelete.map((a) => this.isUsedByMessage(tenantId, a.fileKey)));
     await Promise.all([
-      ...toDelete.map((a) => this.storageService.delete(a.fileKey).catch(() => {})),
+      ...toDelete.filter((_, i) => !inUse[i]).map((a) => this.storageService.delete(a.fileKey).catch(() => {})),
       this.prisma.mediaAsset.deleteMany({ where: { id: { in: toDelete.map((a) => a.id) } } }),
     ]);
     return { removed: toDelete.length };
