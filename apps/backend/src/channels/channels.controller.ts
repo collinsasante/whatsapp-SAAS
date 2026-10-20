@@ -1,3 +1,4 @@
+import { buildFacebookLoginUrl } from './facebook-login-url.util';
 import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -81,28 +82,12 @@ export class ChannelsController {
       return { redirectUrl: `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}` };
     }
 
-    // pages_messaging is required for the Messenger Send API and webhook
-    // subscription (added alongside the Facebook Messenger channel work --
-    // the pre-existing pages_show_list scope only ever supported listing
-    // Pages, never messaging through them). pages_read_engagement was
-    // dropped -- confirmed via a repo-wide search that no API call this
-    // codebase makes actually needs it (only /me/accounts for listing and
-    // the Send API/webhook-subscribe for messaging), and Meta rejects it as
-    // an invalid scope for an app created through the Business Messaging
-    // use case flow ("Invalid Scopes: pages_read_engagement").
-    const scope = provider === 'instagram'
-      ? 'instagram_basic,pages_show_list'
-      : 'pages_show_list,pages_messaging';
-
-    const params = new URLSearchParams({
-      client_id: appId,
-      redirect_uri: callbackUri,
-      scope,
-      response_type: 'code',
-      state,
-    });
-
-    return { redirectUrl: `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}` };
+    // Only facebook and instagram reach this point (the list above is checked and tiktok returned earlier).
+    const metaProvider = provider === 'instagram' ? 'instagram' : 'facebook';
+    const configId = this.configService.get<string>(
+      metaProvider === 'instagram' ? 'INSTAGRAM_LOGIN_CONFIG_ID' : 'FACEBOOK_LOGIN_CONFIG_ID',
+    );
+    return { redirectUrl: buildFacebookLoginUrl({ provider: metaProvider, appId, callbackUri, state, configId }) };
   }
 
   @Get('oauth/:provider/callback')
