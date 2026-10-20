@@ -7,10 +7,15 @@ import { PrismaClient } from '@prisma/client';
 import { MediaService } from './media.service';
 
 const url = process.env['MEDIA_TEST_DATABASE_URL'];
+// This suite TRUNCATEs tenants, so refuse any database that is not clearly a throwaway test database.
+if (url && !/(test|scratch|tmp)/i.test(new URL(url).pathname)) {
+  throw new Error('MEDIA_TEST_DATABASE_URL must point at a database whose name contains "test", "scratch" or "tmp".');
+}
 const describeDb = url ? describe : describe.skip;
 
 describeDb('Media Library queries (real database)', () => {
-  const prisma = new PrismaClient({ datasources: { db: { url: url! } } });
+  // describe.skip still runs this body, so a placeholder keeps the (lazy, never-connecting) client constructible when skipped.
+  const prisma = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://skipped:skipped@127.0.0.1:1/skipped' } } });
   const service = new MediaService(prisma as never, {} as never);
   const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
   const T1 = id(1), T2 = id(2);
