@@ -12,6 +12,7 @@ import { CredentialsEncryptionService } from '../common/crypto/credentials-encry
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
 import { isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
+import { recipientField } from './recipient.util';
 import { readCallingStatus } from '../calls/calling-errors.util';
 
 const execAsync = promisify(exec);
@@ -156,7 +157,7 @@ export class WhatsAppService {
       const payload: Record<string, unknown> = {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: 'text',
         text: { body: text, preview_url: false },
       };
@@ -191,7 +192,7 @@ export class WhatsAppService {
       const payload: Record<string, unknown> = {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: mediaTypeKey,
         [mediaTypeKey]: mediaPayload,
       };
@@ -224,7 +225,7 @@ export class WhatsAppService {
     try {
       const response = await client.post(`/${phoneNumberId}/messages`, {
         messaging_product: 'whatsapp',
-        to,
+        ...recipientField(to),
         type: 'template',
         template: {
           name: templateName,
@@ -311,7 +312,7 @@ export class WhatsAppService {
       const response = await client.post(`/${phoneNumberId}/messages`, {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: 'location',
         location: { latitude, longitude, name: name ?? '', address: address ?? '' },
       });
@@ -330,7 +331,7 @@ export class WhatsAppService {
       const response = await client.post(`/${phoneNumberId}/messages`, {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: 'contacts',
         contacts: [{
           name: { formatted_name: name, first_name: name },
@@ -432,7 +433,7 @@ export class WhatsAppService {
       const payload: Record<string, unknown> = {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: mediaTypeKey,
         [mediaTypeKey]: mediaPayload,
       };
@@ -454,7 +455,7 @@ export class WhatsAppService {
       await client.post(`/${phoneNumberId}/messages`, {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: 'reaction',
         reaction: { message_id: waMessageId, emoji },
       });
@@ -662,7 +663,7 @@ export class WhatsAppService {
       const response = await client.post(`/${phoneNumberId}/messages`, {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        ...recipientField(to),
         type: 'interactive',
         interactive: {
           type: 'list',
