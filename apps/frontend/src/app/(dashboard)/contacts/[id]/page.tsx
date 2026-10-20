@@ -12,6 +12,7 @@ import { contactsApi, conversationsApi, activityLogApi, attributesApi } from '@/
 import { cn, getInitials, formatMessageTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
+import { contactDisplayName } from '@/lib/contact-display';
 
 const AVATAR_COLORS = [
   'bg-teal-100 text-teal-700', 'bg-blue-100 text-blue-700',
@@ -236,7 +237,7 @@ export default function ContactProfilePage() {
     <div className="flex items-center justify-center h-full text-gray-400">Contact not found</div>
   );
 
-  const displayName = contact.name ?? contact.phone;
+  const displayName = contactDisplayName(contact);
   const avatarColor = getAvatarColor(displayName);
   const totalConvs = conversations.length;
   const resolvedConvs = conversations.filter((c) => c.status === 'RESOLVED').length;
@@ -376,7 +377,7 @@ export default function ContactProfilePage() {
               </div>
               <div className="space-y-0">
                 <DetailRow icon={Phone} label="Phone" value={contact.phone} />
-                <DetailRow icon={Mail} label="Email" value={contact.email ?? '—'} />
+                <DetailRow icon={Mail} label="Email" value={contact.email ?? '-'} />
                 <DetailRow icon={Calendar} label="Added" value={new Date(contact.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })} />
                 <DetailRow icon={Calendar} label="Updated" value={new Date(contact.updatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })} />
               </div>
@@ -476,7 +477,7 @@ export default function ContactProfilePage() {
                           )
                         ) : (
                           <p className={cn('text-sm', val ? 'text-gray-800 font-medium' : 'text-gray-400 italic')}>
-                            {attr.type === 'BOOLEAN' ? (val === 'true' ? 'Yes' : val === 'false' ? 'No' : '—') : val || '—'}
+                            {attr.type === 'BOOLEAN' ? (val === 'true' ? 'Yes' : val === 'false' ? 'No' : '-') : val || '-'}
                           </p>
                         )}
                       </div>

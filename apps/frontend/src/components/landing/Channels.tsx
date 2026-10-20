@@ -9,12 +9,12 @@ import 'swiper/css';
 const SLIDES = [
   {
     title: 'Shared Team Inbox',
-    desc: 'Every WhatsApp message lands in one shared inbox. Assign to agents, add private notes, and resolve — no "who\'s handling this?"',
+    desc: 'Every WhatsApp message lands in one shared inbox. Assign to agents, add private notes, and resolve, no "who\'s handling this?"',
     img: '/screenshots/inbox-chat.png',
   },
   {
     title: 'Message Templates',
-    desc: 'Create and manage WhatsApp-approved templates for marketing, utility, and authentication — synced and ready to send.',
+    desc: 'Create and manage WhatsApp-approved templates for marketing, utility, and authentication, synced and ready to send.',
     img: '/screenshots/message-templates.png',
   },
   {
@@ -24,7 +24,7 @@ const SLIDES = [
   },
   {
     title: 'File Library',
-    desc: 'Every image, video, and document shared with customers — organized in one searchable library, not buried in chats.',
+    desc: 'Every image, video, and document shared with customers, organized in one searchable library, not buried in chats.',
     img: '/screenshots/file-library.png',
   },
   {
@@ -39,7 +39,7 @@ const SLIDES = [
   },
   {
     title: 'Usage & Credits',
-    desc: 'Track messages sent, active agents, channels, and AI credit usage live — so there are never any surprises.',
+    desc: 'Track messages sent, active agents, channels, and AI credit usage live, so there are never any surprises.',
     img: '/screenshots/billing-usage.png',
   },
   {
@@ -60,7 +60,7 @@ export default function Channels() {
           <span className="sec_badge">Key Features</span>
           <h2>One Platform for Your Entire Operation</h2>
           <p className="text-center" style={{ maxWidth: 560, margin: '0 auto' }}>
-            Inbox, calls, templates, files, channels, your team, and billing — this is the real product, not a mockup.
+            Inbox, calls, templates, files, channels, your team, and billing, this is the real product, not a mockup.
           </p>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { cn, getInitials } from '@/lib/utils';
 import { useInboxStore, Conversation } from '@/store/inbox.store';
 import { conversationsApi } from '@/lib/api';
+import { contactDisplayName } from '@/lib/contact-display';
 
 const TWENTY_FOUR_HOURS = 24 * 3600 * 1000;
 
@@ -54,7 +55,7 @@ export default function UnrepliedChatsStrip() {
       </span>
       <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide flex-1 min-w-0">
         {unreplied.map((c) => {
-          const name = c.contact?.name ?? c.contact?.phone ?? 'Unknown';
+          const name = contactDisplayName(c.contact);
           const short = name.length > 14 ? name.slice(0, 13) + '…' : name;
           const color = avatarColor(name);
           const lastMsg = c.messages?.[0];

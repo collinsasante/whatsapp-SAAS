@@ -113,7 +113,7 @@ export class DemoService {
     await this.email.sendRaw({
       to: demo.workEmail,
       from: `VerzChat <${this.config.get('SMTP_FROM', 'notifications@verzchat.com')}>`,
-      subject: `Your demo is confirmed — ${dateStr} at ${demo.preferredTime}`,
+      subject: `Your demo is confirmed: ${dateStr} at ${demo.preferredTime}`,
       html: `
 <!DOCTYPE html><html><head><meta charset="utf-8"/></head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
@@ -136,7 +136,7 @@ export class DemoService {
     <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 28px">
       We'll be in touch before the session with a meeting link. In the meantime, feel free to reply to this email with any questions.
     </p>
-    <p style="color:#6b7280;font-size:13px;margin:0">— The VerzChat Team</p>
+    <p style="color:#6b7280;font-size:13px;margin:0">- The VerzChat Team</p>
   </td></tr>
   <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
     <p style="margin:0;color:#d1d5db;font-size:11px">VerzChat · verzchat.com</p>
@@ -151,7 +151,7 @@ export class DemoService {
     await this.email.sendRaw({
       to: adminEmail,
       from: `VerzChat Leads <${this.config.get('SMTP_FROM', 'notifications@verzchat.com')}>`,
-      subject: `${tierBadge} New demo request — ${demo.businessName} (score: ${score})`,
+      subject: `${tierBadge} New demo request: ${demo.businessName} (score: ${score})`,
       html: `
 <!DOCTYPE html><html><body style="font-family:-apple-system,sans-serif;background:#f4f4f5;margin:0;padding:32px 16px">
 <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;padding:32px;margin:0 auto">
@@ -164,7 +164,7 @@ export class DemoService {
         ['Email', demo.workEmail],
         ['Company', demo.businessName],
         ['Date', `${dateStr} at ${demo.preferredTime} (${demo.timezone})`],
-        ['Goals', demo.goals || '—'],
+        ['Goals', demo.goals || '-'],
       ].map(([k, v]) => `<tr><td style="padding:6px 0;color:#6b7280;font-size:13px;width:100px">${k}</td><td style="padding:6px 0;color:#111;font-size:14px;font-weight:500">${v}</td></tr>`).join('')}
     </table>
     <a href="${frontendUrl}/platform-admin/demos/${demo.id}" style="display:inline-block;margin-top:24px;padding:11px 24px;background:#104a25;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">View in Admin →</a>

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { parseDateRange } from './date-range.util';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
@@ -39,9 +40,8 @@ export class DashboardController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    const toDate = to ? new Date(to) : new Date();
-    const fromDate = from ? new Date(from) : (() => { const d = new Date(toDate); d.setDate(d.getDate() - 30); return d; })();
-    return this.dashboardService.getConversationStats(tenantId, fromDate, toDate);
+    const range = parseDateRange(from, to);
+    return this.dashboardService.getConversationStats(tenantId, range.from, range.to);
   }
 
   @Get('message-volume')

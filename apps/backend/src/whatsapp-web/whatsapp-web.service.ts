@@ -7,9 +7,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AuditService } from '../audit/audit.service';
 import { MessagesService } from '../messages/messages.service';
+import { MessageStatus } from '@whatsapp-platform/shared-types';
+
+// Only user addresses can be a sender or a recipient; groups and broadcast lists never are.
+export const WHATSAPP_ADDRESS_PATTERN = /^\d{5,20}@(lid|s\.whatsapp\.net)$/;
+
+function recipientBody(to: string | { jid: string }): { toPhone: string } | { toJid: string } {
+  return typeof to === 'string' ? { toPhone: to } : { toJid: to.jid };
+}
 
 interface WhatsAppWebEventPayload {
-  type: 'qr' | 'status' | 'inbound_message';
+  type: 'qr' | 'status' | 'inbound_message' | 'message_status';
   tenantId: string;
   sessionId?: string;
   channelId: string;
@@ -103,15 +111,15 @@ export class WhatsAppWebService {
   }
 
   /** Called by MessagesService.dispatchOutbound() for a WHATSAPP_WEB conversation -- mirrors FacebookMessengerService's shape (resolve credentials/session, then send). */
-  async sendText(tenantId: string, channelId: string, toPhone: string, text: string): Promise<string> {
+  async sendText(tenantId: string, channelId: string, to: string | { jid: string }, text: string): Promise<string> {
     const session = await this.resolveConnectedSession(tenantId, channelId);
-    const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-text`, { toPhone, text });
+    const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-text`, { ...recipientBody(to), text });
     return result.providerMessageId;
   }
 
-  async sendMedia(tenantId: string, channelId: string, toPhone: string, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string): Promise<string> {
+  async sendMedia(tenantId: string, channelId: string, to: string | { jid: string }, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string, opts: { voiceNote?: boolean } = {}): Promise<string> {
     const session = await this.resolveConnectedSession(tenantId, channelId);
-    const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-media`, { toPhone, mediaUrl, mediaType, caption });
+    const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-media`, { ...recipientBody(to), mediaUrl, mediaType, caption, ...(opts.voiceNote ? { voiceNote: true } : {}) });
     return result.providerMessageId;
   }
 
@@ -265,17 +273,34 @@ export class WhatsAppWebService {
       return;
     }
 
-    if (payload.type === 'inbound_message') {
-      const fromPhone = payload['fromPhone'] as string | undefined;
+    if (payload.type === 'message_status') {
       const providerMessageId = payload['providerMessageId'] as string | undefined;
-      if (!fromPhone || !providerMessageId) {
-        this.logger.warn(`Dropping malformed WhatsApp Web inbound_message event for channel ${payload.channelId} -- missing fromPhone/providerMessageId`);
+      const status = payload['status'] as string | undefined;
+      if (!providerMessageId || (status !== 'SENT' && status !== 'DELIVERED' && status !== 'READ')) {
+        this.logger.warn(`Dropping malformed WhatsApp Web message_status event for channel ${payload.channelId}`);
         return;
       }
+      await this.messagesService.updateStatus(providerMessageId, status as MessageStatus, payload.tenantId).catch((err) => {
+        this.logger.error(`Failed to apply WhatsApp Web receipt for channel ${payload.channelId}: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      return;
+    }
+
+    if (payload.type === 'inbound_message') {
+      const fromPhone = payload['fromPhone'] as string | undefined;
+      const fromJid = payload['fromJid'] as string | undefined;
+      const providerMessageId = payload['providerMessageId'] as string | undefined;
+      // Exactly one sender identity: a real phone number, or an anonymous WhatsApp address (@lid).
+      if (!providerMessageId || (!fromPhone && !fromJid) || (fromPhone && fromJid)
+        || (fromJid && !WHATSAPP_ADDRESS_PATTERN.test(fromJid))) {
+        this.logger.warn(`Dropping malformed WhatsApp Web inbound_message event for channel ${payload.channelId} -- invalid sender identity or providerMessageId`);
+        return;
+      }
+      const sender: string | { jid: string } = fromJid ? { jid: fromJid } : fromPhone!;
       await this.messagesService.handleInboundWhatsAppWeb(
         payload.tenantId,
         payload.channelId,
-        fromPhone,
+        sender,
         providerMessageId,
         {
           content: payload['content'] as string | undefined,
@@ -283,6 +308,7 @@ export class WhatsAppWebService {
           mediaBase64: payload['mediaBase64'] as string | undefined,
           mimetype: payload['mimetype'] as string | undefined,
           caption: payload['caption'] as string | undefined,
+          placeholder: payload['placeholder'] === true,
         },
         payload['pushName'] as string | undefined,
       ).catch((err) => {

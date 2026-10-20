@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, ConflictException } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -30,6 +30,12 @@ const SLA_MINUTES: Record<string, number> = {
   REQUESTED: 15,   // agent must intervene within 15 min
   INTERVENED: 120, // agent must resolve within 2 hours
 };
+
+export interface AiHandlingSummary {
+  mode: 'SUGGESTION' | 'AUTO_REPLY' | null;
+  willAutoReply: boolean;
+  reason: 'AI_DISABLED' | 'TRIAL_NOT_APPROVED' | 'NO_CREDITS' | 'OUTSIDE_SCHEDULE' | null;
+}
 
 @Injectable()
 export class ConversationsService {
@@ -200,10 +206,15 @@ export class ConversationsService {
       { OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: new Date() } }] },
     ];
     if (search) {
+      // Phones are stored normalized (digits with a leading +), so "+233 55 500-0111" must also
+      // match on its digits alone.
+      const searchDigits = search.replace(/\D/g, '');
+      const phoneClauses: unknown[] = [{ contact: { phone: { contains: search } } }];
+      if (searchDigits.length >= 3 && searchDigits !== search) phoneClauses.push({ contact: { phone: { contains: searchDigits } } });
       andClauses.push({
         OR: [
           { contact: { name: { contains: search, mode: 'insensitive' } } },
-          { contact: { phone: { contains: search } } },
+          ...phoneClauses,
           { messages: { some: { content: { contains: search, mode: 'insensitive' }, deletedForEveryone: false } } },
         ],
       });
@@ -378,8 +389,18 @@ export class ConversationsService {
   }
 
   /** Agent resolves conversation → INTERVENED/OPEN → RESOLVED */
-  async resolve(tenantId: string, id: string, userId?: string) {
+  async resolve(tenantId: string, id: string, userId?: string, role?: string) {
     const existing = await this.findOne(tenantId, id);
+
+    // A conversation owned by another human agent can only be closed by them or an admin; the
+    // UI hides this, but the server must not rely on it (stale clients / direct API calls).
+    const owner = existing.assignedTo;
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    if (owner && !owner.isAiAgent && owner.id !== userId && !isAdmin) {
+      throw new ForbiddenException('This conversation is being handled by another agent.');
+    }
+    // Idempotent: a stale client re-sending resolve must not overwrite who/when it was closed.
+    if (existing.status === ConversationStatus.RESOLVED) return existing;
 
     const result = await this.prisma.conversation.update({
       where: { id },
@@ -650,23 +671,45 @@ export class ConversationsService {
    * moduleRef (not a module import) to avoid a circular dependency, matching the
    * existing lazy-resolution pattern for WhatsAppService in markRead() above.
    */
-  async releaseToAi(tenantId: string, id: string, userId: string) {
+  async releaseToAi(tenantId: string, id: string, userId: string, role?: string) {
     const existing = await this.findOne(tenantId, id);
+    if (existing.status === ConversationStatus.RESOLVED) {
+      throw new BadRequestException('Reopen this conversation before returning it to Verz AI.');
+    }
+    // Same rule as resolve(): a chat another human agent is handling is theirs (or an admin's) to hand back.
+    const owner = existing.assignedTo;
+    const isAdmin = role === 'ADMIN' || role === 'SUPER_ADMIN';
+    if (owner && !owner.isAiAgent && owner.id !== userId && !isAdmin) {
+      throw new ForbiddenException('This conversation is being handled by another agent.');
+    }
+
     const aiResponderService = this.moduleRef.get(AiResponderService, { strict: false });
     const verzAgent = await aiResponderService.findOrCreateVerzAgent(tenantId);
+    const aiHandling = await this.describeAiHandling(aiResponderService, tenantId);
 
-    const result = await this.prisma.conversation.update({
-      where: { id },
+    // Already with the AI: nothing to change, but still tell the agent what will happen next.
+    if (owner?.id === verzAgent.id) return { ...existing, aiHandling };
+
+    // Compare-and-set on the owner we read: a takeover/reassignment that lands in between must not be overwritten.
+    const { count } = await this.prisma.conversation.updateMany({
+      // ?? null: Prisma drops an undefined filter, which would silently turn this into an unconditional write.
+      where: { id, tenantId, assignedToId: existing.assignedToId ?? null },
       data: {
         assignedToId: verzAgent.id,
         status: ConversationStatus.OPEN,
         intervenedAt: null,
         slaDeadline: null,
       },
-      include: CONV_INCLUDE,
     });
+    if (count === 0) throw new ConflictException('This conversation was just changed by someone else. Refresh and try again.');
+    const result = await this.findOne(tenantId, id);
 
-    await this.recordEvent(tenantId, id, ConversationEventType.BOT_RESUMED, userId, { returnedToAi: true });
+    await this.recordEvent(tenantId, id, ConversationEventType.BOT_RESUMED, userId, {
+      returnedToAi: true,
+      previousAssigneeId: existing.assignedToId,
+      aiMode: aiHandling.mode,
+      aiWillAutoReply: aiHandling.willAutoReply,
+    });
     void this.activityLogService.log({
       tenantId,
       action: ActivityAction.CONVERSATION_ASSIGNED,
@@ -676,7 +719,21 @@ export class ConversationsService {
       metadata: { returnedToAi: true },
     });
     this.realtimeService.emitConversationStateChanged(tenantId, id, result as unknown as Record<string, unknown>);
-    return result;
+    return { ...result, aiHandling };
+  }
+
+  /** What the AI will actually do with the next customer message, for the "Return to Verz AI" feedback. */
+  private async describeAiHandling(ai: AiResponderService, tenantId: string): Promise<AiHandlingSummary> {
+    const [mode, availability] = await Promise.all([
+      ai.getMode(tenantId).catch(() => null),
+      ai.evaluateAvailability(tenantId).catch(() => ({ available: false, reason: 'AI_DISABLED' as const })),
+    ]);
+    // SUGGESTION drafts replies for agents to review; only AUTO_REPLY sends on its own.
+    return {
+      mode,
+      willAutoReply: mode === 'AUTO_REPLY' && availability.available,
+      reason: mode === null ? 'AI_DISABLED' : availability.reason,
+    };
   }
 
   async addNote(tenantId: string, conversationId: string, authorId: string, dto: CreateNoteDto) {
@@ -727,6 +784,10 @@ export class ConversationsService {
     await this.prisma.message.deleteMany({ where: { conversationId, tenantId } });
     await this.prisma.conversation.delete({ where: { id: conversationId } });
     return { success: true };
+  }
+
+  async touchLastMessage(conversationId: string) {
+    await this.prisma.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: new Date() } });
   }
 
   async incrementUnread(conversationId: string) {
@@ -832,7 +893,7 @@ export class ConversationsService {
       messages: [
         {
           role: 'system',
-          content: `You are the Executive Brief Bot — a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
+          content: `You are the Executive Brief Bot, a specialized AI that distills messy WhatsApp customer support transcripts into clean, structured, executive-level summaries for support team managers. Follow the output format exactly. Use markdown. Be specific and actionable. Never add commentary outside the format.`,
         },
         {
           role: 'user',
@@ -846,9 +907,9 @@ export class ConversationsService {
 
 ## KEY DISCUSSION POINTS
 
-* **[Point Title]:** [Explanation of this discussion point — what was raised, what was said, what the outcome was.]
+* **[Point Title]:** [Explanation of this discussion point, what was raised, what was said, what the outcome was.]
 
-* **[Point Title]:** [Explanation — add as many bullet points as needed, minimum 2.]
+* **[Point Title]:** [Explanation, add as many bullet points as needed, minimum 2.]
 
 ---
 
@@ -866,7 +927,7 @@ export class ConversationsService {
 
 * [ ] **[Team/Person responsible]:** [Specific action required.]
 
-[If nothing is outstanding, write: * No open action items — conversation resolved.]
+[If nothing is outstanding, write: * No open action items, conversation resolved.]
 
 ---
 

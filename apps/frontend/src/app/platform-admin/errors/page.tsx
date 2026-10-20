@@ -53,7 +53,7 @@ export default function ErrorsPage() {
     { key: 'lastSeenAt', header: 'Last seen', render: (r) => new Date(r.lastSeenAt).toLocaleString() },
     { key: 'severity', header: 'Severity', render: (r) => <StatusBadge status={r.severity} map={SEVERITY_TONES} /> },
     { key: 'service', header: 'Service', render: (r) => r.service },
-    { key: 'tenant', header: 'Tenant', render: (r) => r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">—</span> },
+    { key: 'tenant', header: 'Tenant', render: (r) => r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">-</span> },
     { key: 'message', header: 'Message', render: (r) => <span className="text-gray-700 truncate block max-w-md" title={r.message}>{r.message}</span> },
     { key: 'occurrenceCount', header: 'Count', render: (r) => r.occurrenceCount },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} map={STATUS_TONES} /> },
@@ -96,7 +96,7 @@ export default function ErrorsPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No errors — nothing logged since this shipped" />
+        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No errors, nothing logged since this shipped" />
         <div className="p-4 border-t border-gray-100">
           <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
         </div>

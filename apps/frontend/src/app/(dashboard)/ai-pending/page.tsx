@@ -17,7 +17,7 @@ export default function AiPendingPage() {
 
         <h1 className="text-2xl font-bold text-gray-900 mb-3">AI Conversation Summaries</h1>
         <p className="text-gray-500 text-sm leading-relaxed mb-8">
-          Get instant AI-powered insights for every customer conversation — topic detection, sentiment analysis, action items, and resolution summaries — all in one place.
+          Get instant AI-powered insights for every customer conversation, topic detection, sentiment analysis, action items, and resolution summaries, all in one place.
         </p>
 
         {/* Feature cards */}

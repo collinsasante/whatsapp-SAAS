@@ -11,7 +11,7 @@ const REVIEWS = [
     biz: 'QuickFix Logistics, Nigeria',
     init: 'C',
     stars: 5,
-    text: 'The broadcast campaigns alone were worth switching. We sent delivery updates to 8,000 customers last week — all delivered, all tracked. No more copy-pasting into WhatsApp one by one.',
+    text: 'The broadcast campaigns alone were worth switching. We sent delivery updates to 8,000 customers last week, all delivered, all tracked. No more copy-pasting into WhatsApp one by one.',
   },
   {
     name: 'Fatima Al-Rashid',

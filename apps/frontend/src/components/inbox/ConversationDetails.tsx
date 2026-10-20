@@ -4,10 +4,13 @@ import ReactMarkdown from 'react-markdown';
 import { StickyNote, X, ChevronDown, ChevronUp, FileText, ImageIcon, Route, ShieldOff, Shield, Sparkles, RefreshCw, Copy, Check, Target } from 'lucide-react';
 import { conversationsApi, activityLogApi, contactsApi, leadsApi } from '@/lib/api';
 import { MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
+import { isAgentSentMedia } from '@/lib/media-provenance';
+import { VoiceNotePlayer } from './VoiceNotePlayer';
 import { useInboxStore } from '@/store/inbox.store';
 import { getInitials, formatRelativeTime, getProxiedMediaUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { contactDisplayName } from '@/lib/contact-display';
 
 function formatJourneyLabel(entry: { action: string; metadata: Record<string, unknown>; user?: { id: string; name: string } | null }): string | null {
   const who = entry.user?.name ?? null;
@@ -107,6 +110,8 @@ export default function ConversationDetails({ conversation }: Props) {
   const [notes, setNotes] = useState<{ id: string; content: string; author: { id: string; name: string }; createdAt: string }[]>([]);
   const [filesExpanded, setFilesExpanded] = useState(false);
   const [mediaExpanded, setMediaExpanded] = useState(false);
+  const [mediaTab, setMediaTab] = useState<'all' | 'agents'>('all');
+  const [mediaShowAll, setMediaShowAll] = useState(false);
   const [voiceNotesExpanded, setVoiceNotesExpanded] = useState(false);
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [activityLoaded, setActivityLoaded] = useState(false);
@@ -125,6 +130,9 @@ export default function ConversationDetails({ conversation }: Props) {
   const convMessages = messages[conversation.id] ?? [];
   const docMessages = convMessages.filter((m) => m.type === 'DOCUMENT' && m.mediaUrl);
   const mediaMessages = convMessages.filter((m) => (m.type === 'IMAGE' || m.type === 'VIDEO') && m.mediaUrl);
+  const agentMediaMessages = mediaMessages.filter(isAgentSentMedia);
+  const shownMedia = mediaTab === 'agents' ? agentMediaMessages : mediaMessages;
+  const mediaLimit = mediaShowAll ? shownMedia.length : 5;
   const audioMessages = convMessages.filter((m) => m.type === 'AUDIO' && m.mediaUrl);
   const templateMessages = convMessages.filter((m) => m.type === MessageType.TEMPLATE);
   const sessionMessages = convMessages.filter((m) => m.type !== MessageType.TEMPLATE);
@@ -220,7 +228,7 @@ export default function ConversationDetails({ conversation }: Props) {
     }
   };
 
-  const name = conversation.contact?.name ?? conversation.contact?.phone ?? 'Unknown';
+  const name = contactDisplayName(conversation.contact);
   const avatarColor = getAvatarColor(name);
 
   return (
@@ -266,17 +274,17 @@ export default function ConversationDetails({ conversation }: Props) {
             {([
               { label: 'Status', value: conversation.status },
               { label: 'Intervened', value: conversation.assignedTo ? 'Yes' : 'No' },
-              { label: 'Transferred To', value: conversation.assignedTo?.name ?? '—' },
-              { label: 'Last Active', value: conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—' },
+              { label: 'Transferred To', value: conversation.assignedTo?.name ?? '-' },
+              { label: 'Last Active', value: conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '-' },
               { label: 'Template Messages', value: String(templateMessages.length) },
               { label: 'Session Messages', value: String(sessionMessages.length) },
               { label: 'Unresolved Queries', value: '0' },
-              { label: 'Source', value: conversation.contactSource === 'ad' ? `Ad${conversation.adHeadline ? ` — ${conversation.adHeadline}` : ''}` : conversation.contactSource === 'post' ? 'Social Post' : 'Organic' },
-              { label: 'First Message', value: firstMessage ? new Date(firstMessage.createdAt as unknown as string).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—' },
+              { label: 'Source', value: conversation.contactSource === 'ad' ? `Ad${conversation.adHeadline ? `: ${conversation.adHeadline}` : ''}` : conversation.contactSource === 'post' ? 'Social Post' : 'Organic' },
+              { label: 'First Message', value: firstMessage ? new Date(firstMessage.createdAt as unknown as string).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '-' },
               { label: 'WA Conversation', value: waConvActive ? 'Active' : 'Inactive', color: waConvActive ? 'text-green-600' : 'text-gray-500' },
               { label: 'MAU Status', value: mauActive ? 'Active' : 'Inactive', color: mauActive ? 'text-green-600' : 'text-gray-500' },
-              { label: 'Incoming', value: contactDetail == null ? '—' : contactDetail.isBlocked ? 'Blocked' : 'Allowed', color: contactDetail?.isBlocked ? 'text-red-500' : 'text-green-600' },
-              { label: 'Opted In', value: contactDetail == null ? '—' : contactDetail.optedOut ? 'No' : 'Yes', color: contactDetail?.optedOut ? 'text-red-500' : 'text-green-600' },
+              { label: 'Incoming', value: contactDetail == null ? '-' : contactDetail.isBlocked ? 'Blocked' : 'Allowed', color: contactDetail?.isBlocked ? 'text-red-500' : 'text-green-600' },
+              { label: 'Opted In', value: contactDetail == null ? '-' : contactDetail.optedOut ? 'No' : 'Yes', color: contactDetail?.optedOut ? 'text-red-500' : 'text-green-600' },
             ] as { label: string; value: string; color?: string }[]).map(({ label, value, color }) => (
               <div key={label} className="flex items-start justify-between gap-2 py-0.5">
                 <span className="text-xs text-gray-400 shrink-0">{label}</span>
@@ -356,7 +364,7 @@ export default function ConversationDetails({ conversation }: Props) {
             ) : (
               <div className="text-center py-3">
                 <p className="text-xs text-gray-400 mb-3 leading-relaxed">
-                  AI-generated summary of this conversation — topic, key points, next steps, and sentiment.
+                  AI-generated summary of this conversation, topic, key points, next steps, and sentiment.
                 </p>
                 <button
                   onClick={() => { void generateBrief(); }}
@@ -552,11 +560,24 @@ export default function ConversationDetails({ conversation }: Props) {
         </button>
         {mediaExpanded && (
           <div className="px-4 pb-4">
-            {mediaMessages.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-3">No media shared yet</p>
+            <div className="flex gap-1 mb-2" role="tablist" aria-label="Media filter">
+              {([['all', `All Media (${mediaMessages.length})`], ['agents', `Sent by Agents (${agentMediaMessages.length})`]] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={mediaTab === id}
+                  onClick={() => { setMediaTab(id); setMediaShowAll(false); }}
+                  className={cn('px-2.5 py-1 rounded-lg text-xs font-medium transition-colors', mediaTab === id ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {shownMedia.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">{mediaTab === 'agents' ? 'No media sent by agents yet' : 'No media shared yet'}</p>
             ) : (
               <div className="grid grid-cols-3 gap-1.5">
-                {mediaMessages.slice(0, 5).map((msg) => (
+                {shownMedia.slice(0, mediaLimit).map((msg) => (
                   <a key={msg.id} href={getProxiedMediaUrl(msg.mediaUrl) || '#'} target="_blank" rel="noopener noreferrer"
                     className="aspect-square rounded-xl overflow-hidden bg-gray-100 block relative group">
                     {msg.type === 'IMAGE' && getProxiedMediaUrl(msg.mediaUrl) ? (
@@ -568,10 +589,10 @@ export default function ConversationDetails({ conversation }: Props) {
                     )}
                   </a>
                 ))}
-                {mediaMessages.length > 5 && (
-                  <div className="aspect-square rounded-xl bg-gray-800 flex items-center justify-center">
-                    <span className="text-white text-sm font-bold">+{mediaMessages.length - 5}</span>
-                  </div>
+                {!mediaShowAll && shownMedia.length > 5 && (
+                  <button onClick={() => setMediaShowAll(true)} aria-label={`Show ${shownMedia.length - 5} more`} className="aspect-square rounded-xl bg-gray-800 flex items-center justify-center hover:bg-gray-700">
+                    <span className="text-white text-sm font-bold">+{shownMedia.length - 5}</span>
+                  </button>
                 )}
               </div>
             )}
@@ -597,12 +618,7 @@ export default function ConversationDetails({ conversation }: Props) {
               <div className="space-y-2">
                 {audioMessages.slice(0, 10).map((msg) => (
                   <div key={msg.id} className="flex flex-col gap-1 p-2 hover:bg-gray-50 rounded-xl transition-colors">
-                    <audio
-                      src={getProxiedMediaUrl(msg.mediaUrl) || ''}
-                      controls
-                      className="w-full h-8"
-                      style={{ minWidth: 0 }}
-                    />
+                    <VoiceNotePlayer src={getProxiedMediaUrl(msg.mediaUrl) || ''} tone="neutral" />
                     <p className="text-xs text-gray-400">{formatRelativeTime(msg.createdAt)}</p>
                   </div>
                 ))}

@@ -31,7 +31,7 @@ function throttled(p: ErrorPayload): boolean {
 function buildText(p: ErrorPayload): string {
   const icon = p.source === 'frontend' ? '🖥' : '🔥';
   const lines = [
-    `${icon} *${p.source === 'frontend' ? 'Frontend' : 'Backend'} Error* — verzchat.com`,
+    `${icon} *${p.source === 'frontend' ? 'Frontend' : 'Backend'} Error*, verzchat.com`,
     p.method && p.url ? `\`${p.method.toUpperCase()} ${p.url}\`` : p.url ? `\`${p.url}\`` : '',
     p.status ? `Status: ${p.status}` : '',
     p.tenantId ? `Tenant: \`${p.tenantId}\`` : '',

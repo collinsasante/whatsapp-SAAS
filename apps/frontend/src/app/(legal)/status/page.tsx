@@ -69,7 +69,7 @@ export default function StatusPage() {
       </section>
 
       <section className="mb-12">
-        <h2 className="text-lg font-bold text-gray-900 mb-4">Uptime — last 6 months</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-4">Uptime, last 6 months</h2>
         <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5">
           <div className="grid grid-cols-6 gap-3">
             {uptime.map((u) => (

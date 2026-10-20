@@ -1,8 +1,14 @@
-import { IsString, IsEnum, IsOptional, IsObject, IsNumber } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsObject, IsNumber, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { MessageType } from '@whatsapp-platform/shared-types';
 
 export class SendMessageDto {
+  @ApiProperty({ required: false, description: 'Client-generated id; re-sending the same id returns the original result instead of messaging the customer twice.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  clientMessageId?: string;
+
   @ApiProperty({ example: 'Hello, how can I help?' })
   @IsOptional()
   @IsString()

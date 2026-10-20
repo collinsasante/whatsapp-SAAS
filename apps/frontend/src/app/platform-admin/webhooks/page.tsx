@@ -57,7 +57,7 @@ export default function WebhooksPage() {
     { key: 'createdAt', header: 'Received', render: (r) => new Date(r.createdAt).toLocaleString() },
     { key: 'source', header: 'Source', render: (r) => r.source },
     { key: 'eventType', header: 'Event', render: (r) => r.eventType },
-    { key: 'tenant', header: 'Tenant', render: (r) => r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">—</span> },
+    { key: 'tenant', header: 'Tenant', render: (r) => r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">-</span> },
     { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} map={STATUS_TONES} /> },
     { key: 'attempts', header: 'Attempts', render: (r) => r.attempts },
     {
@@ -74,7 +74,7 @@ export default function WebhooksPage() {
       <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Webhooks</h1>
-          <p className="text-gray-500 text-sm mt-1">Every inbound webhook delivery — WhatsApp, Stripe, Paystack</p>
+          <p className="text-gray-500 text-sm mt-1">Every inbound webhook delivery: WhatsApp, Stripe, Paystack</p>
         </div>
         <div className="flex gap-2">
           <select value={source} onChange={(e) => { setSource(e.target.value); setOffset(0); }} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white">

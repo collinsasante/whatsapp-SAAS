@@ -227,7 +227,7 @@ export default function WorkspacesPage() {
               >
                 <td className="px-4 py-3">
                   <Link href={`/platform-admin/workspaces/${t.id}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-teal-600 hover:underline">{t.name}</Link>
-                  <div className="text-xs text-gray-400">{t.billingEmail ?? '—'}{t.country ? ` · ${t.country}` : ''}</div>
+                  <div className="text-xs text-gray-400">{t.billingEmail ?? '-'}{t.country ? ` · ${t.country}` : ''}</div>
                   {t.churnRisk && (
                     <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-red-600">
                       <AlertTriangle className="w-3 h-3" />Churn risk
@@ -240,7 +240,7 @@ export default function WorkspacesPage() {
                   </span>
                   {t.plan && <div className="text-xs text-gray-400 mt-0.5">{t.plan}</div>}
                 </td>
-                <td className="px-4 py-3 text-gray-700 font-medium">{t.mrrGhs > 0 ? `GHS ${t.mrrGhs.toFixed(2)}` : '—'}</td>
+                <td className="px-4 py-3 text-gray-700 font-medium">{t.mrrGhs > 0 ? `GHS ${t.mrrGhs.toFixed(2)}` : '-'}</td>
                 <td className="px-4 py-3">
                   {t.lastPayment ? (
                     <div>
@@ -249,7 +249,7 @@ export default function WorkspacesPage() {
                       </span>
                       <div className="text-[10px] text-gray-400">{t.lastPayment.gateway} · {new Date(t.lastPayment.createdAt).toLocaleDateString()}</div>
                     </div>
-                  ) : <span className="text-gray-400 text-xs">—</span>}
+                  ) : <span className="text-gray-400 text-xs">-</span>}
                 </td>
                 <td className="px-4 py-3">
                   <button
@@ -341,7 +341,7 @@ export default function WorkspacesPage() {
                 onChange={e => setSelectedPlanSlug(e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                <option value="">— choose a plan —</option>
+                <option value="">- choose a plan</option>
                 {plans.map(p => (
                   <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>
                 ))}

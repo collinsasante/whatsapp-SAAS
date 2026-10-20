@@ -173,7 +173,7 @@ export default function WorkspaceDetailPage() {
             )}
           </div>
           <p className="text-sm text-gray-500 mt-1">
-            {data.billingEmail ?? '—'}{data.country ? ` · ${data.country}` : ''} · Signed up {new Date(data.createdAt).toLocaleDateString()}
+            {data.billingEmail ?? '-'}{data.country ? ` · ${data.country}` : ''} · Signed up {new Date(data.createdAt).toLocaleDateString()}
           </p>
           <p className="text-xs text-teal-600 font-medium mt-1">{LIFECYCLE_LABELS[data.lifecycleStage] ?? data.lifecycleStage}</p>
         </div>
@@ -202,9 +202,9 @@ export default function WorkspaceDetailPage() {
         <div className="space-y-5">
           <Panel title="Profile" icon={Building2}>
             <dl className="space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-gray-500">Plan</dt><dd className="font-medium text-gray-800">{data.subscription?.plan.name ?? '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Plan</dt><dd className="font-medium text-gray-800">{data.subscription?.plan.name ?? '-'}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Status</dt><dd className="font-medium text-gray-800">{data.subscription?.status ?? 'No subscription'}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500">Billing cycle</dt><dd className="font-medium text-gray-800">{data.subscription?.cycle ?? '—'}</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Billing cycle</dt><dd className="font-medium text-gray-800">{data.subscription?.cycle ?? '-'}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Team size</dt><dd className="font-medium text-gray-800">{data._count.users}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Contacts</dt><dd className="font-medium text-gray-800">{data._count.contacts}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Conversations (all-time)</dt><dd className="font-medium text-gray-800">{data._count.conversations}</dd></div>
@@ -401,7 +401,7 @@ export default function WorkspaceDetailPage() {
                 onChange={(e) => setSelectedPlanSlug(e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
-                <option value="">— choose a plan —</option>
+                <option value="">- choose a plan</option>
                 {plans.map((p) => <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>)}
               </select>
             </div>

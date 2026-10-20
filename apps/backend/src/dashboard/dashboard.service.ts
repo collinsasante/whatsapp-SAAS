@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
+const BUSINESS_PROFILE_TTL_MS = 60_000;
+
 @Injectable()
 export class DashboardService {
   constructor(
@@ -245,8 +247,17 @@ export class DashboardService {
     }));
   }
 
+  // The profile comes from two live Meta Graph calls and changes rarely, but the dashboard asks for it on every
+  // load. Cache it briefly per tenant so a busy dashboard (or a refresh storm) does not fan out to Meta each time.
+  private readonly businessProfileCache = new Map<string, { at: number; value: unknown }>();
+
   async getBusinessProfile(tenantId: string) {
-    return this.whatsappService.getBusinessProfile(tenantId);
+    const hit = this.businessProfileCache.get(tenantId);
+    if (hit && Date.now() - hit.at < BUSINESS_PROFILE_TTL_MS) return hit.value;
+    const value = await this.whatsappService.getBusinessProfile(tenantId);
+    // Failures come back as null: do not cache them, so a transient error does not stick for a minute.
+    if (value) this.businessProfileCache.set(tenantId, { at: Date.now(), value });
+    return value;
   }
 
   async getWhatsAppStatus(tenantId: string) {

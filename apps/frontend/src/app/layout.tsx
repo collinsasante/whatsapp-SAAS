@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL('https://verzchat.com'),
   title: {
-    default: 'VerzChat — WhatsApp Business Inbox for Teams',
+    default: 'VerzChat: WhatsApp Business Inbox for Teams',
     template: '%s | VerzChat',
   },
   description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API. Teams live in under 20 minutes.',

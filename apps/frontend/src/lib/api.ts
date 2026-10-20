@@ -43,6 +43,25 @@ async function silentRefresh(): Promise<string> {
 }
 
 
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+const MAX_TRANSIENT_RETRIES = 2;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function isRetryableRead(error: { response?: { status?: number }; code?: string }, config: AxiosRequestConfig & { _transientRetries?: number }): boolean {
+  if ((config.method ?? 'get').toLowerCase() !== 'get') return false;
+  if ((config._transientRetries ?? 0) >= MAX_TRANSIENT_RETRIES) return false;
+  const status = error.response?.status;
+  // No response at all (dropped connection) is also worth one more try; a 4xx other than 429 is not.
+  return status === undefined ? error.code !== 'ERR_CANCELED' : RETRYABLE_STATUS.has(status);
+}
+
+function retryDelayMs(attempt: number, retryAfter: unknown): number {
+  const seconds = typeof retryAfter === 'string' ? Number(retryAfter) : NaN;
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds, 5) * 1000;
+  return 400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250); // 400-650ms, then 800-1050ms
+}
+
 function createApiClient(): AxiosInstance {
   const client = axios.create({
     baseURL: API_URL,
@@ -66,7 +85,15 @@ function createApiClient(): AxiosInstance {
       return response;
     },
     async (error) => {
-      const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+      const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean; _transientRetries?: number };
+
+      // Reads (GET) that hit a temporary failure are retried a couple of times with a short, jittered delay, honouring
+      // Retry-After. Never for writes: repeating a POST could duplicate a message or a payment.
+      if (isRetryableRead(error, originalRequest)) {
+        originalRequest._transientRetries = (originalRequest._transientRetries ?? 0) + 1;
+        await sleep(retryDelayMs(originalRequest._transientRetries, error.response?.headers?.['retry-after']));
+        return client(originalRequest);
+      }
 
       if (error.response?.status === 401 && !originalRequest._retry) {
         originalRequest._retry = true;
@@ -243,10 +270,12 @@ export const automationApi = {
 };
 
 export const mediaApi = {
-  upload: (file: File, onProgress?: (pct: number) => void) => {
+  // `uniqueName` rejects a file whose name is already in the File Library -- pass it only from the Library page.
+  upload: (file: File, onProgress?: (pct: number) => void, opts?: { uniqueName?: boolean }) => {
     const formData = new FormData();
     formData.append('file', file);
     return api.post('/media/upload', formData, {
+      params: opts?.uniqueName ? { uniqueName: 'true' } : undefined,
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 0,
       onUploadProgress: onProgress
@@ -256,6 +285,7 @@ export const mediaApi = {
   },
   list: (params?: Record<string, unknown>) => api.get('/media', { params }),
   library: (params?: Record<string, unknown>) => api.get('/media/library', { params }),
+  libraryAgents: () => api.get('/media/library/agents'),
   assets: (params?: Record<string, unknown>) => api.get('/media', { params }),
   deleteAsset: (id: string) => api.delete(`/media/${id}`),
   deduplicate: () => api.post('/media/deduplicate'),
@@ -467,8 +497,8 @@ export const billingApi = {
   getCreditUsageSummary: () => api.get('/billing/credits/usage'),
   initiateStripeCreditCheckout: (packSlug: string) =>
     api.post('/billing/credits/checkout/stripe', { packSlug }),
-  initiatePaystackCreditCheckout: (packSlug: string) =>
-    api.post('/billing/credits/checkout/paystack', { packSlug }),
+  initiatePaystackCreditCheckout: (packSlug: string, billingEmail?: string) =>
+    api.post('/billing/credits/checkout/paystack', { packSlug, ...(billingEmail ? { billingEmail } : {}) }),
 };
 
 export const teamsApi = {
@@ -483,9 +513,10 @@ export const teamsApi = {
 
 export const webhooksApi = {
   list: () => api.get('/manage/webhooks'),
-  create: (data: { name: string; url: string; events?: string[]; secret?: string }) =>
+  create: (data: { name: string; url: string; events?: string[]; secret?: string; generateSecret?: boolean; headers?: Record<string, string> }) =>
     api.post('/manage/webhooks', data),
   update: (id: string, data: Record<string, unknown>) => api.patch(`/manage/webhooks/${id}`, data),
+  rotateSecret: (id: string) => api.post(`/manage/webhooks/${id}/rotate-secret`),
   delete: (id: string) => api.delete(`/manage/webhooks/${id}`),
   test: (id: string) => api.post(`/manage/webhooks/${id}/test`),
 };

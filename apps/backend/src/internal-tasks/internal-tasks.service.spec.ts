@@ -6,6 +6,9 @@ function buildPrismaMock() {
     team: { findFirst: jest.fn() },
     teamMember: { findMany: jest.fn() },
     user: { findMany: jest.fn(), findFirst: jest.fn() },
+    conversation: { findFirst: jest.fn().mockResolvedValue(null) },
+    order: { findFirst: jest.fn().mockResolvedValue(null) },
+    contact: { findFirst: jest.fn().mockResolvedValue(null) },
     internalTask: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
   };
 }

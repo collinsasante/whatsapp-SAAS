@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ClipboardList, RefreshCw, CheckCircle2, XCircle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { internalTasksApi } from '@/lib/api';
@@ -54,17 +54,24 @@ export default function TasksPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Task['status'] | 'ALL'>('OPEN');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Only the newest request may update the list: clicking filters quickly must not let a slow earlier answer win.
+  const requestId = useRef(0);
 
   const load = useCallback(async (status: Task['status'] | 'ALL') => {
+    const mine = ++requestId.current;
     setRefreshing(true);
     try {
       const res = await internalTasksApi.list(status === 'ALL' ? undefined : { status });
+      if (mine !== requestId.current) return;
       setTasks(res.data as Task[]);
+      setLoadError(null);
     } catch (e) {
-      toast.error(apiErr(e, 'Failed to load tasks'));
+      if (mine !== requestId.current) return;
+      // Keep what was already on screen and say what failed. Showing "no tasks" here would be wrong.
+      setLoadError(apiErr(e, 'Failed to load tasks'));
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (mine === requestId.current) { setLoading(false); setRefreshing(false); }
     }
   }, []);
 
@@ -93,7 +100,7 @@ export default function TasksPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900">Tasks</h1>
-              <p className="text-xs text-gray-500">Work handed off from Verz AI to your team -- order approvals, forwarded requests, and follow-ups</p>
+              <p className="text-xs text-gray-500">Work handed off from Verz AI to your team: order approvals, forwarded requests and follow-ups</p>
             </div>
           </div>
           <button
@@ -127,6 +134,11 @@ export default function TasksPage() {
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 h-20 animate-pulse" />
               ))}
+            </div>
+          ) : loadError ? (
+            <div role="alert" className="text-center py-12 rounded-xl border border-red-100 bg-red-50">
+              <p className="text-sm text-red-700">{loadError}</p>
+              <button type="button" onClick={() => { void load(filter); }} className="mt-3 text-sm font-medium text-red-700 underline">Try again</button>
             </div>
           ) : tasks.length === 0 ? (
             <div className="text-center py-16 text-gray-400 text-sm">

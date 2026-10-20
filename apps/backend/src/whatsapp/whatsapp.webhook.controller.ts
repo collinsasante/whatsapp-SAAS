@@ -26,7 +26,7 @@ import { MessageStatus } from '@whatsapp-platform/shared-types';
 import { WebhookSource } from '@prisma/client';
 import { notify } from '../common/notifier';
 import { WebhookEventService } from '../common/monitoring/webhook-event.service';
-import { verifyWhatsAppSignature } from './webhook-signature.util';
+import { checkWebhookSignature } from './webhook-signature.util';
 
 interface CallEvent {
   id: string;
@@ -52,6 +52,12 @@ interface WebhookEntry {
       messages?: Array<{
         id: string;
         from: string;
+        // Present instead of `from` once the sender has enabled a WhatsApp
+        // username and hasn't messaged this business in 30+ days -- see
+        // normalizePhone's BSUID handling in shared-utils for why this is
+        // stored/sent through the same `phone` field rather than requiring
+        // a real phone number everywhere.
+        from_user_id?: string;
         timestamp: string;
         type: string;
         context?: { id: string; from?: string; forwarded?: boolean };
@@ -106,6 +112,7 @@ const STATUS_MAP: Record<string, MessageStatus> = {
 @Controller('webhook/whatsapp')
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
+  private warnedUnconfiguredSecret = false;
 
   constructor(
     private prisma: PrismaService,
@@ -136,29 +143,20 @@ export class WhatsAppWebhookController {
   }
 
   /**
-   * Verifies Meta's x-hub-signature-256 against WHATSAPP_APP_SECRET before any
-   * tenant fan-out. All tenants are onboarded under this app's single WABA
-   * embedded-signup flow (confirmed: wabaId/accessToken are per-tenant, but the
-   * App Secret belongs to the one Meta App those WABAs are connected through),
-   * so one global secret is correct here, not a per-tenant one.
+   * Verifies Meta's x-hub-signature-256 against WHATSAPP_APP_SECRET before any tenant fan-out. All tenants are
+   * onboarded under one Meta app, so one global secret is correct here, not a per-tenant one.
    *
-   * Fails open (logs and continues) in non-production environments when
-   * WHATSAPP_APP_SECRET isn't configured, so staging/dev can still receive
-   * webhooks before the secret is provisioned there. In production it fails
-   * CLOSED -- an unconfigured secret must never silently let forged inbound
-   * WhatsApp payloads through for every tenant.
+   * A signature that does not match a configured secret is always rejected. When the secret is not configured the
+   * message is accepted and a single warning is logged per server start: failing closed here would stop every
+   * customer's inbound WhatsApp messages the moment a deploy lands on a server that has not been given the secret yet.
+   * Setting WHATSAPP_APP_SECRET turns enforcement on with no code change.
    */
   private assertValidSignature(raw: Buffer | undefined, signature: string | undefined): void {
-    const appSecret = process.env['WHATSAPP_APP_SECRET'];
-    if (!appSecret) {
-      if (process.env['NODE_ENV'] === 'production') {
-        throw new BadRequestException('Webhook signature verification is not configured');
-      }
-      this.logger.warn('WHATSAPP_APP_SECRET not configured -- webhook signature verification is disabled');
-      return;
-    }
-    if (!verifyWhatsAppSignature(raw, signature, appSecret)) {
-      throw new BadRequestException('Invalid webhook signature');
+    const result = checkWebhookSignature(raw, signature, process.env['WHATSAPP_APP_SECRET']);
+    if (result === 'invalid') throw new BadRequestException('Invalid webhook signature');
+    if (result === 'unconfigured' && !this.warnedUnconfiguredSecret) {
+      this.warnedUnconfiguredSecret = true;
+      this.logger.warn('WHATSAPP_APP_SECRET is not configured: inbound WhatsApp webhook signatures are NOT being verified. Set it to enforce verification.');
     }
   }
 

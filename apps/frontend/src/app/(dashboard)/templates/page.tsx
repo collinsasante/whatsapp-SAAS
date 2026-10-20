@@ -269,7 +269,7 @@ function TemplateBuilder({ initial, onSave, onBack }: {
     const phoneBtn = b.buttons.find(btn => btn.type === 'PHONE_NUMBER');
     if (phoneBtn && !/^\+\d{7,15}$/.test(phoneBtn.phone_number ?? '')) return 'Phone number must be in E.164 format, e.g. +966534342217';
     const urlBtn = b.buttons.find(btn => btn.type === 'URL');
-    if (urlBtn?.url?.includes('{{') && !urlBtn.example?.[0]?.trim()) return 'Provide a sample value for the dynamic URL — required by Meta';
+    if (urlBtn?.url?.includes('{{') && !urlBtn.example?.[0]?.trim()) return 'Provide a sample value for the dynamic URL, required by Meta';
     return null;
   };
 
@@ -384,7 +384,7 @@ function TemplateBuilder({ initial, onSave, onBack }: {
                 ))}
               </div>
               <p className="text-[10px] text-gray-400 mt-1">
-                {b.category === 'MARKETING' && 'Promotional messages — requires opt-in from customers.'}
+                {b.category === 'MARKETING' && 'Promotional messages, requires opt-in from customers.'}
                 {b.category === 'UTILITY' && 'Transactional messages like order updates, receipts, alerts.'}
                 {b.category === 'AUTHENTICATION' && 'OTP and verification codes only.'}
               </p>
@@ -534,7 +534,7 @@ function TemplateBuilder({ initial, onSave, onBack }: {
                 {btn.type === 'URL' && (
                   <div className="space-y-1.5">
                     <input value={btn.url ?? ''} onChange={e => updateButton(i, { url: e.target.value })}
-                      placeholder="https://yoursite.com/page/{{1}} — use {{1}} for dynamic value"
+                      placeholder="https://yoursite.com/page/{{1}}, use {{1}} for dynamic value"
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono bg-white focus:outline-none focus:ring-1 focus:ring-teal-500" />
                     {btn.url?.includes('{{') && (
                       <div>
@@ -762,7 +762,7 @@ export default function TemplatesPage() {
       await load();
       toast.success('Templates synced from WhatsApp');
     } catch {
-      toast.error('Sync failed — check your WhatsApp API credentials');
+      toast.error('Sync failed, check your WhatsApp API credentials');
     } finally { setSyncing(false); }
   };
 

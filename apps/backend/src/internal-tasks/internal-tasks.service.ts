@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TaskPriority, TaskStatus, NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -13,6 +13,9 @@ export interface CreateTaskInput {
   contactId?: string;
   createdById?: string | null;
 }
+
+const DEFAULT_TASK_LIMIT = 200;
+const MAX_TASK_LIMIT = 500;
 
 /**
  * Verz-AI Phase 2b: gives the platform a real way to hand work to a human team --
@@ -33,6 +36,13 @@ export class InternalTasksService {
   ) {}
 
   async create(tenantId: string, input: CreateTaskInput) {
+    // Tasks are created by the AI's tools, whose arguments come from a model and so cannot be trusted to name only
+    // this workspace's records. A reference to a conversation, order or contact in another workspace is dropped.
+    const [conversationId, orderId, contactId] = await Promise.all([
+      this.ownedId(() => input.conversationId && this.prisma.conversation.findFirst({ where: { id: input.conversationId, tenantId }, select: { id: true } })),
+      this.ownedId(() => input.orderId && this.prisma.order.findFirst({ where: { id: input.orderId, tenantId }, select: { id: true } })),
+      this.ownedId(() => input.contactId && this.prisma.contact.findFirst({ where: { id: input.contactId, tenantId }, select: { id: true } })),
+    ]);
     const matchedTeam = await this.prisma.team.findFirst({
       where: { tenantId, name: { equals: input.department, mode: 'insensitive' } },
     });
@@ -45,9 +55,9 @@ export class InternalTasksService {
         title: input.title,
         description: input.description,
         priority: input.priority ?? TaskPriority.NORMAL,
-        conversationId: input.conversationId,
-        orderId: input.orderId,
-        contactId: input.contactId,
+        conversationId,
+        orderId,
+        contactId,
         createdById: input.createdById ?? null,
       },
     });
@@ -59,15 +69,30 @@ export class InternalTasksService {
     return task;
   }
 
-  findAll(tenantId: string, filters?: { status?: TaskStatus; department?: string; assigneeId?: string }) {
+  /** Returns the id when the record exists in this workspace, otherwise undefined (never throws, never links across tenants). */
+  private async ownedId(lookup: () => unknown): Promise<string | undefined> {
+    try {
+      const row = (await lookup()) as { id: string } | null | false | undefined | '';
+      return row ? row.id : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async findAll(tenantId: string, filters?: { status?: string; department?: string; assigneeId?: string; limit?: number }) {
+    if (filters?.status && !(Object.values(TaskStatus) as string[]).includes(filters.status)) {
+      throw new BadRequestException(`Status must be one of: ${Object.values(TaskStatus).join(', ')}.`);
+    }
+    const limit = Math.min(Math.max(Math.floor(filters?.limit ?? DEFAULT_TASK_LIMIT), 1), MAX_TASK_LIMIT);
     return this.prisma.internalTask.findMany({
       where: {
         tenantId,
-        ...(filters?.status && { status: filters.status }),
+        ...(filters?.status && { status: filters.status as TaskStatus }),
         ...(filters?.department && { department: { equals: filters.department, mode: 'insensitive' } }),
         ...(filters?.assigneeId && { assigneeId: filters.assigneeId }),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit,
     });
   }
 
@@ -78,20 +103,27 @@ export class InternalTasksService {
   }
 
   async updateStatus(tenantId: string, id: string, status: TaskStatus, resolvedById?: string) {
-    await this.findOne(tenantId, id);
+    const task = await this.findOne(tenantId, id);
+    if (task.status === status) return task; // idempotent: a repeat must not re-stamp who/when it was resolved
     const isTerminal = status === TaskStatus.DONE || status === TaskStatus.CANCELLED;
     return this.prisma.internalTask.update({
       where: { id },
       data: {
         status,
-        ...(isTerminal && { resolvedAt: new Date(), resolvedById: resolvedById ?? null }),
+        // Resolved: record who and when. Reopened: clear them, otherwise an open task still claims to be resolved.
+        ...(isTerminal ? { resolvedAt: new Date(), resolvedById: resolvedById ?? null } : { resolvedAt: null, resolvedById: null }),
       },
     });
   }
 
-  async assign(tenantId: string, id: string, assigneeId: string) {
+  async assign(tenantId: string, id: string, assigneeId: string, actor?: { userId: string; role?: string }) {
     await this.findOne(tenantId, id);
-    const user = await this.prisma.user.findFirst({ where: { id: assigneeId, tenantId } });
+    // Handing a task to someone else is an admin action; anyone who can work tasks may take one for themselves.
+    const isAdmin = actor?.role === 'ADMIN' || actor?.role === 'SUPER_ADMIN';
+    if (actor && assigneeId !== actor.userId && !isAdmin) {
+      throw new ForbiddenException('You can only assign tasks to yourself. Ask an admin to assign them to someone else.');
+    }
+    const user = await this.prisma.user.findFirst({ where: { id: assigneeId, tenantId, isActive: true } });
     if (!user) throw new NotFoundException('User not found');
     return this.prisma.internalTask.update({ where: { id }, data: { assigneeId } });
   }

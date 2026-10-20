@@ -35,10 +35,10 @@ export default function AiTestPage() {
 
   const downloadHistory = () => {
     const lines = [...history].reverse().map((r, i) => [
-      `## Test ${i + 1} — ${new Date(r.timestamp).toLocaleString()}`,
+      `## Test ${i + 1}: ${new Date(r.timestamp).toLocaleString()}`,
       `**Customer:** ${r.message}`,
       `**AI Response:** ${r.response || '(no response)'}`,
-      `**Confidence:** ${r.confidence !== null ? `${r.confidence}%` : '—'}`,
+      `**Confidence:** ${r.confidence !== null ? `${r.confidence}%` : '-'}`,
       `**Response time:** ${(r.responseTimeMs / 1000).toFixed(2)}s`,
       `**Safety:** ${r.safetyCheck.injectionAttempt ? '⚠️ Injection attempt detected' : '✅ Safe input'} | ${r.safetyCheck.blockedByGuardrail ? '🚫 Blocked by guardrail' : '✅ Guardrails passed'}`,
     ].join('\n')).join('\n\n---\n\n');
@@ -63,7 +63,7 @@ export default function AiTestPage() {
       setHistory(prev => [{ ...data, message: text, timestamp: new Date().toISOString() }, ...prev]);
       setMessage('');
     } catch {
-      toast.error('Test failed — check that VerzAI is enabled and DEEPSEEK_API_KEY is set');
+      toast.error('Test failed, check that VerzAI is enabled and DEEPSEEK_API_KEY is set');
     } finally {
       setTesting(false);
     }
@@ -79,7 +79,7 @@ export default function AiTestPage() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-gray-900">AI Testing Center</h1>
-            <p className="text-xs text-gray-500">Test AI responses in a sandbox — nothing is sent to customers</p>
+            <p className="text-xs text-gray-500">Test AI responses in a sandbox, nothing is sent to customers</p>
           </div>
         </div>
       </div>

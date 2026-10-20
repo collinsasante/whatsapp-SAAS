@@ -79,7 +79,7 @@ export default function OrderDetailScreen() {
       const res = await apiClient.commerceOrders.verifyPayment(id);
       const data = res.data as { verified: boolean; reason?: string };
       if (data.verified) {
-        Alert.alert('Verified', 'Payment verified with Paystack — order is PAID');
+        Alert.alert('Verified', 'Payment verified with Paystack, order is PAID');
         refresh();
       } else {
         Alert.alert('Not verified', data.reason || 'Payment not confirmed by Paystack yet');

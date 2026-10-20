@@ -174,6 +174,10 @@ export default function DashboardPage() {
   const [dateFrom, setDateFrom] = useState(daysAgoISO(30));
   const [dateTo, setDateTo] = useState(todayISO());
   const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState(false);
+  const [loadIssue, setLoadIssue] = useState(false);
+  // Only the latest stats request may update the screen (a slow older response must not overwrite a newer one).
+  const statsRequestId = useRef(0);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -185,6 +189,10 @@ export default function DashboardPage() {
         dashboardApi.conversationTrend(30),
         dashboardApi.businessProfile(),
       ]);
+      // The business profile is optional (it needs a live Meta connection); the rest is core dashboard data.
+      const coreFailed = [ovRes, teamRes, waRes, trendRes].filter((r) => r.status === 'rejected');
+      if (coreFailed.length > 0) console.error(`[dashboard] ${coreFailed.length} dashboard request(s) failed`);
+      setLoadIssue(coreFailed.length > 0);
       if (ovRes.status === 'fulfilled') setOverview(ovRes.value.data as Overview);
       if (teamRes.status === 'fulfilled') setTeam(teamRes.value.data as TeamMember[]);
       if (waRes.status === 'fulfilled') setWaStatus(waRes.value.data as WaStatus);
@@ -194,11 +202,21 @@ export default function DashboardPage() {
   }, []);
 
   const loadStats = useCallback(async (from: string, to: string) => {
+    const requestId = ++statsRequestId.current;
     setStatsLoading(true);
     try {
       const res = await dashboardApi.conversationStats(from, to);
+      if (requestId !== statsRequestId.current) return;
       setConvStats(res.data as ConvStats);
-    } finally { setStatsLoading(false); }
+      setStatsError(false);
+    } catch (err) {
+      if (requestId !== statsRequestId.current) return;
+      console.error('[dashboard] conversation stats failed', err instanceof Error ? err.message : err);
+      setConvStats(null);
+      setStatsError(true);
+    } finally {
+      if (requestId === statsRequestId.current) setStatsLoading(false);
+    }
   }, []);
 
   const applyPreset = useCallback((p: DatePreset) => {
@@ -322,6 +340,13 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {loadIssue && !loading && (
+          <div role="alert" className="flex items-center justify-between gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+            <span>Some dashboard data could not be loaded, so numbers below may be out of date.</span>
+            <button type="button" onClick={() => { void load(true); }} className="font-medium underline whitespace-nowrap">Try again</button>
+          </div>
+        )}
+
         {/* Mobile: KPI horizontal carousel */}
         <div
           className="md:hidden -mx-4 overflow-x-auto px-4 pb-1"
@@ -414,7 +439,7 @@ export default function DashboardPage() {
                 <input type="date" value={dateFrom} max={dateTo}
                   onChange={e => { setDateFrom(e.target.value); setPreset('custom'); void loadStats(e.target.value, dateTo); }}
                   className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                <span className="text-xs text-gray-400">—</span>
+                <span className="text-xs text-gray-400">-</span>
                 <input type="date" value={dateTo} min={dateFrom} max={todayISO()}
                   onChange={e => { setDateTo(e.target.value); setPreset('custom'); void loadStats(dateFrom, e.target.value); }}
                   className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
@@ -430,12 +455,20 @@ export default function DashboardPage() {
                 <Icon size={18} className={cn('mx-auto mb-2', color)} />
                 {statsLoading
                   ? <div className="animate-pulse h-9 bg-gray-200 rounded w-14 mx-auto" />
-                  : <p className="text-3xl font-bold text-gray-900">{val.toLocaleString()}</p>
+                  : statsError
+                    ? <p className="text-3xl font-bold text-gray-300" aria-label="Unavailable">--</p>
+                    : <p className="text-3xl font-bold text-gray-900">{val.toLocaleString()}</p>
                 }
                 <p className="text-xs text-gray-500 mt-1 font-medium">{label}</p>
               </div>
             ))}
           </div>
+          {statsError && (
+            <p role="alert" className="mt-3 text-xs text-red-600">
+              Could not load conversation stats.{' '}
+              <button type="button" onClick={() => { void loadStats(dateFrom, dateTo); }} className="underline font-medium">Try again</button>
+            </p>
+          )}
         </div>
 
         {/* Business Info */}
@@ -473,9 +506,9 @@ export default function DashboardPage() {
             <div className="space-y-3">
               {[
                 { label: 'Connection', value: waStatus?.isConnected ? 'Connected' : 'Disconnected', dot: waStatus?.isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500', vcolor: waStatus?.isConnected ? 'text-green-600' : 'text-red-600' },
-                { label: 'Quality Rating', value: waStatus?.qualityRating ?? '—', dot: waStatus?.qualityRating === 'GREEN' ? 'bg-green-500' : waStatus?.qualityRating === 'YELLOW' ? 'bg-yellow-500' : 'bg-red-400', vcolor: qualityColor(waStatus?.qualityRating ?? '') },
-                { label: 'Verification', value: waStatus?.verificationStatus ?? '—', dot: waStatus?.verificationStatus === 'VERIFIED' ? 'bg-green-500' : 'bg-yellow-400', vcolor: waStatus?.verificationStatus === 'VERIFIED' ? 'text-green-600' : 'text-yellow-600' },
-                { label: 'Messaging Limit', value: waStatus?.messagingLimit ?? '—', dot: 'bg-teal-400', vcolor: 'text-gray-800' },
+                { label: 'Quality Rating', value: waStatus?.qualityRating ?? '-', dot: waStatus?.qualityRating === 'GREEN' ? 'bg-green-500' : waStatus?.qualityRating === 'YELLOW' ? 'bg-yellow-500' : 'bg-red-400', vcolor: qualityColor(waStatus?.qualityRating ?? '') },
+                { label: 'Verification', value: waStatus?.verificationStatus ?? '-', dot: waStatus?.verificationStatus === 'VERIFIED' ? 'bg-green-500' : 'bg-yellow-400', vcolor: waStatus?.verificationStatus === 'VERIFIED' ? 'text-green-600' : 'text-yellow-600' },
+                { label: 'Messaging Limit', value: waStatus?.messagingLimit ?? '-', dot: 'bg-teal-400', vcolor: 'text-gray-800' },
               ].map(({ label, value, dot, vcolor }) => (
                 <div key={label} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
                   <div className="flex items-center gap-2">

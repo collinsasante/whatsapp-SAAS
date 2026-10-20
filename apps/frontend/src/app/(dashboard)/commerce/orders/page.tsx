@@ -112,7 +112,7 @@ export default function CommerceOrdersPage() {
       const res = await commerceOrdersApi.verifyPayment(selected.id);
       const data = res.data as { verified: boolean; reason?: string };
       if (data.verified) {
-        toast.success('Payment verified with Paystack — order is PAID');
+        toast.success('Payment verified with Paystack, order is PAID');
         await openOrder(selected.id);
         await load();
       } else {
@@ -130,7 +130,7 @@ export default function CommerceOrdersPage() {
     setApproving(true);
     try {
       await commerceOrdersApi.approve(selected.id);
-      toast.success('Order approved — payment link sent to the customer');
+      toast.success('Order approved, payment link sent to the customer');
       await openOrder(selected.id);
       await load();
     } catch (e) {
@@ -165,7 +165,7 @@ export default function CommerceOrdersPage() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900">Orders</h1>
-              <p className="text-xs text-gray-500">Every order the commerce AI has captured — click one for the full story</p>
+              <p className="text-xs text-gray-500">Every order the commerce AI has captured, click one for the full story</p>
             </div>
           </div>
           <button
@@ -188,7 +188,7 @@ export default function CommerceOrdersPage() {
             </div>
           ) : orders.length === 0 ? (
             <div className="text-center py-16 text-gray-400 text-sm">
-              No orders yet — try the Test Chat page and buy something as a customer.
+              No orders yet, try the Test Chat page and buy something as a customer.
             </div>
           ) : (
             orders.map(o => (

@@ -9,6 +9,14 @@ import { BottomSheet } from '../ui';
 import { tapLight } from '../../lib/haptics';
 import { useAppTheme } from '../../theme/useAppTheme';
 
+interface PermissionUpdate { call: { phone: string; granted: boolean } }
+
+/** Socket payloads are untyped, so check the shape before trusting it. */
+function isPermissionUpdate(v: unknown): v is PermissionUpdate {
+  const call = (v as { call?: { phone?: unknown; granted?: unknown } } | null)?.call;
+  return typeof call?.phone === 'string' && typeof call?.granted === 'boolean';
+}
+
 // Mirrors apps/frontend/src/components/shared/OutboundDialModal.tsx's dial
 // flow exactly (permission check, offer creation, ICE gathering, POST
 // /calls/initiate) -- minus the browser-only ring-tone/audio-activity
@@ -54,9 +62,11 @@ export function DialPad() {
 
   // Real-time: contact accepts/rejects the permission request on their phone
   useEffect(() => {
-    const handler = (data: { call: { phone: string; granted: boolean; response: string } }) => {
+    const handler = (...args: unknown[]) => {
+      const data = args[0];
+      if (!isPermissionUpdate(data)) return;
       const dialPhone = numberRef.current.trim().replace(/^\+/, '');
-      const eventPhone = (data?.call?.phone ?? '').replace(/^\+/, '');
+      const eventPhone = data.call.phone.replace(/^\+/, '');
       if (eventPhone && dialPhone && eventPhone.endsWith(dialPhone.slice(-9))) {
         setPermission(data.call.granted ? 'granted' : 'denied');
       }
@@ -125,7 +135,7 @@ export function DialPad() {
     if (permission === 'granted') return { text: '✓ Call permission granted', color: '#25D366' };
     if (permission === 'pending') return { text: '⏳ Permission request pending', color: '#3b82f6' };
     if (permission === 'denied') return { text: '✗ Permission denied', color: '#ef4444' };
-    if (permission === 'expired') return { text: '⚠ Permission expired — request again', color: '#eab308' };
+    if (permission === 'expired') return { text: '⚠ Permission expired, request again', color: '#eab308' };
     if (permission === 'no_permission') return { text: '⚠ No call permission', color: '#eab308' };
     if (permission === 'requesting') return { text: 'Sending request…', color: colors.textMuted };
     return null;

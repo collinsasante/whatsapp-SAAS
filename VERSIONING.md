@@ -31,12 +31,10 @@ Related, separate concepts — don't conflate these with the app version:
 
 ## Current version
 
-As of this writing, `2.0.0` is the latest recorded release (seeded by
-migration `20260521300000_feature_flags_versioning`). Every feature/fix
-shipped since then has **not** been recorded as a new release — see
-`CHANGELOG.md`'s `[Unreleased]` section. The next release should bump from
-`2.0.0` based on what's actually in that unreleased set (PATCH/MINOR/MAJOR —
-see rules below).
+The current version is whatever `GET /api/v1/public/version` returns (the `app_versions` row with `isLatest: true`).
+`CHANGELOG.md` is the human-readable history and can be ahead of the database: a changelog entry only counts as
+released once it has been recorded through the release API below and tagged in git. The next release should bump from
+the live version based on what is in `CHANGELOG.md`'s `[Unreleased]` section (PATCH/MINOR/MAJOR, see the rules below).
 
 ## SemVer rules
 
@@ -83,6 +81,17 @@ release when you're actually about to ship it — see `CHANGELOG.md`'s
    Setting `isLatest: true` automatically clears the flag on the previous
    version and is what makes `GET /api/v1/public/version` (and the sidebar)
    show the new number immediately.
+
+### WhatsApp Web (QR) service
+
+`deploy.sh` and CI do not update the WhatsApp Web container (`wa_whatsapp_web`). When a release changes
+`apps/whatsapp-web`, deploy it separately and only after the backend release is live:
+
+```bash
+CONFIRM_PRODUCTION=yes bash infra/scripts/production-whatsapp-web-deploy.sh check                    # read only
+CONFIRM_PRODUCTION=yes bash infra/scripts/production-whatsapp-web-deploy.sh deploy <branch> <40-char-sha>
+CONFIRM_PRODUCTION=yes bash infra/scripts/production-whatsapp-web-deploy.sh rollback <snapshot-dir>  # printed by deploy
+```
 
 4. Tag the release in git and push the tag:
 

@@ -28,6 +28,12 @@ export function canAccess(role: UserRole | undefined, pathname: string): boolean
   if (!role) return false;
   if (isDevToolRoute(pathname) && !SHOW_DEV_TOOLS) return false;
   const allowed = ALLOWED[role];
+  // An unrecognised role used to reach `allowed.some(...)` as undefined and throw, taking the whole layout
+  // down with "Cannot read properties of undefined (reading 'some')". Deny instead, and say why.
+  if (!allowed) {
+    if (typeof console !== 'undefined') console.error(`[permissions] unknown role "${String(role)}": access denied`);
+    return false;
+  }
   if (allowed === '*') return true;
   return allowed.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'));
 }

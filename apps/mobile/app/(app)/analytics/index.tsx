@@ -45,14 +45,14 @@ function rangeForDays(days: number): { from: string; to: string } {
 }
 
 function formatSeconds(sec: number | null): string {
-  if (sec == null) return '—';
+  if (sec == null) return '-';
   if (sec < 60) return `${Math.round(sec)}s`;
   if (sec < 3600) return `${Math.round(sec / 60)}m`;
   return `${(sec / 3600).toFixed(1)}h`;
 }
 
 function formatMs(ms: number | null): string {
-  if (!ms) return '—';
+  if (!ms) return '-';
   return formatSeconds(ms / 1000);
 }
 
@@ -66,7 +66,7 @@ function formatDate(dateStr: string): string {
 }
 
 function ChangeBadge({ pct }: { pct: number | null }) {
-  if (pct === null) return <Text className="text-light-text-disabled dark:text-white/30 text-xs">—</Text>;
+  if (pct === null) return <Text className="text-light-text-disabled dark:text-white/30 text-xs">-</Text>;
   if (pct === 0) return <Text className="text-light-text-disabled dark:text-white/30 text-xs">No change</Text>;
   const up = pct > 0;
   return (
@@ -226,7 +226,7 @@ export default function AnalyticsScreen() {
                 onPress={() => router.push('/(app)/calls')}
               />
               <AnalyticsStat
-                label="CSAT" value={o?.csat.average != null ? `${o.csat.average.toFixed(1)}/5` : '—'} icon="happy" color="#ec4899"
+                label="CSAT" value={o?.csat.average != null ? `${o.csat.average.toFixed(1)}/5` : '-'} icon="happy" color="#ec4899"
                 sub={o && o.csat.responses > 0 ? <Text className="text-light-text-disabled dark:text-white/30 text-xs">{o.csat.responses} responses</Text> : undefined}
               />
             </View>

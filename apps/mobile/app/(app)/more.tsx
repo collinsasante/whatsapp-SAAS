@@ -26,7 +26,7 @@ export default function MoreScreen() {
   const permissions = getPermissions(role);
   const { colors } = useAppTheme();
 
-  const items: Item[] = [
+  const allItems: Item[] = [
     {
       icon: 'megaphone-outline',
       label: 'Campaigns',
@@ -63,6 +63,13 @@ export default function MoreScreen() {
       visible: true,
     },
     {
+      icon: 'clipboard-outline',
+      label: 'Tasks',
+      description: 'Work Verz AI handed off to your team',
+      href: '/(app)/tasks',
+      visible: true,
+    },
+    {
       icon: 'call-outline',
       label: 'Calls',
       description: 'Call history and logs',
@@ -83,7 +90,8 @@ export default function MoreScreen() {
       href: '/(app)/settings/templates',
       visible: permissions.showTemplates,
     },
-  ].filter((i) => i.visible);
+  ];
+  const items = allItems.filter((i) => i.visible);
 
   return (
     <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>

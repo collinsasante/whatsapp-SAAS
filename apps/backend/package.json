@@ -15,6 +15,7 @@
     "db:seed": "ts-node prisma/seed.ts",
     "billing:setup-plans": "ts-node scripts/setup-billing-plans.ts",
     "whatsapp:resync-tokens": "ts-node scripts/resync-whatsapp-number-tokens.ts",
+    "webhooks:encrypt-secrets": "ts-node src/manage/webhooks/webhook-secret-backfill.cli.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

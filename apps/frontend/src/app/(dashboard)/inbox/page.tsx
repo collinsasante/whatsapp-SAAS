@@ -1,6 +1,7 @@
 'use client';
 import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { conversationsApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import type { StatusCounts } from '@/store/inbox.store';
@@ -35,16 +36,24 @@ function InboxPageInner() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        const res = await conversationsApi.list({ limit: 50, page: 1 });
-        const { data, meta } = res.data as { data: unknown[]; meta?: { hasNextPage: boolean } };
-        setConversations(data as Parameters<typeof setConversations>[0]);
-        setPage(1);
-        setHasMore(meta?.hasNextPage ?? false);
-      } catch (err) {
-      } finally {
-        setLoading(false);
+      // A failed first fetch used to leave an empty inbox with no message ("chats disappeared
+      // after refresh"). Retry a few times, then tell the user instead of showing a silent blank.
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          const res = await conversationsApi.list({ limit: 50, page: 1 });
+          const { data, meta } = res.data as { data: unknown[]; meta?: { hasNextPage: boolean } };
+          setConversations(data as Parameters<typeof setConversations>[0]);
+          setPage(1);
+          setHasMore(meta?.hasNextPage ?? false);
+          break;
+        } catch (err) {
+          console.error(`[inbox] failed to load conversations (attempt ${attempt}/${MAX_ATTEMPTS})`, err instanceof Error ? err.message : err);
+          if (attempt === MAX_ATTEMPTS) toast.error("Couldn't load your conversations. Refresh the page to try again.");
+          else await new Promise((r) => setTimeout(r, attempt * 1500));
+        }
       }
+      setLoading(false);
     };
     void load();
     void loadCounts();
@@ -124,7 +133,11 @@ function InboxPageInner() {
         setActiveConversation(cId);
         setMobileView('chat');
       })
-      .catch(() => { /* conversation not found or no access — ignore */ });
+      .catch((err) => {
+        console.error('[inbox] could not restore conversation from URL', err instanceof Error ? err.message : err);
+        router.replace('/inbox', { scroll: false });
+        toast.error("That conversation isn't available. It may have been removed, or you may not have access.");
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
 
@@ -152,10 +165,10 @@ function InboxPageInner() {
         setActiveConversation(conversationId);
         setMobileView('chat');
         router.replace(`/inbox?c=${conversationId}`, { scroll: false });
-      } catch {
-        setActiveConversation(conversationId);
-        setMobileView('chat');
-        router.replace(`/inbox?c=${conversationId}`, { scroll: false });
+      } catch (err) {
+        // Selecting an id we couldn't load left a blank chat pane with no explanation.
+        console.error('[inbox] could not open conversation from notification', err instanceof Error ? err.message : err);
+        toast.error("Couldn't open that conversation. It may have been removed, or you may not have access.");
       }
     };
     window.addEventListener('inbox:open-conversation', handler);

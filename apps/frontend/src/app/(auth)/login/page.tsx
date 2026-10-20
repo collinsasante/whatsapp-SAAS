@@ -196,7 +196,7 @@ function LoginPage() {
     setResending(true);
     try {
       await authApi.resendVerification(unverifiedEmail);
-      toast.success('Verification email sent — check your inbox');
+      toast.success('Verification email sent, check your inbox');
     } catch {
       toast.error('Failed to send verification email');
     } finally {
@@ -390,7 +390,7 @@ function LoginPage() {
           <div className="text-center mb-6">
             <h1 className="text-2xl font-bold text-gray-900">Set your login PIN</h1>
             <p className="text-gray-500 text-sm mt-2">
-              Choose a 6-digit PIN you&apos;ll use every time you sign in. Keep it safe — it replaces your email code.
+              Choose a 6-digit PIN you&apos;ll use every time you sign in. Keep it safe, it replaces your email code.
             </p>
           </div>
 
@@ -429,7 +429,7 @@ function LoginPage() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Sign in</h1>
-          <p className="text-gray-500 text-sm mt-1">Welcome back — enter your credentials to continue.</p>
+          <p className="text-gray-500 text-sm mt-1">Welcome back, enter your credentials to continue.</p>
         </div>
 
         <button

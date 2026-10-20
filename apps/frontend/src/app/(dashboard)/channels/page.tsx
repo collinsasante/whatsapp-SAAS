@@ -79,12 +79,12 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400',
     btnClass: 'bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 hover:opacity-90 text-white',
     btnLabel: 'Continue with Instagram',
-    features: ['Account connection available now', 'DM inbox — coming soon', 'Story & comment tools — coming soon'],
+    features: ['Account connection available now', 'DM inbox, coming soon', 'Story & comment tools, coming soon'],
   },
   {
     id: 'tiktok',
     name: 'TikTok',
-    description: "Connect your TikTok account now to verify it. Business Messaging requires TikTok's own platform approval, which isn't complete yet — connecting today only verifies your account, it doesn't yet enable sending or receiving DMs.",
+    description: "Connect your TikTok account now to verify it. Business Messaging requires TikTok's own platform approval, which isn't complete yet, connecting today only verifies your account, it doesn't yet enable sending or receiving DMs.",
     badge: 'Beta',
     connectType: 'oauth',
     oauthProvider: 'tiktok',
@@ -92,7 +92,7 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-slate-900',
     btnClass: 'bg-slate-900 hover:bg-slate-800 text-white',
     btnLabel: 'Continue with TikTok',
-    features: ['Account verification available now', 'Business Messaging — pending TikTok approval', 'DM automation — not yet available'],
+    features: ['Account verification available now', 'Business Messaging, pending TikTok approval', 'DM automation, not yet available'],
   },
   {
     id: 'telegram',
@@ -104,19 +104,19 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-sky-500',
     btnClass: 'bg-sky-500 hover:bg-sky-600 text-white',
     btnLabel: 'Connect Bot',
-    features: ['Bot token verified on connect', 'Message inbox — coming soon', 'Automation & routing — coming soon'],
+    features: ['Bot token verified on connect', 'Message inbox, coming soon', 'Automation & routing, coming soon'],
   },
   {
     id: 'whatsapp-web',
     name: 'WhatsApp via QR',
-    description: 'Link a personal WhatsApp number by scanning a QR code, like WhatsApp Web. Unofficial and against WhatsApp\'s Terms of Service — the linked number can be banned by WhatsApp at any time, with no recourse.',
+    description: 'Link a personal WhatsApp number by scanning a QR code, like WhatsApp Web. Unofficial and against WhatsApp\'s Terms of Service, the linked number can be banned by WhatsApp at any time, with no recourse.',
     badge: 'Beta',
     connectType: 'qr',
     accentClass: 'border-l-amber-500',
     accentBg: 'bg-gradient-to-br from-emerald-500 to-teal-600',
     btnClass: 'bg-gray-900 hover:bg-black text-white',
     btnLabel: 'Connect via QR Code',
-    features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial — real ban risk, no SLA'],
+    features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial, real ban risk, no SLA'],
   },
 ];
 
@@ -375,7 +375,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <ChannelIcon ch={waDef} size="lg" />
             <div>
               <h2 className="text-base font-bold text-gray-900">Connect WhatsApp Business API</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Step {step === 'webhook' ? '1' : '2'} of 2 — {step === 'webhook' ? 'Configure your webhook' : 'Enter your credentials'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Step {step === 'webhook' ? '1' : '2'} of 2: {step === 'webhook' ? 'Configure your webhook' : 'Enter your credentials'}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
@@ -409,7 +409,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200">
               <AlertCircle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
               <span>
-                Easy to miss: each phone number also needs its own one-time subscribe call —
+                Easy to miss: each phone number also needs its own one-time subscribe call
                 <code className="bg-amber-100 px-1 rounded mx-1">POST /&#123;phone-number-id&#125;/subscribed_apps</code>
                 with your access token. Configuring the webhook alone isn&apos;t enough.
               </span>
@@ -854,7 +854,7 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
                 <p className="font-semibold">This is not the official WhatsApp Business API.</p>
                 <p className="text-amber-800 leading-relaxed">
                   It links your personal WhatsApp number the same way WhatsApp Web does. This works outside
-                  WhatsApp&rsquo;s Terms of Service for businesses — WhatsApp can ban the linked number at any time,
+                  WhatsApp&rsquo;s Terms of Service for businesses: WhatsApp can ban the linked number at any time,
                   without warning and with no recourse. Use a number you can afford to lose.
                 </p>
               </div>
@@ -862,8 +862,8 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">What happens next</p>
               {[
-                'A QR code appears below — open WhatsApp on your phone, go to Linked Devices, and scan it',
-                'Once linked, incoming messages arrive in this same inbox — same AI, automation, and team routing',
+                'A QR code appears below, open WhatsApp on your phone, go to Linked Devices, and scan it',
+                'Once linked, incoming messages arrive in this same inbox, same AI, automation, and team routing',
                 'You can disconnect or fully log out this number at any time from the Channels page',
               ].map(p => (
                 <div key={p} className="flex items-start gap-2.5">
@@ -878,7 +878,7 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
               onClick={() => { void handleStart(); }}
               className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-black text-white transition-all"
             >
-              I understand the risks — show me a QR code
+              I understand the risks, show me a QR code
             </button>
             <button onClick={onClose} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium">Cancel</button>
           </div>

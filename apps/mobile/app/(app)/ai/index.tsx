@@ -9,6 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
 import { useAppTheme } from '../../../src/theme/useAppTheme';
+import { AiActivityTab } from '../../../src/components/ai/AiActivityTab';
+import { AiLearningTab } from '../../../src/components/ai/AiLearningTab';
 
 interface Article {
   id: string;
@@ -44,7 +46,7 @@ interface AiAnalytics {
   avgConfidence: number;
 }
 
-const AI_TABS = ['Knowledge Base', 'Analytics'] as const;
+const AI_TABS = ['Knowledge Base', 'Analytics', 'Activity', 'Learning'] as const;
 
 const PERSONALITIES = [
   'Professional & Formal',
@@ -254,17 +256,26 @@ export default function AiScreen() {
         </View>
 
         {/* Tabs */}
-        <View className="flex-row bg-light-card dark:bg-surface-card rounded-xl p-1 mb-4">
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          className="mb-4 flex-grow-0"
+          contentContainerStyle={{ gap: 8 }}
+        >
           {AI_TABS.map((tab) => (
             <TouchableOpacity
               key={tab}
               onPress={() => setActiveTab(tab)}
-              className={`flex-1 py-2 rounded-lg items-center ${activeTab === tab ? 'bg-green' : ''}`}
+              activeOpacity={0.8}
+              className={`px-4 py-2 rounded-full ${activeTab === tab ? 'bg-green' : 'bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10'}`}
             >
               <Text className={`text-sm font-semibold ${activeTab === tab ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>{tab}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
+
+        {activeTab === 'Activity' && <AiActivityTab />}
+        {activeTab === 'Learning' && <AiLearningTab />}
 
         {activeTab === 'Knowledge Base' && (
           <>

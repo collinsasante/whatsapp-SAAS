@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
 import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
+import { userRoleToWorkspaceRole } from '../auth/role-mapping.util';
 
 // Higher number = more privileged. Mirrors workspace.service.ts's ROLE_RANK
 // so this legacy User.role path can't grant a rank the actor doesn't hold.
@@ -26,7 +27,13 @@ const USER_SELECT = {
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async create(tenantId: string, dto: CreateUserDto) {
+  async create(tenantId: string, dto: CreateUserDto, actor?: JwtPayload) {
+    // The caller cannot create an account above their own rank (SUPER_ADMIN is reserved for platform staff).
+    const requested = dto.role ?? UserRole.AGENT;
+    if (actor && (USER_ROLE_RANK[requested] ?? 0) > (USER_ROLE_RANK[actor.role as UserRole] ?? 0)) {
+      throw new ForbiddenException('You cannot grant a role above your own rank');
+    }
+
     // Enforce plan limit: agents
     const [sub, agentCount] = await Promise.all([
       this.prisma.subscription.findUnique({ where: { tenantId }, include: { plan: true } }),
@@ -61,7 +68,8 @@ export class UsersService {
         create: {
           workspaceId: tenantId,
           userId: user.id,
-          role: dto.role === 'ADMIN' ? 'ADMIN' : 'AGENT',
+          // Was `dto.role === 'ADMIN' ? 'ADMIN' : 'AGENT'`, which turned every other role (e.g. VIEWER) into AGENT.
+          role: userRoleToWorkspaceRole(dto.role),
           status: 'ACTIVE',
           joinedAt: new Date(),
         },

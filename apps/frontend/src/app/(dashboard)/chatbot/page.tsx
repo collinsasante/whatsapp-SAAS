@@ -531,19 +531,30 @@ function FlowBuilderInner({ flow, onSave, onBack }: {
     e.preventDefault(); e.dataTransfer.dropEffect = 'move';
   }, []);
 
-  const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const type = e.dataTransfer.getData('application/reactflow-type');
-    if (!type) return;
+  const addNodeAt = useCallback((type: string, screen: { x: number; y: number }) => {
     const cfg = NODE_MAP[type];
-    const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const newNode: Node<NodeData> = {
-      id: genId(), type, position: pos,
+      id: genId(), type, position: screenToFlowPosition(screen),
       data: { label: cfg?.label ?? type, content: '', buttons: type === 'buttons' ? ['Option 1', 'Option 2'] : undefined },
     };
     setNodes(nds => [...nds, newNode]);
     setSelectedNode(newNode);
   }, [screenToFlowPosition, setNodes]);
+
+  const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('application/reactflow-type');
+    if (!type) return;
+    addNodeAt(type, { x: e.clientX, y: e.clientY });
+  }, [addNodeAt]);
+
+  // Tap / Enter on a palette item: place the node in the middle of the visible canvas, nudged so repeated adds do not stack.
+  const addNodeAtCenter = useCallback((type: string) => {
+    const box = wrapperRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const nudge = (nodes.length % 6) * 24;
+    addNodeAt(type, { x: box.left + box.width / 2 - 80 + nudge, y: box.top + box.height / 2 - 30 + nudge });
+  }, [addNodeAt, nodes.length]);
 
   const updateNodeData = useCallback((id: string, data: Partial<NodeData>) => {
     setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, ...data } } : n));
@@ -608,9 +619,9 @@ function FlowBuilderInner({ flow, onSave, onBack }: {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Left sidebar */}
-        <div className="w-52 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
+        <div className="w-40 lg:w-52 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 overflow-hidden">
           {/* Keywords section */}
           {trigger === 'KEYWORD' && (
             <div className="px-3 py-2.5 border-b border-gray-100 flex-shrink-0">
@@ -653,9 +664,12 @@ function FlowBuilderInner({ flow, onSave, onBack }: {
           {paletteOpen && (
             <div className="flex-1 overflow-y-auto py-1">
               {palette.map(cfg => (
-                <div key={cfg.type} draggable
+                <div key={cfg.type} draggable role="button" tabIndex={0}
+                  aria-label={`Add ${cfg.label} node`}
+                  onClick={() => addNodeAtCenter(cfg.type)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addNodeAtCenter(cfg.type); } }}
                   onDragStart={e => { e.dataTransfer.setData('application/reactflow-type', cfg.type); e.dataTransfer.effectAllowed = 'move'; }}
-                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-grab active:cursor-grabbing transition-colors">
+                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 cursor-pointer lg:cursor-grab active:cursor-grabbing transition-colors">
                   <div className={cn('w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0', cfg.bg, cfg.color)}>
                     <cfg.icon size={12} />
                   </div>
@@ -670,7 +684,7 @@ function FlowBuilderInner({ flow, onSave, onBack }: {
         </div>
 
         {/* Canvas */}
-        <div ref={wrapperRef} className="flex-1 relative" onDrop={onDrop} onDragOver={onDragOver}>
+        <div ref={wrapperRef} className="flex-1 relative min-w-0 min-h-0" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow
             nodes={nodes} edges={edges}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -691,7 +705,7 @@ function FlowBuilderInner({ flow, onSave, onBack }: {
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
                 <Layers size={40} className="mx-auto text-gray-200 mb-3" />
-                <p className="text-sm font-medium text-gray-400">Drag nodes from the left panel onto the canvas</p>
+                <p className="text-sm font-medium text-gray-400">Drag nodes from the left panel onto the canvas, or tap one to add it</p>
                 <p className="text-xs text-gray-300 mt-1">or load a template to get started quickly</p>
               </div>
             </div>
@@ -700,7 +714,11 @@ function FlowBuilderInner({ flow, onSave, onBack }: {
 
         {/* Properties panel */}
         {selectedNode && selectedNode.type !== 'start' && (
-          <PropertiesPanel node={selectedNode} onUpdate={updateNodeData} onDelete={deleteNode} />
+          // Below lg the 288px panel sits over the canvas instead of beside it: beside it, a phone-width
+          // canvas shrank to 0px the moment a node was selected and the whole flow disappeared.
+          <div className="absolute inset-y-0 right-0 z-20 max-w-full shadow-xl lg:static lg:z-auto lg:shadow-none flex">
+            <PropertiesPanel node={selectedNode} onUpdate={updateNodeData} onDelete={deleteNode} />
+          </div>
         )}
       </div>
 
@@ -856,7 +874,7 @@ export default function ChatbotPage() {
               <Bot size={28} className="text-teal-600" />
             </div>
             <h3 className="text-base font-semibold text-gray-900 mb-2">No flows yet</h3>
-            <p className="text-sm text-gray-500 mb-6">Build visual automation flows to handle conversations automatically — 24/7.</p>
+            <p className="text-sm text-gray-500 mb-6">Build visual automation flows to handle conversations automatically: 24/7.</p>
             <div className="flex items-center gap-3 justify-center">
               <button onClick={() => setShowTemplateLibrary(true)}
                 className="flex items-center gap-2 px-5 py-2.5 border border-teal-200 text-teal-700 text-sm font-semibold rounded-xl hover:bg-teal-50 transition-colors">

@@ -5,11 +5,18 @@ import makeWASocket, {
   DisconnectReason,
   Browsers,
   downloadMediaMessage,
+  normalizeMessageContent,
   fetchLatestBaileysVersion,
   type WASocket,
   type WAMessage,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import { classifyJid } from '@whatsapp-platform/shared-utils';
+import { isViewOnceMessage, VIEW_ONCE_PLACEHOLDER } from './view-once';
+import { contentKeyNames, extractInboundContent } from './inbound-content';
+import { classifyUndecryptable, UNAVAILABLE_PLACEHOLDER } from './undecryptable';
+import { buildMediaPayload, fileNameFromUrl } from './media-payload';
+import { mapBaileysReceiptStatus } from './receipt-status';
 import pino from 'pino';
 import { randomUUID } from 'crypto';
 import { PostgresAuthStateStore } from './auth-state-store';
@@ -54,6 +61,11 @@ interface ActiveSession {
 
 export class SessionManager {
   private readonly active = new Map<string, ActiveSession>();
+  // Digits -> the exact JID a contact last messaged us from. Contacts addressed by
+  // WhatsApp's anonymous "@lid" id have no phone number in the JID; sending to
+  // `<digits>@s.whatsapp.net` for them is accepted but never delivered. In-memory
+  // only: after a restart a contact must message once before replies route correctly.
+  private readonly replyJids = new Map<string, string>();
 
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -178,6 +190,17 @@ export class SessionManager {
 
     sock.ev.on('connection.update', (update) => {
       void this.handleConnectionUpdate(sessionId, tenantId, channelId, entry, update);
+    });
+
+    // Delivery/read receipts for messages WE sent. Baileys status: 2 = server ack (sent),
+    // 3 = delivered, 4 = read, 5 = played (voice note, treated as read). Backend ignores regressions.
+    sock.ev.on('messages.update', (updates) => {
+      for (const u of updates) {
+        if (!u.key.fromMe || !u.key.id) continue;
+        const status = mapBaileysReceiptStatus(u.update.status);
+        if (!status) continue;
+        void this.notifyBackend({ type: 'message_status', tenantId, channelId, sessionId, providerMessageId: u.key.id, status });
+      }
     });
 
     sock.ev.on('messages.upsert', (upsert) => {
@@ -311,29 +334,66 @@ export class SessionManager {
     }
   }
 
+  /** Delivers a text-only placeholder for a message whose content we deliberately do not (or cannot) ingest. */
+  private async deliverPlaceholder(tenantId: string, channelId: string, msg: WAMessage, providerMessageId: string | undefined, content: string): Promise<void> {
+    const sender = classifyJid(msg.key.remoteJid);
+    if (sender.kind === 'group' || sender.kind === 'broadcast' || !sender.id || !providerMessageId) return;
+    const identity = sender.kind === 'phone' ? { fromPhone: sender.id } : { fromJid: `${sender.id}@${msg.key.remoteJid!.split('@')[1]}` };
+    await this.notifyBackend({
+      type: 'inbound_message', tenantId, channelId, ...identity, providerMessageId,
+      timestamp: typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Date.now(),
+      content, placeholder: true, pushName: msg.pushName ?? undefined,
+    });
+  }
+
   private async handleInboundMessage(tenantId: string, channelId: string, sessionId: string, msg: WAMessage): Promise<void> {
     // Echoes of our own outgoing messages, and messages with no actual
     // content (protocol/system messages), aren't real inbound customer
     // messages -- mirrors the Messenger channel's is_echo exclusion.
     if (msg.key.fromMe) return;
-    if (!msg.message) return;
+    if (!msg.message) {
+      // No readable content. Usually a view-once message, which linked devices never receive.
+      const stub = classifyUndecryptable(msg);
+      if (stub.action === 'placeholder') await this.deliverPlaceholder(tenantId, channelId, msg, stub.providerMessageId, UNAVAILABLE_PLACEHOLDER);
+      return;
+    }
 
-    const fromPhone = msg.key.remoteJid?.split('@')[0];
-    if (!fromPhone) return;
+    // Who is this? A WhatsApp address is only a phone number for @s.whatsapp.net JIDs. Anonymous
+    // @lid ids are 14-16 digits and are NOT phone numbers; groups and the status@broadcast feed are
+    // not customer conversations at all and must never become contacts.
+    const sender = classifyJid(msg.key.remoteJid);
+    if (sender.kind === 'group' || sender.kind === 'broadcast') return;
+    if (!sender.id) return;
+    const remoteJid = msg.key.remoteJid!;
+    const identity: { fromPhone: string } | { fromJid: string } = sender.kind === 'phone'
+      ? { fromPhone: sender.id }
+      : { fromJid: `${sender.id}@${remoteJid.split('@')[1]}` };
+    this.replyJids.set(`${sessionId}:${sender.id}`, remoteJid);
 
     // Media/text parsing lives here (not in the backend) -- this is the one
     // place that actually understands Baileys' payload shape, mirroring how
     // WhatsApp Cloud's own payload parsing stays inside its own service.
-    const m = msg.message;
-    const content = m.conversation ?? m.extendedTextMessage?.text ?? undefined;
+    if (isViewOnceMessage(msg.message)) {
+      // Never download or store view-once media; tell the agent it exists instead.
+      await this.deliverPlaceholder(tenantId, channelId, msg, msg.key.id ?? undefined, VIEW_ONCE_PLACEHOLDER);
+      return;
+    }
 
-    let mediaType: 'image' | 'video' | 'audio' | 'document' | undefined;
-    let caption: string | undefined;
-    let mimetype: string | undefined;
-    if (m.imageMessage) { mediaType = 'image'; caption = m.imageMessage.caption ?? undefined; mimetype = m.imageMessage.mimetype ?? undefined; }
-    else if (m.videoMessage) { mediaType = 'video'; caption = m.videoMessage.caption ?? undefined; mimetype = m.videoMessage.mimetype ?? undefined; }
-    else if (m.audioMessage) { mediaType = 'audio'; mimetype = m.audioMessage.mimetype ?? undefined; }
-    else if (m.documentMessage) { mediaType = 'document'; caption = m.documentMessage.caption ?? undefined; mimetype = m.documentMessage.mimetype ?? undefined; }
+    const m = normalizeMessageContent(msg.message) ?? msg.message;
+    const extracted = extractInboundContent(m as Record<string, unknown>);
+    if (extracted.action === 'ignore') return; // reactions, edits/deletes, key exchange: not customer messages
+
+    const mediaType = extracted.media?.kind;
+    const caption = extracted.media?.caption;
+    const mimetype = extracted.media?.mimetype;
+    // Readable text, else a type-specific label (sticker, location...), else undefined so the backend
+    // shows its generic placeholder.
+    const content = extracted.text ?? extracted.fallback;
+
+    if (!content && !mediaType) {
+      // Structure only (envelope key names, never message text) so unsupported inbound types can be identified.
+      logger.warn({ sessionId, keys: contentKeyNames(m as Record<string, unknown>) }, 'inbound WhatsApp Web message type not supported yet');
+    }
 
     let mediaBase64: string | undefined;
     const entry = this.active.get(sessionId);
@@ -355,10 +415,12 @@ export class SessionManager {
       type: 'inbound_message',
       tenantId,
       channelId,
-      fromPhone,
+      ...identity,
       providerMessageId: msg.key.id,
       timestamp: typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Date.now(),
       content,
+      // A label or generic text instead of something the customer wrote: the AI must not answer it.
+      placeholder: !extracted.text && !mediaType,
       mediaType,
       mediaBase64,
       mimetype,
@@ -367,23 +429,39 @@ export class SessionManager {
     });
   }
 
-  async sendText(sessionId: string, toPhone: string, text: string): Promise<string> {
+  private resolveJid(sessionId: string, target: string | { jid: string }): string {
+    if (typeof target !== 'string') {
+      // Explicit address (e.g. an @lid contact): only WhatsApp user addresses are valid targets.
+      if (!/^\d{5,20}@(lid|s\.whatsapp\.net)$/.test(target.jid)) throw new Error('Invalid WhatsApp recipient address.');
+      return target.jid;
+    }
+    const digits = target.replace(/[^\d]/g, '');
+    const jid = this.replyJids.get(`${sessionId}:${digits}`) ?? `${digits}@s.whatsapp.net`;
+    logger.info({ sessionId, jidServer: jid.split('@')[1] }, 'resolved outbound WhatsApp Web recipient');
+    return jid;
+  }
+
+  async sendText(sessionId: string, to: string | { jid: string }, text: string): Promise<string> {
     const entry = this.active.get(sessionId);
     if (!entry) throw new Error('This WhatsApp Web session is not currently connected.');
-    const jid = `${toPhone.replace(/[^\d]/g, '')}@s.whatsapp.net`;
+    const jid = this.resolveJid(sessionId, to);
     const result = await entry.sock.sendMessage(jid, { text });
     return result?.key.id ?? '';
   }
 
-  async sendMedia(sessionId: string, toPhone: string, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string): Promise<string> {
+  async sendMedia(sessionId: string, to: string | { jid: string }, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string, opts: { voiceNote?: boolean } = {}): Promise<string> {
     const entry = this.active.get(sessionId);
     if (!entry) throw new Error('This WhatsApp Web session is not currently connected.');
-    const jid = `${toPhone.replace(/[^\d]/g, '')}@s.whatsapp.net`;
-    const { data } = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer' });
-    const buffer = Buffer.from(data);
-    const payload = mediaType === 'document'
-      ? { document: buffer, caption, mimetype: 'application/octet-stream' }
-      : { [mediaType]: buffer, caption };
+    const jid = this.resolveJid(sessionId, to);
+    const res = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
+    const payload = buildMediaPayload({
+      mediaType,
+      buffer: Buffer.from(res.data),
+      mimetype: res.headers['content-type'] as string | undefined,
+      caption,
+      fileName: fileNameFromUrl(mediaUrl),
+      voiceNote: opts.voiceNote,
+    });
     const result = await entry.sock.sendMessage(jid, payload as Parameters<WASocket['sendMessage']>[1]);
     return result?.key.id ?? '';
   }

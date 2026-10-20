@@ -6,6 +6,8 @@ import { callsApi } from '@/lib/api';
 import { useCallsStore } from '@/store/calls.store';
 import { getSocket } from '@/lib/socket';
 import { cn } from '@/lib/utils';
+import { parseCallStartError, releaseCallResources, type CallStartError } from '@/lib/call-client';
+import { CallStartErrorNotice } from './CallStartErrorNotice';
 
 function detectRemoteAudioActivity(stream: MediaStream, onDetected: () => void) {
   try {
@@ -41,6 +43,7 @@ export function OutboundDialModal() {
   const { pendingDial, setPendingDial, setOutboundSession, setOutboundCall } = useCallsStore();
   const [number, setNumber] = useState('');
   const [calling, setCalling] = useState(false);
+  const [callError, setCallError] = useState<CallStartError | null>(null);
   const [permission, setPermission] = useState<PermissionStatus>('unknown');
   const permCheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const numberRef = useRef(number);
@@ -101,6 +104,11 @@ export function OutboundDialModal() {
     const phone = number.trim();
     if (!phone) return;
     setCalling(true);
+    setCallError(null);
+    // Declared outside the try so a failed start can release them (they used to leak: a live microphone and an open peer connection).
+    let pcRef: RTCPeerConnection | null = null;
+    let streamRef: MediaStream | null = null;
+    let audioRef: HTMLAudioElement | null = null;
     try {
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -108,7 +116,9 @@ export function OutboundDialModal() {
           { urls: 'stun:stun1.l.google.com:19302' },
         ],
       });
+      pcRef = pc;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef = stream;
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
       const offer = await pc.createOffer();
@@ -127,6 +137,7 @@ export function OutboundDialModal() {
       remoteAudio.autoplay = true;
       remoteAudio.setAttribute('playsinline', '');
       document.body.appendChild(remoteAudio);
+      audioRef = remoteAudio;
 
       let callIdLocal = '';
 
@@ -155,11 +166,12 @@ export function OutboundDialModal() {
       setOutboundCall({ callId: data.id, phone, contactName: phone, startedAt: null, ringing: false, muted: false, held: false });
       handleClose();
     } catch (err: unknown) {
-      const raw = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
-      const msg = raw.includes('call permission') || raw.includes('approved call') || raw.includes('138006')
-        ? 'This number has not granted call permission. Request permission first.'
-        : raw || 'Failed to initiate call';
-      toast.error(msg);
+      // The call never started: give the microphone, the peer connection and the audio element back.
+      releaseCallResources({ pc: pcRef, stream: streamRef, remoteAudio: audioRef });
+      const parsed = parseCallStartError(err);
+      setCallError(parsed);
+      // Plain failures also toast; the ones with steps are shown in the panel instead.
+      if (parsed.steps.length === 0) toast.error(parsed.message);
     } finally { setCalling(false); }
   };
 
@@ -168,7 +180,7 @@ export function OutboundDialModal() {
     if (permission === 'granted')  return <span className="text-[10px] text-emerald-600 font-bold">✓ Call permission granted</span>;
     if (permission === 'pending')  return <span className="text-[10px] text-blue-600 font-bold">⏳ Permission request pending</span>;
     if (permission === 'denied')   return <span className="text-[10px] text-red-600 font-bold">✗ Permission denied</span>;
-    if (permission === 'expired')  return <span className="text-[10px] text-amber-600 font-bold">⚠ Permission expired — request again</span>;
+    if (permission === 'expired')  return <span className="text-[10px] text-amber-600 font-bold">⚠ Permission expired, request again</span>;
     if (permission === 'no_permission') return <span className="text-[10px] text-amber-600 font-bold">⚠ No call permission</span>;
     if (permission === 'requesting') return <span className="text-[10px] text-gray-500 flex items-center gap-1"><span className="w-2 h-2 border border-gray-300 border-t-teal-500 rounded-full animate-spin inline-block" />Sending request…</span>;
     return null;
@@ -226,6 +238,7 @@ export function OutboundDialModal() {
               </span>
             </div>
           )}
+          {callError && <div className="mb-3"><CallStartErrorNotice error={callError} onDismiss={() => setCallError(null)} /></div>}
           <div className="flex gap-2">
             <button onClick={handleClose} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={() => { void handleCall(); }} disabled={calling || !number.trim()}

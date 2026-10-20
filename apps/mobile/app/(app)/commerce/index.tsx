@@ -127,6 +127,7 @@ export default function CommerceScreen() {
 }
 
 function OrdersTab() {
+  const { colors } = useAppTheme();
   const { data, isLoading, isRefetching, refetch } = useQuery({
     queryKey: ['commerce', 'orders'],
     queryFn: () => apiClient.commerceOrders.list().then((r) => r.data as Order[]),
@@ -173,6 +174,7 @@ function OrdersTab() {
 }
 
 function ProductsTab() {
+  const { colors } = useAppTheme();
   const queryClient = useQueryClient();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -364,6 +366,7 @@ function FormField({
   multiline?: boolean;
   keyboardType?: 'default' | 'decimal-pad' | 'number-pad';
 }) {
+  const { colors } = useAppTheme();
   return (
     <View>
       <Text className="text-light-text-muted dark:text-white/50 text-xs font-medium mb-1.5">{label}</Text>

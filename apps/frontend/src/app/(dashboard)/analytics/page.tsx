@@ -95,7 +95,7 @@ function rangeForPreset(preset: Preset, customFrom: string, customTo: string): {
 }
 
 function formatSeconds(sec: number | null): string {
-  if (sec == null) return '—';
+  if (sec == null) return '-';
   if (sec < 60) return `${Math.round(sec)}s`;
   if (sec < 3600) return `${Math.round(sec / 60)}m`;
   if (sec < 86400) return `${(sec / 3600).toFixed(1)}h`;
@@ -107,7 +107,7 @@ const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // ─── Small shared bits ─────────────────────────────────────────────────────────
 
 function ChangeBadge({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />—</span>;
+  if (pct == null) return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />-</span>;
   if (pct === 0) return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />0%</span>;
   const up = pct > 0;
   return (
@@ -289,7 +289,7 @@ function ConversationsTab({ from, to }: { from: string; to: string }) {
                     const cell = data.busiestHours.find((h) => h.dayOfWeek === dow && h.hour === hour);
                     const intensity = cell ? cell.count / maxHeat : 0;
                     return (
-                      <div key={`${dow}-${hour}`} title={`${label} ${hour}:00 — ${cell?.count ?? 0} messages`}
+                      <div key={`${dow}-${hour}`} title={`${label} ${hour}:00: ${cell?.count ?? 0} messages`}
                         className="aspect-square rounded-sm"
                         style={{ backgroundColor: intensity > 0 ? `rgba(13,148,136,${0.15 + intensity * 0.85})` : '#f3f4f6' }} />
                     );
@@ -360,7 +360,7 @@ function AgentsTab({ from, to }: { from: string; to: string }) {
               <tr key={a.agentId} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-gray-900">{a.name}</td>
                 {columns.map((c) => (
-                  <td key={c.key} className="px-4 py-3 text-gray-600">{c.format ? c.format(a[c.key]) : (a[c.key] ?? '—')}</td>
+                  <td key={c.key} className="px-4 py-3 text-gray-600">{c.format ? c.format(a[c.key]) : (a[c.key] ?? '-')}</td>
                 ))}
               </tr>
             ))}
@@ -557,7 +557,7 @@ function HealthTab() {
         {data.optOuts.spike && (
           <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
             <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-            Opt-outs/blocks more than doubled compared to the previous week — worth checking recent campaigns or message frequency.
+            Opt-outs/blocks more than doubled compared to the previous week, worth checking recent campaigns or message frequency.
           </p>
         )}
       </div>

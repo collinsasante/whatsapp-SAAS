@@ -74,7 +74,7 @@ export class WorkspaceController {
   @Post('members/:id/force-logout')
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Force logout a member — invalidate sessions + disconnect socket' })
+  @ApiOperation({ summary: 'Force logout a member, invalidate sessions + disconnect socket' })
   forceLogout(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
@@ -113,7 +113,7 @@ export class WorkspaceController {
   @Delete('members/:id')
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Remove a member — optionally reassign their conversations' })
+  @ApiOperation({ summary: 'Remove a member, optionally reassign their conversations' })
   removeMember(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,

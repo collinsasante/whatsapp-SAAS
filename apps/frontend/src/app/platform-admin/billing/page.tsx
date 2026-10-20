@@ -61,7 +61,7 @@ export default function BillingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
-          <p className="text-gray-500 text-sm mt-1">Invoices across all workspaces — Stripe and Paystack payments activate subscriptions automatically via webhook</p>
+          <p className="text-gray-500 text-sm mt-1">Invoices across all workspaces: Stripe and Paystack payments activate subscriptions automatically via webhook</p>
         </div>
         <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
       </div>
@@ -114,7 +114,7 @@ export default function BillingPage() {
                       <div className="flex justify-between text-xs mb-1">
                         <span className="font-medium text-gray-700">{s.gateway}</span>
                         <span className={s.successRatePct != null && s.successRatePct < 90 ? 'text-red-600 font-medium' : 'text-gray-500'}>
-                          {s.successRatePct != null ? `${s.successRatePct}%` : '—'} ({s.successCount}/{s.successCount + s.failedCount})
+                          {s.successRatePct != null ? `${s.successRatePct}%` : '-'} ({s.successCount}/{s.successCount + s.failedCount})
                         </span>
                       </div>
                       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -218,11 +218,11 @@ export default function BillingPage() {
                   >
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{inv.tenant.name}</div>
-                      <div className="text-xs text-gray-400">{inv.tenant.billingEmail ?? '—'}</div>
+                      <div className="text-xs text-gray-400">{inv.tenant.billingEmail ?? '-'}</div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{inv.invoiceNumber}</td>
                     <td className="px-4 py-3 font-semibold text-gray-800">{fmt(inv.total, inv.currency)}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{inv.gateway ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{inv.gateway ?? '-'}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_META[inv.status] ?? 'bg-gray-100 text-gray-500'}`}>
                         {inv.status}

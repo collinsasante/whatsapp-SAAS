@@ -4,7 +4,7 @@ import '@/styles/landing.css';
 import Footer from '@/components/landing/Footer';
 
 export const metadata: Metadata = {
-  title: 'Book a Demo — See VerzChat in Action',
+  title: 'Book a Demo: See VerzChat in Action',
   description:
     'Schedule a personalized walkthrough of VerzChat. See how teams use one shared WhatsApp inbox to handle customer conversations at scale.',
   openGraph: {
