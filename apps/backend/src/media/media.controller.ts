@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Controller,
   Delete,
@@ -97,6 +98,8 @@ export class MediaController {
     'application/pdf',
   ]);
 
+  // Every thumbnail in the inbox and library is its own request; the global 100/min limit is too low for pages with many images.
+  @Throttle({ default: { limit: 600, ttl: 60000 } })
   @Public()
   @Get('serve/:fileKey')
   async serve(@Param('fileKey') fileKey: string, @Res() res: Response) {
