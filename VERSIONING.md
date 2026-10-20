@@ -82,6 +82,17 @@ release when you're actually about to ship it — see `CHANGELOG.md`'s
    version and is what makes `GET /api/v1/public/version` (and the sidebar)
    show the new number immediately.
 
+### WhatsApp Web (QR) service
+
+`deploy.sh` and CI do not update the WhatsApp Web container (`wa_whatsapp_web`). When a release changes
+`apps/whatsapp-web`, deploy it separately and only after the backend release is live:
+
+```bash
+CONFIRM_PRODUCTION=yes bash infra/scripts/production-whatsapp-web-deploy.sh check                    # read only
+CONFIRM_PRODUCTION=yes bash infra/scripts/production-whatsapp-web-deploy.sh deploy <branch> <40-char-sha>
+CONFIRM_PRODUCTION=yes bash infra/scripts/production-whatsapp-web-deploy.sh rollback <snapshot-dir>  # printed by deploy
+```
+
 4. Tag the release in git and push the tag:
 
    ```bash
