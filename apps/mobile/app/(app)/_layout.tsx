@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import type { ColorValue } from 'react-native';
 import { Tabs, Redirect, router, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getPermissions, type Permissions } from '@whatsapp-platform/auth';
@@ -14,7 +15,7 @@ function TabIcon({
 }: {
   name: IoniconName;
   focused: boolean;
-  color: string;
+  color: ColorValue;
 }) {
   return <Ionicons name={focused ? name : (`${name}-outline` as IoniconName)} size={22} color={color} />;
 }

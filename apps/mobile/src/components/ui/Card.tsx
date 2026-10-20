@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, TouchableOpacity, type ViewProps } from 'react-native';
 
-interface CardProps extends ViewProps {
+// onBlur/onFocus are typed differently on View and TouchableOpacity, and no Card passes them.
+interface CardProps extends Omit<ViewProps, 'onBlur' | 'onFocus'> {
   onPress?: () => void;
   padded?: boolean;
   children: React.ReactNode;
