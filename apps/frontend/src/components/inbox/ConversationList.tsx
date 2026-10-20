@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useCallback, useId, useRef, useEffect, useMemo, memo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { channelHasCustomerServiceWindow } from '@/lib/customer-service-window';
 import { channelKindOf, matchesExplicitFilters, serverStatusParam } from '@/lib/inbox-search';
 import { overlayLiveConversations } from '@/lib/inbox-merge';
@@ -12,8 +12,6 @@ import { useInboxStore } from '@/store/inbox.store';
 import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import toast from 'react-hot-toast';
 import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
-import { buildConversationPreview } from '@/lib/conversation-preview';
-import { ConversationPreviewCard } from './ConversationPreviewCard';
 
 interface Conversation {
   id: string;
@@ -146,12 +144,6 @@ function SessionTimer({ lastInboundAt }: { lastInboundAt: string | null | undefi
   );
 }
 
-const PREVIEW_OPEN_DELAY_MS = 350;
-// Long enough to cross the gap between the row and its preview card without it closing.
-const PREVIEW_CLOSE_DELAY_MS = 150;
-// Only one preview is ever visible, so moving quickly between rows never leaves a stale card behind.
-let closeActivePreview: (() => void) | null = null;
-
 const ConvRow = memo(function ConvRow({
   conv, isActive, onSelect,
 }: {
@@ -162,64 +154,6 @@ const ConvRow = memo(function ConvRow({
   const { activityLogs: storeActivityLogs, updateConversation } = useInboxStore();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
-  const rowRef = useRef<HTMLButtonElement>(null);
-  const previewId = useId();
-  const [previewRect, setPreviewRect] = useState<DOMRect | null>(null);
-  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearPreviewTimers = useCallback(() => {
-    if (openTimer.current) clearTimeout(openTimer.current);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    openTimer.current = null;
-    closeTimer.current = null;
-  }, []);
-
-  const hidePreview = useCallback(() => {
-    clearPreviewTimers();
-    setPreviewRect(null);
-  }, [clearPreviewTimers]);
-
-  const showPreview = useCallback(() => {
-    clearPreviewTimers();
-    const el = rowRef.current;
-    if (!el) return;
-    if (closeActivePreview) closeActivePreview();
-    closeActivePreview = () => setPreviewRect(null);
-    setPreviewRect(el.getBoundingClientRect());
-  }, [clearPreviewTimers]);
-
-  const schedulePreview = useCallback(() => {
-    clearPreviewTimers();
-    openTimer.current = setTimeout(showPreview, PREVIEW_OPEN_DELAY_MS);
-  }, [clearPreviewTimers, showPreview]);
-
-  const scheduleHidePreview = useCallback(() => {
-    clearPreviewTimers();
-    closeTimer.current = setTimeout(hidePreview, PREVIEW_CLOSE_DELAY_MS);
-  }, [clearPreviewTimers, hidePreview]);
-
-  useEffect(() => clearPreviewTimers, [clearPreviewTimers]);
-
-  useEffect(() => {
-    if (!previewRect) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') hidePreview(); };
-    const onDown = (e: Event) => {
-      const t = e.target as Node;
-      if (rowRef.current?.contains(t) || document.getElementById(previewId)?.contains(t)) return;
-      hidePreview();
-    };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('scroll', hidePreview, true);
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('touchstart', onDown);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('scroll', hidePreview, true);
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('touchstart', onDown);
-    };
-  }, [previewRect, previewId, hidePreview]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -266,34 +200,10 @@ const ConvRow = memo(function ConvRow({
             <span className="w-4 h-4 rounded-full bg-teal-500 flex-shrink-0" />
             Mark as unread
           </button>
-          <button
-            onClick={() => { setCtxMenu(null); showPreview(); }}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
-          >
-            <span className="w-4 h-4 rounded-full bg-gray-300 flex-shrink-0" />
-            Preview
-          </button>
         </div>
       )}
-      {previewRect && (
-        <ConversationPreviewCard
-          id={previewId}
-          anchor={previewRect}
-          data={buildConversationPreview({ name, lastMessage: lastMsg, lastMessageAt: conv.lastMessageAt })}
-          onPointerEnter={clearPreviewTimers}
-          onPointerLeave={scheduleHidePreview}
-        />
-      )}
       <button
-        // The preview is read-only and built from the already-loaded latest message: no API call,
-        // no read-marking, no state change. Mouse hover, keyboard focus and the context menu open it.
-        ref={rowRef}
-        aria-describedby={previewRect ? previewId : undefined}
-        onPointerEnter={(e) => { if (e.pointerType === 'mouse') schedulePreview(); }}
-        onPointerLeave={(e) => { if (e.pointerType === 'mouse') scheduleHidePreview(); }}
-        onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) showPreview(); }}
-        onBlur={hidePreview}
-        onClick={() => { hidePreview(); onSelect(conv.id); }}
+        onClick={() => onSelect(conv.id)}
         onContextMenu={(e) => {
           e.preventDefault();
           const x = Math.min(e.clientX, window.innerWidth - 180);
