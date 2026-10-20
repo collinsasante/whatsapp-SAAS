@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
 import { CampaignStatus } from '@whatsapp-platform/shared-types';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 const STATUS_COLORS: Record<string, string> = {
   [CampaignStatus.DRAFT]: '#64748b',
@@ -39,6 +40,7 @@ interface Campaign {
 }
 
 export default function CampaignDetailScreen() {
+  const { colors } = useAppTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
 
@@ -77,7 +79,7 @@ export default function CampaignDetailScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView className="flex-1 bg-surface items-center justify-center">
+      <SafeAreaView className="flex-1 bg-light-background dark:bg-surface items-center justify-center">
         <ActivityIndicator color="#25D366" size="large" />
       </SafeAreaView>
     );
@@ -85,8 +87,8 @@ export default function CampaignDetailScreen() {
 
   if (!campaign) {
     return (
-      <SafeAreaView className="flex-1 bg-surface items-center justify-center">
-        <Text className="text-white/40">Campaign not found</Text>
+      <SafeAreaView className="flex-1 bg-light-background dark:bg-surface items-center justify-center">
+        <Text className="text-light-text-muted dark:text-white/40">Campaign not found</Text>
       </SafeAreaView>
     );
   }
@@ -97,12 +99,12 @@ export default function CampaignDetailScreen() {
   const readRate = Math.round((campaign.readCount / total) * 100);
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top', 'bottom']}>
-      <View className="flex-row items-center px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top', 'bottom']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
         <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text className="text-green text-base">←</Text>
         </TouchableOpacity>
-        <Text className="text-white font-semibold text-base flex-1" numberOfLines={1}>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1" numberOfLines={1}>
           {campaign.name}
         </Text>
         <View
@@ -146,8 +148,8 @@ export default function CampaignDetailScreen() {
         )}
 
         {/* Delivery stats */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 p-4">
-          <Text className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-4">
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4">
+          <Text className="text-light-text-muted dark:text-white/50 text-xs font-semibold uppercase tracking-wider mb-4">
             Delivery Stats
           </Text>
           <View className="flex-row justify-between mb-4">
@@ -165,7 +167,7 @@ export default function CampaignDetailScreen() {
         </View>
 
         {/* Details */}
-        <View className="bg-surface-card rounded-2xl border border-white/5 overflow-hidden">
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 overflow-hidden">
           {campaign.recipientCount != null && (
             <DetailRow label="Recipients" value={String(campaign.recipientCount)} />
           )}
@@ -203,11 +205,11 @@ export default function CampaignDetailScreen() {
 
         {/* Message preview */}
         {(campaign.message || campaign.template?.body) && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 p-4">
-            <Text className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-2">
+          <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4">
+            <Text className="text-light-text-muted dark:text-white/50 text-xs font-semibold uppercase tracking-wider mb-2">
               Message
             </Text>
-            <Text className="text-white/80 text-sm leading-5">
+            <Text className="text-light-text-secondary dark:text-white/80 text-sm leading-5">
               {campaign.message ?? campaign.template?.body}
             </Text>
           </View>
@@ -223,7 +225,7 @@ function StatBox({ label, value, color }: { label: string; value: number; color:
       <Text className="text-white font-extrabold text-xl" style={{ color }}>
         {value.toLocaleString()}
       </Text>
-      <Text className="text-white/40 text-xs mt-0.5">{label}</Text>
+      <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5">{label}</Text>
     </View>
   );
 }
@@ -232,10 +234,10 @@ function ProgressBar({ label, value, color }: { label: string; value: number; co
   return (
     <View>
       <View className="flex-row justify-between mb-1">
-        <Text className="text-white/50 text-xs">{label}</Text>
-        <Text className="text-white/70 text-xs font-semibold">{value}%</Text>
+        <Text className="text-light-text-muted dark:text-white/50 text-xs">{label}</Text>
+        <Text className="text-light-text-secondary dark:text-white/70 text-xs font-semibold">{value}%</Text>
       </View>
-      <View className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+      <View className="h-1.5 bg-light-border dark:bg-white/10 rounded-full overflow-hidden">
         <View
           className="h-full rounded-full"
           style={{ width: `${Math.min(value, 100)}%`, backgroundColor: color }}
@@ -247,9 +249,9 @@ function ProgressBar({ label, value, color }: { label: string; value: number; co
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <View className="flex-row items-center px-4 py-3.5 border-b border-white/5 last:border-0">
-      <Text className="text-white/40 text-sm w-24">{label}</Text>
-      <Text className="text-white text-sm flex-1">{value}</Text>
+    <View className="flex-row items-center px-4 py-3.5 border-b border-light-border dark:border-white/5 last:border-0">
+      <Text className="text-light-text-muted dark:text-white/40 text-sm w-24">{label}</Text>
+      <Text className="text-light-text-primary dark:text-white text-sm flex-1">{value}</Text>
     </View>
   );
 }

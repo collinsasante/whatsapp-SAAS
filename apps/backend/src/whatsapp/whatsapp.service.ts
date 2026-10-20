@@ -11,28 +11,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
+import { isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
+import { readCallingStatus } from '../calls/calling-errors.util';
 
 const execAsync = promisify(exec);
-
-// Detect WebM by EBML magic bytes (0x1A 0x45 0xDF 0xA3)
-function isWebmBuffer(buf: Buffer): boolean {
-  return buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
-}
-
-async function transcodeWebmToOgg(buffer: Buffer): Promise<Buffer> {
-  const id = crypto.randomBytes(8).toString('hex');
-  const inputPath = path.join('/tmp', `wa_in_${id}.webm`);
-  const outputPath = path.join('/tmp', `wa_out_${id}.ogg`);
-  try {
-    fs.writeFileSync(inputPath, buffer);
-    // Remux Opus from WebM container into OGG container — no re-encoding, instant
-    await execAsync(`ffmpeg -y -i "${inputPath}" -c:a copy "${outputPath}"`);
-    return fs.readFileSync(outputPath);
-  } finally {
-    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-  }
-}
 
 async function transcodeVideoToMp4(buffer: Buffer, inputMime: string): Promise<Buffer> {
   const id = crypto.randomBytes(8).toString('hex');
@@ -89,6 +71,14 @@ export interface WhatsAppTemplateMessage {
     language: { code: string };
     components: unknown[];
   };
+}
+
+/** A failed Meta Calling API request, keeping Meta's numeric codes so callers can classify it. */
+export class MetaCallError extends Error {
+  constructor(message: string, readonly metaCode?: number, readonly metaSubcode?: number) {
+    super(message);
+    this.name = 'MetaCallError';
+  }
 }
 
 @Injectable()
@@ -503,8 +493,24 @@ export class WhatsAppService {
       return { callId };
     } catch (err: any) {
       const metaError = err?.response?.data;
-      this.logger.error('Meta calls API error', JSON.stringify(metaError ?? err?.message));
-      throw new Error(metaError?.error?.message ?? err?.message ?? 'Meta call failed');
+      // Status and Meta's error code only: the body can echo request details we do not want in logs.
+      this.logger.error(`Meta calls API error (http ${err?.response?.status ?? 'none'}, code ${metaError?.error?.code ?? 'n/a'}, subcode ${metaError?.error?.error_subcode ?? 'n/a'})`);
+      throw new MetaCallError(metaError?.error?.message ?? err?.message ?? 'Meta call failed', metaError?.error?.code, metaError?.error?.error_subcode);
+    }
+  }
+
+  /**
+   * Read-only: asks Meta whether calling is switched on for this number (GET /{phone-number-id}/settings,
+   * field calling.status). It never changes anything on the Meta account. A failed check is UNKNOWN, not "off".
+   */
+  async getCallingStatus(tenantId: string): Promise<{ state: 'ENABLED' | 'DISABLED' | 'UNKNOWN'; sipEnabled: boolean; checked: boolean }> {
+    try {
+      const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
+      const response = await this.getClient(accessToken!).get(`/${phoneNumberId}/settings`);
+      return { ...readCallingStatus(response.data), checked: true };
+    } catch (err) {
+      this.logger.warn(`Could not read calling settings for tenant ${tenantId}: ${metaError(err)}`);
+      return { state: 'UNKNOWN', sipEnabled: false, checked: false };
     }
   }
 
@@ -627,7 +633,7 @@ export class WhatsAppService {
     } catch (error: unknown) {
       const msg = metaError(error);
       this.logger.error(
-        `Template submission failed — wabaId=${tenant.wabaId} token=${tokenPreview} error="${msg}"`,
+        `Template submission failed, wabaId=${tenant.wabaId} token=${tokenPreview} error="${msg}"`,
       );
       throw new BadRequestException(
         `Template submission failed: ${msg}\n\nDebug info: wabaId=${tenant.wabaId} | token=${tokenPreview}\n\nFix: verify your WABA ID and access token in Settings → Channels.`,

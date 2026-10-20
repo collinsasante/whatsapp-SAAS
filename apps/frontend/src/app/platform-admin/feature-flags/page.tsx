@@ -80,7 +80,7 @@ export default function FeatureFlagsPage() {
       />
     ) },
     { key: 'rollouts', header: 'Per-tenant overrides', render: (r) => r._count.rollouts },
-    { key: 'category', header: 'Category', render: (r) => r.category ?? '—' },
+    { key: 'category', header: 'Category', render: (r) => r.category ?? '-' },
   ];
 
   return (

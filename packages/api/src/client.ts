@@ -8,6 +8,7 @@ export function createApiClient(config: ApiClientConfig): AxiosInstance {
     withCredentials = false,
     getRefreshToken,
     onTokenRefreshed,
+    onRefreshTokenRotated,
     onSessionExpired,
   } = config;
 
@@ -19,20 +20,35 @@ export function createApiClient(config: ApiClientConfig): AxiosInstance {
     if (refreshPromise) return refreshPromise;
 
     refreshPromise = (async () => {
-      const headers: Record<string, string> = {};
-      // Mobile path: send refresh token as a header
-      const refreshToken = getRefreshToken?.();
-      if (!withCredentials && refreshToken) {
-        headers['X-Refresh-Token'] = refreshToken;
+      // Mobile has no cookie jar, so it has its own endpoint that reads the
+      // refresh token from a header and returns a rotated one in the body --
+      // the shared cookie-only /auth/refresh never puts a token in the body
+      // (that's load-bearing for web's XSS protection, see auth.controller.ts).
+      if (!withCredentials) {
+        const refreshToken = getRefreshToken?.();
+        if (!refreshToken) {
+          sessionDead = true;
+          throw new Error('Session expired');
+        }
+
+        const response = await axios.post<{ accessToken: string; refreshToken: string }>(
+          `${baseUrl}/auth/mobile/refresh`,
+          {},
+          { headers: { 'X-Refresh-Token': refreshToken } },
+        );
+
+        const { accessToken, refreshToken: newRefreshToken } = response.data;
+        sessionDead = false;
+        tokenStorage.setAccessToken(accessToken);
+        onTokenRefreshed?.(accessToken);
+        onRefreshTokenRotated?.(newRefreshToken);
+        return accessToken;
       }
 
       const response = await axios.post<{ accessToken: string }>(
         `${baseUrl}/auth/refresh`,
         {},
-        {
-          withCredentials,
-          headers,
-        },
+        { withCredentials: true },
       );
 
       const token = response.data.accessToken;

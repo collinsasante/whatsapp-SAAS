@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -27,6 +27,9 @@ import { SendMessageDto } from './dto/message.dto';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
+import { shouldApplyStatus } from './message-status.util';
+import { isOggBuffer, isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
+import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
 import { HANDOFF_FAILED_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
@@ -83,6 +86,10 @@ const WHATSAPP_WEB_MEDIA_TYPE_MAP: Record<string, MessageType> = {
   audio: MessageType.AUDIO,
   document: MessageType.DOCUMENT,
 };
+
+// Total worst-case wait ~1.7s: covers the gap between provider accept and the DB write of its id.
+const CLIENT_SEND_DEDUPE_TTL_MS = 10 * 60 * 1000;
+export const RECEIPT_LOOKUP_RETRY_DELAYS_MS: readonly number[] = [150, 400, 1200];
 
 @Injectable()
 export class MessagesService {
@@ -147,7 +154,7 @@ export class MessagesService {
   private async dispatchOutbound(
     tenantId: string,
     conversation: { channel?: { id: string; type: string } | null; whatsappNumberId?: string | null },
-    contact: { phone: string | null; externalId?: string | null },
+    contact: { phone: string | null; externalId?: string | null; externalIdType?: string | null },
     payload:
       | { kind: 'TEXT'; text: string; replyToWaMessageId?: string }
       | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string },
@@ -168,13 +175,22 @@ export class MessagesService {
     // id. Still needs its own branch: the send transport is a live Baileys
     // socket via apps/whatsapp-web, not the Cloud API Graph client below.
     if (conversation.channel?.type === 'WHATSAPP_WEB') {
-      if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
       if (!conversation.channel.id) throw new BadRequestException('This conversation has no WhatsApp Web channel on file.');
+      // Contacts WhatsApp only identifies by an anonymous address are replied to at that exact address.
+      const target: string | { jid: string } | null = contact.phone
+        ? contact.phone
+        : (contact.externalIdType === 'WHATSAPP_JID' && contact.externalId ? { jid: contact.externalId } : null);
+      if (!target) throw new BadRequestException('This contact has no phone number on file.');
       if (payload.kind === 'TEXT') {
-        return this.whatsAppWebService.sendText(tenantId, conversation.channel.id, contact.phone, payload.text);
+        return this.whatsAppWebService.sendText(tenantId, conversation.channel.id, target, payload.text);
+      }
+      if (payload.mediaType === MessageType.AUDIO) {
+        const audio = await this.prepareWhatsAppWebAudio(tenantId, payload.mediaUrl);
+        // WhatsApp ignores captions on audio, and the composer's "Voice note" label is not one.
+        return this.whatsAppWebService.sendMedia(tenantId, conversation.channel.id, target, audio.url, 'audio', undefined, { voiceNote: audio.voiceNote });
       }
       return this.whatsAppWebService.sendMedia(
-        tenantId, conversation.channel.id, contact.phone, payload.mediaUrl, payload.mediaType.toLowerCase() as 'image' | 'video' | 'audio' | 'document', payload.caption,
+        tenantId, conversation.channel.id, target, payload.mediaUrl, payload.mediaType.toLowerCase() as 'image' | 'video' | 'audio' | 'document', payload.caption,
       );
     }
 
@@ -185,13 +201,49 @@ export class MessagesService {
     return this.deliverMedia(tenantId, contact.phone, payload.mediaType, payload.mediaUrl, payload.caption, payload.replyToWaMessageId, conversation.whatsappNumberId);
   }
 
+  // Idempotency for client retries (lost response, double click, offline-queue replay). In-process
+  // only -- like runExclusiveForConversation it assumes a single backend replica.
+  private readonly recentClientSends = new Map<string, { promise: Promise<unknown>; at: number }>();
+
   async sendMessage(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
-    console.log(`[sendMessage] type=${dto.type} templateId=${dto.templateId} content=${dto.content}`);
+    const clientId = dto.clientMessageId;
+    if (!clientId) return this.sendMessageOnce(tenantId, conversationId, senderId, dto, senderRole);
+
+    const now = Date.now();
+    for (const [k, v] of this.recentClientSends) if (now - v.at > CLIENT_SEND_DEDUPE_TTL_MS) this.recentClientSends.delete(k);
+    // Scoped to tenant + conversation + sender so one client's id can never replay another's message.
+    const key = `${tenantId}:${conversationId}:${senderId}:${clientId}`;
+    const existing = this.recentClientSends.get(key);
+    if (existing) return existing.promise as ReturnType<MessagesService['sendMessageOnce']>;
+
+    const promise = this.sendMessageOnce(tenantId, conversationId, senderId, dto, senderRole);
+    this.recentClientSends.set(key, { promise, at: now });
+    try {
+      const result = await promise;
+      // A FAILED outcome must stay retryable with the same id.
+      if (result?.status === MessageStatus.FAILED) this.recentClientSends.delete(key);
+      return result;
+    } catch (error) {
+      this.recentClientSends.delete(key);
+      throw error;
+    }
+  }
+
+  private async sendMessageOnce(tenantId: string, conversationId: string, senderId: string, dto: SendMessageDto, senderRole?: UserRole) {
+    this.logger.debug(`sendMessage type=${dto.type} conversation=${conversationId}`);
     const conversation = await this.conversationsService.findOne(tenantId, conversationId);
     const contact = await this.contactsService.findOne(tenantId, conversation.contactId);
 
     if (contact.isBlocked || contact.optedOut) {
       throw new NotFoundException('Cannot send message to this contact');
+    }
+
+    // Server-side mirror of the inbox rule "a conversation owned by a human agent is locked to
+    // them -- everyone else must take over first". Without it a stale UI (or a file dropped on
+    // the chat pane) could send into, and auto-reopen, another agent's conversation.
+    const owner = conversation.assignedTo;
+    if (owner && !owner.isAiAgent && owner.id !== senderId) {
+      throw new ForbiddenException('This conversation is being handled by another agent. Take it over before sending.');
     }
 
     const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER';
@@ -225,12 +277,17 @@ export class MessagesService {
     // window rules, not enforced here yet -- out of scope for this pass.
     // WhatsApp Web has no such window at all (a real linked personal account
     // can message anyone anytime), so it's excluded the same way Messenger is.
-    if (!isMessenger && !isWhatsAppWeb && dto.type !== MessageType.TEMPLATE) {
-      const lastInboundAt = conversation.lastMessageAt;
-      const windowClosed = !lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000;
-      if (windowClosed) {
+    if (channelHasCustomerServiceWindow(conversation.channel?.type) && dto.type !== MessageType.TEMPLATE) {
+      // Must be the last INBOUND message: lastMessageAt is bumped by our own outbound sends and
+      // would let agent replies keep the window open past what Meta actually allows.
+      const lastInbound = await this.prisma.message.findFirst({
+        where: { tenantId, conversationId, direction: MessageDirection.INBOUND },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (!isCustomerServiceWindowOpen(lastInbound?.createdAt)) {
         throw new BadRequestException(
-          "This contact hasn't messaged in over 24 hours. WhatsApp requires an approved template message to re-engage them — free-form messages will be rejected.",
+          "This contact hasn't messaged in over 24 hours. WhatsApp requires an approved template message to re-engage them, free-form messages will be rejected.",
         );
       }
     }
@@ -308,15 +365,19 @@ export class MessagesService {
     });
 
     let whatsappMessageId: string | undefined;
+    // Set only when a provider call actually ran: a send that reached no branch must FAIL, not be marked SENT.
+    let dispatched = false;
 
     try {
       if (dto.type === MessageType.TEXT || !dto.type) {
         whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: dto.content!, replyToWaMessageId });
+        dispatched = true;
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
         if (dto.mediaUrl) {
           whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, {
             kind: 'MEDIA', mediaType: dto.type as MessageType, mediaUrl: dto.mediaUrl, caption: dto.mediaCaption, replyToWaMessageId,
           });
+          dispatched = true;
         }
       } else if (dto.type === MessageType.TEMPLATE && dto.templateId) {
         // Guarded above: TEMPLATE never reaches here for a Messenger conversation.
@@ -334,6 +395,7 @@ export class MessagesService {
             dto.templateVariables ?? {},
             conversation.whatsappNumberId,
           );
+          dispatched = true;
         }
       } else if (dto.type === MessageType.LOCATION && dto.locationLatitude != null && dto.locationLongitude != null) {
         // Guarded above: LOCATION never reaches here for a Messenger conversation.
@@ -347,6 +409,7 @@ export class MessagesService {
           dto.locationAddress,
           conversation.whatsappNumberId,
         );
+        dispatched = true;
       } else if (dto.type === MessageType.CONTACTS && dto.contactName && dto.contactPhone) {
         // Guarded above: CONTACTS never reaches here for a Messenger conversation.
         if (!contact.phone) throw new BadRequestException('This contact has no phone number on file.');
@@ -357,6 +420,11 @@ export class MessagesService {
           dto.contactPhone,
           conversation.whatsappNumberId,
         );
+        dispatched = true;
+      }
+
+      if (!dispatched) {
+        throw new BadRequestException('Nothing was sent: the message has no deliverable content (missing media, template, or required fields).');
       }
 
       await this.prisma.message.update({
@@ -368,7 +436,9 @@ export class MessagesService {
         },
       });
 
-      await this.conversationsService.incrementUnread(conversationId);
+      // Outbound: bump recency for list ordering only. incrementUnread() would count our own
+      // agent reply as an unread customer message.
+      await this.conversationsService.touchLastMessage(conversationId);
 
       // Trigger real-time AI learning from this agent reply (throttled to once per 30 min per tenant)
       if (dto.type === MessageType.TEXT || !dto.type) {
@@ -378,7 +448,7 @@ export class MessagesService {
       const updatedMessage = await this.prisma.message.findUnique({
         where: { id: message.id },
         include: {
-          sender: { select: { id: true, name: true, avatarUrl: true } },
+          sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
           replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
         },
       });
@@ -409,6 +479,47 @@ export class MessagesService {
    * Second caller: handleAiAutoReply, when a tool (e.g. send_product_image)
    * triggered a media side effect this turn.
    */
+  /**
+   * Fetches the bytes behind a stored media URL: straight from our own storage when it is one of our
+   * /media/serve links, otherwise over HTTP. Shared by the WhatsApp Cloud and WhatsApp Web send paths.
+   */
+  private async loadMediaBuffer(mediaUrl: string, fallbackMime: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    const proxyMatch = mediaUrl.match(/\/api\/v1\/media\/serve\/(.+)/);
+    if (proxyMatch) {
+      const fileKey = proxyMatch[1].replace(/~/g, '/');
+      const downloaded = await this.storageService.downloadBuffer(fileKey);
+      if (downloaded) return { buffer: downloaded.buffer, mimeType: downloaded.mimeType || fallbackMime };
+    }
+    const dlRes = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
+    return { buffer: Buffer.from(dlRes.data), mimeType: (dlRes.headers['content-type'] as string | undefined) ?? fallbackMime };
+  }
+
+  /**
+   * WhatsApp only plays voice notes as OGG/Opus, but browsers record WebM/Opus. For a WhatsApp Web send, remux
+   * the recording to OGG here (this container has ffmpeg; the WhatsApp Web container does not) and report whether
+   * the result should go out as a push-to-talk voice note. Anything that cannot be made playable fails the send
+   * with a clear reason instead of delivering a message the customer cannot play.
+   */
+  private async prepareWhatsAppWebAudio(tenantId: string, mediaUrl: string): Promise<{ url: string; voiceNote: boolean }> {
+    const { buffer, mimeType } = await this.loadMediaBuffer(mediaUrl, 'audio/ogg');
+    if (isWebmBuffer(buffer)) {
+      try {
+        const ogg = await transcodeWebmToOgg(buffer);
+        const stored = await this.storageService.uploadRaw(ogg, 'audio/ogg', tenantId, 'voice-note.ogg');
+        return { url: stored.fileUrl, voiceNote: true };
+      } catch (err) {
+        this.logger.warn(`Voice note could not be converted for WhatsApp Web: ${err instanceof Error ? err.message : String(err)}`);
+        throw new BadRequestException('The voice note could not be converted to a format WhatsApp can play. Please record it again.');
+      }
+    }
+    if (isOggBuffer(buffer)) return { url: mediaUrl, voiceNote: true };
+    // MP3, M4A/AAC and similar are sent as an ordinary audio file rather than a voice-note bubble.
+    if (!mimeType.toLowerCase().startsWith('audio/')) {
+      throw new BadRequestException('That file is not an audio recording WhatsApp can play.');
+    }
+    return { url: mediaUrl, voiceNote: false };
+  }
+
   private async deliverMedia(
     tenantId: string, toPhone: string, type: MessageType, mediaUrl: string, caption?: string, replyToWaMessageId?: string,
     whatsappNumberId?: string | null,
@@ -420,30 +531,14 @@ export class MessagesService {
       [MessageType.DOCUMENT]: 'application/pdf',
     };
     try {
-      let mediaBuffer: Buffer | null = null;
-      let mimeType = defaultMime[type as string] ?? 'application/octet-stream';
-
-      const proxyMatch = mediaUrl.match(/\/api\/v1\/media\/serve\/(.+)/);
-      if (proxyMatch) {
-        const fileKey = proxyMatch[1].replace(/~/g, '/');
-        const downloaded = await this.storageService.downloadBuffer(fileKey);
-        if (downloaded) {
-          mediaBuffer = downloaded.buffer;
-          mimeType = downloaded.mimeType || mimeType;
-        }
-      }
-
-      if (!mediaBuffer) {
-        const dlRes = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
-        mediaBuffer = Buffer.from(dlRes.data);
-        mimeType = (dlRes.headers['content-type'] as string | undefined) ?? mimeType;
-      }
+      const { buffer: mediaBuffer, mimeType } = await this.loadMediaBuffer(mediaUrl, defaultMime[type as string] ?? 'application/octet-stream');
 
       const ext = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
       const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, mediaBuffer, mimeType, `media.${ext}`, whatsappNumberId);
       return await this.whatsappService.sendMediaMessageById(tenantId, toPhone, type.toLowerCase(), metaMediaId, caption, replyToWaMessageId, whatsappNumberId);
-    } catch {
-      // fallback to link-based send
+    } catch (err) {
+      // Fall back to a link-based send, but say why: this used to hide every upload failure.
+      this.logger.warn(`Media upload to Meta failed for ${type}; falling back to a link send: ${err instanceof Error ? err.message : String(err)}`);
       return this.whatsappService.sendMediaMessage(tenantId, toPhone, type.toLowerCase(), mediaUrl, caption, replyToWaMessageId, whatsappNumberId);
     }
   }
@@ -452,7 +547,7 @@ export class MessagesService {
     const conversation = await this.conversationsService.findOne(tenantId, conversationId);
 
     const msgInclude = {
-      sender: { select: { id: true, name: true, avatarUrl: true } },
+      sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
       replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
       reactions: { select: { id: true, emoji: true, userId: true } },
     };
@@ -564,7 +659,7 @@ export class MessagesService {
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound Messenger media download failed for attachment type "${attachment.type}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+          message: `Inbound Messenger media download failed for attachment type "${attachment.type}": ${err instanceof Error ? err.message : String(err)}, customer's file was not saved`,
         }).catch(() => {});
       }
     }
@@ -574,8 +669,9 @@ export class MessagesService {
     }
 
     let created: Message;
+    let updatedConversation: { unreadCount?: number | null; status?: string } | undefined;
     try {
-      const [msg] = await this.prisma.$transaction([
+      const [msg, updatedConv] = await this.prisma.$transaction([
         this.prisma.message.create({
           data: {
             tenantId, conversationId: conversation.id, contactId: contact.id,
@@ -590,6 +686,7 @@ export class MessagesService {
         }),
       ]);
       created = msg;
+      updatedConversation = updatedConv;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: message.mid, tenantId } });
@@ -601,11 +698,13 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      // From the row the database just returned from the atomic increment. The in-memory copy was read before
+      // it, so two quick customer messages both reported N+1 and the badge undercounted until a refresh.
+      unreadCount: updatedConversation?.unreadCount ?? (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: created.createdAt,
       lastInboundAt: created.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
-      status: conversation.status,
+      status: updatedConversation?.status ?? conversation.status,
     });
 
     return created;
@@ -622,7 +721,9 @@ export class MessagesService {
   async handleInboundWhatsAppWeb(
     tenantId: string,
     channelId: string,
-    fromPhone: string,
+    // A phone number, or { jid } for a contact WhatsApp only exposes as an anonymous address
+    // (@lid). Those are stored as their own provider identity, never as a fake phone number.
+    sender: string | { jid: string },
     providerMessageId: string,
     payload: {
       content?: string;
@@ -630,6 +731,9 @@ export class MessagesService {
       mediaBase64?: string;
       mimetype?: string;
       caption?: string;
+      // The text is a label for something we cannot or must not ingest (view-once, sticker...), not
+      // something the customer wrote, so the AI and chatbot must not reply to it.
+      placeholder?: boolean;
     },
     pushName?: string,
   ) {
@@ -639,7 +743,9 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const contact = await this.contactsService.findOrCreate(tenantId, fromPhone, pushName);
+    const contact = typeof sender === 'string'
+      ? await this.contactsService.findOrCreate(tenantId, sender, pushName)
+      : await this.contactsService.findOrCreateByExternalId(tenantId, 'WHATSAPP_JID', sender.jid, pushName);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, undefined, channelId);
 
     // Tag conversation with the receiving channel the first time only,
@@ -672,7 +778,7 @@ export class MessagesService {
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound WhatsApp Web media download failed for type "${payload.mediaType}": ${err instanceof Error ? err.message : String(err)} — customer's file was not saved`,
+          message: `Inbound WhatsApp Web media download failed for type "${payload.mediaType}": ${err instanceof Error ? err.message : String(err)}, customer's file was not saved`,
         }).catch(() => {});
       }
     } else if (payload.mediaType && !payload.mediaBase64) {
@@ -686,8 +792,9 @@ export class MessagesService {
     }
 
     let created: Message;
+    let updatedConversation: { unreadCount?: number | null; status?: string } | undefined;
     try {
-      const [msg] = await this.prisma.$transaction([
+      const [msg, updatedConv] = await this.prisma.$transaction([
         this.prisma.message.create({
           data: {
             tenantId, conversationId: conversation.id, contactId: contact.id,
@@ -702,6 +809,7 @@ export class MessagesService {
         }),
       ]);
       created = msg;
+      updatedConversation = updatedConv;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         const raced = await this.prisma.message.findFirst({ where: { whatsappMessageId: providerMessageId, tenantId } });
@@ -713,14 +821,19 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      // From the row the database just returned from the atomic increment. The in-memory copy was read before
+      // it, so two quick customer messages both reported N+1 and the badge undercounted until a refresh.
+      unreadCount: updatedConversation?.unreadCount ?? (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: created.createdAt,
       lastInboundAt: created.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
-      status: conversation.status,
+      status: updatedConversation?.status ?? conversation.status,
     });
 
-    await this.dispatchAiAndChatbot(tenantId, conversation, contact, content, created.id);
+    const isPlaceholder = payload.placeholder === true || (!payload.content && !mediaUrl);
+    if (!isPlaceholder) {
+      await this.dispatchAiAndChatbot(tenantId, conversation, contact, content, created.id);
+    }
 
     return created;
   }
@@ -750,6 +863,7 @@ export class MessagesService {
       button_reply?: { id: string; title: string };
       call_permission_reply?: { response: string };
     };
+    button?: { payload: string; text: string };
   }, profileName?: string, incomingPhoneNumberId?: string, referral?: {
     source_url?: string; source_type?: string; source_id?: string; headline?: string; body?: string;
     image_url?: string; media_type?: string; ctwa_clid?: string;
@@ -970,6 +1084,17 @@ export class MessagesService {
 
     let msgType = waMessage.type.toUpperCase() as MessageType;
 
+    // Quick Reply button tap on a business-sent template -- common in real traffic.
+    // "button" has no corresponding MessageType enum value (that's a DB-level enum;
+    // adding one is a migration, out of scope here), so without this it would fall
+    // into the generic unsupported-type branch below -- same ultimate display as a
+    // real text message makes sense, so store it as TEXT with the real tapped label
+    // as content, same as the unsupported branch does for things with no content.
+    if (waMessage.type === 'button' && waMessage.button) {
+      content = waMessage.button.text;
+      msgType = MessageType.TEXT;
+    }
+
     // WhatsApp sends type="unsupported" for polls, ephemeral messages, and other
     // types not yet exposed via the Cloud API. Previously skipped silently (debug-
     // level log only, filtered out in production) -- the customer's message vanished
@@ -978,7 +1103,7 @@ export class MessagesService {
     // so at least "the customer tried to send something we can't display yet" is
     // visible rather than nothing at all.
     const validMessageTypes = new Set<string>(Object.values(MessageType));
-    if (!validMessageTypes.has(msgType)) {
+    if (waMessage.type !== 'button' && !validMessageTypes.has(msgType)) {
       this.logger.warn(`[tenant:${tenantId}] Unsupported WA message type "${waMessage.type}" -- persisting a placeholder instead of discarding it`);
       messageMetadata['originalWaType'] = waMessage.type;
       content = `[Sent a message type we can't display yet: ${waMessage.type}. Ask them to resend as text, an image, or a document.]`;
@@ -990,6 +1115,14 @@ export class MessagesService {
     }
 
     if (waMessage.text) content = waMessage.text.body;
+
+    // Non-CSAT interactive reply (list/button tap on an interactive message this
+    // business sent). CSAT (`csat_*`) and call_permission_reply are intercepted
+    // earlier and return before reaching here; this covers everything else, which
+    // previously passed the MessageType validity check (INTERACTIVE is a real enum
+    // value) but never had its content populated, so it displayed as empty/"Unsupported".
+    if (waMessage.interactive?.list_reply) content = waMessage.interactive.list_reply.title;
+    else if (waMessage.interactive?.button_reply) content = waMessage.interactive.button_reply.title;
 
     if (waMessage.location) {
       messageMetadata['latitude'] = waMessage.location.latitude;
@@ -1032,7 +1165,7 @@ export class MessagesService {
         void notify({
           source: 'backend',
           tenantId,
-          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}": ${downloaded.reason} — customer's file was not saved`,
+          message: `Inbound WhatsApp media download failed for message type "${waMessage.type}": ${downloaded.reason}, customer's file was not saved`,
         }).catch(() => {});
       }
     }
@@ -1057,9 +1190,10 @@ export class MessagesService {
     // race to create here. The whatsappMessageId+tenantId unique constraint is
     // the real guard; on P2002 the other delivery won the race, so fetch and
     // return what it created instead of erroring the whole webhook out.
+    let updatedConversation: { unreadCount?: number | null; status?: string } | undefined;
     let message: Prisma.MessageGetPayload<{ include: { replyTo: { select: { id: true; content: true; type: true; direction: true; mediaCaption: true } } } }>;
     try {
-      [message] = await this.prisma.$transaction([
+      [message, updatedConversation] = await this.prisma.$transaction([
         this.prisma.message.create({
           data: {
             tenantId,
@@ -1100,11 +1234,13 @@ export class MessagesService {
     this.realtimeService.emitNewMessage(tenantId, conversation.id, message);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
+      // From the row the database just returned from the atomic increment. The in-memory copy was read before
+      // it, so two quick customer messages both reported N+1 and the badge undercounted until a refresh.
+      unreadCount: updatedConversation?.unreadCount ?? (conversation.unreadCount ?? 0) + 1,
       lastMessageAt: message.createdAt,
       lastInboundAt: message.createdAt,
       contact: (conversation as Record<string, unknown>)['contact'],
-      status: conversation.status,
+      status: updatedConversation?.status ?? conversation.status,
       assignedTo: (conversation as Record<string, unknown>)['assignedTo'],
       labels: (conversation as Record<string, unknown>)['labels'] ?? [],
       channel: (conversation as Record<string, unknown>)['channel'] ?? null,
@@ -1183,7 +1319,7 @@ export class MessagesService {
   private async dispatchAiAndChatbot(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null; assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null },
-    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string | undefined,
     excludeMessageId: string,
   ): Promise<void> {
@@ -1200,7 +1336,7 @@ export class MessagesService {
     // only -- every other contact on the tenant is treated as if AI were off
     // entirely (fed into aiActive too, so chatbot-flow-matching doesn't think
     // AI is live for a contact it will never actually respond to).
-    const aiAllowedForThisContact = isAiAllowedForContact(tenantSettings?.aiRestrictedToPhone, contact.phone);
+    const aiAllowedForThisContact = isAiAllowedForContact(tenantSettings?.aiRestrictedToPhone, contact.phone ?? '');
     const aiActive = (aiMode === 'SUGGESTION' || aiMode === 'AUTO_REPLY') && aiAllowedForThisContact;
 
     // Trigger chatbot flow if one matches this message
@@ -1241,7 +1377,7 @@ export class MessagesService {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode));
         }
       } else if (aiMode === 'SUGGESTION') {
         // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
@@ -1254,16 +1390,57 @@ export class MessagesService {
           // a second inbound message arriving before this one finishes doesn't launch
           // a second, racing AI generation for the same conversation.
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled));
+            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled, takeoverEnabled, !!aiMode));
         }
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode));
         }
       }
     }
+  }
+
+  /**
+   * Re-reads conversation ownership directly from the DB and recomputes the
+   * same humanOwned/agentAway decision dispatchAiAndChatbot made at dispatch
+   * time. Called immediately before a paid provider call and again
+   * immediately before delivering its result, to narrow the gap between that
+   * initial dispatch-time check (fresh at the instant the inbound message
+   * arrived) and the point -- possibly several seconds later, after sitting
+   * behind runExclusiveForConversation's per-conversation lock and/or a real
+   * provider round-trip -- where the AI is actually about to generate or
+   * send. A human agent can take over a conversation, or newly register as
+   * present, at any point in that gap. This narrows the race; it does not
+   * eliminate it -- a takeover can still land between the final check and the
+   * external provider send.
+   *
+   * Fails CLOSED: a lookup failure, or the conversation having vanished, is
+   * treated as "human-handled" (returns true -- AI must stay back), never as
+   * "safe to proceed." An ambiguous or failed ownership check must never be
+   * read as "this conversation is unowned."
+   */
+  private async isConversationHumanHandled(
+    tenantId: string,
+    conversationId: string,
+    takeoverEnabled: boolean,
+    aiEnabledForTenant: boolean,
+  ): Promise<boolean> {
+    const fresh = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { assignedTo: { select: { id: true, isAiAgent: true, lastSeenAt: true } } },
+    }).catch((err) => {
+      this.logger.warn(`AI ownership recheck failed for conversation ${conversationId} -- failing closed (treating as human-handled, suppressing this AI turn): ${String(err)}`);
+      return undefined;
+    });
+    if (fresh === undefined || fresh === null) return true; // lookup failed or conversation vanished -- fail closed
+
+    const assignedTo = fresh.assignedTo;
+    const humanOwned = !!assignedTo && !assignedTo.isAiAgent;
+    if (!humanOwned) return false; // not human-owned -- AI may proceed
+    const agentAway = isAgentAway(assignedTo, takeoverEnabled, aiEnabledForTenant);
+    return !agentAway; // humanOwned && !agentAway => still human-handled, AI must stay back
   }
 
   /**
@@ -1358,10 +1535,23 @@ export class MessagesService {
   private async handleAiSuggestion(
     tenantId: string,
     conversation: { id: string },
-    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
+    takeoverEnabled: boolean,
+    aiEnabledForTenant: boolean,
   ) {
+    // Re-check ownership right before the paid provider call below -- this
+    // closure may have sat behind runExclusiveForConversation's per-conversation
+    // lock since dispatchAiAndChatbot's own (now possibly stale) check. See
+    // isConversationHumanHandled's doc comment.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI suggestion suppressed for conversation ${conversation.id}: a human agent is now handling this conversation (ownership recheck) -- no provider call made.`);
+      return;
+    }
+
+    // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
+    // ownership check above -- never for a human-handled conversation or on a failed lookup.
     this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
 
     const startMs = Date.now();
@@ -1371,7 +1561,7 @@ export class MessagesService {
     // withheld until AUTO_REPLY or a human sends the reply themselves. New safeguard
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
-      tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
+      tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
       { commerceEnabled, readOnlyTools: true },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
@@ -1393,6 +1583,16 @@ export class MessagesService {
       // honest here -- but the handoff itself should still be real and retried, not a
       // swallowed .catch(() => null).
       await this.conversationsService.requestWithRetry(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence');
+    }
+
+    // Re-check again right before storing/surfacing the suggestion. Generation
+    // (a real provider round-trip) can take several seconds -- long enough for
+    // a human agent to take over mid-flight. SUGGESTION mode never reaches the
+    // customer either way, but there is no reason to log an AI suggestion or
+    // notify agents about one for a conversation a human has since taken over.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI suggestion generated but NOT surfaced for conversation ${conversation.id}: a human agent took over during generation (ownership recheck) -- the generated suggestion was discarded.`);
+      return;
     }
 
     const log = await this.aiLogsService.create({
@@ -1424,17 +1624,30 @@ export class MessagesService {
   private async handleAiAutoReply(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
-    contact: { id: string; phone: string; externalId?: string | null; name: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
     assignedTo: { id: string; isAiAgent?: boolean } | null | undefined,
+    takeoverEnabled: boolean,
+    aiEnabledForTenant: boolean,
   ) {
+    // Re-check ownership right before the paid provider call below -- this
+    // closure may have sat behind runExclusiveForConversation's per-conversation
+    // lock since dispatchAiAndChatbot's own (now possibly stale) check. See
+    // isConversationHumanHandled's doc comment.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI auto-reply suppressed for conversation ${conversation.id}: a human agent is now handling this conversation (ownership recheck) -- no provider call made.`);
+      return;
+    }
+
+    // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
+    // ownership check above -- never for a human-handled conversation or on a failed lookup.
     this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
 
     const startMs = Date.now();
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
-        tenantId, conversation.id, contact.id, contact.phone, content, contact.name ?? undefined,
+        tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
         { commerceEnabled, readOnlyTools: false },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
@@ -1442,6 +1655,20 @@ export class MessagesService {
       }),
       this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
     ]);
+
+    // Re-check again right before delivering anything to the customer.
+    // generateAiReply() above is a real provider round-trip that can take
+    // several seconds -- long enough for a human agent to take over
+    // mid-flight. That call has already happened and, in the ordinary success
+    // case, already cost real money; this check cannot refund it. It only
+    // stops delivery when a takeover is already visible in the database.
+    // Limitation: the database read and the external provider send are not
+    // atomic, so ownership can still change between this check and the send.
+    if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+      this.logger.log(`AI auto-reply generated but NOT delivered for conversation ${conversation.id}: a human agent took over during generation (ownership recheck before send) -- the generated reply was discarded, not sent.`);
+      return;
+    }
+
     if (!result?.response) {
       // Verz-AI unification, Phase L: this used to be a silent early return -- if
       // generateAiReply() threw outright (rather than returning a handled failure
@@ -1459,6 +1686,13 @@ export class MessagesService {
       const fallbackText = escalated
         ? PROVIDER_FAILURE_FALLBACK_TEXT
         : HANDOFF_FAILED_TEXT;
+      // requestWithRetry above is an awaited DB round-trip after the post-generation
+      // check -- re-verify before the fallback text reaches the customer. The handoff
+      // request itself is kept (it is the legitimate escalation, not a customer reply).
+      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+        this.logger.log(`AI fallback reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
+        return;
+      }
       await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: fallbackText })
         .catch((err) => this.logger.warn(`Failed to send fallback message for conversation ${conversation.id}: ${String(err)}`));
       return;
@@ -1479,15 +1713,21 @@ export class MessagesService {
         this.logger.warn(`Handoff failed (after retry) for conversation ${conversation.id} -- rewriting response to avoid a false claim`);
         result.response = HANDOFF_FAILED_TEXT;
       }
+      // Same reasoning as the no-response branch: requestWithRetry was awaited after
+      // the post-generation check, so re-verify before the send below.
+      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+        this.logger.log(`AI escalation reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
+        return;
+      }
     }
 
     // Verz AI Credits: the flat -1-per-send decrement that used to live here is gone --
     // real usage-based charging now happens automatically as part of generateAiReply()
     // above (either via AiExecutionsService.record()'s central settlement hook, or the
     // legacy path's explicit chargeFlat), right when real token usage is known. By the
-    // time we're here the AI call already happened and already cost real money; there's
-    // no additional gate before sending -- withholding an already-generated, already-
-    // charged-for reply would waste the spend without helping the customer.
+    // time we're here the AI call already happened and already cost real money --
+    // the ownership recheck just above this is what decides whether the ALREADY-PAID-FOR
+    // reply is still worth delivering; reaching this line means it passed that check.
     await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: result.response }).catch(() => null);
 
     const log = await this.aiLogsService.create({
@@ -1523,7 +1763,7 @@ export class MessagesService {
         // message metadata, so anything already keying off it keeps working.
         metadata: commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true },
       },
-      include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+      include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
     }).catch((err) => {
       this.logger.warn(`Failed to persist AI auto-reply message for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1536,6 +1776,12 @@ export class MessagesService {
     // so images follow it -- matches natural WhatsApp UX. Persisted as its own
     // Message row so it's visible in the inbox like any other outbound message.
     for (const effect of result.mediaToSend ?? []) {
+      // The text reply above and the awaits since (log, link, persist) leave a gap in
+      // which a human can take over -- re-verify before EACH media send.
+      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
+        this.logger.log(`AI-triggered media NOT delivered for conversation ${conversation.id}: a human agent took over after the text reply (ownership recheck before media send).`);
+        break;
+      }
       const whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: 'IMAGE' as MessageType, mediaUrl: effect.mediaUrl, caption: effect.caption }).catch((err) => {
         this.logger.warn(`Failed to deliver AI-triggered media for conversation ${conversation.id}: ${String(err)}`);
         return undefined;
@@ -1556,7 +1802,7 @@ export class MessagesService {
           sentAt: whatsappMessageId ? new Date() : undefined,
           metadata: { aiGenerated: true, productId: effect.productId },
         },
-        include: { sender: { select: { id: true, name: true, avatarUrl: true } } },
+        include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
       }).catch((err) => {
         this.logger.warn(`Failed to persist AI-triggered media message for conversation ${conversation.id}: ${String(err)}`);
         return null;
@@ -1565,18 +1811,25 @@ export class MessagesService {
     }
 
     if (verzAgent && !assignedTo) {
-      const updated = await this.prisma.conversation.update({
-        where: { id: conversation.id },
+      // Compare-and-set: a single UPDATE ... WHERE assigned_to_id IS NULL. `assignedTo`
+      // is a snapshot from dispatch time, so a plain update here could silently
+      // overwrite a human who took over since (reassigning the conversation to the AI).
+      // With the condition in the WHERE, Postgres makes this atomic: if a human got
+      // there first, count is 0 and nothing is written or emitted.
+      const claimed = await this.prisma.conversation.updateMany({
+        where: { id: conversation.id, tenantId, assignedToId: null },
         data: { assignedToId: verzAgent.id, status: 'OPEN' },
       }).catch((err) => {
         this.logger.warn(`Failed to self-assign conversation ${conversation.id}: ${String(err)}`);
         return null;
       });
-      if (updated) {
+      if (claimed && claimed.count > 0) {
         this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
           assignedTo: { id: verzAgent.id, name: verzAgent.name, avatarUrl: verzAgent.avatarUrl, isAiAgent: true },
           status: 'OPEN',
         });
+      } else if (claimed) {
+        this.logger.log(`AI self-assign skipped for conversation ${conversation.id}: it was assigned to someone else in the meantime.`);
       }
     }
     this.realtimeService.emitNewMessage(tenantId, conversation.id, aiMessage);
@@ -1585,7 +1838,7 @@ export class MessagesService {
   private async runBotFlow(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
-    contact: { id: string; phone: string; externalId?: string | null },
+    contact: { id: string; phone: string | null; externalId?: string | null; externalIdType?: string | null },
     rawNodes: FlowNode[] | Record<string, unknown>,
   ) {
     if (!rawNodes) return;
@@ -1732,16 +1985,32 @@ export class MessagesService {
     return { pinned: true };
   }
 
+  /**
+   * sendMessage() persists the provider id only AFTER the provider accepts the send, so a fast
+   * receipt (WhatsApp Web acks within milliseconds) can arrive while the row has no
+   * whatsappMessageId yet. Re-check a few times on the exact (tenantId, provider id) pair --
+   * never a fuzzy match -- instead of dropping the receipt. Receipts for ids we never stored
+   * (sent from the phone itself, other integrations) cost one bounded wait and are then ignored.
+   */
+  private async findMessageForReceipt(whatsappMessageId: string, tenantId: string) {
+    for (let attempt = 0; ; attempt++) {
+      const message = await this.prisma.message.findFirst({ where: { whatsappMessageId, tenantId } });
+      if (message) return message;
+      const delay = RECEIPT_LOOKUP_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) return null;
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
   async updateStatus(
     whatsappMessageId: string,
     status: MessageStatus,
     tenantId: string,
     errors?: Array<{ code: number; title: string }>,
   ) {
-    const message = await this.prisma.message.findFirst({
-      where: { whatsappMessageId, tenantId },
-    });
+    const message = await this.findMessageForReceipt(whatsappMessageId, tenantId);
     if (!message) return;
+    if (!shouldApplyStatus(message.status, status)) return;
 
     const updateData: Record<string, unknown> = { status };
     if (status === MessageStatus.DELIVERED) updateData['deliveredAt'] = new Date();
@@ -1821,7 +2090,7 @@ export class MessagesService {
           createdAt: true,
           conversationId: true,
           contact: { select: { id: true, name: true, phone: true, avatarUrl: true } },
-          sender: { select: { id: true, name: true, avatarUrl: true } },
+          sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
         },
       }),
       this.prisma.message.count({ where }),

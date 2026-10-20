@@ -95,21 +95,24 @@ export class AiCreditsService {
   async chargeFlat(tenantId: string, credits: number, description: string): Promise<SettleResult> {
     if (credits <= 0) throw new Error('chargeFlat credits must be > 0');
 
-    const decremented = await this.prisma.tenant.updateMany({ where: { id: tenantId, aiCredits: { gte: credits } }, data: { aiCredits: { decrement: credits } } });
-    if (decremented.count === 0) return { settled: false, transaction: null };
+    // One transaction, like settleForExecution: a failed ledger insert must not leave the credits already deducted.
+    return this.prisma.$transaction(async (tx) => {
+      const decremented = await tx.tenant.updateMany({ where: { id: tenantId, aiCredits: { gte: credits } }, data: { aiCredits: { decrement: credits } } });
+      if (decremented.count === 0) return { settled: false, transaction: null };
 
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { aiCredits: true } });
-    const transaction = await this.prisma.aiCreditTransaction.create({
-      data: {
-        tenantId,
-        type: AiCreditTransactionType.AI_USAGE,
-        credits: -credits,
-        balanceAfter: tenant?.aiCredits ?? 0,
-        description,
-        metadata: { estimated: true, reason: 'legacy path, no token tracking' },
-      },
+      const tenant = await tx.tenant.findUnique({ where: { id: tenantId }, select: { aiCredits: true } });
+      const transaction = await tx.aiCreditTransaction.create({
+        data: {
+          tenantId,
+          type: AiCreditTransactionType.AI_USAGE,
+          credits: -credits,
+          balanceAfter: tenant?.aiCredits ?? 0,
+          description,
+          metadata: { estimated: true, reason: 'legacy path, no token tracking' },
+        },
+      });
+      return { settled: true, transaction };
     });
-    return { settled: true, transaction };
   }
 
   /** Purchases, bonuses, and admin adjustments -- anything that grants or

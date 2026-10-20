@@ -4,10 +4,12 @@ import {
   Alert, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Plan {
   id: string;
@@ -122,7 +124,7 @@ function ProgressBar({ used, max, color = '#25D366' }: { used: number; max: numb
   const pct = max > 0 ? Math.min((used / max) * 100, 100) : 0;
   const isHigh = pct > 80;
   return (
-    <View className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+    <View className="h-1.5 bg-light-border dark:bg-white/10 rounded-full overflow-hidden">
       <View
         className="h-full rounded-full"
         style={{ width: `${pct}%`, backgroundColor: isHigh ? '#ef4444' : color }}
@@ -132,6 +134,7 @@ function ProgressBar({ used, max, color = '#25D366' }: { used: number; max: numb
 }
 
 export default function BillingScreen() {
+  const { colors } = useAppTheme();
   const qc = useQueryClient();
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
@@ -240,9 +243,12 @@ export default function BillingScreen() {
   ] : [];
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5">
-        <Text className="text-white text-xl font-bold">Billing</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="flex-row items-center px-4 py-3 border-b border-light-border dark:border-white/5">
+        <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="chevron-back" size={22} color="#25D366" />
+        </TouchableOpacity>
+        <Text className="text-light-text-primary dark:text-white text-xl font-bold flex-1">Billing</Text>
       </View>
 
       <ScrollView
@@ -252,21 +258,21 @@ export default function BillingScreen() {
       >
         {/* Current subscription */}
         {subscription && (
-          <View className="bg-surface-card rounded-2xl border border-white/5 p-5 mb-5">
+          <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-5 mb-5">
             <View className="flex-row items-start justify-between mb-3">
               <View>
-                <Text className="text-white font-bold text-lg">{currentPlan?.name ?? 'Free'}</Text>
+                <Text className="text-light-text-primary dark:text-white font-bold text-lg">{currentPlan?.name ?? 'Free'}</Text>
                 <View className="flex-row items-center gap-2 mt-1">
                   <View className="rounded-full px-2.5 py-0.5" style={{ backgroundColor: statusColor + '20' }}>
                     <Text className="text-xs font-semibold" style={{ color: statusColor }}>
                       {subscription.status}
                     </Text>
                   </View>
-                  <Text className="text-white/40 text-xs capitalize">{subscription.cycle}</Text>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs capitalize">{subscription.cycle}</Text>
                 </View>
               </View>
               <View className="items-end">
-                <Text className="text-white font-bold text-xl">
+                <Text className="text-light-text-primary dark:text-white font-bold text-xl">
                   {formatPrice(
                     subscription.cycle === 'YEARLY'
                       ? (currentPlan?.yearlyPrice ?? 0)
@@ -274,7 +280,7 @@ export default function BillingScreen() {
                     currentPlan?.currency,
                   )}
                 </Text>
-                <Text className="text-white/30 text-xs">
+                <Text className="text-light-text-disabled dark:text-white/30 text-xs">
                   /{subscription.cycle === 'YEARLY' ? 'yr' : 'mo'}
                 </Text>
               </View>
@@ -296,7 +302,7 @@ export default function BillingScreen() {
               </View>
             )}
 
-            <Text className="text-white/30 text-xs">
+            <Text className="text-light-text-disabled dark:text-white/30 text-xs">
               Renews {formatDate(subscription.currentPeriodEnd)}
             </Text>
 
@@ -319,18 +325,18 @@ export default function BillingScreen() {
         {/* Usage meters */}
         {USAGE_METERS.length > 0 && (
           <>
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
               Usage This Period
             </Text>
-            <View className="bg-surface-card rounded-2xl border border-white/5 p-4 mb-5">
+            <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4 mb-5">
               {USAGE_METERS.map((m, i) => (
-                <View key={m.label} className={`py-3 ${i < USAGE_METERS.length - 1 ? 'border-b border-white/5' : ''}`}>
+                <View key={m.label} className={`py-3 ${i < USAGE_METERS.length - 1 ? 'border-b border-light-border dark:border-white/5' : ''}`}>
                   <View className="flex-row justify-between mb-1.5">
-                    <Text className="text-white/60 text-sm">{m.label}</Text>
-                    <Text className="text-white text-sm font-semibold">
+                    <Text className="text-light-text-muted dark:text-white/60 text-sm">{m.label}</Text>
+                    <Text className="text-light-text-primary dark:text-white text-sm font-semibold">
                       {m.used.toLocaleString()}
                       {m.max > 0 && (
-                        <Text className="text-white/30"> / {m.max.toLocaleString()}</Text>
+                        <Text className="text-light-text-disabled dark:text-white/30"> / {m.max.toLocaleString()}</Text>
                       )}
                     </Text>
                   </View>
@@ -344,17 +350,17 @@ export default function BillingScreen() {
         {/* Available plans */}
         {plans && plans.length > 0 && (
           <>
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
               Available Plans
             </Text>
             {plans.map((plan) => {
               const isCurrent = plan.id === currentPlan?.id;
               return (
-                <View key={plan.id} className={`bg-surface-card rounded-2xl border p-4 mb-3 ${isCurrent ? 'border-green/40' : 'border-white/5'}`}>
+                <View key={plan.id} className={`bg-light-card dark:bg-surface-card rounded-2xl border p-4 mb-3 ${isCurrent ? 'border-green/40' : 'border-light-border dark:border-white/5'}`}>
                   <View className="flex-row items-start justify-between mb-2">
                     <View>
                       <View className="flex-row items-center gap-2">
-                        <Text className="text-white font-bold">{plan.name}</Text>
+                        <Text className="text-light-text-primary dark:text-white font-bold">{plan.name}</Text>
                         {isCurrent && (
                           <View className="bg-green/20 rounded-full px-2 py-0.5">
                             <Text className="text-green text-[10px] font-semibold">Current</Text>
@@ -362,13 +368,13 @@ export default function BillingScreen() {
                         )}
                       </View>
                       {plan.description && (
-                        <Text className="text-white/40 text-xs mt-0.5">{plan.description}</Text>
+                        <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5">{plan.description}</Text>
                       )}
                     </View>
                     <View className="items-end">
-                      <Text className="text-white font-bold text-lg">
+                      <Text className="text-light-text-primary dark:text-white font-bold text-lg">
                         {formatPrice(plan.monthlyPrice, plan.currency)}
-                        <Text className="text-white/40 text-xs">/mo</Text>
+                        <Text className="text-light-text-muted dark:text-white/40 text-xs">/mo</Text>
                       </Text>
                     </View>
                   </View>
@@ -379,8 +385,8 @@ export default function BillingScreen() {
                       `${plan.limMaxChannels} channels`,
                       plan.limMaxContacts > 0 ? `${plan.limMaxContacts.toLocaleString()} contacts` : 'Unlimited contacts',
                     ].map((f) => (
-                      <View key={f} className="bg-surface rounded-full px-2.5 py-0.5">
-                        <Text className="text-white/40 text-[10px]">{f}</Text>
+                      <View key={f} className="bg-light-background dark:bg-surface rounded-full px-2.5 py-0.5">
+                        <Text className="text-light-text-muted dark:text-white/40 text-[10px]">{f}</Text>
                       </View>
                     ))}
                   </View>
@@ -406,25 +412,25 @@ export default function BillingScreen() {
         )}
 
         {/* AI Credits */}
-        <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3 mt-2">
+        <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3 mt-2">
           AI Credits
         </Text>
-        <View className="bg-surface-card rounded-2xl border border-white/5 p-4 mb-5">
+        <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4 mb-5">
           <View className="flex-row items-center justify-between mb-3">
             <View className="flex-row items-center gap-2">
               <Ionicons name="sparkles" size={18} color="#25D366" />
-              <Text className="text-white font-semibold">Credit Balance</Text>
+              <Text className="text-light-text-primary dark:text-white font-semibold">Credit Balance</Text>
             </View>
-            <Text className="text-white font-bold text-xl">{aiCredits?.balance ?? 0}</Text>
+            <Text className="text-light-text-primary dark:text-white font-bold text-xl">{aiCredits?.balance ?? 0}</Text>
           </View>
 
           {creditPacks && creditPacks.length > 0 && (
             <View className="gap-2">
               {creditPacks.map((pack) => (
-                <View key={pack.slug} className="flex-row items-center justify-between bg-surface rounded-xl p-3">
+                <View key={pack.slug} className="flex-row items-center justify-between bg-light-background dark:bg-surface rounded-xl p-3">
                   <View>
-                    <Text className="text-white text-sm font-semibold">{pack.credits} Credits</Text>
-                    <Text className="text-white/40 text-xs">{pack.description}</Text>
+                    <Text className="text-light-text-primary dark:text-white text-sm font-semibold">{pack.credits} Credits</Text>
+                    <Text className="text-light-text-muted dark:text-white/40 text-xs">{pack.description}</Text>
                   </View>
                   <TouchableOpacity
                     className="bg-green/20 rounded-xl px-3 py-1.5"
@@ -444,20 +450,20 @@ export default function BillingScreen() {
         {/* Invoice history */}
         {invoices && invoices.length > 0 && (
           <>
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
               Invoices
             </Text>
-            <View className="bg-surface-card rounded-2xl border border-white/5 overflow-hidden mb-5">
+            <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 overflow-hidden mb-5">
               {invoices.slice(0, 5).map((inv, i) => (
-                <View key={inv.id} className={`px-4 py-3 flex-row items-center gap-3 ${i < invoices.length - 1 ? 'border-b border-white/5' : ''}`}>
+                <View key={inv.id} className={`px-4 py-3 flex-row items-center gap-3 ${i < invoices.length - 1 ? 'border-b border-light-border dark:border-white/5' : ''}`}>
                   <View className="flex-1 min-w-0">
-                    <Text className="text-white text-sm font-medium">#{inv.invoiceNumber}</Text>
-                    <Text className="text-white/30 text-xs">
+                    <Text className="text-light-text-primary dark:text-white text-sm font-medium">#{inv.invoiceNumber}</Text>
+                    <Text className="text-light-text-disabled dark:text-white/30 text-xs">
                       {formatDate(inv.billingPeriodStart)} – {formatDate(inv.billingPeriodEnd)}
                     </Text>
                   </View>
                   <View className="items-end">
-                    <Text className="text-white font-semibold text-sm">
+                    <Text className="text-light-text-primary dark:text-white font-semibold text-sm">
                       {formatPrice(inv.total, inv.currency)}
                     </Text>
                     <View
@@ -485,26 +491,26 @@ export default function BillingScreen() {
       {/* Checkout modal */}
       <Modal visible={showCheckoutModal} animationType="slide" transparent>
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-surface rounded-t-3xl p-6">
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-6">
             <View className="flex-row items-center justify-between mb-5">
-              <Text className="text-white text-lg font-bold">
+              <Text className="text-light-text-primary dark:text-white text-lg font-bold">
                 Subscribe to {selectedPlan?.name}
               </Text>
               <TouchableOpacity onPress={() => setShowCheckoutModal(false)}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             {/* Billing cycle */}
-            <Text className="text-white/50 text-xs mb-2">Billing Cycle</Text>
-            <View className="flex-row bg-surface-card rounded-xl p-1 mb-4">
+            <Text className="text-light-text-muted dark:text-white/50 text-xs mb-2">Billing Cycle</Text>
+            <View className="flex-row bg-light-card dark:bg-surface-card rounded-xl p-1 mb-4">
               {(['MONTHLY', 'YEARLY'] as const).map((cycle) => (
                 <TouchableOpacity
                   key={cycle}
                   onPress={() => setCheckoutCycle(cycle)}
                   className={`flex-1 py-2.5 rounded-lg items-center ${checkoutCycle === cycle ? 'bg-green' : ''}`}
                 >
-                  <Text className={`text-sm font-semibold ${checkoutCycle === cycle ? 'text-white' : 'text-white/40'}`}>
+                  <Text className={`text-sm font-semibold ${checkoutCycle === cycle ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>
                     {cycle === 'MONTHLY' ? (
                       `Monthly  ${selectedPlan ? formatPrice(selectedPlan.monthlyPrice, selectedPlan.currency) : ''}`
                     ) : (
@@ -516,11 +522,11 @@ export default function BillingScreen() {
             </View>
 
             {/* Billing email */}
-            <Text className="text-white/50 text-xs mb-1.5">Billing Email</Text>
+            <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Billing Email</Text>
             <TextInput
-              className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white mb-5"
+              className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white mb-5"
               placeholder="your@email.com"
-              placeholderTextColor="rgba(255,255,255,0.2)"
+              placeholderTextColor={colors.textDisabled}
               value={billingEmail}
               onChangeText={setBillingEmail}
               keyboardType="email-address"

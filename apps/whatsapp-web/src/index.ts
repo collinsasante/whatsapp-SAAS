@@ -63,17 +63,18 @@ app.post('/sessions/:sessionId/logout', async (req: Request, res: Response) => {
 });
 
 app.get('/sessions/:sessionId/status', (req: Request, res: Response) => {
-  res.json({ active: sessionManager.isActive(req.params['sessionId']!) });
+  const sessionId = req.params['sessionId']!;
+  res.json({ active: sessionManager.isActive(sessionId), qrDataUrl: sessionManager.getQrDataUrl(sessionId) });
 });
 
 app.post('/sessions/:sessionId/send-text', async (req: Request, res: Response) => {
-  const { toPhone, text } = req.body as { toPhone?: string; text?: string };
-  if (!toPhone || !text) {
-    res.status(400).json({ error: 'toPhone and text are required' });
+  const { toPhone, toJid, text } = req.body as { toPhone?: string; toJid?: string; text?: string };
+  if ((!toPhone && !toJid) || !text) {
+    res.status(400).json({ error: 'toPhone (or toJid) and text are required' });
     return;
   }
   try {
-    const providerMessageId = await sessionManager.sendText(req.params['sessionId']!, toPhone, text);
+    const providerMessageId = await sessionManager.sendText(req.params['sessionId']!, toJid ? { jid: toJid } : toPhone!, text);
     res.json({ providerMessageId });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
@@ -81,15 +82,15 @@ app.post('/sessions/:sessionId/send-text', async (req: Request, res: Response) =
 });
 
 app.post('/sessions/:sessionId/send-media', async (req: Request, res: Response) => {
-  const { toPhone, mediaUrl, mediaType, caption } = req.body as {
-    toPhone?: string; mediaUrl?: string; mediaType?: 'image' | 'video' | 'audio' | 'document'; caption?: string;
+  const { toPhone, toJid, mediaUrl, mediaType, caption, voiceNote } = req.body as {
+    toPhone?: string; toJid?: string; mediaUrl?: string; mediaType?: 'image' | 'video' | 'audio' | 'document'; caption?: string; voiceNote?: boolean;
   };
-  if (!toPhone || !mediaUrl || !mediaType) {
-    res.status(400).json({ error: 'toPhone, mediaUrl, and mediaType are required' });
+  if ((!toPhone && !toJid) || !mediaUrl || !mediaType) {
+    res.status(400).json({ error: 'toPhone (or toJid), mediaUrl, and mediaType are required' });
     return;
   }
   try {
-    const providerMessageId = await sessionManager.sendMedia(req.params['sessionId']!, toPhone, mediaUrl, mediaType, caption);
+    const providerMessageId = await sessionManager.sendMedia(req.params['sessionId']!, toJid ? { jid: toJid } : toPhone!, mediaUrl, mediaType, caption, { voiceNote: voiceNote === true });
     res.json({ providerMessageId });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });

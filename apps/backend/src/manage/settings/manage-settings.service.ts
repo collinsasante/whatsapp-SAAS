@@ -229,7 +229,7 @@ export class ManageSettingsService {
       // Email
       await this.emailService.sendRaw({
         to: admin.email,
-        subject: `VerzAI is ready — approve to activate for ${workspaceName}`,
+        subject: `VerzAI is ready, approve to activate for ${workspaceName}`,
         html: `
 <!DOCTYPE html>
 <html>
@@ -263,7 +263,7 @@ export class ManageSettingsService {
           </p>
         </td></tr>
         <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
-          <p style="margin:0;color:#d1d5db;font-size:11px">© VerzChat — ${workspaceName}</p>
+          <p style="margin:0;color:#d1d5db;font-size:11px">© VerzChat: ${workspaceName}</p>
         </td></tr>
       </table>
     </td></tr>

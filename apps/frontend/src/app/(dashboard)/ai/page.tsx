@@ -53,7 +53,7 @@ interface AiAnalytics {
   dailyUsage: { date: string; count: number }[];
 }
 
-const DEFAULT_PERSONALITY = 'You are helpful, friendly, and professional. Keep replies concise and conversational — this is WhatsApp, not email.';
+const DEFAULT_PERSONALITY = 'You are helpful, friendly, and professional. Keep replies concise and conversational, this is WhatsApp, not email.';
 
 const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   manual: { label: 'Manual', color: 'bg-gray-100 text-gray-600' },
@@ -298,7 +298,7 @@ export default function AiPage() {
 
   const cleanDuplicates = async () => {
     if (!await showConfirm('Clean duplicate AI-learned articles?', {
-      subtext: 'This keeps the most recent version of each article and deletes all older duplicates. Only AI-Learned articles are affected — your manual articles are safe.',
+      subtext: 'This keeps the most recent version of each article and deletes all older duplicates. Only AI-Learned articles are affected, your manual articles are safe.',
     })) return;
     setDeduplicating(true);
     try {
@@ -384,11 +384,11 @@ export default function AiPage() {
                     <p className="text-sm font-semibold text-teal-900">VerzAI is active</p>
                     <p className="text-xs text-teal-700 mt-0.5">
                       AI replies consume 1 credit each. Balance: <strong>{aiCredits.toLocaleString()} credits</strong>.
-                      {aiCredits <= 20 && aiCredits > 0 && ' — top up soon!'}
+                      {aiCredits <= 20 && aiCredits > 0 && ', top up soon!'}
                     </p>
                     {aiCredits === 0 && (
                       <Link href="/billing" className="text-xs text-red-600 font-semibold hover:underline mt-1 inline-block">
-                        No credits remaining — buy credits to resume →
+                        No credits remaining, buy credits to resume →
                       </Link>
                     )}
                   </div>
@@ -402,7 +402,7 @@ export default function AiPage() {
                   <div className="flex items-start gap-3 mb-3">
                     <ShieldCheck size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-sm font-semibold text-amber-900">VerzAI learning period complete — approval required</p>
+                      <p className="text-sm font-semibold text-amber-900">VerzAI learning period complete, approval required</p>
                       <p className="text-xs text-amber-700 mt-0.5">
                         Verz has been observing your conversations for 30 days and is ready to start replying.
                         To activate it, you need an active paid plan and AI credits.
@@ -430,7 +430,7 @@ export default function AiPage() {
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-start gap-3">
                 <Clock size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-blue-900">VerzAI learning period — {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining</p>
+                  <p className="text-sm font-semibold text-blue-900">VerzAI learning period: {daysLeft} day{daysLeft !== 1 ? 's' : ''} remaining</p>
                   <p className="text-xs text-blue-700 mt-0.5">
                     Verz is observing your conversations and building knowledge. After 30 days, you&rsquo;ll be asked to approve it to start replying.
                   </p>
@@ -519,7 +519,7 @@ export default function AiPage() {
                           <Sparkles size={15} className={settings.aiMode === 'SUGGESTION' ? 'text-teal-600' : 'text-gray-400'} />
                           <span className={`text-sm font-semibold ${settings.aiMode === 'SUGGESTION' ? 'text-teal-700' : 'text-gray-700'}`}>Suggestion Mode</span>
                         </div>
-                        <p className="text-xs text-gray-500 leading-relaxed">AI suggests a reply — agents approve before sending</p>
+                        <p className="text-xs text-gray-500 leading-relaxed">AI suggests a reply, agents approve before sending</p>
                       </button>
                       <button
                         onClick={() => void saveSettings({ aiMode: 'AUTO_REPLY' })}
@@ -541,10 +541,10 @@ export default function AiPage() {
                     {/* Preset quick-select chips */}
                     <div className="flex flex-wrap gap-2 mb-3">
                       {[
-                        { label: '😊 Friendly', value: 'You are warm, friendly, and approachable. Use a conversational tone, feel free to use the customer\'s name, and keep replies short — this is WhatsApp, not email.' },
+                        { label: '😊 Friendly', value: 'You are warm, friendly, and approachable. Use a conversational tone, feel free to use the customer\'s name, and keep replies short, this is WhatsApp, not email.' },
                         { label: '💼 Professional', value: 'You are professional, courteous, and precise. Use formal language, avoid slang, and always ensure accuracy before responding.' },
                         { label: '⚡ Concise', value: 'You are direct and to the point. Answer questions in 1-2 sentences maximum. Avoid filler words. Customers are busy.' },
-                        { label: '🤝 Empathetic', value: 'You lead with empathy. Acknowledge the customer\'s feelings first, then provide help. Never rush — make the customer feel heard.' },
+                        { label: '🤝 Empathetic', value: 'You lead with empathy. Acknowledge the customer\'s feelings first, then provide help. Never rush, make the customer feel heard.' },
                       ].map(preset => (
                         <button
                           key={preset.label}
@@ -783,7 +783,7 @@ export default function AiPage() {
                     </div>
                     <p className="text-sm font-medium text-gray-700 mb-1">No articles yet</p>
                     <p className="text-xs text-gray-500 max-w-xs mx-auto leading-relaxed">
-                      Add articles about your business — FAQs, policies, hours, pricing. Upload a PDF or paste a URL to get started fast.
+                      Add articles about your business: FAQs, policies, hours, pricing. Upload a PDF or paste a URL to get started fast.
                     </p>
                   </div>
                 ) : (
@@ -929,9 +929,9 @@ export default function AiPage() {
                         { label: 'Approval Rate', value: `${analytics.approvalRate}%`, color: 'text-green-600' },
                         { label: 'Edit Rate', value: `${analytics.editRate}%`, color: 'text-blue-600' },
                         { label: 'Rejection Rate', value: `${analytics.rejectionRate}%`, color: 'text-red-500' },
-                        { label: 'Avg Response Time', value: analytics.avgResponseMs !== null ? `${(analytics.avgResponseMs / 1000).toFixed(1)}s` : '—', color: 'text-gray-700' },
-                        { label: 'Avg Rating', value: analytics.avgRating !== null ? `${analytics.avgRating}/5` : '—', color: 'text-yellow-500' },
-                        { label: 'Avg Confidence', value: analytics.avgConfidence !== null ? `${analytics.avgConfidence}%` : '—', color: analytics.avgConfidence !== null && analytics.avgConfidence < 70 ? 'text-orange-500' : 'text-teal-600' },
+                        { label: 'Avg Response Time', value: analytics.avgResponseMs !== null ? `${(analytics.avgResponseMs / 1000).toFixed(1)}s` : '-', color: 'text-gray-700' },
+                        { label: 'Avg Rating', value: analytics.avgRating !== null ? `${analytics.avgRating}/5` : '-', color: 'text-yellow-500' },
+                        { label: 'Avg Confidence', value: analytics.avgConfidence !== null ? `${analytics.avgConfidence}%` : '-', color: analytics.avgConfidence !== null && analytics.avgConfidence < 70 ? 'text-orange-500' : 'text-teal-600' },
                       ].map(({ label, value, color }) => (
                         <div key={label} className="bg-gray-50 rounded-xl p-3">
                           <p className="text-[11px] text-gray-500 mb-1">{label}</p>

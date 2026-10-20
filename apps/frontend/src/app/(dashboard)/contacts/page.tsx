@@ -6,7 +6,7 @@ import {
   User, Wifi, Globe, Languages, AlertCircle, ExternalLink,
   Users, Filter, ChevronDown, ChevronRight as CRight, Loader2,
   CheckCircle2, AlertTriangle, FolderOpen, Download, TagIcon,
-  PanelRightClose,
+  PanelRightClose, QrCode,
 } from 'lucide-react';
 import { contactsApi, conversationsApi, segmentsApi, tagsApi, messagesApi, usersApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -17,6 +17,7 @@ import { showConfirm } from '@/store/confirm.store';
 import { formatRelativeTime, cn } from '@/lib/utils';
 import ChatWindow from '@/components/inbox/ChatWindow';
 import ConversationDetails from '@/components/inbox/ConversationDetails';
+import { contactDisplayName } from '@/lib/contact-display';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface Segment { id: string; name: string; description?: string; filters: unknown[]; contactCount: number }
@@ -559,7 +560,7 @@ interface LatestConversation {
 }
 
 function ChannelBadge({ channel }: { channel: LatestConversation['channel'] }) {
-  if (!channel) return <span className="text-gray-400">—</span>;
+  if (!channel) return <span className="text-gray-400">-</span>;
   const type = (channel.type ?? 'WHATSAPP').toUpperCase();
   if (type === 'INSTAGRAM') {
     return (
@@ -567,6 +568,14 @@ function ChannelBadge({ channel }: { channel: LatestConversation['channel'] }) {
         <svg className="w-3 h-3 fill-current flex-shrink-0" viewBox="0 0 24 24">
           <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
         </svg>
+        {channel.name}
+      </span>
+    );
+  }
+  if (type === 'WHATSAPP_WEB') {
+    return (
+      <span title="WhatsApp Web (QR)" className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-700 text-white">
+        <QrCode className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
         {channel.name}
       </span>
     );
@@ -1194,7 +1203,7 @@ export default function ContactsPage() {
                       {contacts.length === 0 ? (
                         <tr><td colSpan={14} className="text-center py-12 text-gray-400 text-sm">No contacts found</td></tr>
                       ) : contacts.map((contact) => {
-                        const displayName = contact.name ?? contact.phone;
+                        const displayName = contactDisplayName(contact);
                         const color = avatarColor(displayName);
                         const lc = lifecycleLabel(contact);
                         const conv = contact.latestConversation;
@@ -1222,7 +1231,7 @@ export default function ContactsPage() {
                             <td className="px-4 py-3">
                               <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', lc.cls)}>{lc.label}</span>
                             </td>
-                            <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{contact.email ?? '—'}</td>
+                            <td className="px-4 py-3 text-gray-500 text-xs max-w-[140px] truncate">{contact.email ?? '-'}</td>
                             <td className="px-4 py-3 text-gray-600 font-mono text-xs">{contact.phone}</td>
                             <td className="px-4 py-3 max-w-[140px]">
                               <div className="flex flex-wrap gap-1">
@@ -1230,25 +1239,25 @@ export default function ContactsPage() {
                                   ? contact.labels.slice(0, 2).map((label) => (
                                     <span key={label} className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full max-w-[110px] truncate block" title={label}>{label}</span>
                                   ))
-                                  : <span className="text-gray-400 text-xs">—</span>}
+                                  : <span className="text-gray-400 text-xs">-</span>}
                                 {contact.labels.length > 2 && <span className="text-xs text-gray-400">+{contact.labels.length - 2}</span>}
                               </div>
                             </td>
                             <td className="px-4 py-3 text-xs text-gray-600">
                               {country
                                 ? <span title={country.name}>{country.flag} {country.name}</span>
-                                : <span className="text-gray-400">—</span>}
+                                : <span className="text-gray-400">-</span>}
                             </td>
                             <td className="px-4 py-3">
                               {conv ? (
                                 <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', convStatusBadge(conv.status))}>
                                   {conv.status.charAt(0) + conv.status.slice(1).toLowerCase()}
                                 </span>
-                              ) : <span className="text-gray-400 text-xs">—</span>}
+                              ) : <span className="text-gray-400 text-xs">-</span>}
                             </td>
-                            <td className="px-4 py-3 text-gray-500 text-xs">{conv?.assignedTo?.name ?? '—'}</td>
+                            <td className="px-4 py-3 text-gray-500 text-xs">{conv?.assignedTo?.name ?? '-'}</td>
                             <td className="px-4 py-3 text-gray-400 text-xs">
-                              {conv?.lastMessageAt ? new Date(conv.lastMessageAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                              {conv?.lastMessageAt ? new Date(conv.lastMessageAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
                             </td>
                             <td className="px-4 py-3 text-gray-400 text-xs">{new Date(contact.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                             <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -1283,7 +1292,7 @@ export default function ContactsPage() {
                   {contacts.length === 0 ? (
                     <p className="text-center py-12 text-gray-400 text-sm">No contacts found</p>
                   ) : contacts.map((contact) => {
-                    const displayName = contact.name ?? contact.phone;
+                    const displayName = contactDisplayName(contact);
                     const color = avatarColor(displayName);
                     const lc = lifecycleLabel(contact);
                     const conv = contact.latestConversation;
@@ -1500,7 +1509,7 @@ export default function ContactsPage() {
               </div>
             </div>
             <p className="text-sm text-gray-600 mb-5">
-              Delete <span className="font-semibold">{deleteContact.name ?? deleteContact.phone}</span>? This cannot be undone.
+              Delete <span className="font-semibold">{contactDisplayName(deleteContact)}</span>? This cannot be undone.
             </p>
             <div className="flex gap-2">
               <button onClick={() => setDeleteContact(null)} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600">Cancel</button>
@@ -1601,7 +1610,7 @@ function ContactCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const displayName = contact.name ?? contact.phone;
+  const displayName = contactDisplayName(contact);
   const color = avatarColor(displayName);
   const lc = lifecycleLabel(contact);
   const conv = contact.latestConversation;
@@ -1682,11 +1691,11 @@ function ContactCard({
       <div className="px-5 py-3 border-b border-gray-100">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Contact Details</p>
         <Row icon={Phone} label="Phone" value={contact.phone} />
-        <Row icon={Mail} label="Email" value={contact.email ?? '—'} />
+        <Row icon={Mail} label="Email" value={contact.email ?? '-'} />
         <Row icon={Globe} label="Country" value={
-          country ? <span>{country.flag} {country.name}</span> : '—'
+          country ? <span>{country.flag} {country.name}</span> : '-'
         } />
-        <Row icon={Languages} label="Language" value={cf?.language ?? '—'} />
+        <Row icon={Languages} label="Language" value={cf?.language ?? '-'} />
         <Row icon={Calendar} label="Date Added" value={new Date(contact.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} />
         {contact.labels.length > 0 && (
           <div className="flex items-start gap-3 py-2.5">
@@ -1710,11 +1719,11 @@ function ContactCard({
             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', convStatusBadge(conv.status))}>
               {conv.status.charAt(0) + conv.status.slice(1).toLowerCase()}
             </span>
-          ) : '—'
+          ) : '-'
         } />
-        <Row icon={Wifi} label="Channel" value={conv?.channel?.name ?? '—'} />
+        <Row icon={Wifi} label="Channel" value={conv?.channel?.name ?? '-'} />
         <Row icon={User} label="Assignee" value={conv?.assignedTo?.name ?? 'Unassigned'} />
-        <Row icon={MessageSquare} label="Last Message" value={conv?.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : '—'} />
+        <Row icon={MessageSquare} label="Last Message" value={conv?.lastMessageAt ? formatRelativeTime(conv.lastMessageAt) : '-'} />
         <Row icon={Wifi} label="WA Conversation" value={
           <span className={waActive ? 'text-green-600' : 'text-gray-400'}>
             {waActive ? 'Active' : 'Inactive'}

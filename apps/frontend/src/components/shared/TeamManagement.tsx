@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { assignableWorkspaceRoles, userRoleToWorkspaceRole, workspaceRoleLabel } from '@/lib/workspace-role';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 
@@ -43,8 +44,6 @@ interface MemberActivity {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const ROLE_OPTIONS = ['OWNER', 'ADMIN', 'MANAGER', 'AGENT', 'ANALYST', 'VIEWER'] as const;
 
 const ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-orange-50 text-orange-700 border-orange-200',
@@ -147,6 +146,8 @@ function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onClose
 function EditMemberModal({ member, onSave, onClose }: {
   member: WorkspaceMember; onSave: () => void; onClose: () => void;
 }) {
+  // What the signed-in person holds in this workspace decides which roles they may hand out.
+  const actorWorkspaceRole = useAuthStore((st) => st.user?.workspaceRole ?? userRoleToWorkspaceRole(st.user?.role));
   const [form, setForm] = useState({
     name: member.user?.name ?? '',
     email: member.user?.email ?? '',
@@ -188,7 +189,7 @@ function EditMemberModal({ member, onSave, onClose }: {
           </Field>
           <Field label="Role">
             <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className={cn(INPUT, 'cursor-pointer')}>
-              {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.charAt(0) + r.slice(1).toLowerCase()}</option>)}
+              {assignableWorkspaceRoles(actorWorkspaceRole, form.role).map((r) => <option key={r} value={r}>{workspaceRoleLabel(r)}</option>)}
             </select>
           </Field>
         </div>
@@ -212,7 +213,7 @@ function ResetPasswordModal({ member, onClose }: { member: WorkspaceMember; onCl
     setSaving(true);
     try {
       await workspaceApi.resetPassword(member.id, pw);
-      toast.success('Password reset — user will be logged out');
+      toast.success('Password reset, user will be logged out');
       onClose();
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -264,7 +265,7 @@ function RemoveMemberModal({ member, allMembers, onConfirm, onClose }: {
       <div className="space-y-3">
         <Field label="Reassign open conversations to (optional)">
           <select value={reassignToId} onChange={(e) => setReassignToId(e.target.value)} className={cn(INPUT, 'cursor-pointer')}>
-            <option value="">— Leave unassigned —</option>
+            <option value="">- Leave unassigned</option>
             {eligible.map((m) => (
               <option key={m.id} value={m.userId}>{m.user?.name ?? m.user?.email} ({m.role})</option>
             ))}
@@ -308,7 +309,7 @@ function ActivityPanel({ memberId, onClose }: { memberId: string; onClose: () =>
             <div className="flex items-center gap-3">
               <Avatar name={data.member.user?.name ?? '?'} avatarUrl={data.member.user?.avatarUrl} size={12} />
               <div>
-                <p className="font-semibold text-gray-900">{data.member.user?.name ?? '—'}</p>
+                <p className="font-semibold text-gray-900">{data.member.user?.name ?? '-'}</p>
                 <p className="text-sm text-gray-500">{data.member.user?.email}</p>
                 {data.member.department && <p className="text-xs text-gray-400">{data.member.department}</p>}
               </div>
@@ -429,6 +430,8 @@ function MemberActionMenu({ member, isMe, onEdit, onSuspend, onReactivate, onFor
 // ─── Invite Form ──────────────────────────────────────────────────────────────
 
 function InviteForm({ onDone }: { onDone: () => void }) {
+  // What the signed-in person holds in this workspace decides which roles they may hand out.
+  const actorWorkspaceRole = useAuthStore((st) => st.user?.workspaceRole ?? userRoleToWorkspaceRole(st.user?.role));
   const [form, setForm] = useState({ email: '', role: 'AGENT', name: '' });
   const [inviting, setInviting] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
@@ -441,7 +444,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
       const data = res.data as { link?: string };
       if (data.link) {
         setGeneratedLink(data.link);
-        toast.success('Invite created — copy the link below');
+        toast.success('Invite created, copy the link below');
       } else {
         toast.success(`Invite sent to ${form.email}`);
         onDone();
@@ -497,7 +500,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
             </Field>
             <Field label="Role">
               <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className={cn(INPUT, 'cursor-pointer')}>
-                {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.charAt(0) + r.slice(1).toLowerCase()}</option>)}
+                {assignableWorkspaceRoles(actorWorkspaceRole, form.role).map((r) => <option key={r} value={r}>{workspaceRoleLabel(r)}</option>)}
               </select>
             </Field>
           </div>
@@ -628,11 +631,11 @@ export function TeamManagement() {
         <Avatar name={u?.name ?? '?'} avatarUrl={u?.avatarUrl} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <p className="text-sm font-medium text-gray-900 truncate">{u?.name ?? '—'}</p>
+            <p className="text-sm font-medium text-gray-900 truncate">{u?.name ?? '-'}</p>
             {isMe && <span className="text-xs bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded-full border border-teal-200">You</span>}
             {suspended && <span className="text-xs bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full border border-red-200">Suspended</span>}
           </div>
-          <p className="text-xs text-gray-500 truncate">{u?.email ?? '—'}{member.department ? ` · ${member.department}` : ''}</p>
+          <p className="text-xs text-gray-500 truncate">{u?.email ?? '-'}{member.department ? ` · ${member.department}` : ''}</p>
         </div>
         <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400">
           <Clock size={11} />{timeAgo(u?.lastSeenAt ?? null)}

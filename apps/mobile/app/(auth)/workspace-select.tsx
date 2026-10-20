@@ -31,13 +31,14 @@ export default function WorkspaceSelectScreen() {
     if (loadingId) return;
     setLoadingId(workspace.id);
     try {
-      const res = await apiClient.auth.selectWorkspace(tempToken, workspace.id);
-      const { user, tenant, accessToken } = res.data as {
+      const res = await apiClient.auth.selectWorkspaceMobile(tempToken, workspace.id);
+      const { user, tenant, accessToken, refreshToken } = res.data as {
         user: AuthUser;
         tenant: AuthTenant;
         accessToken: string;
+        refreshToken: string;
       };
-      setAuth(user, tenant, accessToken);
+      setAuth(user, tenant, accessToken, refreshToken);
       router.replace('/(app)');
     } catch {
       Alert.alert('Error', 'Failed to select workspace. Please try again.');
@@ -47,14 +48,14 @@ export default function WorkspaceSelectScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-surface">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface">
       <View className="flex-1 px-6 pt-12">
         <TouchableOpacity className="mb-8" onPress={() => router.back()}>
           <Text className="text-green text-base">← Back</Text>
         </TouchableOpacity>
 
-        <Text className="text-white text-3xl font-bold mb-2">Choose Workspace</Text>
-        <Text className="text-white/60 text-base mb-8">
+        <Text className="text-light-text-primary dark:text-white text-3xl font-bold mb-2">Choose Workspace</Text>
+        <Text className="text-light-text-secondary dark:text-white/60 text-base mb-8">
           You have access to multiple workspaces. Select one to continue.
         </Text>
 
@@ -64,19 +65,19 @@ export default function WorkspaceSelectScreen() {
           contentContainerStyle={{ gap: 12 }}
           renderItem={({ item }) => (
             <TouchableOpacity
-              className="bg-surface-card border border-white/10 rounded-xl px-5 py-4 flex-row items-center justify-between"
+              className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-5 py-4 flex-row items-center justify-between"
               onPress={() => handleSelect(item)}
               activeOpacity={0.7}
               disabled={loadingId !== null}
             >
               <View className="flex-1">
-                <Text className="text-white font-semibold text-base">{item.name}</Text>
-                <Text className="text-white/40 text-xs mt-0.5 capitalize">{item.role?.toLowerCase() ?? ''}</Text>
+                <Text className="text-light-text-primary dark:text-white font-semibold text-base">{item.name}</Text>
+                <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5 capitalize">{item.role?.toLowerCase() ?? ''}</Text>
               </View>
               {loadingId === item.id ? (
                 <ActivityIndicator color="#25D366" size="small" />
               ) : (
-                <Text className="text-white/30 text-lg">›</Text>
+                <Text className="text-light-text-disabled dark:text-white/30 text-lg">›</Text>
               )}
             </TouchableOpacity>
           )}

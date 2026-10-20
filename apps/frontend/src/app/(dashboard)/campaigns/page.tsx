@@ -259,7 +259,7 @@ export default function CampaignsPage() {
         setQueuedCounts(msgs.length, drafts.length);
         setShowCreate(false);
         resetForm();
-        toast.success('Campaign saved — will be created when you reconnect.');
+        toast.success('Campaign saved, will be created when you reconnect.');
       } catch {
         toast.error('Failed to save campaign draft.');
       } finally {
@@ -731,7 +731,7 @@ export default function CampaignsPage() {
                     <select value={form.templateId} onChange={(e) => { setForm((f) => ({ ...f, templateId: e.target.value, templateVariables: {} })); setErrors((e2) => ({ ...e2, templateId: '' })); }}
                       className={cn('w-full px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white', errors['templateId'] ? 'border-red-400' : 'border-gray-200')}>
                       <option value="">Choose an approved template…</option>
-                      {templates.map((t) => <option key={t.id} value={t.id}>{t.name} — {t.language}</option>)}
+                      {templates.map((t) => <option key={t.id} value={t.id}>{t.name}: {t.language}</option>)}
                     </select>
                     {errors['templateId'] && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={11} />{errors['templateId']}</p>}
                     {templates.length === 0 && <p className="text-xs text-amber-600 mt-1.5 bg-amber-50 p-2 rounded-lg">No approved templates. Go to Templates page and sync from Meta first.</p>}
@@ -807,7 +807,7 @@ export default function CampaignsPage() {
                   {isUtility && (
                     <div className="flex items-start gap-2 text-xs text-blue-700 bg-blue-50 px-3 py-2.5 rounded-xl border border-blue-200">
                       <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-                      <span>Utility templates are transactional and will be sent to all opted-in contacts automatically — no audience selection needed.</span>
+                      <span>Utility templates are transactional and will be sent to all opted-in contacts automatically, no audience selection needed.</span>
                     </div>
                   )}
                   {/* Audience mode tabs */}
@@ -1012,7 +1012,7 @@ export default function CampaignsPage() {
                         onChange={(e) => setApiForm(f => ({ ...f, templateId: e.target.value, variableDescriptions: {} }))}
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
                         <option value="">Choose an approved template…</option>
-                        {templates.map((t) => <option key={t.id} value={t.id}>{t.name} — {t.language}</option>)}
+                        {templates.map((t) => <option key={t.id} value={t.id}>{t.name}: {t.language}</option>)}
                       </select>
                     </div>
                     {apiSelectedTemplate && (
@@ -1033,12 +1033,12 @@ export default function CampaignsPage() {
                   <>
                     <p className="text-sm text-gray-600">Label each variable so your team knows what to pass in the API call.</p>
                     {apiTemplateVars.length === 0 ? (
-                      <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-xl">No variables — your API call only needs the phone number and template name.</p>
+                      <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-xl">No variables, your API call only needs the phone number and template name.</p>
                     ) : (
                       <div className="space-y-3">
                         {apiTemplateVars.map((v) => (
                           <div key={v}>
-                            <label className="text-xs font-semibold text-gray-700 mb-1 block">{`{{${v}}}`} — what is this variable?</label>
+                            <label className="text-xs font-semibold text-gray-700 mb-1 block">{`{{${v}}}`}, what is this variable?</label>
                             <input type="text" placeholder="e.g. Customer name, Order ID, Amount…"
                               value={apiForm.variableDescriptions[v] ?? ''}
                               onChange={(e) => setApiForm(f => ({ ...f, variableDescriptions: { ...f.variableDescriptions, [v]: e.target.value } }))}
@@ -1080,7 +1080,7 @@ export default function CampaignsPage() {
                           onClick={async () => {
                             setCreatingApiKey(true);
                             try {
-                              const res = await apiKeysApi.create({ name: `API Campaign — ${apiForm.name}` });
+                              const res = await apiKeysApi.create({ name: `API Campaign: ${apiForm.name}` });
                               const created = res.data as { id: string; name: string; key: string };
                               setNewApiKey(created);
                               const listRes = await apiKeysApi.list();
@@ -1096,7 +1096,7 @@ export default function CampaignsPage() {
                       </div>
                       {newApiKey && (
                         <div className="mb-3 bg-green-50 border border-green-200 rounded-xl p-3">
-                          <p className="text-xs font-semibold text-green-800 mb-1">Key created — copy now, won&apos;t be shown again</p>
+                          <p className="text-xs font-semibold text-green-800 mb-1">Key created, copy now, won&apos;t be shown again</p>
                           <div className="flex items-center gap-2">
                             <code className="flex-1 text-xs font-mono text-green-800 bg-green-100 px-2 py-1.5 rounded-lg break-all">{newApiKey.key}</code>
                             <button onClick={() => { void navigator.clipboard.writeText(newApiKey.key); toast.success('Copied!'); }}
@@ -1105,7 +1105,7 @@ export default function CampaignsPage() {
                         </div>
                       )}
                       {apiKeys.length === 0 && !newApiKey ? (
-                        <p className="text-xs text-gray-400 italic">No API keys yet — create one above.</p>
+                        <p className="text-xs text-gray-400 italic">No API keys yet, create one above.</p>
                       ) : (
                         <div className="space-y-1.5 mt-2">
                           {apiKeys.map(k => (
@@ -1188,7 +1188,7 @@ export default function CampaignsPage() {
             <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl" onClick={(e) => e.stopPropagation()}>
               <div className="px-6 py-5 border-b border-gray-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">Meta Ads — Click to WhatsApp</h2>
+                  <h2 className="text-lg font-semibold text-gray-900">Meta Ads: Click to WhatsApp</h2>
                   <button onClick={() => setShowMetaAdsCreate(false)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1211,7 +1211,7 @@ export default function CampaignsPage() {
                   <>
                     <div>
                       <label className="text-xs font-semibold text-gray-700 mb-1.5 block">Campaign Name *</label>
-                      <input type="text" placeholder="e.g. Ramadan Sale — WhatsApp Ad"
+                      <input type="text" placeholder="e.g. Ramadan Sale: WhatsApp Ad"
                         value={metaForm.name}
                         onChange={(e) => setMetaForm(f => ({ ...f, name: e.target.value }))}
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -1227,7 +1227,7 @@ export default function CampaignsPage() {
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800 space-y-1.5">
                       <p className="font-semibold">How this works</p>
                       <p>We generate a wa.me link that opens a pre-filled WhatsApp conversation when tapped. You add this link as the destination URL in your Facebook or Instagram ad.</p>
-                      <p>All conversations started from ads are automatically tagged as <strong>ad source</strong> in your VerzChat inbox — so you can measure ad-driven engagement.</p>
+                      <p>All conversations started from ads are automatically tagged as <strong>ad source</strong> in your VerzChat inbox, so you can measure ad-driven engagement.</p>
                     </div>
                   </>
                 )}
@@ -1244,7 +1244,7 @@ export default function CampaignsPage() {
                         rows={4}
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                       />
-                      <p className="text-xs text-gray-400 mt-1">{metaForm.welcomeText.length}/1000 — Pre-fills the customer&apos;s message box when they open WhatsApp from your ad.</p>
+                      <p className="text-xs text-gray-400 mt-1">{metaForm.welcomeText.length}/1000: Pre-fills the customer&apos;s message box when they open WhatsApp from your ad.</p>
                     </div>
                     {metaForm.welcomeText && (
                       <div className="bg-gray-50 rounded-xl p-3">

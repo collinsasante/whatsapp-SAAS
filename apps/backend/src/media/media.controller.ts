@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Controller,
   Delete,
@@ -45,8 +46,9 @@ export class MediaController {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file: Express.Multer.File,
+    @Query('uniqueName') uniqueName?: string,
   ) {
-    return this.mediaService.upload(tenantId, user.sub, file);
+    return this.mediaService.upload(tenantId, user.sub, file, uniqueName === 'true');
   }
 
   @Get()
@@ -60,17 +62,44 @@ export class MediaController {
   }
 
   @Get('library')
-  @ApiOperation({ summary: 'Get all media sent/received in conversations' })
+  @ApiOperation({ summary: 'Get media sent/received in conversations, with optional filters' })
   library(
     @CurrentTenant() tenantId: string,
     @Query('page') page = 1,
     @Query('limit') limit = 50,
     @Query('type') type?: string,
     @Query('search') search?: string,
+    @Query('source') source?: string,
+    @Query('agentId') agentId?: string,
+    @Query('channelType') channelType?: string,
+    @Query('direction') direction?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.mediaService.findMessageMedia(tenantId, +page, +limit, type, search);
+    return this.mediaService.findMessageMedia(tenantId, +page, +limit, {
+      type, search, source: source as 'all' | 'agents' | undefined, agentId, channelType, direction, from, to,
+    });
   }
 
+  @Get('library/agents')
+  @ApiOperation({ summary: 'Team members who have sent media (for the agent filter)' })
+  libraryAgents(@CurrentTenant() tenantId: string) {
+    return this.mediaService.listMediaAgents(tenantId);
+  }
+
+  // Inline-renderable types only -- anything else (including any file
+  // predating the upload allowlist in media.service.ts) is served with
+  // Content-Disposition: attachment below so a browser downloads it instead
+  // of executing it, regardless of what Content-Type is stored.
+  private static readonly INLINE_SAFE_MIME_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'video/mp4', 'video/webm', 'video/quicktime', 'video/3gpp',
+    'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/aac', 'audio/amr', 'audio/webm', 'audio/mp4',
+    'application/pdf',
+  ]);
+
+  // Every thumbnail in the inbox and library is its own request; the global 100/min limit is too low for pages with many images.
+  @Throttle({ default: { limit: 600, ttl: 60000 } })
   @Public()
   @Get('serve/:fileKey')
   async serve(@Param('fileKey') fileKey: string, @Res() res: Response) {
@@ -78,6 +107,13 @@ export class MediaController {
     const { stream, mimeType } = await this.mediaService.getStreamWithMime(normalizedKey);
     if (!stream) return res.status(HttpStatus.NOT_FOUND).send('File not found');
     if (mimeType) res.setHeader('Content-Type', mimeType);
+    // Belt-and-suspenders against stored XSS: never let a browser guess a
+    // more "helpful" (executable) content type than what's declared, and
+    // never render a non-whitelisted type inline in the browser.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!mimeType || !MediaController.INLINE_SAFE_MIME_TYPES.has(mimeType)) {
+      res.setHeader('Content-Disposition', 'attachment');
+    }
     res.setHeader('Cache-Control', 'public, max-age=31536000');
     stream.pipe(res);
   }

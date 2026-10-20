@@ -4,9 +4,11 @@ import {
   Alert, RefreshControl, ActivityIndicator, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Condition {
   field: string;
@@ -87,6 +89,7 @@ const EMPTY_FORM: RuleForm = {
 };
 
 export default function AutomationScreen() {
+  const { colors } = useAppTheme();
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -180,9 +183,14 @@ export default function AutomationScreen() {
   const totalRuns = (rules ?? []).reduce((sum, r) => sum + (r.executionCount ?? 0), 0);
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5 flex-row items-center justify-between">
-        <Text className="text-white text-xl font-bold">Automation</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 py-3 border-b border-light-border dark:border-white/5 flex-row items-center justify-between">
+        <View className="flex-row items-center">
+          <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-back" size={22} color="#25D366" />
+          </TouchableOpacity>
+          <Text className="text-light-text-primary dark:text-white text-xl font-bold">Automation</Text>
+        </View>
         <TouchableOpacity
           className="bg-green rounded-xl px-4 py-2 flex-row items-center gap-1.5"
           onPress={() => { setEditingId(null); setForm(EMPTY_FORM); setShowModal(true); }}
@@ -199,9 +207,9 @@ export default function AutomationScreen() {
           { label: 'Active', value: activeCount, color: '#25D366' },
           { label: 'Total Runs', value: totalRuns, color: '#3b82f6' },
         ].map((s) => (
-          <View key={s.label} className="flex-1 bg-surface-card rounded-xl p-3 items-center">
+          <View key={s.label} className="flex-1 bg-light-card dark:bg-surface-card rounded-xl p-3 items-center">
             <Text className="text-lg font-bold" style={{ color: s.color }}>{s.value}</Text>
-            <Text className="text-white/40 text-[10px] font-medium mt-0.5">{s.label}</Text>
+            <Text className="text-light-text-muted dark:text-white/40 text-[10px] font-medium mt-0.5">{s.label}</Text>
           </View>
         ))}
       </View>
@@ -215,15 +223,15 @@ export default function AutomationScreen() {
           <ActivityIndicator color="#25D366" style={{ marginTop: 40 }} />
         ) : (rules ?? []).length === 0 ? (
           <View className="items-center py-16">
-            <Ionicons name="flash-outline" size={48} color="rgba(255,255,255,0.1)" />
-            <Text className="text-white/30 text-sm mt-3">No automation rules</Text>
-            <Text className="text-white/20 text-xs mt-1">Create rules to automate responses and actions</Text>
+            <Ionicons name="flash-outline" size={48} color={colors.border} />
+            <Text className="text-light-text-disabled dark:text-white/30 text-sm mt-3">No automation rules</Text>
+            <Text className="text-light-text-disabled dark:text-white/20 text-xs mt-1">Create rules to automate responses and actions</Text>
           </View>
         ) : (
           (rules ?? []).map((rule) => {
             const trigColor = TRIGGER_COLOR[rule.trigger] ?? '#fff';
             return (
-              <View key={rule.id} className="bg-surface-card rounded-2xl border border-white/5 p-4 mb-3">
+              <View key={rule.id} className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4 mb-3">
                 <View className="flex-row items-start gap-3">
                   <View
                     className="w-9 h-9 rounded-xl items-center justify-center mt-0.5"
@@ -233,11 +241,11 @@ export default function AutomationScreen() {
                   </View>
                   <View className="flex-1 min-w-0">
                     <View className="flex-row items-center gap-2 mb-1">
-                      <Text className="text-white font-semibold text-sm flex-1" numberOfLines={1}>{rule.name}</Text>
+                      <Text className="text-light-text-primary dark:text-white font-semibold text-sm flex-1" numberOfLines={1}>{rule.name}</Text>
                       <Switch
                         value={rule.isActive}
                         onValueChange={() => handleToggle(rule)}
-                        trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#25D366' }}
+                        trackColor={{ false: colors.border, true: '#25D366' }}
                         thumbColor="#fff"
                         style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
                       />
@@ -250,21 +258,21 @@ export default function AutomationScreen() {
                           {triggerLabel(rule.trigger)}
                         </Text>
                       </View>
-                      <Text className="text-white/30 text-xs">{rule.executionCount ?? 0} runs</Text>
+                      <Text className="text-light-text-disabled dark:text-white/30 text-xs">{rule.executionCount ?? 0} runs</Text>
                     </View>
 
                     {/* Conditions */}
                     {rule.conditions?.length > 0 && (
                       <View className="flex-row flex-wrap gap-1 mb-1">
                         {rule.conditions.slice(0, 2).map((c, i) => (
-                          <View key={i} className="bg-surface rounded-full px-2 py-0.5">
-                            <Text className="text-white/30 text-[10px]">
+                          <View key={i} className="bg-light-background dark:bg-surface rounded-full px-2 py-0.5">
+                            <Text className="text-light-text-disabled dark:text-white/30 text-[10px]">
                               {c.field} {c.operator} "{c.value}"
                             </Text>
                           </View>
                         ))}
                         {rule.conditions.length > 2 && (
-                          <Text className="text-white/20 text-[10px]">+{rule.conditions.length - 2} more</Text>
+                          <Text className="text-light-text-disabled dark:text-white/20 text-[10px]">+{rule.conditions.length - 2} more</Text>
                         )}
                       </View>
                     )}
@@ -282,12 +290,12 @@ export default function AutomationScreen() {
                   </View>
                 </View>
 
-                <View className="flex-row gap-2 mt-3 pt-3 border-t border-white/5">
+                <View className="flex-row gap-2 mt-3 pt-3 border-t border-light-border dark:border-white/5">
                   <TouchableOpacity
-                    className="flex-1 bg-surface rounded-xl py-2 items-center"
+                    className="flex-1 bg-light-background dark:bg-surface rounded-xl py-2 items-center"
                     onPress={() => openEdit(rule)}
                   >
-                    <Text className="text-white/50 text-xs font-semibold">Edit</Text>
+                    <Text className="text-light-text-muted dark:text-white/50 text-xs font-semibold">Edit</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     className="flex-1 bg-red-500/10 rounded-xl py-2 items-center"
@@ -310,24 +318,24 @@ export default function AutomationScreen() {
       {/* Create/Edit modal */}
       <Modal visible={showModal} animationType="slide" transparent>
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-surface rounded-t-3xl p-6" style={{ maxHeight: '90%' }}>
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-6" style={{ maxHeight: '90%' }}>
             <View className="flex-row items-center justify-between mb-5">
-              <Text className="text-white text-lg font-bold">
+              <Text className="text-light-text-primary dark:text-white text-lg font-bold">
                 {editingId ? 'Edit Rule' : 'New Automation Rule'}
               </Text>
               <TouchableOpacity onPress={() => setShowModal(false)}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               {/* Name */}
               <View className="mb-4">
-                <Text className="text-white/50 text-xs mb-1.5">Rule Name</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Rule Name</Text>
                 <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                  className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                   placeholder="e.g. Welcome new customers"
-                  placeholderTextColor="rgba(255,255,255,0.2)"
+                  placeholderTextColor={colors.textDisabled}
                   value={form.name}
                   onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
                 />
@@ -335,15 +343,15 @@ export default function AutomationScreen() {
 
               {/* Trigger picker */}
               <View className="mb-4">
-                <Text className="text-white/50 text-xs mb-2">Trigger</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-2">Trigger</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {TRIGGERS.map((t) => (
                     <TouchableOpacity
                       key={t.value}
                       onPress={() => setForm((f) => ({ ...f, trigger: t.value }))}
-                      className={`rounded-full px-3 py-1.5 ${form.trigger === t.value ? 'bg-green' : 'bg-surface-card border border-white/10'}`}
+                      className={`rounded-full px-3 py-1.5 ${form.trigger === t.value ? 'bg-green' : 'bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10'}`}
                     >
-                      <Text className={`text-xs font-semibold ${form.trigger === t.value ? 'text-white' : 'text-white/50'}`}>
+                      <Text className={`text-xs font-semibold ${form.trigger === t.value ? 'text-white' : 'text-light-text-muted dark:text-white/50'}`}>
                         {t.label}
                       </Text>
                     </TouchableOpacity>
@@ -354,13 +362,13 @@ export default function AutomationScreen() {
               {/* Conditions */}
               <View className="mb-4">
                 <View className="flex-row items-center justify-between mb-2">
-                  <Text className="text-white/50 text-xs">Conditions (optional)</Text>
+                  <Text className="text-light-text-muted dark:text-white/50 text-xs">Conditions (optional)</Text>
                   <TouchableOpacity onPress={addCondition}>
                     <Text className="text-green text-xs font-semibold">+ Add</Text>
                   </TouchableOpacity>
                 </View>
                 {form.conditions.map((c, i) => (
-                  <View key={i} className="bg-surface-card rounded-xl p-3 mb-2">
+                  <View key={i} className="bg-light-card dark:bg-surface-card rounded-xl p-3 mb-2">
                     <View className="flex-row gap-2 mb-2">
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
                         {CONDITION_FIELDS.map((f) => (
@@ -371,9 +379,9 @@ export default function AutomationScreen() {
                               conds[i] = { ...conds[i]!, field: f };
                               return { ...sf, conditions: conds };
                             })}
-                            className={`rounded-full px-2 py-1 ${c.field === f ? 'bg-green/20' : 'bg-surface border border-white/10'}`}
+                            className={`rounded-full px-2 py-1 ${c.field === f ? 'bg-green/20' : 'bg-light-background dark:bg-surface border border-light-border dark:border-white/10'}`}
                           >
-                            <Text className={`text-[10px] ${c.field === f ? 'text-green' : 'text-white/40'}`}>{f}</Text>
+                            <Text className={`text-[10px] ${c.field === f ? 'text-green' : 'text-light-text-muted dark:text-white/40'}`}>{f}</Text>
                           </TouchableOpacity>
                         ))}
                       </ScrollView>
@@ -387,17 +395,17 @@ export default function AutomationScreen() {
                             conds[i] = { ...conds[i]!, operator: op };
                             return { ...sf, conditions: conds };
                           })}
-                          className={`rounded-full px-2 py-0.5 ${c.operator === op ? 'bg-green/20' : 'bg-surface border border-white/10'}`}
+                          className={`rounded-full px-2 py-0.5 ${c.operator === op ? 'bg-green/20' : 'bg-light-background dark:bg-surface border border-light-border dark:border-white/10'}`}
                         >
-                          <Text className={`text-[10px] ${c.operator === op ? 'text-green' : 'text-white/40'}`}>{op}</Text>
+                          <Text className={`text-[10px] ${c.operator === op ? 'text-green' : 'text-light-text-muted dark:text-white/40'}`}>{op}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                     <View className="flex-row items-center gap-2">
                       <TextInput
-                        className="flex-1 bg-surface border border-white/10 rounded-xl px-3 py-2 text-white text-sm"
+                        className="flex-1 bg-light-background dark:bg-surface border border-light-border dark:border-white/10 rounded-xl px-3 py-2 text-light-text-primary dark:text-white text-sm"
                         placeholder="Value..."
-                        placeholderTextColor="rgba(255,255,255,0.2)"
+                        placeholderTextColor={colors.textDisabled}
                         value={c.value}
                         onChangeText={(v) => setForm((sf) => {
                           const conds = [...sf.conditions];
@@ -412,7 +420,7 @@ export default function AutomationScreen() {
                         }))}
                         className="p-1"
                       >
-                        <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
+                        <Ionicons name="close-circle" size={18} color={colors.textDisabled} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -422,13 +430,13 @@ export default function AutomationScreen() {
               {/* Actions */}
               <View className="mb-4">
                 <View className="flex-row items-center justify-between mb-2">
-                  <Text className="text-white/50 text-xs">Actions</Text>
+                  <Text className="text-light-text-muted dark:text-white/50 text-xs">Actions</Text>
                   <TouchableOpacity onPress={addAction}>
                     <Text className="text-green text-xs font-semibold">+ Add</Text>
                   </TouchableOpacity>
                 </View>
                 {form.actions.map((a, i) => (
-                  <View key={i} className="bg-surface-card rounded-xl p-3 mb-2">
+                  <View key={i} className="bg-light-card dark:bg-surface-card rounded-xl p-3 mb-2">
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginBottom: 8 }}>
                       {ACTION_TYPES.map((t) => (
                         <TouchableOpacity
@@ -438,17 +446,17 @@ export default function AutomationScreen() {
                             acts[i] = { ...acts[i]!, type: t.value, payload: {} };
                             return { ...sf, actions: acts };
                           })}
-                          className={`rounded-full px-2 py-1 ${a.type === t.value ? 'bg-purple-500/30' : 'bg-surface border border-white/10'}`}
+                          className={`rounded-full px-2 py-1 ${a.type === t.value ? 'bg-purple-500/30' : 'bg-light-background dark:bg-surface border border-light-border dark:border-white/10'}`}
                         >
-                          <Text className={`text-[10px] ${a.type === t.value ? 'text-purple-300' : 'text-white/40'}`}>{t.label}</Text>
+                          <Text className={`text-[10px] ${a.type === t.value ? 'text-purple-300' : 'text-light-text-muted dark:text-white/40'}`}>{t.label}</Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
                     {a.type === 'SEND_MESSAGE' && (
                       <TextInput
-                        className="bg-surface border border-white/10 rounded-xl px-3 py-2 text-white text-sm"
+                        className="bg-light-background dark:bg-surface border border-light-border dark:border-white/10 rounded-xl px-3 py-2 text-light-text-primary dark:text-white text-sm"
                         placeholder="Message to send..."
-                        placeholderTextColor="rgba(255,255,255,0.2)"
+                        placeholderTextColor={colors.textDisabled}
                         value={a.payload.message ?? ''}
                         onChangeText={(v) => setForm((sf) => {
                           const acts = [...sf.actions];
@@ -462,9 +470,9 @@ export default function AutomationScreen() {
                     )}
                     {(a.type === 'ADD_LABEL' || a.type === 'ASSIGN_AGENT') && (
                       <TextInput
-                        className="bg-surface border border-white/10 rounded-xl px-3 py-2 text-white text-sm"
+                        className="bg-light-background dark:bg-surface border border-light-border dark:border-white/10 rounded-xl px-3 py-2 text-light-text-primary dark:text-white text-sm"
                         placeholder={a.type === 'ADD_LABEL' ? 'Label name...' : 'Agent ID...'}
-                        placeholderTextColor="rgba(255,255,255,0.2)"
+                        placeholderTextColor={colors.textDisabled}
                         value={a.type === 'ADD_LABEL' ? (a.payload.label ?? '') : (a.payload.agentId ?? '')}
                         onChangeText={(v) => setForm((sf) => {
                           const acts = [...sf.actions];

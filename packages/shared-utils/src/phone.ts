@@ -10,8 +10,12 @@ import { parsePhoneNumber, isValidPhoneNumber } from 'libphonenumber-js';
 // unusable value (losing the "CC." prefix the Send API requires).
 const BSUID_PATTERN = /^[A-Z]{2}\.\d+$/;
 
+export function isBsuid(value: string): boolean {
+  return BSUID_PATTERN.test(value);
+}
+
 export function normalizePhone(phone: string): string {
-  if (BSUID_PATTERN.test(phone)) return phone;
+  if (isBsuid(phone)) return phone;
   const cleaned = phone.replace(/\D/g, '');
   return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
 }

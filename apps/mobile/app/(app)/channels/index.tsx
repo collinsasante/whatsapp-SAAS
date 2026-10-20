@@ -4,9 +4,11 @@ import {
   Alert, RefreshControl, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 interface Channel {
   id: string;
@@ -65,6 +67,7 @@ const CHANNEL_DEFS = [
 ];
 
 export default function ChannelsScreen() {
+  const { colors } = useAppTheme();
   const qc = useQueryClient();
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [connectTarget, setConnectTarget] = useState<(typeof CHANNEL_DEFS)[0] | null>(null);
@@ -151,9 +154,14 @@ export default function ChannelsScreen() {
   const connectedIds = new Set((channels ?? []).map((c) => c.type?.toLowerCase()));
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5 flex-row items-center justify-between">
-        <Text className="text-white text-xl font-bold">Channels</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 py-3 border-b border-light-border dark:border-white/5 flex-row items-center justify-between">
+        <View className="flex-row items-center flex-1">
+          <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="chevron-back" size={22} color="#25D366" />
+          </TouchableOpacity>
+          <Text className="text-light-text-primary dark:text-white text-xl font-bold">Channels</Text>
+        </View>
         <View className="bg-green/20 rounded-full px-3 py-1">
           <Text className="text-green text-xs font-semibold">{channels?.length ?? 0} connected</Text>
         </View>
@@ -167,13 +175,13 @@ export default function ChannelsScreen() {
         {/* Connected channels */}
         {channels && channels.length > 0 && (
           <View className="mb-6">
-            <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
+            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
               Connected
             </Text>
             {channels.map((ch) => {
               const def = CHANNEL_DEFS.find((d) => d.id === ch.type?.toLowerCase() || d.name.toLowerCase().includes(ch.type?.toLowerCase() ?? ''));
               return (
-                <View key={ch.id} className="bg-surface-card rounded-2xl p-4 mb-3 border border-white/5">
+                <View key={ch.id} className="bg-light-card dark:bg-surface-card rounded-2xl p-4 mb-3 border border-light-border dark:border-white/5">
                   <View className="flex-row items-center gap-3">
                     <View
                       className="w-10 h-10 rounded-xl items-center justify-center"
@@ -182,21 +190,21 @@ export default function ChannelsScreen() {
                       <Ionicons name={def?.icon ?? 'radio'} size={20} color={def?.color ?? '#25D366'} />
                     </View>
                     <View className="flex-1 min-w-0">
-                      <Text className="text-white font-semibold" numberOfLines={1}>{ch.name}</Text>
+                      <Text className="text-light-text-primary dark:text-white font-semibold" numberOfLines={1}>{ch.name}</Text>
                       {ch.phoneNumber && (
-                        <Text className="text-white/40 text-xs">{ch.phoneNumber}</Text>
+                        <Text className="text-light-text-muted dark:text-white/40 text-xs">{ch.phoneNumber}</Text>
                       )}
                     </View>
                     <TouchableOpacity
                       onPress={() => toggleMutation.mutate(ch.id)}
-                      className={`rounded-full px-3 py-1 ${ch.isActive ? 'bg-green/20' : 'bg-white/10'}`}
+                      className={`rounded-full px-3 py-1 ${ch.isActive ? 'bg-green/20' : 'bg-light-elevated dark:bg-white/10'}`}
                     >
-                      <Text className={`text-xs font-semibold ${ch.isActive ? 'text-green' : 'text-white/40'}`}>
+                      <Text className={`text-xs font-semibold ${ch.isActive ? 'text-green' : 'text-light-text-muted dark:text-white/40'}`}>
                         {ch.isActive ? 'Active' : 'Paused'}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => handleDeleteConfirm(ch.id, ch.name)} className="p-1">
-                      <Ionicons name="trash-outline" size={16} color="rgba(255,255,255,0.3)" />
+                      <Ionicons name="trash-outline" size={16} color={colors.textDisabled} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -206,13 +214,13 @@ export default function ChannelsScreen() {
         )}
 
         {/* Available channels */}
-        <Text className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
+        <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
           Available Platforms
         </Text>
         {CHANNEL_DEFS.map((def) => {
           const isConnected = connectedIds.has(def.id.replace('-api', '').replace('-', ''));
           return (
-            <View key={def.id} className="bg-surface-card rounded-2xl p-4 mb-3 border border-white/5">
+            <View key={def.id} className="bg-light-card dark:bg-surface-card rounded-2xl p-4 mb-3 border border-light-border dark:border-white/5">
               <View className="flex-row items-start gap-3">
                 <View
                   className="w-10 h-10 rounded-xl items-center justify-center mt-0.5"
@@ -222,18 +230,18 @@ export default function ChannelsScreen() {
                 </View>
                 <View className="flex-1 min-w-0">
                   <View className="flex-row items-center gap-2 mb-1">
-                    <Text className="text-white font-semibold">{def.name}</Text>
+                    <Text className="text-light-text-primary dark:text-white font-semibold">{def.name}</Text>
                     {def.badge && (
                       <View className="bg-green/20 rounded-full px-2 py-0.5">
                         <Text className="text-green text-[10px] font-semibold">{def.badge}</Text>
                       </View>
                     )}
                   </View>
-                  <Text className="text-white/40 text-xs leading-relaxed">{def.description}</Text>
+                  <Text className="text-light-text-muted dark:text-white/40 text-xs leading-relaxed">{def.description}</Text>
                 </View>
               </View>
               <TouchableOpacity
-                className={`mt-3 rounded-xl py-2.5 items-center ${isConnected ? 'bg-white/5' : 'bg-green/90'}`}
+                className={`mt-3 rounded-xl py-2.5 items-center ${isConnected ? 'bg-light-elevated dark:bg-white/5' : 'bg-green/90'}`}
                 onPress={() => {
                   if (isConnected) return;
                   if (def.connectType === 'oauth') {
@@ -245,7 +253,7 @@ export default function ChannelsScreen() {
                 }}
                 disabled={isConnected}
               >
-                <Text className={`text-sm font-semibold ${isConnected ? 'text-white/30' : 'text-white'}`}>
+                <Text className={`text-sm font-semibold ${isConnected ? 'text-light-text-disabled dark:text-white/30' : 'text-white'}`}>
                   {isConnected ? 'Connected' : def.connectType === 'oauth' ? 'Connect via Web' : 'Connect'}
                 </Text>
               </TouchableOpacity>
@@ -257,21 +265,21 @@ export default function ChannelsScreen() {
       {/* Connect modal */}
       <Modal visible={showConnectModal} animationType="slide" transparent>
         <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-surface rounded-t-3xl p-6">
+          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-6">
             <View className="flex-row items-center justify-between mb-6">
-              <Text className="text-white text-lg font-bold">Connect {connectTarget?.name}</Text>
+              <Text className="text-light-text-primary dark:text-white text-lg font-bold">Connect {connectTarget?.name}</Text>
               <TouchableOpacity onPress={() => setShowConnectModal(false)}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             <View className="gap-3">
               <View>
-                <Text className="text-white/50 text-xs mb-1.5">Channel Name</Text>
+                <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Channel Name</Text>
                 <TextInput
-                  className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                  className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                   placeholder="e.g. Main WhatsApp"
-                  placeholderTextColor="rgba(255,255,255,0.2)"
+                  placeholderTextColor={colors.textDisabled}
                   value={form.name}
                   onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
                   autoCorrect={false}
@@ -282,11 +290,11 @@ export default function ChannelsScreen() {
               {connectTarget?.id === 'whatsapp-api' && (
                 <>
                   <View>
-                    <Text className="text-white/50 text-xs mb-1.5">Phone Number ID</Text>
+                    <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Phone Number ID</Text>
                     <TextInput
-                      className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                      className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                       placeholder="From Meta Developer Console"
-                      placeholderTextColor="rgba(255,255,255,0.2)"
+                      placeholderTextColor={colors.textDisabled}
                       value={form.phoneNumberId}
                       onChangeText={(v) => setForm((f) => ({ ...f, phoneNumberId: v }))}
                       autoCorrect={false}
@@ -294,11 +302,11 @@ export default function ChannelsScreen() {
                     />
                   </View>
                   <View>
-                    <Text className="text-white/50 text-xs mb-1.5">WhatsApp Business Account ID</Text>
+                    <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">WhatsApp Business Account ID</Text>
                     <TextInput
-                      className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                      className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                       placeholder="WABA ID"
-                      placeholderTextColor="rgba(255,255,255,0.2)"
+                      placeholderTextColor={colors.textDisabled}
                       value={form.wabaId}
                       onChangeText={(v) => setForm((f) => ({ ...f, wabaId: v }))}
                       autoCorrect={false}
@@ -306,11 +314,11 @@ export default function ChannelsScreen() {
                     />
                   </View>
                   <View>
-                    <Text className="text-white/50 text-xs mb-1.5">Access Token</Text>
+                    <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Access Token</Text>
                     <TextInput
-                      className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                      className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                       placeholder="Meta permanent access token"
-                      placeholderTextColor="rgba(255,255,255,0.2)"
+                      placeholderTextColor={colors.textDisabled}
                       value={form.accessToken}
                       onChangeText={(v) => setForm((f) => ({ ...f, accessToken: v }))}
                       autoCorrect={false}
@@ -323,11 +331,11 @@ export default function ChannelsScreen() {
 
               {connectTarget?.id === 'telegram' && (
                 <View>
-                  <Text className="text-white/50 text-xs mb-1.5">Bot Token</Text>
+                  <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Bot Token</Text>
                   <TextInput
-                    className="bg-surface-card border border-white/10 rounded-xl px-4 py-3 text-white"
+                    className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white"
                     placeholder="From @BotFather"
-                    placeholderTextColor="rgba(255,255,255,0.2)"
+                    placeholderTextColor={colors.textDisabled}
                     value={form.botToken}
                     onChangeText={(v) => setForm((f) => ({ ...f, botToken: v }))}
                     autoCorrect={false}

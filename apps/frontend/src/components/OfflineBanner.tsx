@@ -41,7 +41,7 @@ export default function OfflineBanner() {
     return (
       <div className="flex items-center justify-center gap-2 px-4 py-1.5 bg-gray-800 text-white text-xs font-medium flex-shrink-0 z-50">
         <WifiOff size={13} />
-        You&apos;re offline{total > 0 ? ` — ${total} item${total !== 1 ? 's' : ''} queued` : ' — messages will be queued automatically'}
+        You&apos;re offline{total > 0 ? `: ${total} item${total !== 1 ? 's' : ''} queued` : ', messages will be queued automatically'}
       </div>
     );
   }

@@ -4,7 +4,7 @@ const SECTIONS = [
   {
     badge: 'Shared Inbox',
     h3: 'Respond to customers 3× faster than before.',
-    lead: 'When a message arrives, your entire team sees it instantly. One agent claims it, adds context, and resolves it — no duplicated replies, no Slack threads to track who\'s handling what.',
+    lead: 'When a message arrives, your entire team sees it instantly. One agent claims it, adds context, and resolves it, no duplicated replies, no Slack threads to track who\'s handling what.',
     bullets: [
       'Real-time agent assignment & routing',
       'Private notes only your team can see',
@@ -49,7 +49,7 @@ const SECTIONS = [
   {
     badge: 'Campaigns',
     h3: 'Reach 10,000 customers without typing each one.',
-    lead: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick an approved template, and fire. Track who got it, who read it, and who clicked — all in real time.',
+    lead: 'Build a WhatsApp broadcast campaign in minutes. Upload your contact list, pick an approved template, and fire. Track who got it, who read it, and who clicked, all in real time.',
     bullets: [
       'One-click broadcasts to any contact segment',
       'Real-time delivery & read receipts',
@@ -86,7 +86,7 @@ const SECTIONS = [
   {
     badge: 'Automation',
     h3: 'Let the bot handle FAQs. You handle the rest.',
-    lead: 'Set up keyword-triggered chatbot flows in minutes — no code, no developer. The bot handles routine questions 24/7. When it\'s stuck, it hands off to a live agent instantly with full context.',
+    lead: 'Set up keyword-triggered chatbot flows in minutes, no code, no developer. The bot handles routine questions 24/7. When it\'s stuck, it hands off to a live agent instantly with full context.',
     bullets: [
       'No-code drag-and-drop flow builder',
       'AI-powered reply suggestions',

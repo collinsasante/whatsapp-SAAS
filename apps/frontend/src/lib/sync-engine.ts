@@ -32,7 +32,7 @@ export async function flushOfflineQueue(): Promise<void> {
     const messages = await offlineQueue.getAllMessages();
     for (const qm of messages) {
       try {
-        const res = await messagesApi.send(qm.conversationId, qm.payload);
+        const res = await messagesApi.send(qm.conversationId, { ...qm.payload, clientMessageId: qm.tempId });
         const real = res.data as Message;
         if (real?.id) {
           removeMessage(qm.conversationId, qm.tempId);

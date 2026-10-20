@@ -83,7 +83,7 @@ export class PlatformAdminAuthService {
 
     await this.emailService.sendRaw({
       to: email,
-      subject: 'Platform Admin — Password Reset',
+      subject: 'Platform Admin: Password Reset',
       html: `
         <p>Hi ${admin.name},</p>
         <p>Click the link below to reset your Platform Admin password. The link expires in 1 hour.</p>

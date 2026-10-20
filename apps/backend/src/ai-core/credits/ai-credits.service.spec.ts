@@ -136,6 +136,18 @@ describe('AiCreditsService', () => {
 
       expect(result.settled).toBe(false);
     });
+
+    it('deducts and writes the ledger row in one transaction, so a failed ledger insert cannot lose credits', async () => {
+      const prisma = buildPrismaMock();
+      const service = buildService(prisma);
+
+      await service.chargeFlat('t1', 5, 'legacy AI usage');
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      prisma.aiCreditTransaction.create.mockRejectedValueOnce(new Error('db down'));
+      await expect(service.chargeFlat('t1', 5, 'legacy AI usage')).rejects.toThrow('db down');
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('grant', () => {

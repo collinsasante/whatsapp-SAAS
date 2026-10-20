@@ -7,13 +7,12 @@ import { ConfigService } from '@nestjs/config';
  * since the caller is another one of our own containers, not a logged-in
  * user. Checked against a shared secret header, not a route/tenant concept.
  *
- * Fails open with a loud warning when the key isn't configured, matching
- * this codebase's established pattern for optional-until-provisioned
- * secrets (CredentialsEncryptionService, WhatsApp webhook signatures) --
- * this ships before the secret exists in every environment without locking
- * anything out, and the risk is already contained by these routes never
- * being reachable from outside the internal Docker network in the first
- * place (no nginx route to them).
+ * Fails open with a loud warning when the key isn't configured in
+ * non-production environments, so this can ship before the secret exists
+ * everywhere without locking anything out during rollout -- the risk there
+ * is contained by these routes never being reachable from outside the
+ * internal Docker network (no nginx route to them). In production it fails
+ * CLOSED: an unconfigured key must never silently accept every caller.
  */
 @Injectable()
 export class InternalApiKeyGuard implements CanActivate {
@@ -24,6 +23,9 @@ export class InternalApiKeyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const expected = this.config.get<string>('WHATSAPP_WEB_INTERNAL_API_KEY');
     if (!expected) {
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new UnauthorizedException('Internal service authentication is not configured');
+      }
       this.logger.warn('WHATSAPP_WEB_INTERNAL_API_KEY not configured -- internal auth is disabled');
       return true;
     }

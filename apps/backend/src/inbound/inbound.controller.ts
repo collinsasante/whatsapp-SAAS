@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Headers, HttpCode, Post, RawBodyRequest, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, HttpCode, Logger, Post, RawBodyRequest, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -8,6 +8,9 @@ import { InboundService } from './inbound.service';
 @ApiTags('Inbound')
 @Controller('inbound')
 export class InboundController {
+  private readonly logger = new Logger(InboundController.name);
+  private warnedUnconfiguredSecret = false;
+
   constructor(
     private readonly inboundService: InboundService,
     private readonly config: ConfigService,
@@ -54,6 +57,11 @@ export class InboundController {
         throw new BadRequestException('Missing webhook signature headers');
       }
       this.verifyResendSignature(secret, svixId, svixTimestamp, req.rawBody as Buffer, svixSignature);
+    } else if (!this.warnedUnconfiguredSecret) {
+      // Accepting unsigned mail is how this endpoint has always behaved; rejecting it on deploy would silently stop
+      // inbound email on a server that has not been given the secret yet. Set RESEND_WEBHOOK_SECRET to enforce it.
+      this.warnedUnconfiguredSecret = true;
+      this.logger.warn('RESEND_WEBHOOK_SECRET is not configured: inbound email webhook signatures are NOT being verified.');
     }
 
     await this.inboundService.handleInboundEmail(body);

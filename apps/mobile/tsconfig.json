@@ -1,6 +1,8 @@
 {
-  "extends": "@whatsapp-platform/tsconfig/react-native.json",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
     "paths": {
       "@/*": [
         "./src/*"

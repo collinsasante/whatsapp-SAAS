@@ -1,12 +1,14 @@
 import React from 'react';
 import { Stack } from 'expo-router';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 export default function ContactsLayout() {
+  const { colors } = useAppTheme();
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: '#0d1117' },
+        contentStyle: { backgroundColor: colors.background },
         animation: 'slide_from_right',
       }}
     />

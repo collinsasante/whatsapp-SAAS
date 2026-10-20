@@ -44,12 +44,28 @@ export class AnalyticsService {
     const prev = previousPeriod(from, to);
     const prevBoundaries = getTenantDateRangeBoundaries(prev.from, prev.to, timezone);
 
-    const [current, previous, messages, medianFirstResponseSeconds, revenue] = await Promise.all([
+    const [
+      current, previous, messages, medianFirstResponseSeconds, revenue,
+      resolvedCount, prevResolvedCount, openWorkload,
+      newCustomers, prevNewCustomers, activeCustomers, prevActiveCustomers,
+      calls, prevCalls, csat, prevCsat,
+    ] = await Promise.all([
       this.getConversationCounts(tenantId, start, end, agentScopeId),
       this.getConversationCounts(tenantId, prevBoundaries.start, prevBoundaries.end, agentScopeId),
       this.getMessageCountsForRange(tenantId, from, to, timezone),
       this.getMedianFirstResponseSeconds(tenantId, start, end, agentScopeId),
       admin ? this.getRevenueForRange(tenantId, from, to, timezone) : Promise.resolve(null),
+      this.getResolvedCount(tenantId, start, end, agentScopeId),
+      this.getResolvedCount(tenantId, prevBoundaries.start, prevBoundaries.end, agentScopeId),
+      this.getOpenWorkloadCount(tenantId, agentScopeId),
+      this.getNewCustomerCount(tenantId, start, end),
+      this.getNewCustomerCount(tenantId, prevBoundaries.start, prevBoundaries.end),
+      this.getActiveCustomerCount(tenantId, start, end, agentScopeId),
+      this.getActiveCustomerCount(tenantId, prevBoundaries.start, prevBoundaries.end, agentScopeId),
+      this.getCallSummary(tenantId, start, end, agentScopeId),
+      this.getCallSummary(tenantId, prevBoundaries.start, prevBoundaries.end, agentScopeId),
+      this.getCsatSummary(tenantId, start, end, agentScopeId),
+      this.getCsatSummary(tenantId, prevBoundaries.start, prevBoundaries.end, agentScopeId),
     ]);
 
     const deliveryRate = messages.sent > 0 ? round1(messages.delivered / messages.sent) : 0;
@@ -65,8 +81,23 @@ export class AnalyticsService {
         returning: current.returningConversations,
         changePct: percentChange(current.total, previous.total),
       },
+      resolved: {
+        count: resolvedCount,
+        // Definition: resolved conversations in the period divided by conversations opened in the period.
+        rate: current.total > 0 ? round1(resolvedCount / current.total) : null,
+        changePct: percentChange(resolvedCount, prevResolvedCount),
+      },
+      openWorkload: { count: openWorkload }, // current snapshot, not period-bound -- no comparison
+      customers: {
+        new: newCustomers,
+        newChangePct: percentChange(newCustomers, prevNewCustomers),
+        active: activeCustomers,
+        activeChangePct: percentChange(activeCustomers, prevActiveCustomers),
+      },
       messages: { ...messages, deliveryRate, readRate, replyRate },
       medianFirstResponseSeconds,
+      calls: { ...calls, changePct: percentChange(calls.total, prevCalls.total) },
+      csat: { ...csat, changePct: percentChange(csat.average ?? 0, prevCsat.average ?? 0) },
       revenue,
     };
   }
@@ -152,6 +183,68 @@ export class AnalyticsService {
       else returningConversations++;
     }
     return { total: newConversations + returningConversations, newConversations, returningConversations };
+  }
+
+  private async getResolvedCount(tenantId: string, start: Date, end: Date, agentScopeId?: string): Promise<number> {
+    return this.prisma.conversation.count({
+      where: { tenantId, resolvedAt: { gte: start, lt: end }, ...(agentScopeId && { assignedToId: agentScopeId }) },
+    });
+  }
+
+  /** Current, non-date-bound snapshot of unresolved conversations -- an operational workload figure, not a period trend. */
+  private async getOpenWorkloadCount(tenantId: string, agentScopeId?: string): Promise<number> {
+    return this.prisma.conversation.count({
+      where: { tenantId, status: { not: 'RESOLVED' }, ...(agentScopeId && { assignedToId: agentScopeId }) },
+    });
+  }
+
+  /** Contacts created within the period. Not agent-scoped -- contact creation isn't owned by an agent. */
+  private async getNewCustomerCount(tenantId: string, start: Date, end: Date): Promise<number> {
+    return this.prisma.contact.count({ where: { tenantId, createdAt: { gte: start, lt: end } } });
+  }
+
+  /** Distinct contacts with at least one inbound message in the period. */
+  private async getActiveCustomerCount(tenantId: string, start: Date, end: Date, agentScopeId?: string): Promise<number> {
+    const rows = await this.prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(DISTINCT m.contact_id)::bigint AS count
+      FROM messages m
+      WHERE m.tenant_id = ${tenantId} AND m.direction = 'INBOUND'
+        AND m.created_at >= ${start} AND m.created_at < ${end}
+        AND m.contact_id IS NOT NULL
+        AND (${agentScopeId ?? null}::text IS NULL OR EXISTS (
+          SELECT 1 FROM conversations c WHERE c.id = m.conversation_id AND c.assigned_to_id = ${agentScopeId ?? null}
+        ))
+    `;
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  private async getCallSummary(tenantId: string, start: Date, end: Date, agentScopeId?: string): Promise<{ total: number; answered: number; missed: number }> {
+    const where = {
+      tenantId, createdAt: { gte: start, lt: end },
+      ...(agentScopeId && { userId: agentScopeId }),
+    };
+    const [total, answered, missed] = await Promise.all([
+      this.prisma.callLog.count({ where }),
+      this.prisma.callLog.count({ where: { ...where, answeredAt: { not: null } } }),
+      this.prisma.callLog.count({ where: { ...where, status: { in: ['MISSED', 'UNANSWERED', 'DECLINED'] } } }),
+    ]);
+    return { total, answered, missed };
+  }
+
+  /** Average CSAT score (1-5) and response count for conversations rated within the period. */
+  private async getCsatSummary(tenantId: string, start: Date, end: Date, agentScopeId?: string): Promise<{ average: number | null; responses: number }> {
+    const result = await this.prisma.conversation.aggregate({
+      where: {
+        tenantId, csatSubmittedAt: { gte: start, lt: end }, csatScore: { not: null },
+        ...(agentScopeId && { assignedToId: agentScopeId }),
+      },
+      _avg: { csatScore: true },
+      _count: { csatScore: true },
+    });
+    return {
+      average: result._avg.csatScore != null ? round2(result._avg.csatScore) : null,
+      responses: result._count.csatScore,
+    };
   }
 
   private async getMessageCountsForRange(tenantId: string, from: string, to: string, timezone: string): Promise<MessageCounts> {

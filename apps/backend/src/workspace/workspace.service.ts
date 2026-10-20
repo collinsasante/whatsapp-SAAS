@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   ConflictException,
@@ -11,9 +12,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { EmailService } from '../common/email.service';
+import { legacyToWorkspaceRole } from '../auth/role-mapping.util';
 
 const WORKSPACE_ROLES = ['OWNER', 'ADMIN', 'MANAGER', 'AGENT', 'ANALYST', 'VIEWER'] as const;
 type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
+
+// Higher number = more privileged. Used to stop an actor from granting a
+// role above their own rank, or editing the role/status of a peer/superior.
+const ROLE_RANK: Record<WorkspaceRole, number> = {
+  OWNER: 5, ADMIN: 4, MANAGER: 3, AGENT: 2, ANALYST: 1, VIEWER: 1,
+};
 
 const INVITE_TTL_HOURS = 72;
 
@@ -25,6 +33,8 @@ const MEMBER_SELECT = {
 
 @Injectable()
 export class WorkspaceService {
+  private readonly logger = new Logger(WorkspaceService.name);
+
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
@@ -74,11 +84,39 @@ export class WorkspaceService {
     if (!member) throw new NotFoundException('Member not found');
 
     const isSelf = member.userId === actorId;
+    const wantsRoleOrStatusChange = dto.role !== undefined || dto.status !== undefined;
 
-    // Only admins/owners can change role or status of others
-    if (!isSelf && (dto.role || dto.status)) {
-      if (dto.role && !WORKSPACE_ROLES.includes(dto.role as WorkspaceRole)) {
+    if (wantsRoleOrStatusChange) {
+      // No self-service role/status changes -- there's no legitimate reason
+      // for this general profile-edit endpoint to let a member promote or
+      // (de)activate themselves. Role/status changes always require acting
+      // on someone else.
+      if (isSelf) {
+        throw new ForbiddenException('You cannot change your own role or status');
+      }
+
+      if (dto.role !== undefined && !WORKSPACE_ROLES.includes(dto.role as WorkspaceRole)) {
         throw new BadRequestException('Invalid role');
+      }
+
+      // Rank check: an actor can only act on someone strictly below their own
+      // rank, and can never grant a role above their own rank. Without this,
+      // any ADMIN-gated actor (which includes workspace MANAGER, per
+      // workspaceRoleToUserRole) could edit a peer or promote anyone to OWNER.
+      const actorMember = await this.prisma.workspaceMember.findFirst({
+        where: { workspaceId: tenantId, userId: actorId },
+        select: { role: true },
+      });
+      const actorRank = ROLE_RANK[(actorMember?.role as WorkspaceRole) ?? 'VIEWER'] ?? 0;
+      const targetCurrentRank = ROLE_RANK[member.role as WorkspaceRole] ?? 0;
+      if (actorRank <= targetCurrentRank) {
+        throw new ForbiddenException('You cannot modify a member at or above your own rank');
+      }
+      if (dto.role !== undefined) {
+        const newRoleRank = ROLE_RANK[dto.role as WorkspaceRole] ?? 0;
+        if (newRoleRank > actorRank) {
+          throw new ForbiddenException('You cannot grant a role above your own rank');
+        }
       }
     }
 
@@ -358,6 +396,20 @@ export class WorkspaceService {
       throw new BadRequestException(`Invalid role. Must be one of: ${WORKSPACE_ROLES.join(', ')}`);
     }
 
+    // Nobody can invite someone to a role above their own. Without this check any Admin could invite an
+    // Owner, which is a privilege escalation (editMember already enforces the same rule for existing members).
+    const inviter = await this.prisma.workspaceMember.findFirst({
+      where: { workspaceId: tenantId, userId: invitedById, status: 'ACTIVE' },
+      select: { role: true },
+    });
+    const inviterRole: WorkspaceRole = inviter
+      ? (inviter.role as WorkspaceRole)
+      // Older accounts may predate memberships: fall back to their legacy role instead of locking them out.
+      : legacyToWorkspaceRole((await this.prisma.user.findFirst({ where: { id: invitedById, tenantId }, select: { role: true } }))?.role ?? 'VIEWER');
+    if ((ROLE_RANK[role as WorkspaceRole] ?? 0) > (ROLE_RANK[inviterRole] ?? 0)) {
+      throw new ForbiddenException('You cannot invite someone with a role above your own.');
+    }
+
     const existingUser = await this.prisma.user.findFirst({ where: { email } });
     if (existingUser) {
       const existingMember = await this.prisma.workspaceMember.findFirst({
@@ -386,21 +438,26 @@ export class WorkspaceService {
       metadata: { email, role },
     });
 
-    // Send invite email (fire-and-forget; failures are logged, not thrown)
+    // Send invite email (fire-and-forget; failures are logged, not thrown). The whole body is guarded: an
+    // unhandled rejection here would otherwise take the whole backend process down on a transient failure.
     void (async () => {
-      const [inviter, workspace] = await Promise.all([
-        this.prisma.user.findUnique({ where: { id: invitedById }, select: { name: true, email: true } }),
-        this.prisma.tenantSettings.findFirst({ where: { tenantId }, select: { businessName: true } }),
-      ]).catch(() => [null, null]);
-      await this.emailService.sendInvite({
-        to: email,
-        inviteeName: name,
-        inviterName: inviter?.name ?? 'Your team',
-        inviterEmail: inviter?.email ?? undefined,
-        workspaceName: workspace?.businessName ?? 'the workspace',
-        inviteLink: link,
-        expiresAt,
-      });
+      try {
+        const [inviter, workspace] = await Promise.all([
+          this.prisma.user.findUnique({ where: { id: invitedById }, select: { name: true, email: true } }),
+          this.prisma.tenantSettings.findFirst({ where: { tenantId }, select: { businessName: true } }),
+        ]).catch(() => [null, null]);
+        await this.emailService.sendInvite({
+          to: email,
+          inviteeName: name,
+          inviterName: inviter?.name ?? 'Your team',
+          inviterEmail: inviter?.email ?? undefined,
+          workspaceName: workspace?.businessName ?? 'the workspace',
+          inviteLink: link,
+          expiresAt,
+        });
+      } catch (err) {
+        this.logger.warn(`Invitation email could not be sent for workspace ${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     })();
 
     return { token, link, expiresAt };

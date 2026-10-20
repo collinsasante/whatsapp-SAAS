@@ -240,7 +240,7 @@ export function OutboundCallBar() {
       const dur = data.call?.duration != null && data.call.duration > 0
         ? data.call.duration
         : current.startedAt ? Math.floor((Date.now() - current.startedAt.getTime()) / 1000) : 0;
-      if (dur > 0) toast.success(`Call ended — ${formatDuration(dur)}`);
+      if (dur > 0) toast.success(`Call ended: ${formatDuration(dur)}`);
       else toast.success('Call ended');
       dismiss(2000);
     };
@@ -281,7 +281,7 @@ export function OutboundCallBar() {
       await callsApi.update(outboundCall.callId, { duration, endedAt: new Date().toISOString() });
     } catch { /* best-effort */ }
     cleanupSession();
-    if (duration > 0) toast.success(`Call ended — ${formatDuration(duration)}`);
+    if (duration > 0) toast.success(`Call ended: ${formatDuration(duration)}`);
     dismiss(1500);
   }, [outboundCall, cleanupSession, dismiss, setOutboundCall, stopAndUpload]);
 

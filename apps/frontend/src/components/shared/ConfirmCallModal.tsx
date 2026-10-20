@@ -4,6 +4,8 @@ import { Phone, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { callsApi } from '@/lib/api';
 import { useCallsStore } from '@/store/calls.store';
+import { parseCallStartError, releaseCallResources, type CallStartError } from '@/lib/call-client';
+import { CallStartErrorNotice } from './CallStartErrorNotice';
 
 function detectRemoteAudioActivity(stream: MediaStream, onDetected: () => void) {
   try {
@@ -34,6 +36,7 @@ function detectRemoteAudioActivity(stream: MediaStream, onDetected: () => void) 
 export function ConfirmCallModal() {
   const { confirmDial, setConfirmDial, setOutboundSession, setOutboundCall } = useCallsStore();
   const [calling, setCalling] = useState(false);
+  const [callError, setCallError] = useState<CallStartError | null>(null);
 
   if (!confirmDial) return null;
 
@@ -41,6 +44,11 @@ export function ConfirmCallModal() {
 
   const handleCall = async () => {
     setCalling(true);
+    setCallError(null);
+    // Declared outside the try so a failed start can release them (they used to leak: a live microphone and an open peer connection).
+    let pcRef: RTCPeerConnection | null = null;
+    let streamRef: MediaStream | null = null;
+    let audioRef: HTMLAudioElement | null = null;
     try {
       const pc = new RTCPeerConnection({
         iceServers: [
@@ -48,7 +56,9 @@ export function ConfirmCallModal() {
           { urls: 'stun:stun1.l.google.com:19302' },
         ],
       });
+      pcRef = pc;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef = stream;
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
       const offer = await pc.createOffer();
@@ -67,6 +77,7 @@ export function ConfirmCallModal() {
       remoteAudio.autoplay = true;
       remoteAudio.setAttribute('playsinline', '');
       document.body.appendChild(remoteAudio);
+      audioRef = remoteAudio;
 
       // callId is populated after initiate() resolves; ontrack/onunmute fire later
       let callIdLocal = '';
@@ -98,11 +109,12 @@ export function ConfirmCallModal() {
       setOutboundCall({ callId: data.id, phone, contactName: contactName || phone, startedAt: null, ringing: false, muted: false, held: false });
       setConfirmDial(null);
     } catch (err: unknown) {
-      const raw = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
-      const msg = raw.includes('call permission') || raw.includes('approved call') || raw.includes('138006')
-        ? 'This number has not granted call permission. Request permission first.'
-        : raw || 'Failed to initiate call';
-      toast.error(msg);
+      // The call never started: give the microphone, the peer connection and the audio element back.
+      releaseCallResources({ pc: pcRef, stream: streamRef, remoteAudio: audioRef });
+      const parsed = parseCallStartError(err);
+      setCallError(parsed);
+      // Plain failures also toast; the ones with steps are shown in the panel instead.
+      if (parsed.steps.length === 0) toast.error(parsed.message);
     } finally {
       setCalling(false);
     }
@@ -128,6 +140,7 @@ export function ConfirmCallModal() {
             )}
           </div>
         </div>
+        {callError && <div className="mb-3"><CallStartErrorNotice error={callError} onDismiss={() => setCallError(null)} /></div>}
         <div className="flex gap-3">
           <button
             onClick={() => setConfirmDial(null)}

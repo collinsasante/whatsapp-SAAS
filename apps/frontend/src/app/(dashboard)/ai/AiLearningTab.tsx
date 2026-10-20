@@ -49,7 +49,7 @@ interface Overview {
 }
 
 function SeverityBadge({ severity }: { severity: Severity }) {
-  if (!severity) return <span className="text-gray-300 text-xs">—</span>;
+  if (!severity) return <span className="text-gray-300 text-xs">-</span>;
   const map: Record<string, string> = {
     CRITICAL: 'bg-red-50 text-red-600',
     HIGH: 'bg-amber-50 text-amber-600',
@@ -154,13 +154,13 @@ export default function AiLearningTab() {
   return (
     <div className="p-5">
       <p className="text-xs text-gray-500 mb-4">
-        Automatic quality evaluation of real Verz-AI conversations — score, failure categories, and human review, feeding an approved training/regression dataset. Only runs for tenants with the AI Learning capability enabled.
+        Automatic quality evaluation of real Verz-AI conversations, score, failure categories, and human review, feeding an approved training/regression dataset. Only runs for tenants with the AI Learning capability enabled.
       </p>
 
       {overview && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           <StatCard label={`Interactions (${overview.windowHours}h)`} value={overview.totalInteractions} />
-          <StatCard label="Avg quality" value={overview.averageQualityScore !== null ? overview.averageQualityScore.toFixed(2) : '—'} />
+          <StatCard label="Avg quality" value={overview.averageQualityScore !== null ? overview.averageQualityScore.toFixed(2) : '-'} />
           <StatCard label="Needs review" value={overview.needsReviewCount} tone={overview.needsReviewCount > 0 ? 'warn' : undefined} />
           <StatCard label="False claims" value={overview.falseClaimCount} tone={overview.falseClaimCount > 0 ? 'danger' : undefined} />
         </div>
@@ -187,7 +187,7 @@ export default function AiLearningTab() {
         </div>
       ) : interactions.length === 0 ? (
         <div className="text-center py-16 text-gray-400 text-sm">
-          No evaluated interactions yet — this fills in once the AI Learning capability is enabled for this tenant and Verz has handled a real conversation.
+          No evaluated interactions yet, this fills in once the AI Learning capability is enabled for this tenant and Verz has handled a real conversation.
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -207,9 +207,9 @@ export default function AiLearningTab() {
                 <tr key={row.id} onClick={() => openDetail(row.id)} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors">
                   <td className="py-2.5 pr-4 text-gray-500 whitespace-nowrap">{new Date(row.createdAt).toLocaleString()}</td>
                   <td className="py-2.5 pr-4 text-gray-700">{row.status}</td>
-                  <td className="py-2.5 pr-4 text-gray-700">{row.overallScore !== null ? row.overallScore.toFixed(1) : '—'}</td>
+                  <td className="py-2.5 pr-4 text-gray-700">{row.overallScore !== null ? row.overallScore.toFixed(1) : '-'}</td>
                   <td className="py-2.5 pr-4"><SeverityBadge severity={row.severity} /></td>
-                  <td className="py-2.5 pr-4 text-gray-500 text-xs">{row.failureCategories.slice(0, 2).join(', ') || '—'}</td>
+                  <td className="py-2.5 pr-4 text-gray-500 text-xs">{row.failureCategories.slice(0, 2).join(', ') || '-'}</td>
                   <td className="py-2.5 pr-4">
                     {(row.falseActionClaim || row.falseSuccessClaim) && <AlertTriangle size={13} className="inline text-red-500 mr-1" />}
                     {row.customerCorrectionDetected && <span className="text-[10px] text-amber-600">corrected</span>}
@@ -248,7 +248,7 @@ export default function AiLearningTab() {
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-3">
-                    <div><div className="text-[11px] text-gray-400">Overall score</div><div className="text-gray-700">{selected.overallScore?.toFixed(2) ?? '—'}</div></div>
+                    <div><div className="text-[11px] text-gray-400">Overall score</div><div className="text-gray-700">{selected.overallScore?.toFixed(2) ?? '-'}</div></div>
                     <div><div className="text-[11px] text-gray-400">Severity</div><SeverityBadge severity={selected.severity} /></div>
                   </div>
                   {selected.dimensions && Object.keys(selected.dimensions).length > 0 && (
@@ -279,7 +279,7 @@ export default function AiLearningTab() {
                   )}
 
                   <div className="border-t border-gray-100 pt-4">
-                    <div className="text-[11px] text-gray-400 mb-2">Human feedback {selected.feedback && <span className="text-gray-500">— {selected.feedback.rating}</span>}</div>
+                    <div className="text-[11px] text-gray-400 mb-2">Human feedback {selected.feedback && <span className="text-gray-500">- {selected.feedback.rating}</span>}</div>
                     <textarea
                       placeholder="Reviewer notes..."
                       value={feedbackDraft.notes}

@@ -8,7 +8,7 @@ import {
   Users, UserPlus, UserMinus, UserCog, Star, Hash, Search, Folder, FolderPlus,
   ChevronDown, ChevronRight,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getApiError } from '@/lib/utils';
 import { tagsApi, attributesApi, webhooksApi, manageSettingsApi, teamsApi, cannedResponsesApi } from '@/lib/api';
 import { TeamManagement } from '@/components/shared/TeamManagement';
 import toast from 'react-hot-toast';
@@ -17,7 +17,7 @@ import { showConfirm } from '@/store/confirm.store';
 // ─────────────────── types ───────────────────
 interface TagItem { id: string; name: string; color: string }
 interface Attribute { id: string; key: string; label: string; type: string; options: string[]; isRequired: boolean; sortOrder: number }
-interface WebhookItem { id: string; name: string; url: string; events: string[]; secret?: string; isActive: boolean; failureCount: number; lastTriggeredAt?: string }
+interface WebhookItem { id: string; name: string; url: string; events: string[]; hasSecret: boolean; headerNames?: string[]; isActive: boolean; failureCount: number; lastTriggeredAt?: string }
 interface ManageSettings {
   welcomeEnabled?: boolean; welcomeMessage?: string;
   offHoursEnabled?: boolean; offHoursMessage?: string; offHoursSchedule?: Record<string, { enabled: boolean; start: string; end: string }>;
@@ -298,7 +298,7 @@ function CannedResponsesSection() {
                     <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
                     <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
                       className={INPUT}>
-                      <option value="">— None —</option>
+                      <option value="">- None</option>
                       {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
@@ -1047,9 +1047,12 @@ function OptInOutSection({ settings, reload }: { settings: ManageSettings; reloa
 function WebhooksSection() {
   const [webhooks, setWebhooks] = useState<WebhookItem[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', url: '', secret: '', events: [] as string[], headers: [] as { key: string; value: string }[] });
+  const [form, setForm] = useState({ name: '', url: '', events: [] as string[], headers: [] as { key: string; value: string }[] });
+  // A secret is shown once, right after it is created or regenerated, and cannot be read back afterwards.
+  const [revealed, setRevealed] = useState<{ webhookName: string; secret: string } | null>(null);
+  const [creating, setCreating] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<Record<string, { success: boolean; status?: number }>>({});
+  const [testResult, setTestResult] = useState<Record<string, { success: boolean; status?: number; error?: string }>>({});
 
   useEffect(() => { webhooksApi.list().then(r => setWebhooks(r.data)); }, []);
 
@@ -1064,33 +1067,81 @@ function WebhooksSection() {
     setForm(p => ({ ...p, headers: p.headers.map((h, idx) => idx === i ? { ...h, [field]: val } : h) }));
 
   const handleCreate = async () => {
-    if (!form.name || !form.url) return;
+    if (!form.name || !form.url || creating) return;
     const customHeaders = form.headers.filter(h => h.key && h.value).reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {});
-    const r = await webhooksApi.create({
-      name: form.name, url: form.url, events: form.events,
-      secret: form.secret || undefined,
-      ...(Object.keys(customHeaders).length > 0 ? { headers: customHeaders } : {}),
+    setCreating(true);
+    try {
+      const r = await webhooksApi.create({
+        name: form.name, url: form.url, events: form.events,
+        generateSecret: true,
+        ...(Object.keys(customHeaders).length > 0 ? { headers: customHeaders } : {}),
+      });
+      const { secret, ...created } = r.data as WebhookItem & { secret?: string };
+      setWebhooks(prev => [created, ...prev]);
+      if (secret) setRevealed({ webhookName: created.name, secret });
+      setForm({ name: '', url: '', events: [], headers: [] });
+      setShowForm(false);
+    } catch (err) {
+      toast.error(getApiError(err, 'Could not create the webhook'));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const copySecret = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success('Secret copied');
+    } catch {
+      toast.error('Could not copy. Select the secret and copy it manually.');
+    }
+  };
+
+  const handleRotate = async (wh: WebhookItem) => {
+    const ok = await showConfirm(`Regenerate the secret for "${wh.name}"?`, {
+      subtext: 'The current secret stops working immediately. Update your server with the new secret straight after.',
+      confirmLabel: 'Regenerate',
+      danger: true,
     });
-    setWebhooks(prev => [...prev, r.data]);
-    setForm({ name: '', url: '', secret: '', events: [], headers: [] });
-    setShowForm(false);
+    if (!ok) return;
+    try {
+      const r = await webhooksApi.rotateSecret(wh.id);
+      const { secret, ...updated } = r.data as WebhookItem & { secret: string };
+      setWebhooks(prev => prev.map(w => w.id === wh.id ? updated : w));
+      setRevealed({ webhookName: wh.name, secret });
+    } catch (err) {
+      toast.error(getApiError(err, 'Could not regenerate the secret'));
+    }
   };
 
   const handleDelete = async (id: string) => {
-    await webhooksApi.delete(id);
-    setWebhooks(prev => prev.filter(w => w.id !== id));
+    try {
+      await webhooksApi.delete(id);
+      setWebhooks(prev => prev.filter(w => w.id !== id));
+    } catch (err) {
+      toast.error(getApiError(err, 'Could not delete the webhook'));
+    }
   };
 
   const handleToggle = async (wh: WebhookItem) => {
-    const r = await webhooksApi.update(wh.id, { isActive: !wh.isActive });
-    setWebhooks(prev => prev.map(w => w.id === wh.id ? r.data : w));
+    try {
+      const r = await webhooksApi.update(wh.id, { isActive: !wh.isActive });
+      setWebhooks(prev => prev.map(w => w.id === wh.id ? r.data : w));
+    } catch (err) {
+      toast.error(getApiError(err, 'Could not update the webhook'));
+    }
   };
 
   const handleTest = async (id: string) => {
     setTesting(id);
-    const r = await webhooksApi.test(id);
-    setTestResult(p => ({ ...p, [id]: r.data }));
-    setTesting(null);
+    try {
+      const r = await webhooksApi.test(id);
+      setTestResult(p => ({ ...p, [id]: r.data }));
+    } catch (err) {
+      setTestResult(p => ({ ...p, [id]: { success: false, error: getApiError(err, 'Test failed') } }));
+    } finally {
+      setTesting(null);
+    }
   };
 
   return (
@@ -1104,6 +1155,20 @@ function WebhooksSection() {
           <Plus className="w-4 h-4" /> Add Webhook
         </button>
       </div>
+
+      {revealed && (
+        <div role="alert" className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+          <p className="text-sm font-semibold text-amber-900">Secret for "{revealed.webhookName}"</p>
+          <p className="text-xs text-amber-800">Copy it now. For security we cannot show it again. If you lose it, regenerate it.</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 truncate bg-white border border-amber-200 rounded-lg px-3 py-2 text-xs font-mono text-gray-800 select-all">{revealed.secret}</code>
+            <button onClick={() => { void copySecret(revealed.secret); }} className="flex items-center gap-1 px-3 py-2 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700">
+              <Copy className="w-3.5 h-3.5" /> Copy
+            </button>
+            <button onClick={() => setRevealed(null)} aria-label="Hide secret" className="p-2 text-gray-500 hover:text-gray-700"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-4">
@@ -1119,11 +1184,9 @@ function WebhooksSection() {
                 placeholder="https://your-server.com/webhook" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
             </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Secret (optional)</label>
-            <input value={form.secret} onChange={e => setForm(p => ({ ...p, secret: e.target.value }))}
-              placeholder="Signing secret for X-Webhook-Secret header" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-          </div>
+          <p className="text-xs text-gray-500">
+            A signing secret is created for you when you click Create Webhook. It is shown once, then sent with every delivery in the X-Webhook-Secret header.
+          </p>
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-600">Custom Headers <span className="text-gray-400 font-normal">(e.g. Authorization for Airtable)</span></label>
@@ -1154,7 +1217,7 @@ function WebhooksSection() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={handleCreate} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700">Create Webhook</button>
+            <button onClick={handleCreate} disabled={creating || !form.name || !form.url} className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:opacity-50">{creating ? 'Creating...' : 'Create Webhook'}</button>
             <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50">Cancel</button>
           </div>
         </div>
@@ -1173,6 +1236,7 @@ function WebhooksSection() {
                   {wh.failureCount > 0 && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">{wh.failureCount} failures</span>}
                 </div>
                 <p className="text-xs text-gray-400 font-mono mt-0.5 truncate">{wh.url}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{wh.hasSecret ? 'Secret set (hidden)' : 'No secret'}</p>
                 {wh.events.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {wh.events.map(e => <span key={e} className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">{e}</span>)}
@@ -1180,7 +1244,7 @@ function WebhooksSection() {
                 )}
                 {testResult[wh.id] && (
                   <p className={`text-xs mt-1 ${testResult[wh.id].success ? 'text-green-600' : 'text-red-500'}`}>
-                    {testResult[wh.id].success ? `Test passed (${testResult[wh.id].status})` : 'Test failed — check URL'}
+                    {testResult[wh.id].success ? `Test passed (${testResult[wh.id].status})` : (testResult[wh.id].error ?? 'Test failed. Check the URL.')}
                   </p>
                 )}
               </div>
@@ -1189,6 +1253,8 @@ function WebhooksSection() {
                   className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg text-xs flex items-center gap-1">
                   {testing === wh.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                 </button>
+                <button onClick={() => { void handleRotate(wh); }} title="Regenerate secret" aria-label={`Regenerate secret for ${wh.name}`}
+                  className="px-2 py-1 text-xs font-medium text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg">New secret</button>
                 <button onClick={() => handleToggle(wh)} className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg">
                   {wh.isActive ? <ToggleRight className="w-5 h-5 text-teal-600" /> : <ToggleLeft className="w-5 h-5" />}
                 </button>

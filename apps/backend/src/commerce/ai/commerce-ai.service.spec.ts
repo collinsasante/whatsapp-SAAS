@@ -214,4 +214,49 @@ describe('CommerceAiService', () => {
       expect(sentReq.toolNames).toContain('submit_order_for_payment');
     });
   });
+
+  describe('conversation history scoping (per-conversation, 12 messages, always tenant-scoped)', () => {
+    it('queries only the current conversation, scoped to the tenant, with the original 12-message limit', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+
+      await buildService(deps).handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi');
+
+      expect(deps.prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { tenantId: 't1', conversationId: 'conv1', type: 'TEXT', content: { not: null } },
+        take: 12,
+        orderBy: { createdAt: 'desc' },
+      }));
+    });
+
+    it('does NOT widen to contact scope even when the conversation has a contactId (the 200-message/contact expansion is split out)', async () => {
+      const deps = buildDeps();
+      deps.prisma.conversation.findFirst.mockResolvedValue({ id: 'conv1', contactId: 'contact-99', adSourceId: null, adHeadline: null, adImageUrl: null });
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+
+      await buildService(deps).handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi');
+
+      const call = deps.prisma.message.findMany.mock.calls[0][0];
+      expect(call.where).not.toHaveProperty('conversation');
+      expect(call.take).toBe(12);
+    });
+
+    it('is tenant-scoped: another tenant\'s conversation id yields a query that can only match tenant t1 rows', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+
+      await buildService(deps).handleMessage('t1', 'conv-owned-by-tenant-2', 'contact1', '+233555000111', 'hi');
+
+      expect(deps.prisma.message.findMany.mock.calls[0][0].where).toEqual(expect.objectContaining({ tenantId: 't1', conversationId: 'conv-owned-by-tenant-2' }));
+    });
+
+    it('runs no message query (empty history) when the conversation id is blank, never an absent filter', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+
+      await buildService(deps).handleMessage('t1', '', 'contact1', '+233555000111', 'hi');
+
+      expect(deps.prisma.message.findMany).not.toHaveBeenCalled();
+    });
+  });
 });

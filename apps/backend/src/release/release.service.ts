@@ -54,7 +54,7 @@ export class ReleaseService {
     // this app's versioning policy explicitly requires prerelease support.
     const match = SEMVER_PATTERN.exec(dto.version);
     if (!match) {
-      throw new BadRequestException('Invalid semver format — use MAJOR.MINOR.PATCH, optionally with a -prerelease tag (e.g. 1.3.0-beta.1)');
+      throw new BadRequestException('Invalid semver format, use MAJOR.MINOR.PATCH, optionally with a -prerelease tag (e.g. 1.3.0-beta.1)');
     }
     const existing = await this.prisma.appVersion.findUnique({ where: { version: dto.version } });
     if (existing) {

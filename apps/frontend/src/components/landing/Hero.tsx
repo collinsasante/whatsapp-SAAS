@@ -38,7 +38,7 @@ export default function Hero() {
             </h1>
             <p className="lead">
               VerzChat turns WhatsApp into a proper shared inbox. Every message, every customer, every agent
-              in one place — with real-time delivery so nothing slips through.
+              in one place, with real-time delivery so nothing slips through.
             </p>
             <div className="d-flex align-items-center gap-3 flex-wrap">
               <Link href="/book-demo" className="btn_dark">Book a Demo</Link>

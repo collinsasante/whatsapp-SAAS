@@ -44,6 +44,12 @@ export class CallsController {
     return this.callsService.requestCallPermission(tenantId, phone);
   }
 
+  @Get('calling-status')
+  @ApiOperation({ summary: 'Read-only check of whether Meta reports calling as enabled for this workspace\'s number' })
+  callingStatus(@CurrentTenant() tenantId: string) {
+    return this.callsService.getCallingStatus(tenantId);
+  }
+
   @Post('initiate')
   @ApiOperation({ summary: 'Initiate a real WhatsApp call via Meta API' })
   initiateCall(
@@ -94,8 +100,9 @@ export class CallsController {
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: UpdateCallDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.callsService.update(tenantId, id, dto);
+    return this.callsService.update(tenantId, id, dto, { userId: user.sub, role: user.role });
   }
 
   @Patch(':id/archive')
@@ -110,8 +117,9 @@ export class CallsController {
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: MuteCallDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.callsService.mute(tenantId, id, dto);
+    return this.callsService.mute(tenantId, id, dto, { userId: user.sub, role: user.role });
   }
 
   @Patch(':id/hold')
@@ -120,8 +128,9 @@ export class CallsController {
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() dto: HoldCallDto,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.callsService.hold(tenantId, id, dto);
+    return this.callsService.hold(tenantId, id, dto, { userId: user.sub, role: user.role });
   }
 
   @Post(':id/transfer')
@@ -132,7 +141,7 @@ export class CallsController {
     @CurrentUser() user: JwtPayload,
     @Body() dto: TransferCallDto,
   ) {
-    return this.callsService.transfer(tenantId, id, user.sub, dto);
+    return this.callsService.transfer(tenantId, id, user.sub, dto, user.role);
   }
 
   @Post(':id/respond')

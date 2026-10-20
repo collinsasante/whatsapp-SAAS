@@ -24,11 +24,18 @@ const nextConfig = {
       },
     ];
   },
+  // No component in this app passes a remote URL to next/image (every
+  // usage renders a local /public asset) -- a wildcard hostname here only
+  // exposes the built-in /_next/image?url= endpoint to fetch and process
+  // any attacker-supplied HTTPS image directly, independent of app code.
+  // That's the exact surface GHSA-2xp9-vwfh-vxw4 (Next <15.5.24 unauthenticated
+  // RCE via AVIF Image Optimization) needs. Since nothing here legitimately
+  // needs remote optimization, removing the wildcard closes the reachable
+  // path without requiring the Next 14->15 major upgrade to ship first.
+  // That upgrade is still recommended (see SECURITY_AUDIT notes) for the
+  // other advisories it fixes, but is no longer a release blocker on its own.
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: '**' },
-      { protocol: 'http', hostname: 'localhost' },
-    ],
+    remotePatterns: [],
   },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,

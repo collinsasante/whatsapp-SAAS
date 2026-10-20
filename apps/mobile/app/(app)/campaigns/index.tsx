@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
 import { CampaignStatus } from '@whatsapp-platform/shared-types';
+import { EmptyState } from '../../../src/components/ui';
 
 const STATUS_COLORS: Record<string, string> = {
   [CampaignStatus.DRAFT]: '#64748b',
@@ -57,22 +58,22 @@ export default function CampaignsScreen() {
   const handleTabPress = useCallback((tab: FilterTab) => setActiveTab(tab), []);
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 pt-2 pb-0 border-b border-white/5">
-        <Text className="text-white text-xl font-bold mb-3">Campaigns</Text>
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 pt-2 pb-0 border-b border-light-border dark:border-white/5">
+        <Text className="text-light-text-primary dark:text-white text-xl font-bold mb-3">Campaigns</Text>
         <View className="flex-row gap-1 pb-3">
           {TABS.map((tab) => (
             <TouchableOpacity
               key={tab.key}
               onPress={() => handleTabPress(tab.key)}
               className={`px-3 py-1.5 rounded-full ${
-                activeTab === tab.key ? 'bg-green' : 'bg-white/5'
+                activeTab === tab.key ? 'bg-green' : 'bg-light-elevated dark:bg-white/5'
               }`}
               activeOpacity={0.7}
             >
               <Text
                 className={`text-xs font-semibold ${
-                  activeTab === tab.key ? 'text-white' : 'text-white/40'
+                  activeTab === tab.key ? 'text-white' : 'text-light-text-muted dark:text-white/40'
                 }`}
               >
                 {tab.label}
@@ -96,12 +97,12 @@ export default function CampaignsScreen() {
           }
           renderItem={({ item }) => (
             <TouchableOpacity
-              className="bg-surface-card rounded-2xl p-4 border border-white/5"
+              className="bg-light-card dark:bg-surface-card rounded-2xl p-4 border border-light-border dark:border-white/5"
               onPress={() => router.push(`/(app)/campaigns/${item.id}`)}
               activeOpacity={0.8}
             >
               <View className="flex-row items-center justify-between mb-3">
-                <Text className="text-white font-semibold flex-1 mr-2" numberOfLines={1}>
+                <Text className="text-light-text-primary dark:text-white font-semibold flex-1 mr-2" numberOfLines={1}>
                   {item.name}
                 </Text>
                 <View
@@ -125,17 +126,14 @@ export default function CampaignsScreen() {
               </View>
 
               {item.scheduledAt && item.status === CampaignStatus.SCHEDULED && (
-                <Text className="text-white/30 text-xs mt-1">
+                <Text className="text-light-text-disabled dark:text-white/30 text-xs mt-1">
                   Scheduled: {new Date(item.scheduledAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                 </Text>
               )}
             </TouchableOpacity>
           )}
           ListEmptyComponent={
-            <View className="flex-1 items-center justify-center">
-              <Text className="text-white/20 text-4xl mb-3">📢</Text>
-              <Text className="text-white/30 text-base font-medium">No campaigns</Text>
-            </View>
+            <EmptyState icon="megaphone-outline" title="No campaigns" description="Broadcasts you create will show up here" />
           }
         />
       )}
@@ -146,8 +144,8 @@ export default function CampaignsScreen() {
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <View>
-      <Text className="text-white/40 text-xs">{label}</Text>
-      <Text className="text-white font-bold text-base">{value.toLocaleString()}</Text>
+      <Text className="text-light-text-muted dark:text-white/40 text-xs">{label}</Text>
+      <Text className="text-light-text-primary dark:text-white font-bold text-base">{value.toLocaleString()}</Text>
     </View>
   );
 }

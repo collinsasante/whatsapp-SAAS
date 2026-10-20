@@ -7,7 +7,7 @@
  * touched by this migration.
  */
 export const INJECTION_PATTERNS: readonly RegExp[] = [
-  /ignore\s+(previous|all|prior)\s+instructions?/i,
+  /ignore\s+(?:(?:all|any|the)\s+)?(?:previous|prior|above|earlier|all)\s+(?:instructions?|prompts?|rules)/i,
   /act\s+as\s+(an?\s+)?(admin|administrator|root|superuser|system)/i,
   /reveal\s+(your|the)\s+(system\s+)?prompt/i,
   /you\s+are\s+now\s+(a|an)\s+/i,
@@ -19,6 +19,15 @@ export const INJECTION_PATTERNS: readonly RegExp[] = [
   /dan\s+mode/i,
 ];
 
+// Zero-width and soft-hyphen characters are invisible to a reader but split a phrase so the patterns miss it.
+const INVISIBLE_CHARS = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+
+/** Folds look-alike (full-width, styled) letters and removes invisible characters before matching. */
+export function normalizeForInjectionCheck(message: string): string {
+  return message.normalize('NFKC').replace(INVISIBLE_CHARS, '');
+}
+
 export function detectInjection(message: string): boolean {
-  return INJECTION_PATTERNS.some((p) => p.test(message));
+  const normalized = normalizeForInjectionCheck(message);
+  return INJECTION_PATTERNS.some((p) => p.test(normalized));
 }

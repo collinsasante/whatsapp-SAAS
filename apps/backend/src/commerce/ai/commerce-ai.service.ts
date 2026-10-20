@@ -15,6 +15,7 @@ import { formatBusinessInfoBlock } from '../../ai-core/prompts/business-info.uti
 import { formatStateBlock } from '../../ai-core/prompts/conversation-state.util';
 import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { DEEPSEEK_MODEL } from '../../common/deepseek';
+import { buildConversationHistoryWhere } from '../../ai-core/context/history-scope.util';
 
 /**
  * Managed Commerce's AI sales assistant. Verz-AI unification, Phase A: this
@@ -148,12 +149,17 @@ export class CommerceAiService {
       : '\n\nKNOWLEDGE BASE (for policies, hours, and other non-product questions -- product info still comes from the tools):\n' +
         kbArticles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n');
 
-    const history = await this.prisma.message.findMany({
-      where: { conversationId, type: 'TEXT', content: { not: null } },
-      orderBy: { createdAt: 'desc' },
-      take: 12,
-      select: { direction: true, content: true },
-    });
+    // Current conversation only (the original behavior), now also tenant-scoped; a blank
+    // conversation id yields empty history rather than an unscoped query.
+    const historyWhere = buildConversationHistoryWhere(tenantId, conversationId);
+    const history = historyWhere
+      ? await this.prisma.message.findMany({
+          where: historyWhere,
+          orderBy: { createdAt: 'desc' },
+          take: 12,
+          select: { direction: true, content: true },
+        })
+      : [];
 
     const commerceRules = [
       `You are the AI sales assistant for ${businessName} on WhatsApp. You help customers browse products, build an order, and check out.`,

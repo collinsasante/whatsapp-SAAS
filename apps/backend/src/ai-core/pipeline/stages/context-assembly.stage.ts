@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { KNOWLEDGE_CONTEXT_SOURCE, KnowledgeContextSource } from '../knowledge-context.source';
+import { buildConversationHistoryWhere } from '../../context/history-scope.util';
 
 const HISTORY_WINDOW = 12;
 
@@ -13,6 +14,10 @@ const HISTORY_WINDOW = 12;
  * behavior. businessName is tenant-level (TenantSettings), not agent-level;
  * personality/systemInstructions are already on ctx, seeded by the pipeline
  * from the resolved AiAgent before stages run.
+ *
+ * History is the current conversation only, and always tenant-scoped
+ * (buildConversationHistoryWhere) -- the message query previously filtered by
+ * conversationId alone.
  *
  * Verz-AI unification, Phase D/F: also fetches TenantSettings' business-data
  * fields (previously never read into any prompt), the conversation's ad
@@ -33,17 +38,22 @@ export class ContextAssemblyStage implements PipelineStage {
   async execute(ctx: PipelineContext): Promise<void> {
     const startedAt = Date.now();
 
+    const historyWhere = buildConversationHistoryWhere(ctx.input.tenantId, ctx.input.conversationId);
+
     const [settings, history, conversation, aiState] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId: ctx.input.tenantId },
         select: { businessName: true, businessAddress: true, businessPhone: true, offHoursSchedule: true, timezone: true },
       }),
-      this.prisma.message.findMany({
-        where: { conversationId: ctx.input.conversationId, type: 'TEXT', content: { not: null } },
-        orderBy: { createdAt: 'desc' },
-        take: HISTORY_WINDOW,
-        select: { direction: true, content: true },
-      }),
+      // A blank conversation id => empty history, never an unscoped query.
+      historyWhere
+        ? this.prisma.message.findMany({
+            where: historyWhere,
+            orderBy: { createdAt: 'desc' },
+            take: HISTORY_WINDOW,
+            select: { direction: true, content: true },
+          })
+        : Promise.resolve([] as { direction: string; content: string | null }[]),
       this.prisma.conversation.findFirst({
         where: { id: ctx.input.conversationId, tenantId: ctx.input.tenantId },
         select: { adSourceId: true, adHeadline: true, adImageUrl: true },

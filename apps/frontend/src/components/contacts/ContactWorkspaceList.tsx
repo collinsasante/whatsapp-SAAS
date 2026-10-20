@@ -2,13 +2,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Search, Plus, X, ChevronDown, Loader2, Users, Filter,
-  MessageSquare, Phone, Mail, Tag, SlidersHorizontal,
+  MessageSquare, Phone, Mail, Tag, SlidersHorizontal, QrCode,
 } from 'lucide-react';
 import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatRelativeTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { contactDisplayName } from '@/lib/contact-display';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -87,7 +88,11 @@ function ChannelBadge({ type }: { type: string }) {
       </span>
     );
   }
-  if (type === 'MESSENGER') {
+  if (type === 'WHATSAPP_WEB') {
+    return <span title="WhatsApp Web (QR)" className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-full"><QrCode className="w-2.5 h-2.5" aria-hidden="true" />QR</span>;
+  }
+  // Stored type is FACEBOOK_MESSENGER; the old check only matched 'MESSENGER', so Messenger contacts showed no badge.
+  if (type === 'MESSENGER' || type === 'FACEBOOK_MESSENGER') {
     return <span className="text-[9px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">Messenger</span>;
   }
   if (type === 'INSTAGRAM') {
@@ -354,7 +359,7 @@ export default function ContactWorkspaceList({
       const at = a.latestConversation?.lastMessageAt ? new Date(a.latestConversation.lastMessageAt).getTime() : 0;
       const bt = b.latestConversation?.lastMessageAt ? new Date(b.latestConversation.lastMessageAt).getTime() : 0;
       if (bt !== at) return bt - at;
-      return (a.name ?? a.phone).localeCompare(b.name ?? b.phone);
+      return (contactDisplayName(a)).localeCompare(contactDisplayName(b));
     });
   }, [contacts, statusFilter, channelFilter, agentFilter]);
 
@@ -612,7 +617,7 @@ export default function ContactWorkspaceList({
             {filtered.map((contact) => {
               const isActive = contact.latestConversation?.id === activeConversationId;
               const isOpening = openingId === contact.id;
-              const name = contact.name ?? contact.phone;
+              const name = contactDisplayName(contact);
               const color = getAvatarColor(name);
               const conv = contact.latestConversation;
               const lastMsg = conv?.messages?.[0] ?? null;

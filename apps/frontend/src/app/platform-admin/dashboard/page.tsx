@@ -177,12 +177,12 @@ export default function AdminDashboard() {
                 />
                 <OverviewCard
                   label="Net revenue retention"
-                  value={overview.netRevenueRetention != null ? `${overview.netRevenueRetention}%` : '—'}
+                  value={overview.netRevenueRetention != null ? `${overview.netRevenueRetention}%` : '-'}
                   tooltip="Of tenants paying at the start of the period, what % of their combined MRR remains today (including expansion/contraction, excluding new tenants). Above 100% means expansion outpaced churn."
                 />
                 <OverviewCard
                   label="Logo churn rate"
-                  value={overview.logoChurnRate != null ? `${overview.logoChurnRate}%` : '—'}
+                  value={overview.logoChurnRate != null ? `${overview.logoChurnRate}%` : '-'}
                   tooltip="% of tenants paying at the start of the period who had churned by the end"
                 />
               </div>
@@ -191,7 +191,7 @@ export default function AdminDashboard() {
                 <OverviewCard label="Trials in progress" value={String(overview.trialsInProgress)} tooltip="Tenants currently on a TRIAL subscription" />
                 <OverviewCard
                   label="Trial → paid conversion"
-                  value={overview.trialToPaidConversionRate != null ? `${overview.trialToPaidConversionRate}%` : '—'}
+                  value={overview.trialToPaidConversionRate != null ? `${overview.trialToPaidConversionRate}%` : '-'}
                   tooltip="Of trials that resolved (converted or still trialing) in this period, what % converted to paid"
                 />
                 <OverviewCard label="ARPU" value={`GHS ${overview.arpuGhs.toFixed(2)}`} tooltip="Average revenue per paying tenant (MRR ÷ active paying tenants)" />

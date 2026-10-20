@@ -20,3 +20,14 @@ export function verifyWhatsAppSignature(rawBody: Buffer | undefined, signatureHe
     return false;
   }
 }
+
+export type WebhookSignatureCheck = 'valid' | 'invalid' | 'unconfigured';
+
+/**
+ * Separates "no secret configured" from "a secret is configured and the signature is wrong". A wrong signature must
+ * always be rejected; what to do when nothing is configured is the caller's decision.
+ */
+export function checkWebhookSignature(rawBody: Buffer | undefined, signatureHeader: string | undefined, appSecret: string | undefined): WebhookSignatureCheck {
+  if (!appSecret) return 'unconfigured';
+  return verifyWhatsAppSignature(rawBody, signatureHeader, appSecret) ? 'valid' : 'invalid';
+}

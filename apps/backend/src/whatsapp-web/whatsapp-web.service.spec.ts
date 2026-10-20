@@ -25,7 +25,7 @@ function buildDeps() {
     config: { get: jest.fn((_key: string, fallback?: string) => fallback) },
     realtime: { emitWhatsAppWebQr: jest.fn(), emitWhatsAppWebStatus: jest.fn() },
     audit: { log: jest.fn().mockResolvedValue(undefined) },
-    messagesService: { handleInboundWhatsAppWeb: jest.fn().mockResolvedValue({ id: 'msg1' }) },
+    messagesService: { handleInboundWhatsAppWeb: jest.fn().mockResolvedValue({ id: 'msg1' }), updateStatus: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -108,6 +108,73 @@ describe('WhatsAppWebService tenant isolation', () => {
 
     await expect(service.logoutSession('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
   });
+
+  it('reconnectSession is tenant-scoped the same way', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue(null);
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
+  });
+
+  it('getSessionStatus never contacts the session-manager for a foreign tenant\'s session -- the QR fetch is unreachable code for a cross-tenant request', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue(null); // scoped query finds nothing for a foreign tenant, same as every other method here
+    const service = buildService(deps);
+
+    await expect(service.getSessionStatus('tenant-a', 'sess-owned-by-tenant-b')).rejects.toThrow(NotFoundException);
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+  });
+});
+
+describe('WhatsAppWebService.reconnectSession', () => {
+  // Previously nothing ever called connect() again for a disconnected
+  // session outside of process bootstrap -- disconnectSession() left it
+  // RECONNECTING forever with no real path back to CONNECTED. This covers
+  // the fix: reconnectSession() must call the session-manager with the
+  // existing session/channel ids (not create a new session the way
+  // startPairing() does) so it resumes from the already-persisted auth
+  // state instead of requiring a fresh QR scan.
+  it('resumes a RECONNECTING session by calling the session-manager with its existing session/channel ids, and re-activates the channel', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'RECONNECTING' });
+    mockedAxios.request.mockResolvedValue({ data: { ok: true } });
+    const service = buildService(deps);
+
+    await service.reconnectSession('t1', 'sess1', 'user1');
+
+    expect(mockedAxios.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'post', url: expect.stringContaining('/sessions'),
+      data: { sessionId: 'sess1', tenantId: 't1', channelId: 'chan1' },
+    }));
+    expect(deps.prisma.channel.update).toHaveBeenCalledWith({ where: { id: 'chan1' }, data: { isActive: true } });
+  });
+
+  it('also resumes a session stuck in ERROR (e.g. exceeded max reconnect attempts)', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'ERROR' });
+    mockedAxios.request.mockResolvedValue({ data: { ok: true } });
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('t1', 'sess1')).resolves.toBeUndefined();
+  });
+
+  it('refuses to "reconnect" a session that was never connected in the first place -- a QR_PENDING/QR_EXPIRED/LOGGED_OUT session has no usable saved auth state', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'QR_EXPIRED' });
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('t1', 'sess1')).rejects.toThrow(BadRequestException);
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+  });
+
+  it('refuses to reconnect an already-CONNECTED session -- nothing to resume', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'CONNECTED' });
+    const service = buildService(deps);
+
+    await expect(service.reconnectSession('t1', 'sess1')).rejects.toThrow(BadRequestException);
+  });
 });
 
 describe('WhatsAppWebService.sendText', () => {
@@ -180,8 +247,112 @@ describe('WhatsAppWebService.handleInternalEvent', () => {
 
     expect(deps.messagesService.handleInboundWhatsAppWeb).toHaveBeenCalledWith(
       't1', 'chan1', '+233555000111', 'wa-msg-1',
-      { content: 'hi', mediaType: undefined, mediaBase64: undefined, mimetype: undefined, caption: undefined },
+      { content: 'hi', mediaType: undefined, mediaBase64: undefined, mimetype: undefined, caption: undefined, placeholder: false },
       'Jane',
     );
+  });
+});
+
+describe('WhatsAppWebService.getSessionStatus -- QR catch-up fetch', () => {
+  // The QR image is never persisted to Postgres (session-manager keeps it
+  // in memory only) -- these cover the fix for a client that missed the
+  // one-shot realtime 'qr'/'status' push being able to catch up by asking
+  // for the current state directly instead of spinning forever.
+  it('fetches and includes the live QR from the session-manager when the session is QR_PENDING', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'QR_PENDING', phoneNumber: null, lastError: null, lastConnectedAt: null });
+    mockedAxios.request.mockResolvedValue({ data: { active: true, qrDataUrl: 'data:image/png;base64,AAAA' } });
+    const service = buildService(deps);
+
+    const result = await service.getSessionStatus('t1', 'sess1');
+
+    expect(mockedAxios.request).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'get', url: expect.stringContaining('/sessions/sess1/status'),
+    }));
+    expect(result.qrDataUrl).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('does not call the session-manager at all for a non-QR_PENDING session -- nothing to catch up to', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'CONNECTED', phoneNumber: '233555000111', lastError: null, lastConnectedAt: new Date() });
+    const service = buildService(deps);
+
+    const result = await service.getSessionStatus('t1', 'sess1');
+
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+    expect(result.qrDataUrl).toBeUndefined();
+  });
+
+  it('fails soft -- a session-manager hiccup while fetching the QR must not break the status check itself', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', tenantId: 't1', channelId: 'chan1', status: 'QR_PENDING', phoneNumber: null, lastError: null, lastConnectedAt: null });
+    mockedAxios.request.mockRejectedValue(new Error('ECONNREFUSED'));
+    const service = buildService(deps);
+
+    const result = await service.getSessionStatus('t1', 'sess1');
+
+    expect(result.status).toBe('QR_PENDING');
+    expect(result.qrDataUrl).toBeUndefined();
+  });
+});
+
+describe('WhatsAppWebService.handleInternalEvent -- message_status receipts', () => {
+  it.each(['SENT', 'DELIVERED', 'READ'])('forwards a %s receipt to MessagesService.updateStatus, scoped to the event tenant', async (status) => {
+    const deps = buildDeps();
+    await buildService(deps).handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC123', status });
+    expect(deps.messagesService.updateStatus).toHaveBeenCalledWith('ABC123', status, 't1');
+  });
+
+  it('drops malformed receipts and statuses a provider must not be able to set (e.g. FAILED, unknown)', async () => {
+    const deps = buildDeps();
+    const svc = buildService(deps);
+    await svc.handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', status: 'READ' });
+    await svc.handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'FAILED' });
+    await svc.handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'PLAYED' });
+    expect(deps.messagesService.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('does not propagate a failure while applying a receipt', async () => {
+    const deps = buildDeps();
+    deps.messagesService.updateStatus.mockRejectedValue(new Error('db down'));
+    await expect(buildService(deps).handleInternalEvent({ type: 'message_status', tenantId: 't1', channelId: 'chan1', providerMessageId: 'ABC', status: 'READ' })).resolves.toBeUndefined();
+  });
+});
+
+describe('WhatsAppWebService.handleInternalEvent -- sender identity', () => {
+  const base = { type: 'inbound_message' as const, tenantId: 't1', channelId: 'chan1', providerMessageId: 'wa-1', content: 'hi' };
+
+  it('accepts an anonymous @lid sender and forwards it as { jid }, never as a phone number', async () => {
+    const deps = buildDeps();
+    await buildService(deps).handleInternalEvent({ ...base, fromJid: '1587145059558262@lid' });
+    expect(deps.messagesService.handleInboundWhatsAppWeb).toHaveBeenCalledWith(
+      't1', 'chan1', { jid: '1587145059558262@lid' }, 'wa-1', expect.any(Object), undefined,
+    );
+  });
+
+  it.each([
+    ['both identities', { fromPhone: '+233555000111', fromJid: '1587145059558262@lid' }],
+    ['no identity', {}],
+    ['a group address', { fromJid: '120363025246125486@g.us' }],
+    ['the status broadcast feed', { fromJid: 'status@broadcast' }],
+    ['a malformed address', { fromJid: 'GH.1587145059558262' }],
+  ])('drops an event with %s', async (_label, identity) => {
+    const deps = buildDeps();
+    await buildService(deps).handleInternalEvent({ ...base, ...identity });
+    expect(deps.messagesService.handleInboundWhatsAppWeb).not.toHaveBeenCalled();
+  });
+});
+
+describe('WhatsAppWebService outbound target', () => {
+  it('sends to an explicit address with toJid and to a phone with toPhone', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue({ id: 'sess1', status: 'CONNECTED' });
+    mockedAxios.request = jest.fn().mockResolvedValue({ data: { providerMessageId: 'p1' } }) as never;
+    const service = buildService(deps);
+    await service.sendText('t1', 'chan1', { jid: '1587145059558262@lid' }, 'hello');
+    await service.sendText('t1', 'chan1', '+233555000111', 'hello');
+    const bodies = (mockedAxios.request as jest.Mock).mock.calls.map((c) => c[0].data);
+    expect(bodies[0]).toEqual({ toJid: '1587145059558262@lid', text: 'hello' });
+    expect(bodies[1]).toEqual({ toPhone: '+233555000111', text: 'hello' });
   });
 });

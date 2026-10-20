@@ -2,6 +2,14 @@ import { Injectable, NotFoundException, ConflictException, ForbiddenException } 
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './dto/create-user.dto';
+import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
+import { userRoleToWorkspaceRole } from '../auth/role-mapping.util';
+
+// Higher number = more privileged. Mirrors workspace.service.ts's ROLE_RANK
+// so this legacy User.role path can't grant a rank the actor doesn't hold.
+const USER_ROLE_RANK: Record<UserRole, number> = {
+  [UserRole.SUPER_ADMIN]: 4, [UserRole.ADMIN]: 3, [UserRole.AGENT]: 2, [UserRole.VIEWER]: 1,
+};
 
 const USER_SELECT = {
   id: true,
@@ -19,7 +27,13 @@ const USER_SELECT = {
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async create(tenantId: string, dto: CreateUserDto) {
+  async create(tenantId: string, dto: CreateUserDto, actor?: JwtPayload) {
+    // The caller cannot create an account above their own rank (SUPER_ADMIN is reserved for platform staff).
+    const requested = dto.role ?? UserRole.AGENT;
+    if (actor && (USER_ROLE_RANK[requested] ?? 0) > (USER_ROLE_RANK[actor.role as UserRole] ?? 0)) {
+      throw new ForbiddenException('You cannot grant a role above your own rank');
+    }
+
     // Enforce plan limit: agents
     const [sub, agentCount] = await Promise.all([
       this.prisma.subscription.findUnique({ where: { tenantId }, include: { plan: true } }),
@@ -54,7 +68,8 @@ export class UsersService {
         create: {
           workspaceId: tenantId,
           userId: user.id,
-          role: dto.role === 'ADMIN' ? 'ADMIN' : 'AGENT',
+          // Was `dto.role === 'ADMIN' ? 'ADMIN' : 'AGENT'`, which turned every other role (e.g. VIEWER) into AGENT.
+          role: userRoleToWorkspaceRole(dto.role),
           status: 'ACTIVE',
           joinedAt: new Date(),
         },
@@ -82,8 +97,19 @@ export class UsersService {
     return user;
   }
 
-  async update(tenantId: string, userId: string, dto: UpdateUserDto) {
+  async update(tenantId: string, userId: string, dto: UpdateUserDto, actor: JwtPayload) {
     await this.findOne(tenantId, userId);
+
+    if (dto.role !== undefined) {
+      if (userId === actor.sub) {
+        throw new ForbiddenException('You cannot change your own role');
+      }
+      const actorRank = USER_ROLE_RANK[actor.role as UserRole] ?? 0;
+      const newRoleRank = USER_ROLE_RANK[dto.role] ?? 0;
+      if (newRoleRank > actorRank) {
+        throw new ForbiddenException('You cannot grant a role above your own rank');
+      }
+    }
 
     const data: Record<string, unknown> = {};
     if (dto.name) data['name'] = dto.name;

@@ -35,8 +35,8 @@ export default function AuditLogsPage() {
     { key: 'createdAt', header: 'When', render: (r) => new Date(r.createdAt).toLocaleString() },
     { key: 'admin', header: 'Admin', render: (r) => r.admin ? <span className="font-medium text-gray-900">{r.admin.name}</span> : <span className="text-gray-400">System</span> },
     { key: 'action', header: 'Action', render: (r) => <span className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">{r.action}</span> },
-    { key: 'resource', header: 'Resource', render: (r) => r.resourceType ? `${r.resourceType}${r.resourceId ? ` · ${r.resourceId.slice(0, 8)}` : ''}` : '—' },
-    { key: 'ipAddress', header: 'IP', render: (r) => r.ipAddress ?? '—' },
+    { key: 'resource', header: 'Resource', render: (r) => r.resourceType ? `${r.resourceType}${r.resourceId ? ` · ${r.resourceId.slice(0, 8)}` : ''}` : '-' },
+    { key: 'ipAddress', header: 'IP', render: (r) => r.ipAddress ?? '-' },
   ];
 
   return (

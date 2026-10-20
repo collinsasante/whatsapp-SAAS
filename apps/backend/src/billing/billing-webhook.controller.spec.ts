@@ -95,3 +95,74 @@ describe('BillingWebhookController -- credit purchase grant', () => {
     await expect(controller.paystackWebhook(buildReq(), 'bad-sig')).rejects.toThrow();
   });
 });
+
+describe('BillingWebhookController -- retry safety and ordering', () => {
+  it('grants credits BEFORE marking the purchase succeeded, so a failed grant is retried instead of skipped', async () => {
+    const deps = buildDeps();
+    const order: string[] = [];
+    deps.aiCreditsService.grant.mockImplementation(async () => { order.push('grant'); return { settled: true, transaction: { id: 't' } }; });
+    deps.prisma.creditPurchase.update.mockImplementation(async () => { order.push('mark-succeeded'); return {}; });
+    await buildController(deps).paystackWebhook(buildReq(), 'sig');
+    expect(order).toEqual(['grant', 'mark-succeeded']);
+  });
+
+  it('when the grant fails, the purchase is NOT marked succeeded, so the gateway retry can grant it', async () => {
+    const deps = buildDeps();
+    deps.aiCreditsService.grant.mockRejectedValueOnce(new Error('db hiccup'));
+    await buildController(deps).paystackWebhook(buildReq(), 'sig');
+    expect(deps.prisma.creditPurchase.update).not.toHaveBeenCalled();
+    // retry
+    deps.prisma.billingEvent.findFirst.mockResolvedValue(null); // not yet recorded as processed
+    await buildController(deps).paystackWebhook(buildReq(), 'sig');
+    expect(deps.aiCreditsService.grant).toHaveBeenCalledTimes(2);
+    expect(deps.prisma.creditPurchase.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('activates the subscription BEFORE marking the invoice paid, and leaves it unpaid if activation fails', async () => {
+    const deps = buildDeps();
+    const order: string[] = [];
+    const invoice = { id: 'inv1', status: 'PENDING', metadata: { planSlug: 'pro', cycle: 'MONTHLY' } };
+    deps.prisma = buildPrismaMock({
+      invoice: { findUnique: jest.fn().mockResolvedValue(invoice) },
+      plan: { findUnique: jest.fn().mockResolvedValue({ id: 'plan1' }) },
+      subscription: { update: jest.fn() },
+    });
+    deps.prisma.payment.findFirst.mockResolvedValue(buildPayment({ invoiceId: 'inv1', tenantId: 't1' }));
+    deps.invoiceService = { markPaid: jest.fn(async () => { order.push('mark-paid'); }) } as never;
+    deps.subscriptionService = { activateFromPayment: jest.fn(async () => { order.push('activate'); }) } as never;
+    await buildController(deps).paystackWebhook(buildReq(), 'sig');
+    expect(order).toEqual(['activate', 'mark-paid']);
+
+    const failing = buildDeps();
+    failing.prisma = buildPrismaMock({ invoice: { findUnique: jest.fn().mockResolvedValue(invoice) }, plan: { findUnique: jest.fn().mockResolvedValue({ id: 'plan1' }) }, subscription: { update: jest.fn() } });
+    failing.prisma.payment.findFirst.mockResolvedValue(buildPayment({ invoiceId: 'inv1' }));
+    failing.invoiceService = { markPaid: jest.fn() } as never;
+    failing.subscriptionService = { activateFromPayment: jest.fn().mockRejectedValue(new Error('boom')) } as never;
+    await buildController(failing).paystackWebhook(buildReq(), 'sig');
+    expect((failing.invoiceService as unknown as { markPaid: jest.Mock }).markPaid).not.toHaveBeenCalled();
+  });
+
+  it('a late failure event cannot flip an already succeeded payment to FAILED', async () => {
+    const deps = buildDeps();
+    deps.paystack.parseWebhookEvent.mockResolvedValue({ event: 'charge.failed', gatewayReference: 'VRZ-C-ABC', status: 'failed' });
+    deps.prisma.payment.findFirst.mockResolvedValue(buildPayment({ status: PaymentStatus.SUCCEEDED }));
+    await buildController(deps).paystackWebhook(buildReq(), 'sig');
+    expect(deps.prisma.payment.update).not.toHaveBeenCalled();
+  });
+
+  it('a failure event still fails a pending payment', async () => {
+    const deps = buildDeps();
+    deps.paystack.parseWebhookEvent.mockResolvedValue({ event: 'charge.failed', gatewayReference: 'VRZ-C-ABC', status: 'failed' });
+    deps.prisma.payment.findFirst.mockResolvedValue(buildPayment({ status: PaymentStatus.PENDING }));
+    await buildController(deps).paystackWebhook(buildReq(), 'sig');
+    expect(deps.prisma.payment.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: PaymentStatus.FAILED }) }));
+  });
+
+  it('never trusts the request body for success: nothing is granted when the signature fails', async () => {
+    const deps = buildDeps();
+    deps.paystack.verifyWebhookSignature.mockReturnValue(false);
+    await expect(buildController(deps).paystackWebhook(buildReq(), 'forged')).rejects.toThrow();
+    expect(deps.aiCreditsService.grant).not.toHaveBeenCalled();
+    expect(deps.prisma.payment.update).not.toHaveBeenCalled();
+  });
+});

@@ -7,7 +7,9 @@ import {
 import { billingApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { cn, getApiError } from '@/lib/utils';
-import { StripeCheckout, PaystackCheckoutButton } from '@/components/billing/GatewayCheckout';
+import { PaystackCheckoutButton } from '@/components/billing/GatewayCheckout';
+import { useAuthStore } from '@/store/auth.store';
+import { isPlausibleEmail } from '@/lib/billing-checkout';
 import { showConfirm } from '@/store/confirm.store';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -142,7 +144,6 @@ function UsageBar({ label, used, limit, color }: { label: string; used: number; 
 
 // ─── CheckoutModal ───────────────────────────────────────────────────────────
 
-type Gateway = 'stripe' | 'paystack';
 type CheckoutStep = 'form' | 'pay' | 'success';
 
 function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
@@ -152,41 +153,36 @@ function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
   onActivated: () => void;
 }) {
   const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const [email, setEmail] = useState(initialEmail ?? '');
-  const [gateway, setGateway] = useState<Gateway>('stripe');
+  const userEmail = useAuthStore((st) => st.user?.email);
+  // Saved billing email first, else the signed-in user's own email. Always editable.
+  const [email, setEmail] = useState(initialEmail || userEmail || '');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('form');
   const [error, setError] = useState<string | null>(null);
 
-  const [stripeSecret, setStripeSecret] = useState<{ clientSecret: string; publishableKey: string } | null>(null);
   const [paystackAccessCode, setPaystackAccessCode] = useState<string | null>(null);
 
-  const usdAmount = cycle === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
   const ghsAmount = cycle === 'YEARLY' ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
+  const emailOk = isPlausibleEmail(email);
+  // A plan with no GHS price cannot be bought through Paystack: say so instead of failing at checkout.
+  const unavailable = !ghsAmount;
 
   const handleContinue = async () => {
     setError(null);
+    if (!emailOk) { setError('Enter a valid billing email so we can send your receipt.'); return; }
     setLoading(true);
     try {
-      if (gateway === 'stripe') {
-        const res = await billingApi.initiateStripeCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() || undefined });
-        const data = res.data as { free?: boolean; clientSecret?: string; publishableKey?: string };
-        if (data.free) { toast.success(`${plan.name} plan activated!`); onActivated(); onClose(); return; }
-        if (data.clientSecret && data.publishableKey) {
-          setStripeSecret({ clientSecret: data.clientSecret, publishableKey: data.publishableKey });
-          setStep('pay');
-        }
-      } else {
-        const res = await billingApi.initiatePaystackCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() || undefined });
-        const data = res.data as { free?: boolean; accessCode?: string };
-        if (data.free) { toast.success(`${plan.name} plan activated!`); onActivated(); onClose(); return; }
-        if (data.accessCode) {
-          setPaystackAccessCode(data.accessCode);
-          setStep('pay');
-        }
+      const res = await billingApi.initiatePaystackCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() });
+      const data = res.data as { free?: boolean; accessCode?: string };
+      if (data.free) { toast.success(`${plan.name} plan activated`); onActivated(); onClose(); return; }
+      if (data.accessCode) {
+        setPaystackAccessCode(data.accessCode);
+        setStep('pay');
       }
     } catch (err: unknown) {
-      toast.error(getApiError(err, 'Failed to start checkout'));
+      const message = getApiError(err, 'Could not start checkout. Please try again.');
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -208,7 +204,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
               <CheckCircle2 size={32} className="text-teal-600" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-lg">Payment successful!</p>
+              <p className="font-bold text-gray-900 text-lg">Payment successful</p>
               <p className="text-sm text-gray-500 mt-1">Your {plan.name} plan will activate within a few seconds.</p>
             </div>
             <button onClick={() => { onActivated(); onClose(); }}
@@ -221,15 +217,7 @@ function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
         {step === 'pay' && (
           <div className="p-5 space-y-4">
             {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-            {gateway === 'stripe' && stripeSecret && (
-              <StripeCheckout
-                clientSecret={stripeSecret.clientSecret}
-                publishableKey={stripeSecret.publishableKey}
-                onSuccess={() => setStep('success')}
-                onError={(msg) => setError(msg)}
-              />
-            )}
-            {gateway === 'paystack' && paystackAccessCode && (
+            {paystackAccessCode && (
               <PaystackCheckoutButton
                 accessCode={paystackAccessCode}
                 onSuccess={() => setStep('success')}
@@ -247,19 +235,9 @@ function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
             <div className="p-5 space-y-5">
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setGateway('stripe')}
-                    className={cn('p-3 rounded-xl border-2 text-left transition-all',
-                      gateway === 'stripe' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="text-sm font-semibold text-gray-900">💳 Card (Stripe)</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Visa, Mastercard, etc.</div>
-                  </button>
-                  <button onClick={() => setGateway('paystack')}
-                    className={cn('p-3 rounded-xl border-2 text-left transition-all',
-                      gateway === 'paystack' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="text-sm font-semibold text-gray-900">🏦 Paystack</div>
-                    <div className="text-xs text-gray-500 mt-0.5">Card, Mobile Money, bank</div>
-                  </button>
+                <div className="p-3 rounded-xl border-2 border-teal-500 bg-teal-50">
+                  <div className="text-sm font-semibold text-gray-900">Paystack</div>
+                  <div className="text-xs text-gray-500 mt-0.5">Card, Mobile Money, bank. Charged in Ghana cedis (GHS).</div>
                 </div>
               </div>
 
@@ -267,9 +245,8 @@ function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(['MONTHLY', 'YEARLY'] as const).map((c) => {
-                    const usdPrice = c === 'YEARLY' ? plan.yearlyPrice : plan.monthlyPrice;
                     const ghsPrice = c === 'YEARLY' ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
-                    const price = gateway === 'paystack' && ghsPrice ? `₵${ghsPrice}` : `$${usdPrice}`;
+                    const price = ghsPrice ? `GH₵${ghsPrice}` : 'Not available';
                     return (
                       <button key={c} onClick={() => setCycle(c)}
                         className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
@@ -286,24 +263,28 @@ function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   Billing Email
                 </p>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                <input type="email" inputMode="email" autoComplete="email" aria-label="Billing email" value={email} onChange={(e) => setEmail(e.target.value)}
                   placeholder="billing@yourcompany.com"
+                  aria-invalid={email.length > 0 && !emailOk}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <p className="text-xs text-gray-400 mt-1">Receipts for this payment go to this address.</p>
+                {email.length > 0 && !emailOk && <p className="text-xs text-red-600 mt-1">Enter a valid email address.</p>}
               </div>
 
               <div className="bg-gray-50 rounded-xl p-4 text-sm">
                 <div className="flex justify-between font-bold text-gray-900">
                   <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
-                  <span>{gateway === 'paystack' && ghsAmount ? `₵${ghsAmount}` : `$${usdAmount}`}</span>
+                  <span>{ghsAmount ? `GH₵${ghsAmount}` : 'Not available'}</span>
                 </div>
+                {unavailable && <p className="text-xs text-amber-700 mt-2">This plan cannot be purchased online yet. Contact support to upgrade.</p>}
               </div>
             </div>
 
             <div className="px-5 pb-5">
-              <button onClick={() => { void handleContinue(); }} disabled={loading || (gateway === 'paystack' && !email.trim())}
+              <button onClick={() => { void handleContinue(); }} disabled={loading || unavailable || !emailOk}
                 className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
                 {loading
-                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout…</>
+                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout...</>
                   : 'Continue to Payment'}
               </button>
             </div>
@@ -320,32 +301,31 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
   onClose: () => void;
   onPurchased: () => void;
 }) {
-  const [gateway, setGateway] = useState<Gateway>(pack.priceUsd != null ? 'stripe' : 'paystack');
+  const userEmail = useAuthStore((st) => st.user?.email);
+  // The purchase needs a receipt address. Use the signed-in user's email, and let them change it.
+  const [email, setEmail] = useState(userEmail ?? '');
+  const emailOk = isPlausibleEmail(email);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('form');
   const [error, setError] = useState<string | null>(null);
-  const [stripeSecret, setStripeSecret] = useState<{ clientSecret: string; publishableKey: string } | null>(null);
   const [paystackAccessCode, setPaystackAccessCode] = useState<string | null>(null);
   const totalCredits = pack.credits + pack.bonusCredits;
-  const price = gateway === 'stripe' ? pack.priceUsd : pack.priceGhs;
-  const priceLabel = price == null ? '—' : gateway === 'stripe' ? `$${price}` : `GH₵${price}`;
+  const price = pack.priceGhs;
+  const priceLabel = price == null ? 'Not available' : `GH₵${price}`;
 
   const handleContinue = async () => {
     setError(null);
+    if (!emailOk) { setError('Enter a valid email so we can send your receipt.'); return; }
     setLoading(true);
     try {
-      if (gateway === 'stripe') {
-        const res = await billingApi.initiateStripeCreditCheckout(pack.slug);
-        const data = res.data as { clientSecret: string; publishableKey: string };
-        setStripeSecret({ clientSecret: data.clientSecret, publishableKey: data.publishableKey });
-      } else {
-        const res = await billingApi.initiatePaystackCreditCheckout(pack.slug);
-        const data = res.data as { accessCode: string };
-        setPaystackAccessCode(data.accessCode);
-      }
+      const res = await billingApi.initiatePaystackCreditCheckout(pack.slug, email.trim());
+      const data = res.data as { accessCode: string };
+      setPaystackAccessCode(data.accessCode);
       setStep('pay');
     } catch (err: unknown) {
-      toast.error(getApiError(err, 'Failed to start checkout'));
+      const message = getApiError(err, 'Could not start checkout. Please try again.');
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -367,7 +347,7 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
               <CheckCircle2 size={32} className="text-teal-600" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-lg">Payment successful!</p>
+              <p className="font-bold text-gray-900 text-lg">Payment successful</p>
               <p className="text-sm text-gray-500 mt-1">Your credits will be added within a few seconds.</p>
             </div>
             <button onClick={() => { onPurchased(); onClose(); }}
@@ -380,15 +360,7 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
         {step === 'pay' && (
           <div className="p-5 space-y-4">
             {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-            {gateway === 'stripe' && stripeSecret && (
-              <StripeCheckout
-                clientSecret={stripeSecret.clientSecret}
-                publishableKey={stripeSecret.publishableKey}
-                onSuccess={() => setStep('success')}
-                onError={(msg) => setError(msg)}
-              />
-            )}
-            {gateway === 'paystack' && paystackAccessCode && (
+            {paystackAccessCode && (
               <PaystackCheckoutButton
                 accessCode={paystackAccessCode}
                 onSuccess={() => setStep('success')}
@@ -406,28 +378,27 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
             <div className="p-5 space-y-5">
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setGateway('stripe')} disabled={pack.priceUsd == null}
-                    className={cn('p-3 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed',
-                      gateway === 'stripe' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="text-sm font-semibold text-gray-900">💳 Card (Stripe)</div>
-                  </button>
-                  <button onClick={() => setGateway('paystack')} disabled={pack.priceGhs == null}
-                    className={cn('p-3 rounded-xl border-2 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed',
-                      gateway === 'paystack' ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                    <div className="text-sm font-semibold text-gray-900">🏦 Paystack</div>
-                  </button>
+                <div className="p-3 rounded-xl border-2 border-teal-500 bg-teal-50">
+                  <div className="text-sm font-semibold text-gray-900">Paystack</div>
+                  <div className="text-xs text-gray-500 mt-0.5">Card, Mobile Money, bank. Charged in Ghana cedis (GHS).</div>
                 </div>
               </div>
+              <div>
+                <label htmlFor="credit-billing-email" className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Email for your receipt</label>
+                <input id="credit-billing-email" type="email" inputMode="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@yourcompany.com" aria-invalid={email.length > 0 && !emailOk}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                {email.length > 0 && !emailOk && <p className="text-xs text-red-600 mt-1">Enter a valid email address.</p>}
+              </div>
               <div className="bg-gray-50 rounded-xl p-4 text-sm flex justify-between font-bold text-gray-900">
-                <span>{pack.name} — {totalCredits.toLocaleString()} credits</span><span>{priceLabel}</span>
+                <span>{pack.name}, {totalCredits.toLocaleString()} credits</span><span>{priceLabel}</span>
               </div>
             </div>
             <div className="px-5 pb-5">
-              <button onClick={() => { void handleContinue(); }} disabled={loading || price == null}
+              <button onClick={() => { void handleContinue(); }} disabled={loading || price == null || !emailOk}
                 className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
                 {loading
-                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout…</>
+                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout...</>
                   : 'Continue to Payment'}
               </button>
             </div>
@@ -522,7 +493,7 @@ function CreditPacksSection({ onPurchased }: { onPurchased: (newBalance: number)
         {balance === 0 && (
           <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
             <AlertCircle size={14} className="flex-shrink-0" />
-            No credits — VerzAI is paused. Purchase credits to resume auto-replies.
+            No credits: VerzAI is paused. Purchase credits to resume auto-replies.
           </div>
         )}
       </div>
@@ -851,7 +822,7 @@ export default function BillingPage() {
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-semibold text-gray-900 flex items-center gap-2">
-                <BarChart3 size={16} className="text-teal-600" />Usage — {periodLabel}
+                <BarChart3 size={16} className="text-teal-600" />Usage: {periodLabel}
               </h2>
               <span className="text-xs text-gray-400">Live counts · resets monthly</span>
             </div>

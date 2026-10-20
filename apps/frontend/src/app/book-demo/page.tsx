@@ -147,7 +147,7 @@ export default function BookDemoPage() {
             </strong>{' '}
             at <strong className="text-gray-700">{form.preferredTime}</strong>.
           </p>
-          <p className="text-gray-400 text-sm mb-8">Check your inbox — we sent a confirmation to <strong>{form.workEmail}</strong>.</p>
+          <p className="text-gray-400 text-sm mb-8">Check your inbox, we sent a confirmation to <strong>{form.workEmail}</strong>.</p>
           <Link href="/" className="inline-flex items-center gap-2 px-6 py-3 bg-[#104a25] text-white font-semibold rounded-xl text-sm hover:bg-[#0d3d1e] transition-colors">
             Back to home
           </Link>

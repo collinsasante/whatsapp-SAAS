@@ -25,7 +25,7 @@ class CreatePromptVersionDto {
  * AiAgent.systemInstructions, not template forks (that's Phase 2). Platform-admin
  * scoped since activating a version changes behavior for every tenant at once.
  */
-@ApiTags('Platform Admin — AI Prompts')
+@ApiTags('Platform Admin: AI Prompts')
 @Controller('platform-admin/ai/prompts')
 export class PromptsController {
   constructor(private readonly prompts: PromptsService) {}

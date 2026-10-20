@@ -16,6 +16,9 @@ export * from './endpoints/automation';
 export * from './endpoints/chatbot';
 export * from './endpoints/billing';
 export * from './endpoints/manageSettings';
+export * from './endpoints/commerce';
+export * from './endpoints/analytics';
+export * from './endpoints/tasks';
 
 import type { AxiosInstance } from 'axios';
 import type { ApiClientConfig } from './types';
@@ -29,13 +32,16 @@ import { createNotificationsApi } from './endpoints/notifications';
 import { createMediaApi } from './endpoints/media';
 import { createTemplatesApi } from './endpoints/templates';
 import { createWorkspaceApi, createTenantApi } from './endpoints/workspace';
-import { createAiApi, createKnowledgeBaseApi } from './endpoints/ai';
+import { createAiApi, createKnowledgeBaseApi, createAiExecutionsApi, createAiLearningApi } from './endpoints/ai';
 import { createChannelsApi } from './endpoints/channels';
 import { createCallsApi } from './endpoints/calls';
 import { createAutomationApi } from './endpoints/automation';
 import { createChatbotFlowsApi } from './endpoints/chatbot';
 import { createBillingApi } from './endpoints/billing';
 import { createManageSettingsApi } from './endpoints/manageSettings';
+import { createCommerceProductsApi, createCommerceOrdersApi } from './endpoints/commerce';
+import { createAnalyticsApi } from './endpoints/analytics';
+import { createInternalTasksApi } from './endpoints/tasks';
 
 export interface VerzChatApiClient {
   http: AxiosInstance;
@@ -58,6 +64,12 @@ export interface VerzChatApiClient {
   chatbotFlows: ReturnType<typeof createChatbotFlowsApi>;
   billing: ReturnType<typeof createBillingApi>;
   manageSettings: ReturnType<typeof createManageSettingsApi>;
+  commerceProducts: ReturnType<typeof createCommerceProductsApi>;
+  commerceOrders: ReturnType<typeof createCommerceOrdersApi>;
+  analytics: ReturnType<typeof createAnalyticsApi>;
+  aiExecutions: ReturnType<typeof createAiExecutionsApi>;
+  aiLearning: ReturnType<typeof createAiLearningApi>;
+  internalTasks: ReturnType<typeof createInternalTasksApi>;
 }
 
 export function createVerzChatApi(config: ApiClientConfig): VerzChatApiClient {
@@ -83,5 +95,11 @@ export function createVerzChatApi(config: ApiClientConfig): VerzChatApiClient {
     chatbotFlows: createChatbotFlowsApi(http),
     billing: createBillingApi(http),
     manageSettings: createManageSettingsApi(http),
+    commerceProducts: createCommerceProductsApi(http),
+    commerceOrders: createCommerceOrdersApi(http),
+    analytics: createAnalyticsApi(http),
+    aiExecutions: createAiExecutionsApi(http),
+    aiLearning: createAiLearningApi(http),
+    internalTasks: createInternalTasksApi(http),
   };
 }

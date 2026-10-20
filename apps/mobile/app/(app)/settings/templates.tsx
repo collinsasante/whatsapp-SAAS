@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../../src/lib/api';
 import { TemplateStatus, TemplateCategory } from '@whatsapp-platform/shared-types';
+import { useAppTheme } from '../../../src/theme/useAppTheme';
 
 const STATUS_COLORS: Record<string, string> = {
   [TemplateStatus.APPROVED]: '#25D366',
@@ -40,6 +41,7 @@ interface Template {
 }
 
 export default function TemplatesScreen() {
+  const { colors } = useAppTheme();
   const [search, setSearch] = useState('');
 
   const { data, isLoading, isRefetching, refetch } = useQuery({
@@ -56,18 +58,18 @@ export default function TemplatesScreen() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={['top']}>
-      <View className="px-4 py-3 border-b border-white/5">
+    <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>
+      <View className="px-4 py-3 border-b border-light-border dark:border-white/5">
         <View className="flex-row items-center mb-3">
           <TouchableOpacity onPress={() => router.back()} className="mr-3 p-1" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Ionicons name="chevron-back" size={22} color="#25D366" />
           </TouchableOpacity>
-          <Text className="text-white font-semibold text-base flex-1">Templates</Text>
+          <Text className="text-light-text-primary dark:text-white font-semibold text-base flex-1">Templates</Text>
         </View>
         <TextInput
-          className="bg-surface-card border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm"
+          className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-2.5 text-light-text-primary dark:text-white text-sm"
           placeholder="Search templates..."
-          placeholderTextColor="rgba(255,255,255,0.3)"
+          placeholderTextColor={colors.textDisabled}
           value={search}
           onChangeText={setSearch}
         />
@@ -88,8 +90,8 @@ export default function TemplatesScreen() {
           renderItem={({ item }) => <TemplateCard template={item} />}
           ListEmptyComponent={
             <View className="flex-1 items-center justify-center">
-              <Ionicons name="document-text-outline" size={48} color="rgba(255,255,255,0.15)" style={{ marginBottom: 12 }} />
-              <Text className="text-white/30 text-base font-medium">
+              <Ionicons name="document-text-outline" size={48} color={colors.border} style={{ marginBottom: 12 }} />
+              <Text className="text-light-text-disabled dark:text-white/30 text-base font-medium">
                 {search ? 'No templates match' : 'No templates yet'}
               </Text>
             </View>
@@ -107,12 +109,12 @@ function TemplateCard({ template }: { template: Template }) {
 
   return (
     <TouchableOpacity
-      className="bg-surface-card rounded-2xl border border-white/5 p-4"
+      className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-4"
       onPress={() => setExpanded((v) => !v)}
       activeOpacity={0.8}
     >
       <View className="flex-row items-start justify-between mb-2">
-        <Text className="text-white font-semibold text-sm flex-1 mr-2" numberOfLines={1}>
+        <Text className="text-light-text-primary dark:text-white font-semibold text-sm flex-1 mr-2" numberOfLines={1}>
           {template.name}
         </Text>
         <View
@@ -134,22 +136,22 @@ function TemplateCard({ template }: { template: Template }) {
             {template.category}
           </Text>
         </View>
-        <View className="px-2 py-0.5 bg-white/5 rounded-full">
-          <Text className="text-white/40 text-[10px]">{(template.language ?? '').toUpperCase()}</Text>
+        <View className="px-2 py-0.5 bg-light-elevated dark:bg-white/5 rounded-full">
+          <Text className="text-light-text-muted dark:text-white/40 text-[10px]">{(template.language ?? '').toUpperCase()}</Text>
         </View>
       </View>
 
       {template.header && (
-        <Text className="text-white/50 text-xs font-semibold mb-1">{template.header}</Text>
+        <Text className="text-light-text-muted dark:text-white/50 text-xs font-semibold mb-1">{template.header}</Text>
       )}
       <Text
-        className="text-white/70 text-xs leading-4"
+        className="text-light-text-secondary dark:text-white/70 text-xs leading-4"
         numberOfLines={expanded ? undefined : 2}
       >
         {template.body}
       </Text>
       {template.footer && expanded && (
-        <Text className="text-white/30 text-xs mt-1 italic">{template.footer}</Text>
+        <Text className="text-light-text-disabled dark:text-white/30 text-xs mt-1 italic">{template.footer}</Text>
       )}
       {!expanded && (template.body?.length ?? 0) > 80 && (
         <Text className="text-green text-xs mt-1">tap to expand</Text>

@@ -1,5 +1,9 @@
 'use client';
 import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import { channelHasCustomerServiceWindow } from '@/lib/customer-service-window';
+import { channelKindOf, matchesExplicitFilters, serverStatusParam } from '@/lib/inbox-search';
+import { overlayLiveConversations } from '@/lib/inbox-merge';
+import { ChannelBadge, CHANNEL_LABELS } from './ChannelBadge';
 import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn, formatMessageTime, getInitials } from '@/lib/utils';
@@ -7,6 +11,7 @@ import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import toast from 'react-hot-toast';
+import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
 
 interface Conversation {
   id: string;
@@ -53,11 +58,14 @@ const STATUS_FILTERS = [
   { key: 'RESOLVED', label: 'Resolved' },
 ];
 
+// Keys are the stored Channel.type values, so the filter can never drift from the data. (The Messenger key was
+// 'MESSENGER' while conversations carry 'FACEBOOK_MESSENGER', so that filter never matched anything.)
 const CHANNEL_FILTERS = [
   { key: 'All', label: 'All' },
-  { key: 'WHATSAPP', label: 'WhatsApp' },
-  { key: 'MESSENGER', label: 'Messenger' },
-  { key: 'INSTAGRAM', label: 'Instagram' },
+  { key: 'WHATSAPP', label: CHANNEL_LABELS.WHATSAPP },
+  { key: 'WHATSAPP_WEB', label: CHANNEL_LABELS.WHATSAPP_WEB },
+  { key: 'FACEBOOK_MESSENGER', label: CHANNEL_LABELS.FACEBOOK_MESSENGER },
+  { key: 'INSTAGRAM', label: CHANNEL_LABELS.INSTAGRAM },
 ];
 
 const PREVIEW_RE = /__([^_\n]+)__|~([^~\n]+)~|\*([^*\n]+)\*|_([^_\n]+)_/g;
@@ -80,35 +88,6 @@ function renderPreviewText(text: string): React.ReactNode {
   if (parts.length === 0) return s;
   if (parts.length === 1) return parts[0];
   return <>{parts}</>;
-}
-
-function ConvChannelBadge({ channelType }: { channelType?: string }) {
-  const type = (channelType ?? 'WHATSAPP').toUpperCase();
-  if (type === 'MESSENGER' || type === 'FACEBOOK_MESSENGER') {
-    return (
-      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white">
-        <svg className="w-2.5 h-2.5 text-white fill-current" viewBox="0 0 24 24">
-          <path d="M12 2C6.477 2 2 6.145 2 11.259c0 2.906 1.408 5.501 3.604 7.21V22l3.29-1.813C10.012 20.38 10.985 20.52 12 20.52c5.523 0 10-4.147 10-9.261C22 6.145 17.523 2 12 2zm1.05 12.474l-2.549-2.718-4.974 2.718 5.467-5.804 2.612 2.718 4.911-2.718-5.467 5.804z" />
-        </svg>
-      </div>
-    );
-  }
-  if (type === 'INSTAGRAM') {
-    return (
-      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center border-2 border-white overflow-hidden" style={{ background: 'radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%)' }}>
-        <svg className="w-2.5 h-2.5 text-white fill-current" viewBox="0 0 24 24">
-          <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
-        </svg>
-      </div>
-    );
-  }
-  return (
-    <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center border-2 border-white">
-      <svg className="w-2.5 h-2.5 text-white fill-current" viewBox="0 0 24 24">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
-      </svg>
-    </div>
-  );
 }
 
 const AVATAR_COLORS = [
@@ -196,7 +175,7 @@ const ConvRow = memo(function ConvRow({
   };
 
   if (!conv.contact) return null;
-  const name = conv.contact.name ?? conv.contact.phone;
+  const name = contactDisplayName(conv.contact);
   const lastMsg = conv.messages?.[0];
   const avatarColor = getAvatarColor(name);
   return (
@@ -242,7 +221,7 @@ const ConvRow = memo(function ConvRow({
               ? <img src={conv.contact.avatarUrl} alt={name} className="w-10 h-10 rounded-full object-cover" />
               : getInitials(name)}
           </div>
-          <ConvChannelBadge channelType={conv.channel?.type} />
+          <ChannelBadge channelType={conv.channel?.type} />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -351,6 +330,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   const importFileRef = useRef<HTMLInputElement>(null);
   const [searchResults, setSearchResults] = useState<Conversation[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [resolvedConversations, setResolvedConversations] = useState<Conversation[]>([]);
   const [resolvedLoading, setResolvedLoading] = useState(false);
   const [requestedConversations, setRequestedConversations] = useState<Conversation[]>([]);
@@ -406,17 +386,27 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   }, []);
 
   useEffect(() => {
-    if (!search.trim()) { setSearchResults([]); setSearchLoading(false); return; }
+    if (!search.trim()) { setSearchResults([]); setSearchLoading(false); setSearchError(false); return; }
     setSearchLoading(true);
+    // `cancelled` makes the latest search win: a slower response for an older term (or one that
+    // lands after the box was cleared) must never overwrite newer results.
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const res = await conversationsApi.list({ search: search.trim(), limit: 100, status: statusFilter !== 'All' ? statusFilter : undefined });
-        const data = (res.data as { data: Conversation[] }).data;
-        setSearchResults(data);
-      } catch { /* silent */ }
-      finally { setSearchLoading(false); }
+        const res = await conversationsApi.list({ search: search.trim(), limit: 100, status: serverStatusParam(statusFilter) });
+        if (cancelled) return;
+        setSearchResults((res.data as { data: Conversation[] }).data);
+        setSearchError(false);
+      } catch (err) {
+        if (cancelled) return;
+        console.error('[inbox] conversation search failed', err instanceof Error ? err.message : err);
+        setSearchResults([]);
+        setSearchError(true);
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
     }, 350);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [search, statusFilter]);
 
   const openCompose = useCallback(async () => {
@@ -462,11 +452,16 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     }
   };
 
-  const sourceConversations = statusFilter === 'RESOLVED'
-    ? resolvedConversations
-    : statusFilter === 'REQUESTED'
-      ? requestedConversations
-      : conversations;
+  // The Resolved and Requests tabs fetch a snapshot; overlay the live store so new customer messages, unread
+  // badges and reopened chats show up there too.
+  const sourceConversations = useMemo(
+    () => statusFilter === 'RESOLVED'
+      ? overlayLiveConversations(resolvedConversations, conversations, 'RESOLVED')
+      : statusFilter === 'REQUESTED'
+        ? overlayLiveConversations(requestedConversations, conversations, 'REQUESTED')
+        : conversations,
+    [statusFilter, resolvedConversations, requestedConversations, conversations],
+  );
 
   const TWENTY_FOUR_HOURS = 24 * 3600 * 1000;
 
@@ -477,7 +472,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         if (!c.contact) return false;
         // Hide expired (24h session elapsed) conversations from the default "All" view only —
         // an explicit tab like Requests must still surface stale unactioned conversations.
-        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED') {
+        if (statusFilter === 'All' && c.lastInboundAt && c.status !== 'RESOLVED' && channelHasCustomerServiceWindow(c.channel?.type)) {
           const elapsed = now - new Date(c.lastInboundAt).getTime();
           if (elapsed > TWENTY_FOUR_HOURS) return false;
         }
@@ -486,14 +481,14 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           const resolvedTime = c.resolvedAt ? new Date(c.resolvedAt).getTime() : (c.lastMessageAt ? new Date(c.lastMessageAt).getTime() : 0);
           if (now - resolvedTime > TWENTY_FOUR_HOURS) return false;
         }
-        const name = c.contact.name ?? c.contact.phone;
-        const matchesSearch = name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
+        const name = contactDisplayName(c.contact);
+        const matchesSearch = contactMatchesSearch(c.contact, search);
         const matchesStatus = statusFilter === 'All'
           ? (c.status !== 'RESOLVED' && (c.status !== 'INTERVENED' || c.assignedTo?.id === currentUserId))
           : statusFilter === 'UNREPLIED'
             ? c.status !== 'RESOLVED'
             : c.status === statusFilter;
-        const matchesChannel = channelFilter === 'All' || (c.channel?.type?.toUpperCase() ?? 'WHATSAPP') === channelFilter;
+        const matchesChannel = channelFilter === 'All' || channelKindOf(c.channel?.type) === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
         // Pending tab: show all agents' unreplied chats regardless of assignment
         const matchesMember = statusFilter === 'UNREPLIED'
@@ -507,8 +502,8 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
   }, [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
 
   const filteredContacts = contacts.filter((c) => {
-    const name = c.name ?? c.phone;
-    return name.toLowerCase().includes(contactSearch.toLowerCase()) || c.phone.includes(contactSearch);
+    const name = contactDisplayName(c);
+    return contactMatchesSearch(c, contactSearch);
   });
 
   // Groups of INTERVENED conversations from other agents, shown below main list when in "All" tab
@@ -522,13 +517,13 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       if (!c.assignedTo) return false;
       if (c.assignedTo.id === currentUserId) return false;
       if (!c.contact) return false;
-      if (c.lastInboundAt) {
+      if (c.lastInboundAt && channelHasCustomerServiceWindow(c.channel?.type)) {
         const elapsed = now - new Date(c.lastInboundAt).getTime();
         if (elapsed > TWENTY_FOUR_HOURS) return false;
       }
       if (search.trim()) {
-        const name = c.contact.name ?? c.contact.phone;
-        if (!name.toLowerCase().includes(search.toLowerCase()) && !c.contact.phone.includes(search)) return false;
+        const name = contactDisplayName(c.contact);
+        if (!contactMatchesSearch(c.contact, search)) return false;
       }
       return true;
     });
@@ -739,13 +734,15 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-600" />
           </div>
         ) : (() => {
-          const displayList = search.trim() ? searchResults : filtered;
+          const displayList = search.trim()
+            ? searchResults.filter((c) => matchesExplicitFilters(c, { channelFilter, labelFilter, memberFilter }))
+            : filtered;
           const hasMain = displayList.length > 0;
           const hasGroups = intervenedGroups.length > 0;
 
           if (!hasMain && !hasGroups) return (
             <div className="flex flex-col items-center justify-center h-32 gap-3 text-gray-400 text-sm">
-              <p>{search.trim() && !searchLoading ? `No results for "${search}"` : 'No conversations found'}</p>
+              <p>{search.trim() && !searchLoading ? (searchError ? "Search failed. Check your connection and try again." : `No results for "${search}"`) : 'No conversations found'}</p>
               {!search && (
                 <button onClick={() => { void openCompose(); }} className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium">
                   <Plus size={13} /> New conversation
@@ -849,7 +846,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                   <p className="text-center text-sm text-gray-400 py-4">No contacts found</p>
                 ) : (
                   filteredContacts.map((c) => {
-                    const cName = c.name ?? c.phone;
+                    const cName = contactDisplayName(c);
                     return (
                       <button
                         key={c.id}

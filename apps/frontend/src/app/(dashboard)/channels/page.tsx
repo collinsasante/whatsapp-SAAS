@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   Search, X, CheckCircle2, AlertCircle, RefreshCw, Clock,
   Settings, ChevronDown, Radio, Zap, Activity, Shield,
-  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert, Copy,
+  Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert, Copy, Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { channelsApi, facebookPagesApi, whatsappWebApi, tenantApi } from '@/lib/api';
@@ -79,12 +79,12 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400',
     btnClass: 'bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 hover:opacity-90 text-white',
     btnLabel: 'Continue with Instagram',
-    features: ['Account connection available now', 'DM inbox — coming soon', 'Story & comment tools — coming soon'],
+    features: ['Account connection available now', 'DM inbox, coming soon', 'Story & comment tools, coming soon'],
   },
   {
     id: 'tiktok',
     name: 'TikTok',
-    description: "Connect your TikTok account now to verify it. Business Messaging requires TikTok's own platform approval, which isn't complete yet — connecting today only verifies your account, it doesn't yet enable sending or receiving DMs.",
+    description: "Connect your TikTok account now to verify it. Business Messaging requires TikTok's own platform approval, which isn't complete yet, connecting today only verifies your account, it doesn't yet enable sending or receiving DMs.",
     badge: 'Beta',
     connectType: 'oauth',
     oauthProvider: 'tiktok',
@@ -92,7 +92,7 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-slate-900',
     btnClass: 'bg-slate-900 hover:bg-slate-800 text-white',
     btnLabel: 'Continue with TikTok',
-    features: ['Account verification available now', 'Business Messaging — pending TikTok approval', 'DM automation — not yet available'],
+    features: ['Account verification available now', 'Business Messaging, pending TikTok approval', 'DM automation, not yet available'],
   },
   {
     id: 'telegram',
@@ -104,19 +104,19 @@ const CHANNELS: ChannelDef[] = [
     accentBg: 'bg-sky-500',
     btnClass: 'bg-sky-500 hover:bg-sky-600 text-white',
     btnLabel: 'Connect Bot',
-    features: ['Bot token verified on connect', 'Message inbox — coming soon', 'Automation & routing — coming soon'],
+    features: ['Bot token verified on connect', 'Message inbox, coming soon', 'Automation & routing, coming soon'],
   },
   {
     id: 'whatsapp-web',
     name: 'WhatsApp via QR',
-    description: 'Link a personal WhatsApp number by scanning a QR code, like WhatsApp Web. Unofficial and against WhatsApp\'s Terms of Service — the linked number can be banned by WhatsApp at any time, with no recourse.',
+    description: 'Link a personal WhatsApp number by scanning a QR code, like WhatsApp Web. Unofficial and against WhatsApp\'s Terms of Service, the linked number can be banned by WhatsApp at any time, with no recourse.',
     badge: 'Beta',
     connectType: 'qr',
     accentClass: 'border-l-amber-500',
     accentBg: 'bg-gradient-to-br from-emerald-500 to-teal-600',
     btnClass: 'bg-gray-900 hover:bg-black text-white',
     btnLabel: 'Connect via QR Code',
-    features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial — real ban risk, no SLA'],
+    features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial, real ban risk, no SLA'],
   },
 ];
 
@@ -375,7 +375,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <ChannelIcon ch={waDef} size="lg" />
             <div>
               <h2 className="text-base font-bold text-gray-900">Connect WhatsApp Business API</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Step {step === 'webhook' ? '1' : '2'} of 2 — {step === 'webhook' ? 'Configure your webhook' : 'Enter your credentials'}</p>
+              <p className="text-xs text-gray-500 mt-0.5">Step {step === 'webhook' ? '1' : '2'} of 2: {step === 'webhook' ? 'Configure your webhook' : 'Enter your credentials'}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
@@ -409,7 +409,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 px-3 py-2.5 rounded-xl border border-amber-200">
               <AlertCircle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
               <span>
-                Easy to miss: each phone number also needs its own one-time subscribe call —
+                Easy to miss: each phone number also needs its own one-time subscribe call
                 <code className="bg-amber-100 px-1 rounded mx-1">POST /&#123;phone-number-id&#125;/subscribed_apps</code>
                 with your access token. Configuring the webhook alone isn&apos;t enough.
               </span>
@@ -761,6 +761,26 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
   useEffect(() => {
     if (!sessionId) return;
     const socket = getSocket();
+    // Guards a late GET /status response from overwriting a newer state the
+    // socket already pushed in the meantime (e.g. the fetch was in flight
+    // when a real 'connected' event arrived) -- always trust the freshest
+    // known state, never let a slower, older read win.
+    let cancelled = false;
+
+    const applyStatus = (status: string, phoneNumber?: string) => {
+      if (status === 'CONNECTED') {
+        setPhoneNumber(phoneNumber ?? null);
+        setStep('connected');
+        toast.success('WhatsApp connected!');
+        onConnected();
+      } else if (status === 'QR_EXPIRED') {
+        setErrorMsg('This QR code expired before it was scanned. Please try again to get a new one.');
+        setStep('error');
+      } else if (status === 'ERROR' || status === 'LOGGED_OUT') {
+        setErrorMsg('The connection failed or was closed before pairing finished. Please try again.');
+        setStep('error');
+      }
+    };
 
     const onQr = (data: { sessionId: string; qrDataUrl: string }) => {
       if (data.sessionId !== sessionId) return;
@@ -769,25 +789,44 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
     };
     const onStatus = (data: { sessionId: string; status: string; phoneNumber?: string }) => {
       if (data.sessionId !== sessionId) return;
-      if (data.status === 'CONNECTED') {
-        setPhoneNumber(data.phoneNumber ?? null);
-        setStep('connected');
-        toast.success('WhatsApp connected!');
-        onConnected();
-      } else if (data.status === 'QR_EXPIRED') {
-        setErrorMsg('This QR code expired before it was scanned. Please try again to get a new one.');
-        setStep('error');
-      } else if (data.status === 'ERROR' || data.status === 'LOGGED_OUT') {
-        setErrorMsg('The connection failed or was closed before pairing finished. Please try again.');
-        setStep('error');
+      applyStatus(data.status, data.phoneNumber);
+    };
+
+    // Socket.IO does not replay missed room broadcasts to a socket that
+    // (re)connects after an event was published -- so a client whose socket
+    // was mid-reconnect at the exact moment the one-shot 'qr'/'status' push
+    // happened would otherwise just spin on the loading screen forever,
+    // with no recovery short of closing and reopening the modal (which
+    // starts an entirely new session rather than resuming this one).
+    // Pulling the current state explicitly -- once now, and again on every
+    // socket (re)connect -- closes that gap using the same GET endpoint the
+    // "disclosure"/"qr" steps already have no other reason to call.
+    const syncCurrentState = async () => {
+      try {
+        const res = await whatsappWebApi.getStatus(sessionId);
+        if (cancelled) return;
+        const data = res.data as { status: string; phoneNumber?: string; qrDataUrl?: string };
+        if (data.status === 'QR_PENDING' && data.qrDataUrl) {
+          setQrDataUrl(data.qrDataUrl);
+          setStep('qr');
+        } else if (data.status !== 'QR_PENDING') {
+          applyStatus(data.status, data.phoneNumber);
+        }
+      } catch {
+        // Best-effort catch-up only -- the socket push remains the primary
+        // path and a failed poll shouldn't itself surface an error.
       }
     };
 
+    void syncCurrentState();
     socket.on(SocketEvent.WHATSAPP_WEB_QR, onQr);
     socket.on(SocketEvent.WHATSAPP_WEB_STATUS, onStatus);
+    socket.on('connect', syncCurrentState);
     return () => {
+      cancelled = true;
       socket.off(SocketEvent.WHATSAPP_WEB_QR, onQr);
       socket.off(SocketEvent.WHATSAPP_WEB_STATUS, onStatus);
+      socket.off('connect', syncCurrentState);
     };
   }, [sessionId, onConnected]);
 
@@ -815,7 +854,7 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
                 <p className="font-semibold">This is not the official WhatsApp Business API.</p>
                 <p className="text-amber-800 leading-relaxed">
                   It links your personal WhatsApp number the same way WhatsApp Web does. This works outside
-                  WhatsApp&rsquo;s Terms of Service for businesses — WhatsApp can ban the linked number at any time,
+                  WhatsApp&rsquo;s Terms of Service for businesses: WhatsApp can ban the linked number at any time,
                   without warning and with no recourse. Use a number you can afford to lose.
                 </p>
               </div>
@@ -823,8 +862,8 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">What happens next</p>
               {[
-                'A QR code appears below — open WhatsApp on your phone, go to Linked Devices, and scan it',
-                'Once linked, incoming messages arrive in this same inbox — same AI, automation, and team routing',
+                'A QR code appears below, open WhatsApp on your phone, go to Linked Devices, and scan it',
+                'Once linked, incoming messages arrive in this same inbox, same AI, automation, and team routing',
                 'You can disconnect or fully log out this number at any time from the Channels page',
               ].map(p => (
                 <div key={p} className="flex items-start gap-2.5">
@@ -839,7 +878,7 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
               onClick={() => { void handleStart(); }}
               className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-gray-900 hover:bg-black text-white transition-all"
             >
-              I understand the risks — show me a QR code
+              I understand the risks, show me a QR code
             </button>
             <button onClick={onClose} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium">Cancel</button>
           </div>
@@ -925,6 +964,17 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
     } finally { setBusyId(null); }
   };
 
+  const handleReconnect = async (sessionId: string) => {
+    setBusyId(sessionId);
+    try {
+      await whatsappWebApi.reconnect(sessionId);
+      toast.success('Reconnecting -- this may take a few seconds.');
+      onChanged();
+    } catch {
+      toast.error('Failed to reconnect. You may need to scan a new QR code instead.');
+    } finally { setBusyId(null); }
+  };
+
   const handleLogout = async (sessionId: string) => {
     if (!window.confirm('Log out this number? You\'ll need to scan a new QR code to reconnect it.')) return;
     setBusyId(sessionId);
@@ -933,6 +983,17 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
       onChanged();
     } catch {
       toast.error('Failed to log out this number.');
+    } finally { setBusyId(null); }
+  };
+
+  const handleDelete = async (channelId: string) => {
+    if (!window.confirm('Permanently remove this number from your list? This cannot be undone. Past conversation history is kept.')) return;
+    setBusyId(channelId);
+    try {
+      await channelsApi.delete(channelId);
+      onChanged();
+    } catch {
+      toast.error('Failed to delete this number.');
     } finally { setBusyId(null); }
   };
 
@@ -961,6 +1022,10 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
           const meta = WA_WEB_STATUS_META[s.whatsappWebStatus ?? 'ERROR'];
           const isConnected = s.whatsappWebStatus === 'CONNECTED';
           const canReconnectLater = s.whatsappWebStatus === 'CONNECTED' || s.whatsappWebStatus === 'RECONNECTING';
+          // RECONNECTING only ever means "disconnected, waiting to be resumed" --
+          // nothing in the backend auto-resumes it, so without this button it
+          // was a permanent dead end (see reconnectSession() for the full story).
+          const isDisconnected = s.whatsappWebStatus === 'RECONNECTING';
           return (
             <div key={s.id} className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors', isConnected ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100')}>
               <LiveDot color={meta.dot} />
@@ -980,6 +1045,15 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
                 <p className="text-xs text-gray-400 mt-0.5">{s.lastError ? s.lastError : 'Unofficial linked device'}</p>
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                {isDisconnected && (
+                  <button
+                    onClick={() => { void handleReconnect(s.sessionId!); }}
+                    disabled={busyId === s.sessionId}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
+                  >
+                    <Power size={12} /> Reconnect
+                  </button>
+                )}
                 {canReconnectLater && (
                   <button
                     onClick={() => { void handleDisconnect(s.sessionId!); }}
@@ -999,12 +1073,21 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
                   </button>
                 )}
                 {!canReconnectLater && (
-                  <button
-                    onClick={onConnectMore}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors"
-                  >
-                    <QrCode size={12} /> Scan again
-                  </button>
+                  <>
+                    <button
+                      onClick={onConnectMore}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-teal-600 hover:bg-teal-50 transition-colors"
+                    >
+                      <QrCode size={12} /> Scan again
+                    </button>
+                    <button
+                      onClick={() => { void handleDelete(s.id); }}
+                      disabled={busyId === s.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </>
                 )}
               </div>
             </div>

@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
+import type { ColorValue } from 'react-native';
 import { Tabs, Redirect, router, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getPermissions, type Permissions } from '@whatsapp-platform/auth';
 import { useAuthStore } from '../../src/store/auth.store';
+import { useAppTheme } from '../../src/theme/useAppTheme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -13,7 +15,7 @@ function TabIcon({
 }: {
   name: IoniconName;
   focused: boolean;
-  color: string;
+  color: ColorValue;
 }) {
   return <Ionicons name={focused ? name : (`${name}-outline` as IoniconName)} size={22} color={color} />;
 }
@@ -40,6 +42,7 @@ export default function AppLayout() {
   const isReady = useAuthStore((s) => s.isReady);
   const role = useAuthStore((s) => s.user?.role);
   const pathname = usePathname();
+  const { colors, isDark } = useAppTheme();
 
   const permissions = getPermissions(role);
 
@@ -62,23 +65,23 @@ export default function AppLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#161b22',
-          borderTopColor: 'rgba(255,255,255,0.07)',
+          backgroundColor: colors.card,
+          borderTopColor: colors.border,
           borderTopWidth: 1,
           paddingBottom: 4,
           height: 60,
         },
         tabBarActiveTintColor: '#25D366',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.4)',
+        tabBarInactiveTintColor: isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted,
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon name="grid" focused={focused} color={color} />
+            <TabIcon name="home" focused={focused} color={color} />
           ),
         }}
       />
@@ -101,16 +104,6 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
-        name="campaigns"
-        options={{
-          title: 'Campaigns',
-          href: permissions.showCampaigns ? undefined : null,
-          tabBarIcon: ({ focused, color }) => (
-            <TabIcon name="megaphone" focused={focused} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
@@ -119,8 +112,19 @@ export default function AppLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'More',
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon name="ellipsis-horizontal-circle" focused={focused} color={color} />
+          ),
+        }}
+      />
 
-      {/* Hidden screens — navigated from Settings, not shown in tab bar */}
+      {/* Hidden screens — navigated from Settings/More, not shown in tab bar */}
+      <Tabs.Screen name="campaigns" options={{ href: null }} />
+      <Tabs.Screen name="commerce" options={{ href: null }} />
       <Tabs.Screen name="channels" options={{ href: null }} />
       <Tabs.Screen name="calls" options={{ href: null }} />
       <Tabs.Screen name="library" options={{ href: null }} />
@@ -129,6 +133,7 @@ export default function AppLayout() {
       <Tabs.Screen name="chatbot" options={{ href: null }} />
       <Tabs.Screen name="analytics" options={{ href: null }} />
       <Tabs.Screen name="billing" options={{ href: null }} />
+      <Tabs.Screen name="tasks" options={{ href: null }} />
     </Tabs>
   );
 }

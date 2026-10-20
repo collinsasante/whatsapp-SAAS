@@ -1,15 +1,20 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { User, Mail, Lock, Shield, CheckCircle, AlertCircle, Eye, EyeOff, Camera, KeyRound } from 'lucide-react';
+import { User, Mail, Lock, Shield, CheckCircle, AlertCircle, Eye, EyeOff, Camera, KeyRound, Hash, Copy, Check } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { copyText } from '@/lib/clipboard';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi, mediaApi } from '@/lib/api';
 import { UserRole } from '@whatsapp-platform/shared-types';
+import { userRoleToWorkspaceRole, workspaceRoleDescription, workspaceRoleLabel } from '@/lib/workspace-role';
 
-const ROLE_LABELS: Record<UserRole, { label: string; color: string }> = {
-  [UserRole.SUPER_ADMIN]: { label: 'Super Admin', color: 'bg-purple-100 text-purple-700' },
-  [UserRole.ADMIN]:       { label: 'Admin',        color: 'bg-blue-100 text-blue-700' },
-  [UserRole.AGENT]:       { label: 'Agent',        color: 'bg-teal-100 text-teal-700' },
-  [UserRole.VIEWER]:      { label: 'Viewer',       color: 'bg-gray-100 text-gray-600' },
+const WORKSPACE_ROLE_COLORS: Record<string, string> = {
+  OWNER: 'bg-orange-100 text-orange-700',
+  ADMIN: 'bg-blue-100 text-blue-700',
+  MANAGER: 'bg-indigo-100 text-indigo-700',
+  AGENT: 'bg-teal-100 text-teal-700',
+  ANALYST: 'bg-cyan-100 text-cyan-700',
+  VIEWER: 'bg-gray-100 text-gray-600',
 };
 
 type AlertState = { type: 'success' | 'error'; message: string } | null;
@@ -28,7 +33,38 @@ function Alert({ state }: { state: AlertState }) {
 }
 
 export default function AccountPage() {
-  const { user, updateUser } = useAuthStore();
+  const { user, tenant, updateUser } = useAuthStore();
+  const [idCopied, setIdCopied] = useState(false);
+  // The ID of the workspace this session is signed in to (set by the server at sign-in, never typed by the user).
+  // Older persisted sessions may lack the tenant, so fall back to the user's tenantId and then to the server.
+  const [fetchedId, setFetchedId] = useState<string | null>(null);
+  const storedId = tenant?.id || user?.tenantId || null;
+  const workspaceId = storedId || fetchedId;
+
+  useEffect(() => {
+    if (storedId) return;
+    let cancelled = false;
+    authApi.getMe()
+      .then((res) => {
+        const body = res.data?.data ?? res.data;
+        const id = body?.tenant?.id;
+        if (!cancelled && typeof id === 'string' && id) setFetchedId(id);
+      })
+      .catch((error: unknown) => console.error('Failed to load workspace id', error));
+    return () => { cancelled = true; };
+  }, [storedId]);
+
+  const handleCopyWorkspaceId = async () => {
+    if (!workspaceId) return;
+    const ok = await copyText(workspaceId);
+    if (ok) {
+      setIdCopied(true);
+      toast.success('Workspace ID copied');
+      setTimeout(() => setIdCopied(false), 2000);
+    } else {
+      toast.error('Could not copy. Select the ID and copy it manually.');
+    }
+  };
 
   // Profile form
   const [name, setName] = useState(user?.name ?? '');
@@ -61,7 +97,11 @@ export default function AccountPage() {
     ? user.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
     : '?';
 
-  const roleInfo = user?.role ? ROLE_LABELS[user.role] : null;
+  // The workspace role (Owner, Manager, ...) is what the person actually holds; the coarse role only drives routing.
+  const workspaceRole = user?.workspaceRole ?? (user?.role ? userRoleToWorkspaceRole(user.role) : undefined);
+  const roleInfo = workspaceRole
+    ? { label: workspaceRoleLabel(workspaceRole), color: WORKSPACE_ROLE_COLORS[workspaceRole] ?? 'bg-gray-100 text-gray-600' }
+    : null;
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -381,6 +421,31 @@ export default function AccountPage() {
           </form>
         </div>
 
+        {/* Workspace card */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+            <Hash size={16} className="text-teal-600" />
+            <span className="font-semibold text-gray-800">Workspace</span>
+          </div>
+          <div className="px-6 py-6 space-y-3">
+            {tenant?.name && <p className="text-sm text-gray-700">{tenant.name}</p>}
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Workspace ID</p>
+            {workspaceId ? (
+              <div className="flex items-center gap-2">
+                <code data-testid="workspace-id" className="flex-1 min-w-0 truncate bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono text-gray-800 select-all">{workspaceId}</code>
+                <button type="button" onClick={() => { void handleCopyWorkspaceId(); }} aria-label="Copy workspace ID"
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  {idCopied ? <Check size={14} className="text-teal-600" /> : <Copy size={14} />}
+                  {idCopied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Loading workspace ID...</p>
+            )}
+            <p className="text-xs text-gray-400">Share this ID with support when you ask for help with this workspace.</p>
+          </div>
+        </div>
+
         {/* Role info card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
@@ -394,10 +459,7 @@ export default function AccountPage() {
                   {roleInfo.label}
                 </span>
                 <span className="text-sm text-gray-500">
-                  {user?.role === UserRole.SUPER_ADMIN && 'Full access to all workspaces and platform settings.'}
-                  {user?.role === UserRole.ADMIN && 'Full access to this workspace including settings and billing.'}
-                  {user?.role === UserRole.AGENT && 'Can handle conversations in the inbox.'}
-                  {user?.role === UserRole.VIEWER && 'Read-only access to inbox and contacts.'}
+                  {workspaceRole && workspaceRoleDescription(workspaceRole)}
                 </span>
               </div>
             )}

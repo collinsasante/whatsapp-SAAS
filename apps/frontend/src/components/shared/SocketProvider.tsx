@@ -10,6 +10,8 @@ import { useAuthStore } from '@/store/auth.store';
 import { useCallsStore } from '@/store/calls.store';
 import { Message, MessageStatus, MessageDirection } from '@whatsapp-platform/shared-types';
 import { invalidateCannedCache } from '@/components/inbox/CannedPicker';
+import { contactDisplayName } from '@/lib/contact-display';
+import { workspaceRoleToUserRole } from '@/lib/workspace-role';
 
 const MUTE_KEY = 'notifications_muted';
 export const isMuted = () => typeof window !== 'undefined' && localStorage.getItem(MUTE_KEY) === '1';
@@ -258,7 +260,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
         // Find contact name for notifications
         const conv = conversationsRef.current.find((c) => c.id === data.conversationId);
-        const contactName = conv?.contact?.name ?? conv?.contact?.phone ?? 'New message';
+        const contactName = contactDisplayName(conv?.contact, undefined, 'New message');
         const preview = data.message.content
           ? data.message.content.length > 60 ? `${data.message.content.slice(0, 60)}…` : data.message.content
           : data.message.type === 'IMAGE' ? '📷 Photo'
@@ -482,7 +484,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         // Also patch the role in the auth store immediately so role-gated UI updates without reload
         const { user: currentUser, tenant, setAuth, accessToken } = useAuthStore.getState();
         if (currentUser && currentUser.id === data.userId && accessToken) {
-          setAuth({ ...currentUser, role: data.newRole as import('@whatsapp-platform/shared-types').UserRole }, tenant!, accessToken);
+          // newRole is a workspace role name (e.g. MANAGER, OWNER). Storing it directly in `role` broke every
+          // role-gated screen, because `role` only understands the four coarse roles.
+          setAuth({ ...currentUser, role: workspaceRoleToUserRole(data.newRole), workspaceRole: data.newRole }, tenant!, accessToken);
         }
       },
     );
