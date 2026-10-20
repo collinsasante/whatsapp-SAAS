@@ -16,16 +16,21 @@ release) with the fixes and features validated on staging since. It builds on 2.
 production hotfix.
 
 ### Upgrade notes (read before deploying)
-Production now refuses unsafe configuration instead of running with it. These must be set on the backend first:
+Required on the backend (the server refuses to start, or rejects the affected traffic, without them):
 - `JWT_SECRET` and `JWT_REFRESH_SECRET`: real values. The server will not start with the placeholder defaults.
-- `WHATSAPP_APP_SECRET`: the Meta app secret for the WhatsApp app. Without it every inbound WhatsApp Cloud webhook is
-  rejected. It is newly passed through `docker-compose.yml`, so the backend container must be recreated to receive it.
-- `FACEBOOK_APP_SECRET`: Messenger webhook verification follows the same rule.
+- `FACEBOOK_APP_SECRET`: Messenger webhooks are rejected in production without a valid signature.
 - `WHATSAPP_WEB_INTERNAL_API_KEY`: internal service calls are rejected without it.
-- `RESEND_WEBHOOK_SECRET`: the inbound email webhook is rejected without it.
-- Optional: `CREDENTIALS_ENCRYPTION_KEY` (encrypts stored channel credentials and webhook secrets; back it up before
-  setting it) and `FACEBOOK_LOGIN_CONFIG_ID` / `INSTAGRAM_LOGIN_CONFIG_ID` for Meta apps that use Facebook Login for Business.
-- No database migrations. The WhatsApp Web (QR) service is not part of `deploy.sh` and must be updated separately.
+
+Recommended, not required: `WHATSAPP_APP_SECRET` (Meta app secret for the WhatsApp app) and `RESEND_WEBHOOK_SECRET`.
+Until they are set the server logs one warning per start and accepts those webhooks unsigned, exactly as before this
+release. As soon as they are set, signatures are enforced and a wrong signature is rejected. Set and test them after the
+release, not as a condition of it. `WHATSAPP_APP_SECRET` is newly passed through `docker-compose.yml`, so a recreated
+backend container receives it from `infra/.env`.
+
+Optional: `CREDENTIALS_ENCRYPTION_KEY` (encrypts stored channel credentials and webhook secrets; back it up before
+setting it) and `FACEBOOK_LOGIN_CONFIG_ID` / `INSTAGRAM_LOGIN_CONFIG_ID` for Meta apps that use Facebook Login for Business.
+
+No database migrations. The WhatsApp Web (QR) service is not part of `deploy.sh` and must be updated separately.
 
 ### Added
 - Webhooks: a signing secret is generated automatically when a webhook is created, shown once, and can be rotated.
@@ -60,7 +65,7 @@ Production now refuses unsafe configuration instead of running with it. These mu
 - Legacy AI credit charges are recorded atomically, and the prompt-injection check catches more phrasings.
 - Customers who use a WhatsApp username (Business-Scoped User ID) are accepted, so their messages are not dropped.
 - Fixed a privilege-escalation vulnerability that let a workspace member grant themselves or others a higher role than their own, including OWNER
-- Fixed WhatsApp and Facebook Messenger inbound webhook signature verification being unconfigured in production, which could allow forged inbound messages
+- Messenger inbound webhooks now require a valid signature in production, and WhatsApp and inbound email webhooks are verified as soon as their secrets are configured (a warning is logged until then), so forged inbound messages can be blocked
 - Fixed channel connection credentials (WhatsApp/Facebook access tokens) not being encrypted at rest in production
 - Fixed an unauthenticated file-upload/serve gap that could allow a stored cross-site-scripting attack via the media library
 - Removed an unrestricted image-proxy configuration that could be used to process attacker-supplied remote images
