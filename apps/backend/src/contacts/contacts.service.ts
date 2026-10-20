@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException }
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationStatus, Contact } from '@prisma/client';
 import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/contact.dto';
-import { normalizePhone, usableContactName, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
+import { isBsuid, normalizePhone, usableContactName, buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
 
 type DatePreset = 'today' | 'yesterday' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
@@ -217,7 +217,9 @@ export class ContactsService {
     const normalized = normalizePhone(phone);
     // normalizePhone('status') is just '+': a value with no digits must never become a contact
     // (this is how the WhatsApp status feed used to create phantom conversations).
-    if (!/^\+\d{5,}$/.test(normalized)) throw new BadRequestException('Invalid phone number');
+    // A Business-Scoped User ID is the one non-phone value allowed here: Meta sends it instead of a number for
+    // username-enabled customers, and rejecting it would drop their inbound messages.
+    if (!isBsuid(normalized) && !/^\+\d{5,}$/.test(normalized)) throw new BadRequestException('Invalid phone number');
     // upsert (not find-then-create) -- two concurrent inbound webhooks for the same
     // phone number can both pass a plain existence check before either commits,
     // then race on contact_tenant_id_phone_key. upsert lets Postgres resolve the

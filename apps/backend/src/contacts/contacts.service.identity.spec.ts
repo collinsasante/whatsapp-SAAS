@@ -29,6 +29,20 @@ describe('ContactsService identity rules', () => {
     expect(prisma.contact.update).not.toHaveBeenCalled();
   });
 
+  // Meta sends a Business-Scoped User ID ("CC.digits") instead of a phone number for username-enabled customers.
+  // Rejecting it here would silently drop their inbound messages (the production bug fixed in PR #84).
+  it('accepts a WhatsApp Business-Scoped User ID as the contact identity', async () => {
+    const { svc, prisma } = build();
+    await svc.findOrCreate('t1', 'GH.1115168874544553');
+    expect(prisma.contact.upsert.mock.calls[0][0].where.tenantId_phone).toEqual({ tenantId: 't1', phone: 'GH.1115168874544553' });
+  });
+
+  it.each(['status', '', 'GH.', 'GH.12ab', '+', 'not a number'])('still rejects the non-identity value %p', async (value) => {
+    const { svc, prisma } = build();
+    await expect(svc.findOrCreate('t1', value)).rejects.toThrow('Invalid phone number');
+    expect(prisma.contact.upsert).not.toHaveBeenCalled();
+  });
+
   it('keeps a real profile name', async () => {
     const { svc, prisma } = build();
     await svc.findOrCreate('t1', '+233555000111', 'Ama Mensah');
