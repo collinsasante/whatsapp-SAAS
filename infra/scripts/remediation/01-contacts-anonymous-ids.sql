@@ -18,6 +18,8 @@ SELECT c.id, c.tenant_id, c.phone, c.name,
        regexp_replace(c.phone, '\D', '', 'g') AS digits
 FROM contacts c
 WHERE c.phone IS NOT NULL
+  -- A WhatsApp Business-Scoped User ID (for example GH.1115168874544553) is a valid contact identity, not a bad phone number.
+  AND c.phone !~ '^[A-Z]{2}\.[0-9]+$'
   AND (:'tenant_id' = '' OR c.tenant_id = :'tenant_id')
   AND NOT (
     regexp_replace(c.phone, '\D', '', 'g') ~ '^[1-9][0-9]{6,14}$'
