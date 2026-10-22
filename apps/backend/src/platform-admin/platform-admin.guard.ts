@@ -3,7 +3,10 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { PrismaService } from '../prisma/prisma.service';
 import { PLATFORM_ROLES_KEY, PlatformAdminRole } from './decorators/require-platform-role.decorator';
+
+const KNOWN_ADMIN_ROLES: readonly PlatformAdminRole[] = ['SUPER_ADMIN', 'SUPPORT', 'VIEWER'];
 
 export interface PlatformAdminJwtPayload {
   sub: string;
@@ -20,9 +23,10 @@ export class PlatformAdminGuard implements CanActivate {
     private jwtService: JwtService,
     private config: ConfigService,
     private reflector: Reflector,
+    private prisma: PrismaService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AdminRequest>();
     const authHeader = request.headers['authorization'];
     if (!authHeader?.startsWith('Bearer ')) throw new UnauthorizedException('Missing admin token');
@@ -47,7 +51,19 @@ export class PlatformAdminGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    const adminRole = payload.adminRole ?? 'VIEWER';
+    // The token only proves who signed in. Whether that admin may still act, and as which role, is decided from the
+    // database on every request, so a switched-off or demoted admin loses access immediately instead of when the
+    // token expires, and a token minted anywhere else (for example by another environment sharing a secret) is useless
+    // unless this database has that admin.
+    const admin = await this.prisma.platformAdmin.findUnique({
+      where: { id: payload.sub },
+      select: { isActive: true, role: true },
+    });
+    if (!admin?.isActive) throw new UnauthorizedException('This admin account is not active');
+    const adminRole: PlatformAdminRole = KNOWN_ADMIN_ROLES.includes(admin.role as PlatformAdminRole)
+      ? (admin.role as PlatformAdminRole)
+      : 'VIEWER';
+
     if (requiredRoles?.length && !requiredRoles.includes(adminRole)) {
       throw new ForbiddenException(`This action requires one of: ${requiredRoles.join(', ')}`);
     }
