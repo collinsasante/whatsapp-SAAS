@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
+import { WhatsAppNumbersService, WebhookSubscriptionResult } from '../whatsapp-numbers/whatsapp-numbers.service';
 import { UpdateTenantDto, UpdateTenantSettingsDto } from './dto/update-tenant.dto';
 
 @Injectable()
@@ -41,18 +41,21 @@ export class TenantService {
 
     await this.prisma.tenant.update({ where: { id: tenantId }, data: rest });
 
+    let webhookSubscription: WebhookSubscriptionResult | undefined;
     if (existing) {
       const mergedPhoneNumberId = phoneNumberId ?? existing.phoneNumberId;
       const mergedWabaId = wabaId ?? existing.wabaId;
       const mergedAccessToken = accessToken ?? existing.accessToken;
       if (mergedPhoneNumberId && mergedWabaId && mergedAccessToken) {
-        await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, {
+        const saved = await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, {
           phoneNumberId: mergedPhoneNumberId, wabaId: mergedWabaId, accessToken: mergedAccessToken,
         });
+        webhookSubscription = saved.webhookSubscription;
       }
     }
 
-    return this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    return webhookSubscription ? { ...tenant, webhookSubscription } : tenant;
   }
 
   async updateSettings(tenantId: string, dto: UpdateTenantSettingsDto) {

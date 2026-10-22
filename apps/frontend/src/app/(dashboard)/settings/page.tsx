@@ -185,6 +185,18 @@ export default function SettingsPage() {
     setShowAddNumber(true);
   };
 
+  // The number is saved either way. If Meta would not set up webhook delivery, say so and say why.
+  const warnIfWebhooksNotSetUp = (saved: unknown) => {
+    const sub = (saved as { webhookSubscription?: { subscribed?: boolean; reason?: string } } | undefined)?.webhookSubscription;
+    if (sub && sub.subscribed === false) {
+      toast.error(
+        `Saved, but WhatsApp could not set up webhook delivery automatically${sub.reason ? `: ${sub.reason}` : ''}. ` +
+        'Check the token has the whatsapp_business_management permission, or subscribe the app in Meta.',
+        { duration: 10000 },
+      );
+    }
+  };
+
   const saveNumber = async () => {
     if (!numForm.label.trim() || !numForm.phoneNumberId.trim() || !numForm.wabaId.trim()) {
       toast.error('Label, Phone Number ID and WABA ID are required');
@@ -198,11 +210,13 @@ export default function SettingsPage() {
     try {
       if (editingNumber) {
         const payload = { label: numForm.label, phoneNumberId: numForm.phoneNumberId, wabaId: numForm.wabaId, ...(numForm.accessToken && { accessToken: numForm.accessToken }) };
-        await whatsappNumbersApi.update(editingNumber.id, payload);
+        const res = await whatsappNumbersApi.update(editingNumber.id, payload);
         toast.success('Number updated');
+        warnIfWebhooksNotSetUp(res.data);
       } else {
-        await whatsappNumbersApi.create({ ...numForm });
+        const res = await whatsappNumbersApi.create({ ...numForm });
         toast.success('Number added');
+        warnIfWebhooksNotSetUp(res.data);
       }
       setShowAddNumber(false);
       void loadWaNumbers();
@@ -241,8 +255,15 @@ export default function SettingsPage() {
 
   const saveWaConfig = async () => {
     setSaving(true);
-    try { await tenantApi.update(waForm); toast.success('WhatsApp configuration saved'); }
-    catch { toast.error('Failed to save configuration'); }
+    try {
+      const res = await tenantApi.update(waForm);
+      toast.success('WhatsApp configuration saved');
+      warnIfWebhooksNotSetUp(res.data);
+    }
+    catch (e: unknown) {
+      const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+      toast.error(Array.isArray(msg) ? msg.join(', ') : msg ?? 'Failed to save configuration');
+    }
     finally { setSaving(false); }
   };
 

@@ -1,4 +1,5 @@
 import {
+  Logger,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -11,6 +12,12 @@ import { CreateWhatsAppNumberDto, UpdateWhatsAppNumberDto } from './dto/whatsapp
 import { Prisma } from '@prisma/client';
 
 const GRAPH_API_BASE = 'https://graph.facebook.com/v23.0';
+
+export interface WebhookSubscriptionResult {
+  subscribed: boolean;
+  /** Meta's own explanation when subscribed is false. */
+  reason?: string;
+}
 
 // Fields never returned to the frontend -- accessToken is write-only from the
 // API's perspective (the settings/channels UI already treats it that way:
@@ -36,6 +43,8 @@ const PUBLIC_SELECT = {
 
 @Injectable()
 export class WhatsAppNumbersService {
+  private readonly logger = new Logger(WhatsAppNumbersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: CredentialsEncryptionService,
@@ -64,10 +73,9 @@ export class WhatsAppNumbersService {
       throw new ConflictException(`Phone number ID ${dto.phoneNumberId} is already registered for this workspace`);
     }
 
-    // Must happen before anything is persisted: fails fast on a bad
-    // wabaId/accessToken instead of silently storing a number that looks
-    // connected but will never actually receive any webhooks.
-    await this.subscribeAppToWaba(dto.wabaId, dto.accessToken);
+    // Best effort, and never a reason to refuse the save: a token that can send messages but is not allowed to manage
+    // webhook subscriptions must still be storable. The outcome is returned so the screen can warn the user.
+    const webhookSubscription = await this.trySubscribeAppToWaba(dto.wabaId, dto.accessToken);
 
     // First number created is auto-default
     const count = await this.prisma.whatsAppNumber.count({ where: { tenantId } });
@@ -99,7 +107,7 @@ export class WhatsAppNumbersService {
       metadata: { label: created.label, phoneNumberId: created.phoneNumberId, isDefault },
     });
 
-    return this.findOne(tenantId, created.id);
+    return { ...(await this.findOne(tenantId, created.id)), webhookSubscription };
   }
 
   async update(tenantId: string, id: string, dto: UpdateWhatsAppNumberDto, actorId?: string) {
@@ -126,15 +134,15 @@ export class WhatsAppNumbersService {
       select: PUBLIC_SELECT,
     });
 
+    let webhookSubscription: WebhookSubscriptionResult | undefined;
     if (dto.phoneNumberId !== undefined || dto.wabaId !== undefined || dto.accessToken !== undefined) {
       const full = await this.prisma.whatsAppNumber.findUniqueOrThrow({ where: { id } });
       const decryptedToken = this.encryption.decrypt(full.accessToken);
 
-      // Re-subscribe on a WABA/token change -- otherwise a number that was
-      // working can silently stop receiving webhooks after an edit (or
-      // never start, if it was never subscribed to begin with; see create()).
+      // Re-subscribe on a WABA/token change so a number that was working does not silently stop receiving webhooks after
+      // an edit. Best effort: a refusal from Meta must not stop the credentials below from being synced to the tenant.
       if (dto.wabaId !== undefined || dto.accessToken !== undefined) {
-        await this.subscribeAppToWaba(full.wabaId, decryptedToken);
+        webhookSubscription = await this.trySubscribeAppToWaba(full.wabaId, decryptedToken);
       }
 
       // Keep tenant creds in sync if this is the default number
@@ -148,7 +156,7 @@ export class WhatsAppNumbersService {
       metadata: { changes: Object.keys(dto).filter((k) => k !== 'accessToken') },
     });
 
-    return updated;
+    return webhookSubscription ? { ...updated, webhookSubscription } : updated;
   }
 
   async setDefault(tenantId: string, id: string, actorId?: string) {
@@ -250,24 +258,26 @@ export class WhatsAppNumbersService {
   }
 
   /**
-   * A correctly configured app-level webhook (Callback URL + verify token +
-   * subscribed fields, all set in the Meta Dashboard) is NOT sufficient on
-   * its own -- Meta additionally requires this app to be explicitly
-   * subscribed to each individual WABA via this endpoint before it will
-   * route that WABA's events anywhere. Without it, everything in the
-   * Dashboard can look correctly configured while zero webhooks ever
-   * arrive, with no error surfaced anywhere. Already done for Facebook
-   * Pages in ChannelsService.connectFacebookPages(); this is the same
-   * requirement for WhatsApp, just missing until now.
+   * A correctly configured app-level webhook (Callback URL + verify token + subscribed fields, all set in the Meta
+   * Dashboard) is not sufficient on its own: Meta also wants this app subscribed to each WhatsApp Business Account.
+   * This asks Meta to do that. It never throws and never logs the token. A failure is returned, not raised, because
+   * a token can be perfectly good for sending messages and still be refused here.
    */
-  private async subscribeAppToWaba(wabaId: string, accessToken: string): Promise<void> {
-    const res = await fetch(`${GRAPH_API_BASE}/${wabaId}/subscribed_apps`, {
-      method: 'POST',
-      body: new URLSearchParams({ access_token: accessToken }),
-    });
-    const data = (await res.json()) as { success?: boolean; error?: { message: string } };
-    if (!data.success) {
-      throw new BadRequestException(`Failed to subscribe this app to WhatsApp Business Account ${wabaId}: ${data.error?.message ?? 'unknown error'}`);
+  private async trySubscribeAppToWaba(wabaId: string, accessToken: string): Promise<WebhookSubscriptionResult> {
+    try {
+      const res = await fetch(`${GRAPH_API_BASE}/${wabaId}/subscribed_apps`, {
+        method: 'POST',
+        body: new URLSearchParams({ access_token: accessToken }),
+      });
+      const data = (await res.json()) as { success?: boolean; error?: { message?: string } };
+      if (data.success) return { subscribed: true };
+      const reason = data.error?.message ?? 'Meta did not confirm the subscription';
+      this.logger.warn(`Could not subscribe the app to WhatsApp Business Account ${wabaId}: ${reason}`);
+      return { subscribed: false, reason };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Could not reach Meta';
+      this.logger.warn(`Could not subscribe the app to WhatsApp Business Account ${wabaId}: ${reason}`);
+      return { subscribed: false, reason };
     }
   }
 
@@ -309,7 +319,7 @@ export class WhatsAppNumbersService {
     tenantId: string,
     data: { phoneNumberId: string; wabaId: string; accessToken: string },
     actorId?: string,
-  ) {
+  ): Promise<{ id: string; webhookSubscription?: WebhookSubscriptionResult }> {
     const existing = await this.prisma.whatsAppNumber.findUnique({
       where: { tenantId_phoneNumberId: { tenantId, phoneNumberId: data.phoneNumberId } },
     });
