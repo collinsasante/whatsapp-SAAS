@@ -16,7 +16,8 @@ function buildPrismaMock(existingTenant: Record<string, unknown>) {
 function buildDeps(existingTenant: Record<string, unknown>) {
   return {
     prisma: buildPrismaMock(existingTenant),
-    whatsAppNumbers: { upsertByPhoneNumberId: jest.fn().mockResolvedValue(undefined) },
+    // The real method resolves with the saved number, never undefined.
+    whatsAppNumbers: { upsertByPhoneNumberId: jest.fn().mockResolvedValue({ id: 'n1' }) },
   };
 }
 
