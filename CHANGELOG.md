@@ -64,6 +64,10 @@ No database migrations. The WhatsApp Web (QR) service is not part of `deploy.sh`
 - Library cleanup no longer deletes files that conversations still use, which caused broken images in old chats.
 - Legacy AI credit charges are recorded atomically, and the prompt-injection check catches more phrasings.
 - Customers who use a WhatsApp username (Business-Scoped User ID) are accepted, so their messages are not dropped.
+- Replies to customers who use a WhatsApp username are addressed with Meta's `recipient` field instead of `to`, for text,
+  media, templates, locations, contacts, reactions and interactive messages.
+- Saving WhatsApp API credentials no longer fails when Meta refuses to set up webhook delivery. The number is saved, and the
+  screen shows Meta's reason as a warning instead of a generic error.
 - Fixed a privilege-escalation vulnerability that let a workspace member grant themselves or others a higher role than their own, including OWNER
 - Messenger inbound webhooks now require a valid signature in production, and WhatsApp and inbound email webhooks are verified as soon as their secrets are configured (a warning is logged until then), so forged inbound messages can be blocked
 - Fixed channel connection credentials (WhatsApp/Facebook access tokens) not being encrypted at rest in production
