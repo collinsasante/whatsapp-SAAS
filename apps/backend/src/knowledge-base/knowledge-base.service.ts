@@ -1,8 +1,8 @@
-import { forwardRef, Inject, Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
-import axios from 'axios';
+import { forwardRef, Inject, Injectable, NotFoundException, Logger, BadRequestException, HttpException, HttpStatus, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { articleContentKey, articleTitleKey, selectRelevantArticles } from './knowledge-base.util';
+import { fetchPublicPage, UnsafePageUrlError } from './public-page-fetch';
 
 const LEARN_THROTTLE_MS = 30 * 60 * 1000;
 
@@ -21,6 +21,11 @@ export class KnowledgeBaseService {
     @Inject(forwardRef(() => AiCompletionService)) private aiCompletionService: AiCompletionService,
   ) {}
 
+  /** Learning stays off unless KB_LEARNING_DISABLED is explicitly set to 'false' -- one rule for every entry point. */
+  isLearningDisabled(): boolean {
+    return process.env.KB_LEARNING_DISABLED !== 'false';
+  }
+
   /**
    * Throttle is persisted on TenantSettings.lastKbLearnAt (not an in-memory Map) so
    * it survives backend restarts/deploys/crashes -- a Map resets to empty on every
@@ -33,21 +38,35 @@ export class KnowledgeBaseService {
    * instances: two concurrent callers racing on the same tenant will not both see
    * count > 0 -- only whichever UPDATE commits first satisfies the WHERE clause.
    */
-  async triggerLearningAsync(tenantId: string): Promise<void> {
-    // Temporarily disabled: background learning makes its own DeepSeek call
-    // (learnFromConversations) independent of the main reply flow. Disabled
-    // during an active API-key-compromise incident to eliminate this as a
-    // credit-consuming surface while the key is rotated. Re-enable by
-    // removing this guard once the incident is closed.
-    if (process.env.KB_LEARNING_DISABLED !== 'false') return;
-
+  private async claimLearningSlot(tenantId: string): Promise<boolean> {
     const cutoff = new Date(Date.now() - LEARN_THROTTLE_MS);
     const claimed = await this.prisma.tenantSettings.updateMany({
       where: { tenantId, OR: [{ lastKbLearnAt: null }, { lastKbLearnAt: { lt: cutoff } }] },
       data: { lastKbLearnAt: new Date() },
     });
-    if (claimed.count === 0) return;
+    return claimed.count > 0;
+  }
+
+  async triggerLearningAsync(tenantId: string): Promise<void> {
+    // Disabled during the API-key-compromise incident because background learning makes its own
+    // DeepSeek call independent of the main reply flow. Set KB_LEARNING_DISABLED=false to re-enable.
+    if (this.isLearningDisabled()) return;
+    if (!(await this.claimLearningSlot(tenantId))) return;
     void this.learnFromConversations(tenantId).catch((err) => this.logger.error('background learning error', err));
+  }
+
+  /**
+   * The admin-triggered "learn now" button. Same switch as the background trigger, and the same atomic
+   * once-per-window claim, so repeated or concurrent clicks cannot start repeated paid provider calls.
+   */
+  async learnNow(tenantId: string): Promise<{ created: number }> {
+    if (this.isLearningDisabled()) {
+      throw new ServiceUnavailableException('Learning from conversations is turned off right now.');
+    }
+    if (!(await this.claimLearningSlot(tenantId))) {
+      throw new HttpException('Learning already ran recently. Try again in a few minutes.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    return this.learnFromConversations(tenantId);
   }
 
   async list(tenantId: string) {
@@ -142,16 +161,13 @@ export class KnowledgeBaseService {
   }
 
   async scrapeUrl(tenantId: string, url: string): Promise<{ created: number }> {
-    let htmlContent = '';
+    let htmlContent: string;
     try {
-      const response = await axios.get(url, {
-        timeout: 10000,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VerzChat/1.0; +https://verzchat.com)' },
-        maxContentLength: 500_000,
-      });
-      htmlContent = response.data as string;
+      htmlContent = (await fetchPublicPage(url)).html;
     } catch (err) {
-      this.logger.error('URL scrape error', err);
+      if (err instanceof UnsafePageUrlError) throw new BadRequestException(err.message);
+      // The cause stays in the log; the response never says what the server could or could not reach.
+      this.logger.warn(`URL scrape failed for tenant ${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
       throw new BadRequestException('Could not fetch URL. Make sure it is publicly accessible.');
     }
 

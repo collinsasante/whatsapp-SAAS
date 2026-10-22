@@ -7,7 +7,15 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+- Adding a website to the knowledge base can no longer be pointed at internal addresses. Every address, every redirect
+  and the connection itself are checked; internal, loopback, link-local and reserved IPv4/IPv6 ranges are refused, and
+  only ports 80 and 443 are allowed. The shared address check also now covers more IPv6 forms.
+- Knowledge-base changes, uploads, website import, "learn from conversations" and "remove duplicates" are now
+  admin-only (members and viewers can still read the list). Agents who used these will now see a permission error.
+- "Learn from conversations" now obeys `KB_LEARNING_DISABLED` (it stays off unless set to `false`) and can run at most
+  once per workspace per 30 minutes, so it cannot be used to trigger repeated paid AI requests.
+- The AI's order-status check only returns orders that belong to the customer in the current conversation.
 
 ## [2.3.0] - 2026-10-20
 
