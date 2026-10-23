@@ -5,6 +5,18 @@ function getToken(): string {
   return localStorage.getItem('admin_token') ?? '';
 }
 
+/**
+ * A message safe to show an admin. The API returns validation problems as a list of sentences, and a role that is
+ * not allowed to do something as a bare "Forbidden resource", which says nothing useful.
+ */
+export function errorMessage(status: number, data: unknown): string {
+  const message = (data as { message?: string | string[] })?.message;
+  if (status === 403) return 'Your admin role is not allowed to do this.';
+  if (status === 429) return 'Too many attempts. Wait a minute and try again.';
+  if (Array.isArray(message)) return message.join('. ');
+  return message ?? 'Request failed';
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
 
@@ -29,9 +41,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   }
 
   const data = await res.json().catch(() => ({ message: 'Request failed' }));
-  if (!res.ok) {
-    throw new Error((data as { message?: string }).message ?? 'Request failed');
-  }
+  if (!res.ok) throw new Error(errorMessage(res.status, data));
   return data as T;
 }
 
@@ -86,8 +96,13 @@ export interface WorkspaceDetail {
   country: string | null; aiCredits: number;
   _count: { users: number; conversations: number; messages: number; contacts: number };
   subscription: {
-    status: string; cycle: string; trialEndsAt: string | null; currentPeriodEnd: string;
-    plan: { name: string; monthlyPrice: number; yearlyPrice: number; currency: string };
+    status: string; cycle: string; trialEndsAt: string | null; currentPeriodStart: string; currentPeriodEnd: string;
+    cancelAtPeriodEnd: boolean; canceledAt: string | null;
+    plan: {
+      slug: string; name: string; monthlyPrice: number; yearlyPrice: number; currency: string;
+      limMaxAgents: number; limMaxChannels: number; limMaxContacts: number; limMessagesPerMonth: number;
+      limAiCreditsPerMonth: number; limMaxCampaigns: number; limMaxTemplates: number; limStorageGb: number;
+    };
   } | null;
   whatsappNumbers: { id: string; label: string | null; phoneNumberId: string; qualityRating: string | null; messagingLimitTier: string | null; qualitySyncedAt: string | null }[];
   users: { id: string; name: string; email: string; role: string; lastLoginAt: string | null }[];
@@ -100,6 +115,11 @@ export interface WorkspaceDetail {
     conversationTrend: { date: string; opened: number; resolved: number }[];
   };
   recentCampaigns: { id: string; name: string; status: string; totalRecipients: number; sentCount: number; createdAt: string }[];
+  channels: {
+    id: string; type: string; name: string; isActive: boolean; createdAt: string; phoneNumber: string | null;
+    health: { state: 'no_problems_recorded' | 'attention' | 'disconnected' | 'unknown'; reasons: string[] };
+  }[];
+  issues: { openErrors: number; failedWebhooks7d: number; failedPayments30d: number };
   healthScore: number;
   healthBreakdown: { loginActivity: number; messageActivity: number; broadcastActivity: number; teamSize: number; paymentStatus: number };
   churnRisk: boolean;
@@ -184,6 +204,41 @@ export interface CreditPurchase {
   status: string;
   createdAt: string;
   tenant: { name: string; billingEmail: string | null };
+}
+
+export interface AttentionItem {
+  id: string;
+  severity: 'critical' | 'warning';
+  title: string;
+  count: number;
+  detail: string;
+  href: string;
+}
+
+export interface AttentionData {
+  checkedAt: string;
+  items: AttentionItem[];
+  checks: { id: string; label: string; clear: boolean }[];
+  notChecked: string[];
+}
+
+export interface GrowthData {
+  period: { from: string; to: string };
+  previousPeriod: { from: string; to: string };
+  series: {
+    date: string; totalTenants: number; newTenants: number; activeSubscriptions: number; trialTenants: number;
+    pastDueSubscriptions: number; churnedTenants: number; mrrGhs: number; dau: number; mau: number; newUsers: number;
+  }[];
+  totals: { newTenants: number; previousNewTenants: number | null; newUsers: number };
+  rollup: { latestDate: string | null; stale: boolean; daysWithData: number };
+}
+
+export interface UserDetail {
+  id: string; email: string; name: string | null; role: string; isActive: boolean; emailVerified: boolean; isAiAgent: boolean;
+  createdAt: string; lastLoginAt: string | null;
+  tenant: { id: string; name: string; isActive: boolean; subscription: { status: string; trialEndsAt: string | null; plan: { name: string } } | null };
+  memberships: { role: string; status: string; joinedAt: string | null; workspace: { id: string; name: string; isActive: boolean } }[];
+  audit: { id: string; action: string; metadata: unknown; createdAt: string; admin: { name: string; email: string } | null }[];
 }
 
 export interface AdminUser {
@@ -278,6 +333,8 @@ export interface AiAnalyticsData {
 export interface AiUsageTopConsumersData {
   period: { from: string; to: string };
   items: { tenantId: string; tenantName: string; creditsConsumed: number; aiCalls: number }[];
+  /** Across every tenant that used AI, not only the ones listed. */
+  totals: { creditsConsumed: number; aiCalls: number; tenants: number };
 }
 
 export interface AiCreditWalletRow {
@@ -425,6 +482,11 @@ export interface SearchResults {
   payments: { id: string; gatewayReference: string | null; gatewayPaymentId: string | null; tenantId: string; amount: number; currency: string }[];
 }
 
+export interface TenantQuery {
+  search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc';
+  plan?: string; status?: string; active?: 'true' | 'false'; createdFrom?: string; createdTo?: string;
+}
+
 export const adminApi = {
   setup: (setupSecret: string, email: string, name: string, password: string) =>
     req<{ message: string }>('POST', '/auth/setup', { setupSecret, email, name, password }),
@@ -455,25 +517,14 @@ export const adminApi = {
     return req<OverviewData>('GET', `/overview${qs ? `?${qs}` : ''}`);
   },
 
-  workspaces: (opts: { search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
-    const params = new URLSearchParams();
-    if (opts.search) params.set('search', opts.search);
-    if (opts.filter) params.set('filter', opts.filter);
-    if (opts.sort) params.set('sort', opts.sort);
-    if (opts.order) params.set('order', opts.order);
-    params.set('limit', String(opts.limit ?? 20));
-    params.set('offset', String(opts.offset ?? 0));
-    return req<{ tenants: TenantTableRow[]; total: number; limit: number; offset: number }>('GET', `/workspaces?${params.toString()}`);
-  },
+  workspaces: (opts: TenantQuery & { limit?: number; offset?: number } = {}) =>
+    req<{ tenants: TenantTableRow[]; total: number; limit: number; offset: number }>(
+      'GET', `/workspaces${qs({ ...opts, limit: opts.limit ?? 20, offset: opts.offset ?? 0 })}`,
+    ),
 
   /** CSV export respects the same search/filter/sort as the table -- returns the blob for the caller to trigger a download. */
-  exportWorkspacesCsv: async (opts: { search?: string; filter?: string; sort?: string; order?: 'asc' | 'desc' } = {}) => {
-    const params = new URLSearchParams();
-    if (opts.search) params.set('search', opts.search);
-    if (opts.filter) params.set('filter', opts.filter);
-    if (opts.sort) params.set('sort', opts.sort);
-    if (opts.order) params.set('order', opts.order);
-    const res = await fetch(`${BASE}/workspaces/export?${params.toString()}`, {
+  exportWorkspacesCsv: async (opts: TenantQuery = {}) => {
+    const res = await fetch(`${BASE}/workspaces/export${qs(opts)}`, {
       headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
     });
     if (!res.ok) throw new Error('Export failed');
@@ -482,8 +533,14 @@ export const adminApi = {
 
   getWorkspace: (id: string) => req<WorkspaceDetail>('GET', `/workspaces/${id}`),
 
-  suspendWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/suspend`),
-  activateWorkspace: (id: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/activate`),
+  suspendWorkspace: (id: string, reason: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/suspend`, { reason }),
+  activateWorkspace: (id: string, reason?: string) => req<{ id: string; name: string; isActive: boolean }>('PATCH', `/workspaces/${id}/activate`, reason ? { reason } : {}),
+
+  updateWorkspace: (id: string, data: { name?: string; billingEmail?: string }) =>
+    req<{ id: string; name: string; billingEmail: string | null }>('PATCH', `/workspaces/${id}`, data),
+
+  attention: () => req<AttentionData>('GET', '/attention'),
+  growth: (from?: string, to?: string) => req<GrowthData>('GET', `/growth${qs({ from, to })}`),
 
   allInvoices: (page = 1) =>
     req<{ invoices: Invoice[]; total: number }>('GET', `/billing/invoices?page=${page}&limit=20`),
@@ -514,22 +571,23 @@ export const adminApi = {
 
   platformHealth: () => req<PlatformHealthData>('GET', '/platform-health'),
 
-  users: (page = 1, search = '', tenantId = '') =>
-    req<{ users: AdminUser[]; total: number; page: number; limit: number }>(
-      'GET', `/users?page=${page}&limit=30&search=${encodeURIComponent(search)}${tenantId ? `&tenantId=${encodeURIComponent(tenantId)}` : ''}`,
-    ),
+  users: (opts: { page?: number; limit?: number; search?: string; tenantId?: string; role?: string; status?: string; sort?: string; order?: 'asc' | 'desc' } = {}) =>
+    req<{ users: AdminUser[]; total: number; page: number; limit: number }>('GET', `/users${qs({ limit: 30, ...opts })}`),
 
-  toggleUserActive: (id: string) =>
-    req<{ id: string; isActive: boolean }>('PATCH', `/users/${id}/toggle-active`),
+  getUser: (id: string) => req<UserDetail>('GET', `/users/${id}`),
+
+  /** Suspending needs a reason; restoring does not. */
+  toggleUserActive: (id: string, reason?: string) =>
+    req<{ id: string; isActive: boolean }>('PATCH', `/users/${id}/toggle-active`, reason ? { reason } : {}),
 
   plans: () => req<Plan[]>('GET', '/plans'),
 
   createPlan: (data: Omit<Plan, 'id'> & { description?: string }) => req<Plan>('POST', '/plans', data),
   updatePlan: (id: string, data: Partial<Plan>) => req<Plan>('PATCH', `/plans/${id}`, data),
 
-  forceSubscription: (tenantId: string, planSlug: string) =>
+  forceSubscription: (tenantId: string, planSlug: string, reason: string) =>
     req<{ success: boolean; tenantId: string; plan: string; periodEnd: string }>(
-      'PATCH', `/workspaces/${tenantId}/force-plan`, { planSlug },
+      'PATCH', `/workspaces/${tenantId}/force-plan`, { planSlug, reason },
     ),
 
   setCommerceConfig: (tenantId: string, commerceEnabled: boolean, takeRatePct: number) =>
@@ -547,7 +605,7 @@ export const adminApi = {
 
   // ── Monitoring: errors & webhooks ─────────────────────────────────────────
 
-  errors: (opts: { status?: string; severity?: string; tenantId?: string; search?: string; limit?: number; offset?: number } = {}) =>
+  errors: (opts: { status?: string; severity?: string; tenantId?: string; service?: string; search?: string; limit?: number; offset?: number } = {}) =>
     req<Paginated<ErrorLogRow>>('GET', `/errors${qs(opts)}`),
   getError: (id: string) => req<ErrorLogRow>('GET', `/errors/${id}`),
   updateErrorStatus: (id: string, status: 'OPEN' | 'RESOLVED' | 'IGNORED') =>
@@ -607,7 +665,7 @@ export const adminApi = {
 
   // ── Audit logs ───────────────────────────────────────────────────────────────
 
-  auditLogs: (opts: { adminId?: string; action?: string; resourceType?: string; limit?: number; offset?: number } = {}) =>
+  auditLogs: (opts: { adminId?: string; action?: string; resourceType?: string; resourceId?: string; q?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) =>
     req<Paginated<AuditLogRow>>('GET', `/audit-logs${qs(opts)}`),
 
   // ── Feature flags ────────────────────────────────────────────────────────────
@@ -626,10 +684,10 @@ export const adminApi = {
 };
 
 /** Builds a query string from an options object, skipping undefined/empty values. */
-function qs(opts: Record<string, string | number | undefined>): string {
+function qs(opts: object): string {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(opts)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
+  for (const [key, value] of Object.entries(opts) as Array<[string, string | number | boolean | undefined | null]>) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
   }
   const s = params.toString();
   return s ? `?${s}` : '';

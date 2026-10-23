@@ -87,10 +87,10 @@ export default function AdminsPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Users</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Admin Users</h1>
           <p className="text-gray-500 text-sm mt-1">Platform-admin accounts and roles</p>
         </div>
         <button

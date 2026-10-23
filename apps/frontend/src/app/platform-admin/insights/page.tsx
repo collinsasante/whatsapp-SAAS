@@ -70,7 +70,7 @@ export default function InsightsPage() {
     <div className="p-4 sm:p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Product Insights</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Product Insights</h1>
           <p className="text-gray-500 text-sm mt-1">Where onboarding leaks, and what tenants actually use</p>
         </div>
         <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />

@@ -904,10 +904,14 @@ export class PlatformAdminService {
     });
   }
 
-  async getWebhookEvent(id: string) {
+  /**
+   * The raw payload can contain customer message text, so only a super admin receives it. Everyone else gets the
+   * event's metadata and a flag saying the payload was withheld.
+   */
+  async getWebhookEvent(id: string, canSeePayload: boolean) {
     const row = await this.webhookEventService.findOne(id);
     if (!row) throw new NotFoundException('Webhook event not found');
-    return row;
+    return canSeePayload ? { ...row, payloadWithheld: false } : { ...row, payload: null, payloadWithheld: true };
   }
 
   /** Only PAYSTACK_COMMERCE is currently replayable -- see CommerceLedgerService.reprocessWebhookEvent. */

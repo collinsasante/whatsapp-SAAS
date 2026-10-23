@@ -110,8 +110,8 @@ export class PlatformAdminController {
 
   @Get('webhooks/:id')
   @UseGuards(PlatformAdminGuard)
-  getWebhookEvent(@Param('id') id: string) {
-    return this.adminService.getWebhookEvent(id);
+  getWebhookEvent(@Param('id') id: string, @Req() req: AdminRequest) {
+    return this.adminService.getWebhookEvent(id, req.adminRole === 'SUPER_ADMIN');
   }
 
   @Post('webhooks/:id/reprocess')

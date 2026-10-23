@@ -84,10 +84,10 @@ export default function FeatureFlagsPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Feature Flags</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Feature Flags</h1>
           <p className="text-gray-500 text-sm mt-1">Platform-wide and per-tenant feature rollout control</p>
         </div>
         <button

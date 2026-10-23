@@ -294,6 +294,46 @@ describe('Platform admin console API (e2e)', () => {
     });
   });
 
+  describe('payments list', () => {
+    it('never includes the provider\'s raw webhook data, and can be searched by reference', async () => {
+      const t = await seedTenants();
+      await testPrisma.payment.create({ data: { tenantId: t.alpha.id, gateway: 'PAYSTACK', status: 'SUCCEEDED', amount: 25, gatewayReference: 'PSK-REF-12345', gatewayWebhookData: { authorization: { last4: '4081', bank: 'SECRET BANK' } } } as never });
+      await testPrisma.payment.create({ data: { tenantId: t.gamma.id, gateway: 'STRIPE', status: 'FAILED', amount: 16, gatewayReference: 'OTHER-REF' } as never });
+      const viewer = await admin('VIEWER');
+      const all = (await api().get('/platform-admin/payments').set(viewer.auth).expect(200)).body;
+      expect(all.total).toBe(2);
+      expect(JSON.stringify(all)).not.toMatch(/SECRET BANK|4081|gatewayWebhookData/);
+      const found = (await api().get('/platform-admin/payments?search=psk-ref').set(viewer.auth).expect(200)).body;
+      expect(found.items.map((p: { gatewayReference: string }) => p.gatewayReference)).toEqual(['PSK-REF-12345']);
+      expect(found.items[0].tenant.name).toBe('Alpha Foods');
+      expect((await api().get(`/platform-admin/payments?tenantId=${t.gamma.id}&status=FAILED`).set(viewer.auth).expect(200)).body.total).toBe(1);
+    });
+  });
+
+  describe('webhook events', () => {
+    it('keeps raw payloads out of the list, and shows them on one event only to a super admin', async () => {
+      const t = await seedTenants();
+      const event = await testPrisma.webhookEvent.create({
+        data: { source: 'WHATSAPP', eventType: 'messages', status: 'FAILED', tenantId: t.alpha.id, error: 'boom', payload: { entry: [{ text: 'my card number is 4242' }] } },
+      });
+      const viewer = await admin('VIEWER');
+      const root = await admin('SUPER_ADMIN');
+
+      const list = (await api().get('/platform-admin/webhooks').set(viewer.auth).expect(200)).body;
+      expect(list.total).toBe(1);
+      expect(JSON.stringify(list)).not.toContain('4242');
+      expect(list.items[0]).not.toHaveProperty('payload');
+
+      const asViewer = (await api().get(`/platform-admin/webhooks/${event.id}`).set(viewer.auth).expect(200)).body;
+      expect(asViewer).toMatchObject({ payload: null, payloadWithheld: true });
+      expect(JSON.stringify(asViewer)).not.toContain('4242');
+
+      const asRoot = (await api().get(`/platform-admin/webhooks/${event.id}`).set(root.auth).expect(200)).body;
+      expect(asRoot.payloadWithheld).toBe(false);
+      expect(JSON.stringify(asRoot.payload)).toContain('4242');
+    });
+  });
+
   describe('attention required', () => {
     it('is empty, with every check clear, for a healthy platform', async () => {
       await createTenantWithUser({ role: UserRole.ADMIN });

@@ -74,7 +74,7 @@ export function GlobalSearch() {
           {results.users.length > 0 && (
             <SearchGroup icon={User} label="Users">
               {results.users.map((u) => (
-                <SearchRow key={u.id} onClick={() => go(`/platform-admin/workspaces/${u.tenantId}`)}>
+                <SearchRow key={u.id} onClick={() => go(`/platform-admin/users/${u.id}`)}>
                   {u.name ?? u.email} <span className="text-gray-400">· {u.email}</span>
                 </SearchRow>
               ))}
@@ -94,7 +94,7 @@ export function GlobalSearch() {
           {results.payments.length > 0 && (
             <SearchGroup icon={CreditCard} label="Payments">
               {results.payments.map((p) => (
-                <SearchRow key={p.id} onClick={() => go(`/platform-admin/payments?search=${encodeURIComponent(p.gatewayReference ?? p.id)}`)}>
+                <SearchRow key={p.id} onClick={() => go(`/platform-admin/billing?search=${encodeURIComponent(p.gatewayReference ?? p.id)}`)}>
                   {p.gatewayReference ?? p.gatewayPaymentId ?? p.id} <span className="text-gray-400">· {p.currency} {p.amount}</span>
                 </SearchRow>
               ))}

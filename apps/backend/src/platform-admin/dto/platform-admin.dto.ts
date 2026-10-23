@@ -252,6 +252,8 @@ export class OrdersQueryDto {
 
 export class PaymentsQueryDto {
   @IsOptional() @IsString() tenantId?: string;
+  /** Matches the payment ID or the provider's reference. */
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
   @IsOptional() @IsIn(['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED', 'DISPUTED']) status?: string;
   @IsOptional() @IsIn(['STRIPE', 'PAYSTACK']) gateway?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;

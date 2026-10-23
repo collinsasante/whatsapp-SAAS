@@ -341,13 +341,18 @@ export class PlatformAdminAnalyticsService {
 
   // ── Payments ─────────────────────────────────────────────────────────────
 
-  async listPayments(params: { tenantId?: string; status?: string; gateway?: string; limit?: number; offset?: number } = {}) {
+  async listPayments(params: { tenantId?: string; search?: string; status?: string; gateway?: string; limit?: number; offset?: number } = {}) {
     const limit = Math.min(params.limit ?? 50, 100);
     const offset = params.offset ?? 0;
     const where = {
       ...(params.tenantId ? { tenantId: params.tenantId } : {}),
       ...(params.status ? { status: params.status as never } : {}),
       ...(params.gateway ? { gateway: params.gateway as never } : {}),
+      ...(params.search ? { OR: [
+        { id: params.search },
+        { gatewayReference: { contains: params.search, mode: 'insensitive' as const } },
+        { gatewayPaymentId: { contains: params.search, mode: 'insensitive' as const } },
+      ] } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.payment.findMany({
@@ -355,7 +360,12 @@ export class PlatformAdminAnalyticsService {
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
-        include: { tenant: { select: { id: true, name: true } } },
+        // Explicit fields: the raw row carries the provider's webhook payload, which can hold card and bank details.
+        select: {
+          id: true, tenantId: true, gateway: true, status: true, amount: true, currency: true, gatewayReference: true,
+          createdAt: true, verifiedAt: true, failReason: true,
+          tenant: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.payment.count({ where }),
     ]);

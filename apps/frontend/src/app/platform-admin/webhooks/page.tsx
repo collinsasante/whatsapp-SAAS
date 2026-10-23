@@ -70,10 +70,10 @@ export default function WebhooksPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Webhooks</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Webhooks</h1>
           <p className="text-gray-500 text-sm mt-1">Every inbound webhook delivery: WhatsApp, Stripe, Paystack</p>
         </div>
         <div className="flex gap-2">

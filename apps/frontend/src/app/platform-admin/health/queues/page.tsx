@@ -37,9 +37,9 @@ export default function QueuesPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Queues</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-gray-900">Queues</h1>
         <p className="text-gray-500 text-sm mt-1">Live BullMQ job counts across every worker queue</p>
       </div>
 

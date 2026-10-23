@@ -57,10 +57,10 @@ export default function BillingPage() {
   const totalPages = Math.ceil(total / 20);
 
   return (
-    <div className="p-4 sm:p-8 space-y-8">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Billing</h1>
           <p className="text-gray-500 text-sm mt-1">Invoices across all workspaces: Stripe and Paystack payments activate subscriptions automatically via webhook</p>
         </div>
         <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
