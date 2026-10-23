@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { buildHealth, buildInsights, compareMetric, formatDuration, InsightInput, relativeChange } from './analytics-insights.util';
 import { BacklogSnapshot, Coverage, PeriodKpis } from './analytics-intelligence.types';
 
@@ -247,5 +249,32 @@ describe('buildHealth', () => {
   it('explains every status with the rules that produced it', () => {
     const health = buildHealth({ current: kpis(), previous: kpis(), backlog: emptyBacklog });
     for (const a of health) expect(a.basis.length).toBeGreaterThan(0);
+  });
+});
+
+describe('insight links', () => {
+  // A link to a page that does not exist is a dead end for the person acting on the insight.
+  it('only point at dashboard pages that exist', () => {
+    const dashboard = path.resolve(__dirname, '../../../frontend/src/app/(dashboard)');
+    const everything = buildInsights(input({
+      current: kpis({
+        conversations: { total: 100, newContact: 50, returningContact: 50 }, resolved: 40,
+        firstResponse: response(900, 40), sla: { tracked: 50, breached: 20 },
+        ai: { ...kpis().ai, engagedConversations: 40, handedToPerson: 30, suggestions: 40, suggestionsRejected: 30 },
+        csat: { responses: 10, average: 3 },
+      }),
+      previous: kpis({
+        conversations: { total: 40, newContact: 20, returningContact: 20 }, firstResponse: response(300, 40),
+        ai: { ...kpis().ai, engagedConversations: 40, handedToPerson: 5 }, csat: { responses: 10, average: 4.5 },
+      }),
+      backlog: { ...emptyBacklog, open: 30, unassigned: 9, awaitingReply: 8, awaitingReplyOverHour: 8, oldestWaitingSeconds: 9000 },
+      topics: [{ label: 'pricing', conversations: 30, previousConversations: 10, unresolved: 5 }], labelledConversations: 60,
+      hotLeadsOpen: 3, coverage: { orders: false, leads: true, ai: true, sla: true, csat: false },
+    }));
+    const links = everything.map((i) => i.link?.href).filter((h): h is string => !!h);
+    expect(links.length).toBeGreaterThan(5);
+    for (const href of new Set(links)) {
+      expect({ href, exists: fs.existsSync(path.join(dashboard, href, 'page.tsx')) }).toEqual({ href, exists: true });
+    }
   });
 });

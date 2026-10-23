@@ -19,7 +19,7 @@ export default function RevenueSection({ data }: { data: IntelligenceResponse })
   if (!data.coverage.orders) {
     return (
       <Panel className="p-5 space-y-4">
-        <EmptyNote title="Revenue and conversion are not tracked in this workspace" href="/commerce" hrefLabel="Open Commerce">
+        <EmptyNote title="Revenue and conversion are not tracked in this workspace" href="/commerce/orders" hrefLabel="Open Commerce orders">
           VerzChat reports revenue only from orders created in Commerce. No orders exist yet, so nothing is shown rather than an estimate. Customer and conversation growth are in the sections above.
         </EmptyNote>
         {legend}
@@ -67,7 +67,7 @@ export default function RevenueSection({ data }: { data: IntelligenceResponse })
       </dl>
       <div className="mt-6 pt-5 border-t border-gray-100 space-y-3">
         {legend}
-        <Link href="/commerce" className="inline-block text-sm font-medium text-teal-700 hover:underline">Open Commerce</Link>
+        <Link href="/commerce/revenue" className="inline-block text-sm font-medium text-teal-700 hover:underline">Open Commerce revenue</Link>
       </div>
     </Panel>
   );
