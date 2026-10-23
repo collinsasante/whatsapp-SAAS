@@ -113,20 +113,43 @@ describe('ChannelsService: Instagram account selection', () => {
   const sessionRow = (ids: string[]) => ({ id: 'sess-1', tenantId: 't1', provider: 'instagram', userAccessToken: 'enc(long)', candidatePages: ids.map((id) => ({ id, name: id })), expiresAt: new Date(Date.now() + 60_000) });
 
   it('connects only the account that was picked, with its Page token stored encrypted', async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce(reply({ data: [withIg('p2', { id: 'ig-a', username: 'shop_a' }), withIg('p27', { id: 'ig-glam', username: 'glampack' })] })) as never;
+    const f = jest.fn()
+      .mockResolvedValueOnce(reply({ data: [withIg('p2', { id: 'ig-a', username: 'shop_a' }), withIg('p27', { id: 'ig-glam', username: 'glampack' })] }))
+      .mockResolvedValueOnce(reply({ success: true }));
+    global.fetch = f as never;
     const { service, prisma } = build();
     prisma.oAuthConnectSession.findFirst.mockResolvedValue(sessionRow(['ig-a', 'ig-glam']));
     prisma.channel.create.mockResolvedValue({ id: 'ch-glam' });
 
     const result = await service.selectInstagramAccounts('t1', 'u1', 'sess-1', ['ig-glam']);
 
-    expect(result.connected).toEqual([{ channelId: 'ch-glam', accountId: 'ig-glam', accountName: '@glampack' }]);
+    expect(result.connected).toEqual([{ channelId: 'ch-glam', accountId: 'ig-glam', accountName: '@glampack', webhookSubscription: { subscribed: true } }]);
+    // only the chosen account's Page is subscribed, never the other one
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(String(f.mock.calls[1][0])).toContain('/p27/subscribed_apps?subscribed_fields=messages,messaging_postbacks');
     expect(prisma.channel.create).toHaveBeenCalledTimes(1);
     const data = prisma.channel.create.mock.calls[0][0].data;
     expect(data).toMatchObject({ tenantId: 't1', type: 'INSTAGRAM', name: '@glampack', externalId: 'ig-glam' });
     expect(data.credentials.accessToken).toBe('enc(tok-p27)');
     expect(JSON.stringify(data.credentials)).not.toMatch(/"accessToken":"tok-/);
     expect(prisma.oAuthConnectSession.delete).toHaveBeenCalledWith({ where: { id: 'sess-1' } });
+  });
+
+  it.each([
+    ['Meta refuses the subscription', () => reply({ error: { message: '(#200) Requires pages_manage_metadata' } }), '(#200) Requires pages_manage_metadata'],
+    ['Meta cannot be reached', () => Promise.reject(new Error('network down')), 'network down'],
+  ])('still connects the account, and says why, when %s', async (_name, second, reason) => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(reply({ data: [withIg('p2', { id: 'ig-a', username: 'shop_a' })] }))
+      .mockImplementationOnce(second) as never;
+    const { service, prisma } = build();
+    prisma.oAuthConnectSession.findFirst.mockResolvedValue(sessionRow(['ig-a']));
+    prisma.channel.create.mockResolvedValue({ id: 'ch-a' });
+
+    const result = await service.selectInstagramAccounts('t1', 'u1', 'sess-1', ['ig-a']);
+
+    expect(result.connected[0]).toMatchObject({ channelId: 'ch-a', webhookSubscription: { subscribed: false, reason } });
+    expect(prisma.channel.create).toHaveBeenCalledTimes(1);
   });
 
   it('refuses an account that was not in the original list, and connects nothing', async () => {

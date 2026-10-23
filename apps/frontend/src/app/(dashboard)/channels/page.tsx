@@ -601,7 +601,14 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
     setConnecting(true);
     setError('');
     try {
-      await facebookPagesApi.select(sessionId, [...selected]);
+      const res = await facebookPagesApi.select(sessionId, [...selected]);
+      // Instagram only: the account is connected either way, but if Meta refused to send this Page's messages to Verz
+      // nothing will arrive, so say so instead of letting it look finished.
+      const refused = ((res.data as { connected?: Array<{ accountName?: string; webhookSubscription?: { subscribed: boolean; reason?: string } }> } | undefined)?.connected ?? [])
+        .filter(c => c.webhookSubscription && !c.webhookSubscription.subscribed);
+      if (refused.length > 0) {
+        toast.error(`Connected, but Meta did not turn on messages for ${refused.map(c => c.accountName).join(', ')}: ${refused[0]?.webhookSubscription?.reason ?? 'unknown reason'}`, { duration: 10000 });
+      }
       toast.success(selected.size === 1 ? `${copy.noun.charAt(0).toUpperCase()}${copy.noun.slice(1)} connected!` : `${selected.size} ${copy.nounPlural} connected!`);
       onConnected();
       onClose();
@@ -653,6 +660,11 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
               </label>
             ))}
           </div>
+        )}
+        {provider === 'instagram' && !loading && pages.length > 0 && (
+          <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+            To receive messages, the Instagram account must allow access to messages (Instagram app: Settings, Messages and story replies, Message controls, Connected tools, Allow access to messages).
+          </p>
         )}
         {error && (
           <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl mt-3">

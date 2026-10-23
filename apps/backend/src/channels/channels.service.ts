@@ -599,6 +599,23 @@ export class ChannelsService {
     return this.selectFacebookPages(tenantId, userId, sessionId, ids);
   }
 
+  /**
+   * Asks Meta to deliver this Page's messaging webhooks to the app. Best effort and never throws: the account is
+   * connected either way, and the caller shows the person why messages may not arrive if Meta refused.
+   */
+  private async subscribePageToMessages(page: FacebookCandidatePage): Promise<{ subscribed: boolean; reason?: string }> {
+    try {
+      const res = await fetch(
+        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
+        { method: 'POST' },
+      );
+      const data = await res.json() as { success?: boolean; error?: { message: string } };
+      return data.success ? { subscribed: true } : { subscribed: false, reason: data.error?.message ?? 'Meta did not confirm the subscription.' };
+    } catch (err) {
+      return { subscribed: false, reason: err instanceof Error ? err.message : 'Could not reach Meta.' };
+    }
+  }
+
   async selectInstagramAccounts(tenantId: string, userId: string, sessionId: string, igIds: string[]) {
     const session = await this.prisma.oAuthConnectSession.findFirst({
       where: { id: sessionId, tenantId, provider: 'instagram', expiresAt: { gt: new Date() } },
@@ -616,7 +633,7 @@ export class ChannelsService {
     const selected = fresh.filter((c) => igIds.includes(c.igId));
     if (selected.length === 0) throw new BadRequestException('No valid accounts selected.');
 
-    const connected: Array<{ channelId: string; accountId: string; accountName: string }> = [];
+    const connected: Array<{ channelId: string; accountId: string; accountName: string; webhookSubscription: { subscribed: boolean; reason?: string } }> = [];
     for (const c of selected) {
       const channel = await this.upsertOAuthChannel(tenantId, ChannelType.INSTAGRAM, c.label, {
         // Stored encrypted: GET /channels returns this JSON to the dashboard.
@@ -624,7 +641,7 @@ export class ChannelsService {
         pageId: c.page.id,
         igAccountId: c.igId,
       }, c.igId, userId);
-      connected.push({ channelId: channel.id, accountId: c.igId, accountName: c.label });
+      connected.push({ channelId: channel.id, accountId: c.igId, accountName: c.label, webhookSubscription: await this.subscribePageToMessages(c.page) });
     }
 
     await this.prisma.oAuthConnectSession.delete({ where: { id: sessionId } });

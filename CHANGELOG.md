@@ -18,8 +18,15 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
   and Telegram. An account with no conversations is removed; one with history is disconnected and kept so past
   conversations keep their channel.
 
+- Instagram messaging: messages sent to a connected Instagram account arrive in the inbox, and agents can reply with
+  text, images, video and audio. Shared posts, reels and story mentions show as a labelled link. Replies from the
+  Instagram app itself are not copied into Verz. Needs the Meta app to be Live and Instagram messaging webhooks
+  pointed at the existing Messenger webhook URL (see deployment notes).
+
 ### Security
-- Instagram Page tokens are stored encrypted.
+- The Channels API no longer returns stored credentials (Telegram bot tokens, TikTok and Instagram access tokens) to
+  any workspace member. Anyone who could open Channels could previously read them from the response.
+- Instagram Page tokens are stored encrypted whenever `CREDENTIALS_ENCRYPTION_KEY` is configured.
 
 ## [2.3.0] - 2026-10-20
 

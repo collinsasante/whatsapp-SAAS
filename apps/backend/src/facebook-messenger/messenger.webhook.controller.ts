@@ -50,12 +50,17 @@ export interface MessengerWebhookEntry {
 }
 
 interface MessengerWebhookBody {
-  object: string; // 'page'
+  object: string; // 'page' (Messenger) or 'instagram'
   entry: MessengerWebhookEntry[];
 }
 
+type Platform = 'MESSENGER' | 'INSTAGRAM';
+
 /**
- * Real Meta Messenger Platform webhook. Unlike WhatsApp's per-tenant URL
+ * Real Meta Messenger Platform webhook. Instagram messaging is delivered by the same Meta app webhook with
+ * object 'instagram' (entry.id is then the Instagram account id), so one URL and verify token serve both: point the
+ * Instagram webhook subscription at this same callback.
+ * Unlike WhatsApp's per-tenant URL
  * (webhook/whatsapp/:tenantId, matching WhatsApp's per-WABA subscription
  * model), Messenger's webhook subscription is app-level -- Meta calls this
  * one URL for every Page across every tenant, and routing happens purely by
@@ -116,7 +121,8 @@ export class MessengerWebhookController {
     @Headers('x-hub-signature-256') signature: string,
   ) {
     this.assertValidSignature(req.rawBody, signature);
-    if (body.object !== 'page') return { status: 'ok' };
+    if (body.object !== 'page' && body.object !== 'instagram') return { status: 'ok' };
+    const platform: Platform = body.object === 'instagram' ? 'INSTAGRAM' : 'MESSENGER';
 
     const pageIds = new Set<string>();
     for (const entry of body.entry ?? []) {
@@ -130,12 +136,12 @@ export class MessengerWebhookController {
     // globally), so every matching active Channel gets processed, mirroring
     // WhatsApp's own same-number-multiple-tenants fan-out tolerance.
     const channels = await this.prisma.channel.findMany({
-      where: { type: ChannelType.FACEBOOK_MESSENGER, externalId: { in: [...pageIds] }, isActive: true, tenant: { isActive: true } },
+      where: { type: platform === 'INSTAGRAM' ? ChannelType.INSTAGRAM : ChannelType.FACEBOOK_MESSENGER, externalId: { in: [...pageIds] }, isActive: true, tenant: { isActive: true } },
       select: { id: true, tenantId: true, externalId: true },
     });
 
     if (channels.length === 0) {
-      this.logger.debug(`Messenger webhook for unknown/inactive Page ID(s) [${[...pageIds].join(', ')}]`);
+      this.logger.debug(`${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'} webhook for unknown/inactive account ID(s) [${[...pageIds].join(', ')}]`);
       return { status: 'ok' };
     }
 
@@ -145,12 +151,12 @@ export class MessengerWebhookController {
 
       const eventId = await this.webhookEventService.recordReceived({
         source: WebhookSource.MESSENGER,
-        eventType: 'messaging',
+        eventType: platform === 'INSTAGRAM' ? 'instagram_messaging' : 'messaging',
         tenantId: channel.tenantId,
         payload: entry,
       });
       try {
-        await this.processEntryForChannel(channel.tenantId, channel.id, entry);
+        await this.processEntryForChannel(channel.tenantId, channel.id, entry, platform);
         await this.webhookEventService.markOutcome(eventId, 'PROCESSED');
       } catch (error) {
         await this.webhookEventService.markOutcome(eventId, 'FAILED', error instanceof Error ? error.message : String(error));
@@ -161,18 +167,18 @@ export class MessengerWebhookController {
     return { status: 'ok' };
   }
 
-  private async processEntryForChannel(tenantId: string, channelId: string, entry: MessengerWebhookEntry) {
+  private async processEntryForChannel(tenantId: string, channelId: string, entry: MessengerWebhookEntry, platform: Platform) {
     for (const event of entry.messaging ?? []) {
       if (event.message && !event.message.is_echo) {
         try {
-          await this.messagesService.handleInboundMessenger(tenantId, channelId, event.sender.id, event.message);
+          await this.messagesService.handleInboundMessenger(tenantId, channelId, event.sender.id, event.message, platform);
         } catch (error) {
           const errMessage = error instanceof Error ? error.message : String(error);
-          this.logger.error(`[tenant:${tenantId}] Failed to process inbound Messenger message ${event.message.mid}: ${errMessage}`);
+          this.logger.error(`[tenant:${tenantId}] Failed to process inbound ${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'} message ${event.message.mid}: ${errMessage}`);
           void notify({
             source: 'backend',
             tenantId,
-            message: `Failed to process inbound Messenger message: ${errMessage}`,
+            message: `Failed to process inbound ${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'} message: ${errMessage}`,
             stack: error instanceof Error ? error.stack : undefined,
           }).catch(() => {});
         }
