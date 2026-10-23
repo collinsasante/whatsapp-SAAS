@@ -58,6 +58,11 @@ describe('assertSafeWebhookUrl', () => {
 describe('isBlockedIp', () => {
   it.each(['8.8.8.8', '93.184.216.34', '1.1.1.1', '2606:4700:4700::1111', '::ffff:808:808'])('%s is public', (ip) => expect(isBlockedIp(ip)).toBe(false));
   it.each(['127.0.0.1', '10.1.2.3', '172.31.255.255', '192.168.0.1', '169.254.1.1', '0.0.0.0', '224.0.0.1', '::1', '::', 'fe80::1', 'fc00::1', 'not-an-ip'])('%s is blocked', (ip) => expect(isBlockedIp(ip)).toBe(true));
+  it.each([
+    '::7f00:1', '::a00:1', '0:0:0:0:0:0:7f00:1', '::ffff:7f00:1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', '::ffff:a9fe:a9fe',
+    '64:ff9b::7f00:1', '2002:7f00:1::1', '2002:a9fe:a9fe::1', '2001::1', '2001:db8::1', 'fec0::1', 'ff02::1', '100::1',
+  ])('%s is blocked (IPv6 forms that carry or reach an internal IPv4 address)', (ip) => expect(isBlockedIp(ip)).toBe(true));
+  it.each(['2001:4860:4860::8888', '2a00:1450:4001:81b::200e', '2002:808:808::1', '::ffff:5db8:d822'])('%s is public', (ip) => expect(isBlockedIp(ip)).toBe(false));
   it('does not block the public ranges just outside the private ones', () => {
     for (const ip of ['172.15.0.1', '172.32.0.1', '11.0.0.1', '192.167.1.1', '100.63.0.1', '100.128.0.1']) expect(isBlockedIp(ip)).toBe(false);
   });

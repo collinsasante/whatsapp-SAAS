@@ -17,7 +17,6 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - Disconnect on every channel card that is connected through a login: Instagram (per account, plus Remove), TikTok
   and Telegram. An account with no conversations is removed; one with history is disconnected and kept so past
   conversations keep their channel.
-
 - Instagram messaging: messages sent to a connected Instagram account arrive in the inbox, and agents can reply with
   text, images, video and audio. Shared posts, reels and story mentions show as a labelled link. Replies from the
   Instagram app itself are not copied into Verz. Needs the Meta app to be Live and Instagram messaging webhooks
@@ -27,6 +26,14 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - The Channels API no longer returns stored credentials (Telegram bot tokens, TikTok and Instagram access tokens) to
   any workspace member. Anyone who could open Channels could previously read them from the response.
 - Instagram Page tokens are stored encrypted whenever `CREDENTIALS_ENCRYPTION_KEY` is configured.
+- Adding a website to the knowledge base can no longer be pointed at internal addresses. Every address, every redirect
+  and the connection itself are checked; internal, loopback, link-local and reserved IPv4/IPv6 ranges are refused, and
+  only ports 80 and 443 are allowed. The shared address check also now covers more IPv6 forms.
+- Knowledge-base changes, uploads, website import, "learn from conversations" and "remove duplicates" are now
+  admin-only (members and viewers can still read the list). Agents who used these will now see a permission error.
+- "Learn from conversations" now obeys `KB_LEARNING_DISABLED` (it stays off unless set to `false`) and can run at most
+  once per workspace per 30 minutes, so it cannot be used to trigger repeated paid AI requests.
+- The AI's order-status check only returns orders that belong to the customer in the current conversation.
 
 ## [2.3.0] - 2026-10-20
 

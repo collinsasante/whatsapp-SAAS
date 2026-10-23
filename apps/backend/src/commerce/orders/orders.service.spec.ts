@@ -187,3 +187,15 @@ describe('OrdersService.addItem -- Verz-AI unification, Phase H', () => {
     await expect(service.addItem('t1', 'order-1', { productId: 'p1', quantity: 1 })).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+describe('OrdersService.findOwnedByContact', () => {
+  it('always filters by workspace AND contact, so another contact in the same workspace never matches', async () => {
+    const deps = buildDeps();
+    deps.prisma.order.findFirst.mockResolvedValue(null);
+    const service = buildService(deps);
+
+    await expect(service.findOwnedByContact('t1', 'contact-1', 'order-9')).resolves.toBeNull();
+
+    expect(deps.prisma.order.findFirst).toHaveBeenCalledWith({ where: { id: 'order-9', tenantId: 't1', contactId: 'contact-1' } });
+  });
+});
