@@ -108,6 +108,14 @@ body::-webkit-scrollbar-thumb:hover {
 .dark .bg-green-50  { background-color: rgba( 34,197, 94, 0.12); }
 .dark .bg-amber-50  { background-color: rgba(245,158, 11, 0.12); }
 
+/* Status text on the soft tinted backgrounds above (StatusBadge and similar): the light-mode 700/800 shades are too dark to read on them */
+.dark .text-green-700  { color: #4ade80; }
+.dark .text-red-700    { color: #f87171; }
+.dark .text-blue-700   { color: #60a5fa; }
+.dark .text-purple-700 { color: #c084fc; }
+.dark .text-amber-700  { color: #fbbf24; }
+.dark .text-amber-800  { color: #fbbf24; }
+
 /* Text */
 .dark .text-gray-900 { color: #f9fafb; }
 .dark .text-gray-800 { color: #f3f4f6; }
@@ -169,6 +177,12 @@ body::-webkit-scrollbar-thumb:hover {
 .dark .force-light .text-gray-600 { color: #4b5563; }
 .dark .force-light .text-gray-500 { color: #6b7280; }
 .dark .force-light .text-teal-700 { color: #0f766e; }
+.dark .force-light .text-green-700  { color: #15803d; }
+.dark .force-light .text-red-700    { color: #b91c1c; }
+.dark .force-light .text-blue-700   { color: #1d4ed8; }
+.dark .force-light .text-purple-700 { color: #7e22ce; }
+.dark .force-light .text-amber-700  { color: #b45309; }
+.dark .force-light .text-amber-800  { color: #92400e; }
 
 .dark .force-light .border-gray-200 { border-color: #e5e7eb; }
 .dark .force-light .border-gray-100 { border-color: #f3f4f6; }

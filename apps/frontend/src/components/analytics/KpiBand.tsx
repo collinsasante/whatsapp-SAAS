@@ -137,7 +137,7 @@ export default function KpiBand({ data }: { data: IntelligenceResponse }) {
           <Tile metric="revenue" value="Not tracked" unavailable href="/commerce/orders" hrefLabel="Open Commerce orders" detail="No orders are recorded. Revenue comes from Commerce orders." />
         )}
       </div>
-      <p className="px-4 py-2 text-xs text-gray-500 border-t border-gray-200 bg-gray-50/60 rounded-b-xl">
+      <p className="px-4 py-2 text-xs text-gray-500 border-t border-gray-200 bg-gray-50 rounded-b-xl">
         Compared with the previous {data.meta.days} {data.meta.days === 1 ? 'day' : 'days'}.
         Hover or focus the info icon on any number to see how it is calculated.
       </p>

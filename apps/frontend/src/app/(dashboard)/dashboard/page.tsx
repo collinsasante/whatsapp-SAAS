@@ -101,7 +101,7 @@ export default function DashboardPage() {
       />
 
       {customProblem && (
-        <p role="alert" className="text-sm text-rose-700">{customProblem} Pick a different range to see your numbers.</p>
+        <p role="alert" className="text-sm text-red-700">{customProblem} Pick a different range to see your numbers.</p>
       )}
 
       {enabled && (

@@ -3,8 +3,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   RefreshCw, Plus, Search, X, Eye, Trash2, Send, FileText, ChevronDown,
   Type, Image, Video, FileIcon, Phone, Link2, MessageSquare, AlignLeft,
-  Check, ArrowLeft, Loader2, Copy, MoreVertical, ExternalLink,
-} from 'lucide-react';
+  Check, ArrowLeft, Loader2, Copy, MoreVertical, ExternalLink, AlertTriangle } from 'lucide-react';
 import { templatesApi } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
@@ -43,7 +42,7 @@ const LANGUAGES: Record<string, string> = {
 const CATEGORIES = ['MARKETING', 'UTILITY', 'AUTHENTICATION'];
 const STATUS_META: Record<string, { label: string; cls: string }> = {
   APPROVED: { label: 'Approved', cls: 'bg-green-100 text-green-700' },
-  PENDING:  { label: 'Pending',  cls: 'bg-yellow-100 text-yellow-700' },
+  PENDING:  { label: 'Pending',  cls: 'bg-amber-100 text-amber-700' },
   REJECTED: { label: 'Rejected', cls: 'bg-red-100 text-red-700' },
   PAUSED:   { label: 'Paused',   cls: 'bg-gray-100 text-gray-500' },
   DRAFT:    { label: 'Draft',    cls: 'bg-blue-100 text-blue-600' },
@@ -390,7 +389,7 @@ function TemplateBuilder({ initial, onSave, onBack }: {
               </p>
               {b.category === 'UTILITY' && (
                 <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  <p className="text-[10px] text-amber-700 font-medium mb-0.5">⚠️ Meta auto-reclassification</p>
+                  <p className="flex items-center gap-1 text-[10px] text-amber-700 font-medium mb-0.5"><AlertTriangle className="w-3 h-3" aria-hidden="true" />Meta auto-reclassification</p>
                   <p className="text-[10px] text-amber-600 leading-relaxed">
                     Meta reviews all templates and may change your category to MARKETING if the content contains promotional language (e.g. &quot;offer&quot;, &quot;discount&quot;, &quot;exclusive&quot;). To keep Utility status: reference a specific order/account, be factual, and avoid any upsell or engagement cues.
                   </p>
@@ -840,7 +839,7 @@ export default function TemplatesPage() {
         {[
           { label: 'Total',    value: templates.length,           cls: 'text-gray-900' },
           { label: 'Approved', value: countByStatus('APPROVED'),  cls: 'text-green-600' },
-          { label: 'Pending',  value: countByStatus('PENDING'),   cls: 'text-yellow-600' },
+          { label: 'Pending',  value: countByStatus('PENDING'),   cls: 'text-amber-600' },
           { label: 'Draft',    value: countByStatus('DRAFT'),     cls: 'text-blue-600' },
         ].map(s => (
           <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4">

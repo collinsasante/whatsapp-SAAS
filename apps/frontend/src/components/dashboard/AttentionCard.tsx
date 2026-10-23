@@ -7,9 +7,9 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import type { AttentionItem, DashboardAttention } from '@/lib/dashboard/types';
 
 const SEVERITY = {
-  critical: { label: 'Urgent', Icon: AlertOctagon, tone: 'text-rose-700', badge: 'danger', ring: 'border-rose-200 bg-rose-50/50' },
-  warning: { label: 'Needs action', Icon: AlertTriangle, tone: 'text-amber-700', badge: 'warning', ring: 'border-amber-200 bg-amber-50/50' },
-  info: { label: 'For your attention', Icon: Info, tone: 'text-gray-600', badge: 'neutral', ring: 'border-gray-200 bg-gray-50/60' },
+  critical: { label: 'Urgent', Icon: AlertOctagon, tone: 'text-red-700', badge: 'danger', ring: 'border-red-200 bg-red-50' },
+  warning: { label: 'Needs action', Icon: AlertTriangle, tone: 'text-amber-700', badge: 'warning', ring: 'border-amber-200 bg-amber-50' },
+  info: { label: 'For your attention', Icon: Info, tone: 'text-gray-600', badge: 'neutral', ring: 'border-gray-200 bg-gray-50' },
 } as const;
 
 function Item({ item }: { item: AttentionItem }) {
@@ -48,7 +48,7 @@ function Item({ item }: { item: AttentionItem }) {
 export default function AttentionCard({ data }: { data: DashboardAttention }) {
   if (data.items.length === 0) {
     return (
-      <div className="flex items-start gap-2.5 rounded-lg border border-teal-200 bg-teal-50/50 p-3">
+      <div className="flex items-start gap-2.5 rounded-lg border border-teal-200 bg-teal-50 p-3">
         <CheckCircle2 size={18} className="text-teal-700 mt-0.5 shrink-0" aria-hidden="true" />
         <div>
           <p className="text-sm font-medium text-gray-900">Nothing needs your attention right now</p>

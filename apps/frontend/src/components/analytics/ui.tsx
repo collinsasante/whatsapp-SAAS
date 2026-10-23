@@ -102,7 +102,7 @@ export function DeltaBadge({ current, previous, direction, className }: {
 }
 
 export function DeltaView({ delta, className }: { delta: Delta; className?: string }) {
-  const tone = delta.verdict === 'better' ? 'text-teal-700' : delta.verdict === 'worse' ? 'text-rose-700' : 'text-gray-500';
+  const tone = delta.verdict === 'better' ? 'text-teal-700' : delta.verdict === 'worse' ? 'text-red-700' : 'text-gray-500';
   const Icon = delta.ratio == null || delta.ratio === 0 ? Minus : delta.ratio > 0 ? ArrowUpRight : ArrowDownRight;
   const judged = delta.verdict === 'better' || delta.verdict === 'worse';
   return (
@@ -124,7 +124,7 @@ export function EmptyNote(props: { title: string; children?: React.ReactNode; hr
 export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div role="alert" className="flex flex-col items-center justify-center text-center gap-3 py-16 bg-white border border-gray-200 rounded-xl">
-      <AlertCircle size={28} className="text-rose-400" aria-hidden="true" />
+      <AlertCircle size={28} className="text-red-400" aria-hidden="true" />
       <div>
         <p className="font-medium text-gray-900">Analytics could not be loaded</p>
         <p className="text-sm text-gray-500 mt-0.5">{message}</p>

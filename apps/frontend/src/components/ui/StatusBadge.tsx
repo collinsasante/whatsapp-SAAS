@@ -6,9 +6,9 @@ export type StatusTone = 'success' | 'warning' | 'danger' | 'info' | 'ai' | 'neu
 const TONE: Record<StatusTone, string> = {
   success: 'bg-green-50 text-green-700 border-green-200',
   warning: 'bg-amber-50 text-amber-800 border-amber-200',
-  danger: 'bg-rose-50 text-rose-700 border-rose-200',
-  info: 'bg-sky-50 text-sky-700 border-sky-200',
-  ai: 'bg-violet-50 text-violet-700 border-violet-200',
+  danger: 'bg-red-50 text-red-700 border-red-200',
+  info: 'bg-blue-50 text-blue-700 border-blue-200',
+  ai: 'bg-purple-50 text-purple-700 border-purple-200',
   neutral: 'bg-gray-100 text-gray-700 border-gray-200',
 };
 

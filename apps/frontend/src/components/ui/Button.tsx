@@ -8,7 +8,7 @@ const BASE = 'inline-flex items-center justify-center gap-1.5 font-medium rounde
 const VARIANT: Record<ButtonVariant, string> = {
   primary: 'bg-teal-600 text-white hover:bg-teal-700',
   secondary: 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
-  danger: 'bg-rose-600 text-white hover:bg-rose-700 focus-visible:outline-rose-600',
+  danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:outline-red-600',
   ghost: 'text-gray-600 hover:bg-gray-100',
 };
 const SIZE: Record<ButtonSize, string> = { sm: 'px-3 py-1.5 text-sm', md: 'px-3.5 py-2 text-sm' };

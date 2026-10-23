@@ -187,7 +187,7 @@ export default function AnalyticsPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-10">
         {!customValid ? (
-          <p role="alert" className="text-sm text-rose-700">Choose a valid custom date range to see analytics.</p>
+          <p role="alert" className="text-sm text-red-700">Choose a valid custom date range to see analytics.</p>
         ) : !isAdmin ? (
           <AgentView from={agentRange.from} to={agentRange.to} refreshKey={refreshKey} />
         ) : error && !data ? (
