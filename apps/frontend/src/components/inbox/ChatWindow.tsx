@@ -984,6 +984,22 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     } catch (err) { toast.error(getApiError(err, 'Failed to take over conversation')); }
   };
 
+  const handleReleaseToAi = async () => {
+    try {
+      const res = await conversationsApi.releaseToAi(conversation.id);
+      const data = res.data as { status: string; assignedTo?: { id: string; name: string; isAiAgent?: boolean } };
+      setLocalStatus('OPEN');
+      setTookOver(false);
+      updateConversation(conversation.id, {
+        status: 'OPEN',
+        assignedTo: data.assignedTo,
+        slaDeadline: undefined,
+        intervenedAt: undefined,
+      });
+      toast.success('Returned to Verz AI');
+    } catch (err) { toast.error(getApiError(err, 'Failed to return conversation to AI')); }
+  };
+
   const handleIntervene = async () => {
     setShowHeaderMenu(false);
     try {
@@ -1258,6 +1274,18 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                 >
                   <UserPlus size={13} />
                   <span className="hidden sm:inline">Take Over</span>
+                </button>
+              )}
+
+              {/* Return to Verz AI — visible once a human has taken over and isn't Verz itself */}
+              {localStatus === 'INTERVENED' && !assignedToOther && !isVerzAssigned && (
+                <button
+                  onClick={() => { void handleReleaseToAi(); }}
+                  title="Hand this conversation back to Verz AI"
+                  className="h-8 px-2.5 text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <Brain size={13} />
+                  <span className="hidden sm:inline">Return to AI</span>
                 </button>
               )}
 

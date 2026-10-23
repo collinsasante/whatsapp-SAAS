@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { articleContentKey, articleTitleKey, selectRelevantArticles } from './knowledge-base.util';
 
 const LEARN_THROTTLE_MS = 30 * 60 * 1000;
@@ -16,7 +16,10 @@ const KB_RELEVANCE_MAX_CHARS = 6000;
 export class KnowledgeBaseService {
   private readonly logger = new Logger(KnowledgeBaseService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => AiCompletionService)) private aiCompletionService: AiCompletionService,
+  ) {}
 
   /**
    * Throttle is persisted on TenantSettings.lastKbLearnAt (not an in-memory Map) so
@@ -281,27 +284,25 @@ export class KnowledgeBaseService {
     const convoText = sample.map((p, i) => `Q${i + 1}: ${p.question}\nA${i + 1}: ${p.answer}`).join('\n\n');
 
     try {
-      const response = await axios.post(
-        DEEPSEEK_API_URL,
-        {
-          model: DEEPSEEK_MODEL,
-          max_tokens: 2000,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are analyzing customer service conversations to build a knowledge base. ' +
-                'From the Q&A pairs provided, identify distinct recurring topics and write clear, reusable knowledge base articles. ' +
-                'Return ONLY a valid JSON array of objects with "title" (short, specific topic title) and "content" (a helpful, complete answer). ' +
-                'Create between 3 and 8 articles. Do not include any text outside the JSON array.',
-            },
-            { role: 'user', content: `Extract knowledge base articles from these conversations:\n\n${convoText}` },
-          ],
-        },
-        { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } },
-      );
+      const result = await this.aiCompletionService.complete({
+        tenantId,
+        taskType: 'KB_LEARN',
+        maxTokens: 2000,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are analyzing customer service conversations to build a knowledge base. ' +
+              'From the Q&A pairs provided, identify distinct recurring topics and write clear, reusable knowledge base articles. ' +
+              'Return ONLY a valid JSON array of objects with "title" (short, specific topic title) and "content" (a helpful, complete answer). ' +
+              'Create between 3 and 8 articles. Do not include any text outside the JSON array.',
+          },
+          { role: 'user', content: `Extract knowledge base articles from these conversations:\n\n${convoText}` },
+        ],
+      });
+      if (result.failed) return { created: 0 };
 
-      const raw = (response.data?.choices?.[0]?.message?.content as string ?? '').trim();
+      const raw = result.content.trim();
       const jsonStart = raw.indexOf('[');
       const jsonEnd = raw.lastIndexOf(']');
       if (jsonStart === -1 || jsonEnd === -1) return { created: 0 };

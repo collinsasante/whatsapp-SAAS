@@ -5,12 +5,13 @@ import Link from 'next/link';
 import {
   Brain, Plus, Edit2, Trash2, ToggleLeft, ToggleRight, Save, X,
   Clock, Zap, BookOpen, AlertCircle, Upload, Link2, FileText,
-  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield, Eraser,
+  Globe, Sparkles, RefreshCw, CheckCircle2, ShieldCheck, Download, BarChart2, Shield, Eraser, Activity,
 } from 'lucide-react';
 import { billingApi, knowledgeBaseApi, manageSettingsApi, aiLogsApi } from '@/lib/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
+import AiActivityTab from './AiActivityTab';
 
 interface Article {
   id: string;
@@ -59,7 +60,7 @@ const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   learned: { label: 'AI-Learned', color: 'bg-teal-50 text-teal-600' },
 };
 
-type KbTab = 'kb' | 'learned' | 'analytics';
+type KbTab = 'kb' | 'learned' | 'analytics' | 'activity';
 
 export default function AiPage() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -621,7 +622,21 @@ export default function AiPage() {
                 <BarChart2 size={14} />
                 Analytics
               </button>
+              <button
+                onClick={() => setActiveTab('activity')}
+                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                  activeTab === 'activity'
+                    ? 'border-teal-500 text-teal-700'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Activity size={14} />
+                AI Activity
+              </button>
             </div>
+
+            {/* ── AI ACTIVITY TAB (Verz-AI v2 execution traces) ── */}
+            {activeTab === 'activity' && <AiActivityTab />}
 
             {/* ── KNOWLEDGE BASE TAB ── */}
             {activeTab === 'kb' && (

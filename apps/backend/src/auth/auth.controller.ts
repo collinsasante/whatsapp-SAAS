@@ -28,11 +28,17 @@ export class AuthController {
   ) {}
 
   private setRefreshCookie(res: Response, token: string) {
-    const isProd = this.configService.get<string>('app.nodeEnv') === 'production';
+    // Secure must reflect the ACTUAL client-facing protocol, not NODE_ENV: staging runs
+    // NODE_ENV=production but serves plain HTTP only, and a browser silently discards a
+    // Secure cookie over HTTP, so the refresh cookie never persisted there -- every access
+    // token expiry (15m on staging) forced a full logout. req.secure respects
+    // X-Forwarded-Proto from nginx now that main.ts sets 'trust proxy', so this is correct
+    // for both staging (http) and production (https) behind the same nginx setup.
+    const secure = res.req.secure;
     res.cookie(COOKIE_NAME, token, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? 'strict' : 'lax',
+      secure,
+      sameSite: secure ? 'strict' : 'lax',
       path: '/',
       maxAge: COOKIE_MAX_AGE_MS,
     });

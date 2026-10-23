@@ -26,6 +26,12 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: '20mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '20mb' });
 
+  // Both staging and production sit behind nginx, which terminates the client-facing
+  // connection and forwards X-Forwarded-Proto. Without trust proxy, req.protocol/req.secure
+  // always report 'http'/false for a proxied request, regardless of what the real client
+  // connection used -- this is what the refresh-cookie Secure flag below needs to be correct.
+  app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cookieParser());
 

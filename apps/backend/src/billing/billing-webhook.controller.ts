@@ -18,6 +18,8 @@ import { IBillingGateway, ParsedWebhookEvent } from './gateways/gateway.interfac
 import { BillingCycle, PaymentGateway, PaymentStatus, SubscriptionStatus } from '@whatsapp-platform/shared-types';
 import { InvoiceService } from './invoice.service';
 import { SubscriptionService } from './subscription.service';
+import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
+import { AiCreditTransactionType } from '@prisma/client';
 
 @SkipThrottle()
 @ApiExcludeController()
@@ -31,6 +33,7 @@ export class BillingWebhookController {
     private readonly paystack: PaystackGateway,
     private readonly invoiceService: InvoiceService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly aiCreditsService: AiCreditsService,
   ) {}
 
   @Post('stripe')
@@ -129,14 +132,21 @@ export class BillingWebhookController {
       });
     }
 
-    // Credit purchase (no invoice attached)
+    // Credit purchase (no invoice attached). Grant is transactional and idempotent
+    // (AiCreditsService.grant, keyed on creditPurchaseId's unique constraint) -- a
+    // duplicate webhook delivery for the same purchase can never grant twice, even
+    // if the outer BillingEvent dedupe above is somehow bypassed.
     if (!payment.invoiceId) {
       const purchase = await this.prisma.creditPurchase.findFirst({ where: { paystackRef: payment.gatewayReference ?? undefined } });
       if (purchase && purchase.status !== PaymentStatus.SUCCEEDED) {
-        await Promise.all([
-          this.prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: PaymentStatus.SUCCEEDED } }),
-          this.prisma.tenant.update({ where: { id: purchase.tenantId }, data: { aiCredits: { increment: purchase.credits } } }),
-        ]);
+        await this.prisma.creditPurchase.update({ where: { id: purchase.id }, data: { status: PaymentStatus.SUCCEEDED } });
+        await this.aiCreditsService.grant(
+          purchase.tenantId,
+          AiCreditTransactionType.PURCHASE,
+          purchase.credits,
+          `Credit pack purchase (${purchase.packSlug}) via ${gateway}`,
+          { creditPurchaseId: purchase.id },
+        );
         this.logger.log(`${purchase.credits} AI credits added to tenant ${purchase.tenantId} via ${gateway}`);
       }
     } else {

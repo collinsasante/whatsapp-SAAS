@@ -13,9 +13,12 @@ import { AiModule } from '../ai/ai.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
 import { AiLogsModule } from '../ai-logs/ai-logs.module';
 import { CommerceModule } from '../commerce/commerce.module';
+import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
+import { AiCoreModule } from '../ai-core/ai-core.module';
+import { LeadsModule } from '../leads/leads.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule],
+  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule],
   controllers: [MessagesController, LinkPreviewController, MessageSearchController],
   providers: [MessagesService],
   exports: [MessagesService],

@@ -1,14 +1,15 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderStatus } from '@prisma/client';
-import { UserRole } from '@whatsapp-platform/shared-types';
+import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
 import { OrdersService } from './orders.service';
 import { CommerceLedgerService } from '../ledger/commerce-ledger.service';
-import { CreateDraftOrderDto, AddOrderItemDto, SubmitForPaymentDto, CancelOrderDto, UpdateFulfillmentDto } from './dto/order.dto';
+import { CreateDraftOrderDto, AddOrderItemDto, SubmitForPaymentDto, CancelOrderDto, UpdateFulfillmentDto, ApproveOrderDto, RejectOrderDto } from './dto/order.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentTenant } from '../../common/decorators/tenant.decorator';
+import { CurrentUser } from '../../common/decorators/user.decorator';
 
 @ApiTags('Commerce Orders')
 @ApiBearerAuth()
@@ -54,6 +55,20 @@ export class OrdersController {
   @ApiOperation({ summary: 'Cancel a DRAFT or PENDING_PAYMENT order' })
   cancel(@CurrentTenant() tenantId: string, @Param('id') id: string, @Body() dto: CancelOrderDto) {
     return this.ordersService.cancel(tenantId, id, dto.reason);
+  }
+
+  @Post(':id/approve')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Approve an AWAITING_APPROVAL order and send the customer a real payment link (same Paystack path as a normal checkout)' })
+  approve(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload, @Body() dto: ApproveOrderDto) {
+    return this.ordersService.approveOrder(tenantId, id, user.sub, dto.customerEmail);
+  }
+
+  @Post(':id/reject')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reject an AWAITING_APPROVAL order (cancels it) and resolve the linked task' })
+  reject(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload, @Body() dto: RejectOrderDto) {
+    return this.ordersService.rejectOrder(tenantId, id, user.sub, dto.reason);
   }
 
   @Patch(':id/fulfillment')

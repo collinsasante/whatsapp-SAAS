@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Building2, Users, Radio, DollarSign, ScrollText, Megaphone,
-  CheckCircle2, XCircle, Loader2, AlertTriangle, CreditCard,
+  CheckCircle2, XCircle, Loader2, AlertTriangle, CreditCard, ShoppingCart,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import toast from 'react-hot-toast';
@@ -48,6 +48,9 @@ export default function WorkspaceDetailPage() {
   const [showSetPlan, setShowSetPlan] = useState(false);
   const [selectedPlanSlug, setSelectedPlanSlug] = useState('');
   const [settingPlan, setSettingPlan] = useState(false);
+  const [commerceEnabled, setCommerceEnabled] = useState(false);
+  const [takeRatePct, setTakeRatePct] = useState('5');
+  const [savingCommerce, setSavingCommerce] = useState(false);
 
   const id = params?.id ?? '';
 
@@ -66,6 +69,11 @@ export default function WorkspaceDetailPage() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { adminApi.plans().then(setPlans).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!data) return;
+    setCommerceEnabled(data.settings?.commerceEnabled ?? false);
+    setTakeRatePct(String(data.settings?.takeRatePct ?? 5));
+  }, [data]);
 
   const toggleActive = async () => {
     if (!data) return;
@@ -83,6 +91,25 @@ export default function WorkspaceDetailPage() {
       toast.error((e as Error).message);
     } finally {
       setActing(false);
+    }
+  };
+
+  const saveCommerceConfig = async () => {
+    if (!data) return;
+    const pct = parseFloat(takeRatePct);
+    if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+      toast.error('Take rate must be a number between 0 and 100');
+      return;
+    }
+    setSavingCommerce(true);
+    try {
+      await adminApi.setCommerceConfig(data.id, commerceEnabled, pct);
+      toast.success(`Commerce config saved -- ${commerceEnabled ? `enabled at ${pct}%` : 'disabled'}`);
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSavingCommerce(false);
     }
   };
 
@@ -176,6 +203,40 @@ export default function WorkspaceDetailPage() {
               <div className="flex justify-between"><dt className="text-gray-500">Contacts</dt><dd className="font-medium text-gray-800">{data._count.contacts}</dd></div>
               <div className="flex justify-between"><dt className="text-gray-500">Conversations (all-time)</dt><dd className="font-medium text-gray-800">{data._count.conversations}</dd></div>
             </dl>
+          </Panel>
+
+          <Panel title="Managed Commerce" icon={ShoppingCart}>
+            <div className="space-y-3">
+              <label className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Commerce enabled</span>
+                <input
+                  type="checkbox"
+                  checked={commerceEnabled}
+                  onChange={(e) => setCommerceEnabled(e.target.checked)}
+                  className="w-4 h-4 accent-teal-600"
+                />
+              </label>
+              <label className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Take rate (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={takeRatePct}
+                  onChange={(e) => setTakeRatePct(e.target.value)}
+                  className="w-20 px-2 py-1 border border-gray-200 rounded-lg text-right text-sm"
+                />
+              </label>
+              <p className="text-[11px] text-gray-400">Platform&apos;s cut of every paid order for this workspace, taken from the merchant&apos;s proceeds.</p>
+              <button
+                onClick={() => { void saveCommerceConfig(); }}
+                disabled={savingCommerce}
+                className="w-full py-2 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700 disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {savingCommerce && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save
+              </button>
+            </div>
           </Panel>
 
           <Panel title="Health score breakdown" icon={Users}>

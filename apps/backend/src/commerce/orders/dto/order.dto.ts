@@ -62,3 +62,17 @@ export class UpdateFulfillmentDto {
   @IsEnum(OrderStatus)
   status: OrderStatus;
 }
+
+export class ApproveOrderDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  customerEmail?: string;
+}
+
+export class RejectOrderDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}

@@ -1,4 +1,5 @@
 import { EvaluationScenario } from '../evaluation.types';
+import { IDENTITY_EVAL_SCENARIOS } from './identity-eval-scenarios';
 
 /**
  * ~15-20 realistic test conversations run against the real CommerceAiService
@@ -170,4 +171,7 @@ export const COMMERCE_EVAL_SCENARIOS: EvaluationScenario[] = [
     products: { A: { type: 'any' } },
     turns: [{ customerMessage: 'eii how much be the {{product:A}} de3?' }],
   },
+
+  // ─── Verz-AI unification, Phase K: identity/handoff/hostility/media/promotion ──
+  ...IDENTITY_EVAL_SCENARIOS,
 ];

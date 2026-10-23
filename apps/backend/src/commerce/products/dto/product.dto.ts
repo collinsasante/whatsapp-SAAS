@@ -37,6 +37,12 @@ export class CreateProductDto {
   @Min(0)
   stockQuantity?: number;
 
+  @ApiProperty({ required: false, description: 'Below this quantity, an order is routed to AWAITING_APPROVAL instead of straight to checkout. Omit for no minimum.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  minOrderQuantity?: number;
+
   @ApiProperty({ required: false, type: [Object] })
   @IsOptional()
   @IsArray()
@@ -75,6 +81,12 @@ export class UpdateProductDto {
   @IsInt()
   @Min(0)
   stockQuantity?: number;
+
+  @ApiProperty({ required: false, description: 'Below this quantity, an order is routed to AWAITING_APPROVAL instead of straight to checkout. Omit for no minimum.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  minOrderQuantity?: number;
 
   @ApiProperty({ required: false, type: [Object] })
   @IsOptional()

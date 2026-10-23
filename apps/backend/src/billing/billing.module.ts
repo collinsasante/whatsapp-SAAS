@@ -9,9 +9,10 @@ import { UsageService } from './usage.service';
 import { StripeGateway } from './gateways/stripe.gateway';
 import { PaystackGateway } from './gateways/paystack.gateway';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AiCoreModule } from '../ai-core/ai-core.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
+  imports: [PrismaModule, ConfigModule, AiCoreModule],
   controllers: [BillingController, BillingWebhookController],
   providers: [BillingService, SubscriptionService, InvoiceService, UsageService, StripeGateway, PaystackGateway],
   exports: [BillingService, SubscriptionService, UsageService],

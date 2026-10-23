@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Users, Megaphone, FileText, Zap, Settings, LogOut,
   BarChart3, Phone, Globe, LayoutDashboard, Images, Bot, Wrench, CreditCard,
-  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck, ReceiptText,
+  ChevronRight, Check, Plus, Brain, Menu, Moon, Sun, ShoppingCart, Package, ClipboardCheck, ReceiptText, Wallet, ClipboardList,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -41,8 +41,9 @@ const mainNav: NavItem[] = [
     icon: Brain,
     label: 'Verz AI',
     children: [
-      { href: '/ai',      icon: Brain,  label: 'Verz AI Settings' },
-      { href: '/ai-test', icon: Bot,    label: 'Testing Center' },
+      { href: '/ai',           icon: Brain,         label: 'Verz AI Settings' },
+      { href: '/ai-test',      icon: Bot,           label: 'Testing Center' },
+      { href: '/ai/test-chat', icon: MessageSquare, label: 'Test Chat' },
     ],
   },
   {
@@ -52,10 +53,12 @@ const mainNav: NavItem[] = [
     children: [
       { href: '/commerce/products',   icon: Package,        label: 'Products' },
       { href: '/commerce/orders',     icon: ReceiptText,    label: 'Orders' },
+      { href: '/commerce/revenue',    icon: Wallet,         label: 'Revenue' },
       { href: '/commerce/chat',       icon: MessageSquare,  label: 'Test Chat' },
       { href: '/commerce/evaluation', icon: ClipboardCheck, label: 'Evaluation Runs' },
     ],
   },
+  { type: 'link', href: '/tasks',     icon: ClipboardList, label: 'Tasks' },
   { type: 'link', href: '/analytics', icon: BarChart3, label: 'Analytics' },
   { type: 'link', href: '/calls',     icon: Phone,     label: 'Calls' },
 ];
@@ -478,7 +481,7 @@ const PRIMARY_TABS = [
 ] as const;
 
 // Paths covered by the "More" drawer tab (not in primary tabs)
-const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/commerce', '/settings', '/channels', '/library', '/manage', '/billing'];
+const MORE_PATHS = ['/dashboard', '/campaigns', '/templates', '/automation', '/chatbot', '/ai', '/ai-test', '/commerce', '/tasks', '/settings', '/channels', '/library', '/manage', '/billing'];
 
 export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
   const pathname = usePathname() ?? "";
