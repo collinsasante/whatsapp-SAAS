@@ -232,6 +232,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on('disconnect', startPolling);
 
     socket.on(SocketEvent.NEW_MESSAGE, (data: { conversationId: string; message: Message }) => {
+      if (data.message?.direction === MessageDirection.OUTBOUND) {
+        console.info(`[verz:socket] outbound message arrived: status=${data.message.status}, type=${data.message.type}`);
+      }
       addMessage(data.conversationId, data.message);
 
       // If the message is for the currently open conversation, clear the unread badge

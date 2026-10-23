@@ -92,6 +92,30 @@ export class FacebookMessengerService {
     }
   }
 
+  /**
+   * The person's display name from Meta, for a contact we only know by an opaque id (otherwise the inbox shows
+   * "Unknown"). Best effort and never throws: returns the reason when Meta says no, so the caller can log it. The
+   * name itself is never logged.
+   */
+  async fetchContactName(
+    tenantId: string, channelId: string, platform: 'MESSENGER' | 'INSTAGRAM', externalId: string,
+  ): Promise<{ name: string | null; reason?: string }> {
+    try {
+      const token = platform === 'INSTAGRAM'
+        ? (await this.resolveInstagramCredentials(tenantId, channelId)).accessToken
+        : (await this.resolveCredentials(tenantId, channelId)).pageAccessToken;
+      const res = await axios.get<{ name?: string; first_name?: string; last_name?: string; username?: string }>(
+        `${GRAPH_API_BASE}/${encodeURIComponent(externalId)}`,
+        { params: { fields: platform === 'INSTAGRAM' ? 'name,username' : 'name,first_name,last_name', access_token: token }, timeout: 8_000 },
+      );
+      const d = res.data;
+      const name = d.name?.trim() || [d.first_name, d.last_name].filter(Boolean).join(' ').trim() || (d.username ? `@${d.username}` : '');
+      return name ? { name } : { name: null, reason: 'Meta returned no name for this person' };
+    } catch (error) {
+      return { name: null, reason: metaError(error) };
+    }
+  }
+
   // ─── Instagram (Messenger Platform for Instagram, Facebook Login) ─────────────
   // Same Send API and Page access token as Messenger, addressed to an Instagram-scoped id (IGSID). The token is
   // kept on the Channel row (credentials.accessToken), not in FacebookPageConnection.

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { FacebookMessengerService } from './facebook-messenger.service';
 import { MessengerWebhookController } from './messenger.webhook.controller';
 
@@ -74,6 +74,57 @@ describe('FacebookMessengerService: Instagram sending', () => {
     const { service } = buildSender();
     await expect(service.sendInstagramMediaMessage('t1', 'ch1', 'IGSID-9', type, 'https://cdn.example.com/f')).rejects.toThrow('only supports');
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('FacebookMessengerService.fetchContactName', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function buildBoth() {
+    const prisma = {
+      channel: { findFirst: jest.fn().mockResolvedValue({ isActive: true, credentials: { accessToken: `enc:${TOKEN}` } }) },
+      facebookPageConnection: { findFirst: jest.fn().mockResolvedValue({ isActive: true, pageAccessToken: `enc:${TOKEN}` }) },
+    };
+    return { service: new FacebookMessengerService(prisma as never, { decrypt: (v: string) => v.replace(/^enc:/, '') } as never), prisma };
+  }
+
+  it('Messenger: reads the name with the Page token and asks only for name fields', async () => {
+    const get = jest.spyOn(axios, 'get').mockResolvedValue({ data: { name: 'Ama Mensah' } });
+    const { service } = buildBoth();
+    await expect(service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1')).resolves.toEqual({ name: 'Ama Mensah' });
+    expect(get.mock.calls[0][0]).toBe('https://graph.facebook.com/v19.0/PSID-1');
+    expect(get.mock.calls[0][1]).toMatchObject({ params: { fields: 'name,first_name,last_name', access_token: TOKEN } });
+  });
+
+  it('Messenger: builds the name from first and last name when there is no name field', async () => {
+    jest.spyOn(axios, 'get').mockResolvedValue({ data: { first_name: 'Kofi', last_name: 'Boateng' } });
+    const { service } = buildBoth();
+    await expect(service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1')).resolves.toEqual({ name: 'Kofi Boateng' });
+  });
+
+  it('Instagram: uses the account token, and falls back to @username', async () => {
+    const get = jest.spyOn(axios, 'get').mockResolvedValue({ data: { username: 'glam_pack' } });
+    const { service, prisma } = buildBoth();
+    await expect(service.fetchContactName('t1', 'ch-ig', 'INSTAGRAM', 'IGSID-1')).resolves.toEqual({ name: '@glam_pack' });
+    expect(get.mock.calls[0][1]).toMatchObject({ params: { fields: 'name,username' } });
+    expect(prisma.channel.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'ch-ig', tenantId: 't1', type: 'INSTAGRAM' } }));
+  });
+
+  it('never throws: returns the reason when Meta refuses, and no token in it', async () => {
+    jest.spyOn(axios, 'get').mockRejectedValue(new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, { data: { error: { message: '(#10) Application does not have permission' } } } as never));
+    const { service } = buildBoth();
+    const r = await service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1');
+    expect(r.name).toBeNull();
+    expect(r.reason).toContain('permission');
+    expect(JSON.stringify(r)).not.toContain(TOKEN);
+  });
+
+  it('never throws when the account is disconnected', async () => {
+    const prisma = { channel: { findFirst: jest.fn().mockResolvedValue({ isActive: false, credentials: {} }) } };
+    const service = new FacebookMessengerService(prisma as never, { decrypt: (v: string) => v } as never);
+    const r = await service.fetchContactName('t1', 'ch-ig', 'INSTAGRAM', 'IGSID-1');
+    expect(r.name).toBeNull();
+    expect(r.reason).toContain('disconnected');
   });
 });
 

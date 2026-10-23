@@ -7,7 +7,19 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Added
+- Facebook and Instagram account picker: filter by name, Select all and Deselect all (they act on what the filter
+  shows), and a count of how many are selected.
+- Messenger and Instagram contacts now get their real name from Meta when they write in, instead of showing as
+  "Unknown". Contacts we have no name for show as "Messenger user" or "Instagram user".
+
+### Fixed
+- The Contacts page no longer crashes when a Messenger or Instagram contact (which has no phone number) is in the list.
+- The channel marker on avatars (WhatsApp Web QR, Messenger, Instagram) is larger and easier to read.
+
 ### Changed
+- Sending a message now writes a short server log line (channel, type, timing, whether the provider returned an id,
+  never the text) and the browser console shows the same lifecycle, to track down "sent but still shows as sending".
 - Connecting Facebook or Instagram now writes a short line to the server log with how many accounts Meta returned and
   how many Pages the person granted the app (counts only: no tokens, names or ids). It answers "why do I see fewer
   accounts than I have" without guessing.
