@@ -347,6 +347,9 @@ export const analyticsApi = {
     api.get('/analytics/campaigns', { params: { from, to, limit, offset } }),
   health: () => api.get('/analytics/health'),
   revenue: (from: string, to: string) => api.get('/analytics/revenue', { params: { from, to } }),
+  /** Business intelligence for admins. Send `preset` for a relative range (resolved in the workspace timezone) or from/to for a custom one. */
+  intelligence: (params: { preset?: string; from?: string; to?: string; channel?: string }) =>
+    api.get('/analytics/intelligence', { params }),
 };
 
 export const channelsApi = {

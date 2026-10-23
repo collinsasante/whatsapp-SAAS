@@ -7,7 +7,13 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Changed
+- Analytics page rebuilt around three questions: what is happening, why, and what to do next. Admins get a single filtered view (date range, previous-period comparison, channel) with KPIs, trends, an insights list with evidence and next steps, customer and lead pipeline, conversation backlog and reply speed, a busiest-times heatmap, team workload, Verz AI performance, common conversation labels and order revenue. Agents see only their own conversations.
+- Analytics no longer counts the dashboard's own test chats as customer conversations.
+- Revenue now comes from Commerce orders (per currency, never mixed). The old page showed VerzChat's own subscription billing under "Revenue"; that is no longer shown there.
+
 ### Added
+- `GET /analytics/intelligence` (admin only): the aggregated data behind the new page. No database changes.
 - Messenger and Instagram now do what WhatsApp does in the inbox:
   - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails
     when Meta cannot fetch the file from our server. Voice notes are converted so they play.
