@@ -125,7 +125,7 @@ export default function TeamSection({ data }: { data: IntelligenceResponse }) {
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-gray-500 px-4 py-3 border-t border-gray-200 bg-gray-50/60">
+        <p className="text-xs text-gray-500 px-4 py-3 border-t border-gray-200 bg-gray-50">
           This is a view of workload and speed, not a ranking. Times are medians, so one slow conversation does not distort them. Counts follow the current assignee of each conversation, and a time with fewer than {LOW_SAMPLE} samples is marked because it is too thin to compare fairly. Conversation difficulty and quality are not measured here.
         </p>
       </Panel>

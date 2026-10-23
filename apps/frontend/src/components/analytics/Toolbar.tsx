@@ -120,7 +120,7 @@ export default function Toolbar(p: Props) {
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-3 py-2" />
           </label>
           <Button type="submit" disabled={!!problem}>Apply</Button>
-          {problem && (from || to) && <p role="alert" className="text-sm text-rose-700 basis-full">{problem}</p>}
+          {problem && (from || to) && <p role="alert" className="text-sm text-red-700 basis-full">{problem}</p>}
         </form>
       )}
     </div>

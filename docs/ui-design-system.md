@@ -22,7 +22,7 @@ Measured from `apps/frontend/src` (counts of Tailwind colour utilities, `h1` siz
 ## Decisions proposed
 
 1. **Primary colour: teal 600** (hover 700, tint 50, text 700). It is already what users see in the product. The unused green `brand` token is repointed to teal so `brand-*` becomes the one name for it. The marketing site keeps its own display font and layout but takes the same primary and neutral values.
-2. **Semantic colours, one each:** success = green, warning = amber, danger = rose, info = sky, AI = violet. Emerald, indigo, purple and cyan stop being used for status. Charts use teal, slate, amber and violet in that order.
+2. **Semantic colours, one each:** success = green, warning = amber, danger = red, info = blue, AI = purple. These are the hues the dark-mode remap in `globals.css` already covers; rose, sky, violet, emerald, indigo and cyan are not covered, so they are not used for status. Charts use teal, slate, amber and purple in that order.
 3. **Type scale:** page title `text-2xl font-semibold`; section heading `text-lg font-semibold`; card heading `text-base font-semibold`; body `text-sm`; helper `text-xs text-gray-500`; metric `text-3xl font-semibold tabular-nums`. Inter throughout the product.
 4. **Radius:** controls (buttons, inputs, badges) `rounded-lg`; cards and panels `rounded-xl`; dialogs `rounded-2xl`. `rounded-3xl` is removed.
 5. **Spacing:** page padding `p-4 sm:p-6`, content width `max-w-[1280px]` except the inbox, section gap `space-y-6`, card padding `p-4 sm:p-5`.

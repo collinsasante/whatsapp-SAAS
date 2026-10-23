@@ -68,12 +68,12 @@ export default function AiSection({ data }: { data: IntelligenceResponse }) {
           <>
             <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100" aria-hidden="true">
               <div className="bg-teal-600" style={{ width: `${((used - ai.suggestionsEdited) / ai.suggestions) * 100}%` }} />
-              <div className="bg-sky-500" style={{ width: `${(ai.suggestionsEdited / ai.suggestions) * 100}%` }} />
+              <div className="bg-blue-500" style={{ width: `${(ai.suggestionsEdited / ai.suggestions) * 100}%` }} />
               <div className="bg-slate-300" style={{ width: `${(ai.suggestionsRejected / ai.suggestions) * 100}%` }} />
             </div>
             <dl className="mt-3 space-y-1.5 text-sm">
               <div className="flex justify-between"><dt className="inline-flex items-center gap-2"><span aria-hidden="true" className="w-2.5 h-2.5 rounded-sm bg-teal-600" />Sent as written</dt><dd className="tabular-nums">{used - ai.suggestionsEdited}</dd></div>
-              <div className="flex justify-between"><dt className="inline-flex items-center gap-2"><span aria-hidden="true" className="w-2.5 h-2.5 rounded-sm bg-sky-500" />Edited, then sent</dt><dd className="tabular-nums">{ai.suggestionsEdited}</dd></div>
+              <div className="flex justify-between"><dt className="inline-flex items-center gap-2"><span aria-hidden="true" className="w-2.5 h-2.5 rounded-sm bg-blue-500" />Edited, then sent</dt><dd className="tabular-nums">{ai.suggestionsEdited}</dd></div>
               <div className="flex justify-between"><dt className="inline-flex items-center gap-2"><span aria-hidden="true" className="w-2.5 h-2.5 rounded-sm bg-slate-300" />Rejected</dt><dd className="tabular-nums">{ai.suggestionsRejected}</dd></div>
               <div className="flex justify-between text-gray-500"><dt>Not acted on yet</dt><dd className="tabular-nums">{ai.suggestions - used - ai.suggestionsRejected}</dd></div>
             </dl>

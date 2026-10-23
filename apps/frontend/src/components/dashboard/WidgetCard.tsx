@@ -29,16 +29,16 @@ export default function WidgetCard<T>({ id, title, description, aside, widget, s
         <div className={cn('transition-opacity', loading && 'opacity-60')}>
           {children(data)}
           {error && (
-            <p role="alert" className="mt-3 text-sm text-rose-700">
+            <p role="alert" className="mt-3 text-sm text-red-700">
               Could not refresh this section. {error}{' '}
               <button onClick={reload} className="font-medium underline hover:no-underline">Try again</button>
             </p>
           )}
         </div>
       ) : error ? (
-        <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-rose-50/60 border border-rose-100 p-4">
+        <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-50 border border-red-100 p-4">
           <p className="flex items-center gap-2 text-sm font-medium text-gray-900">
-            <AlertCircle size={16} className="text-rose-500" aria-hidden="true" />This section could not be loaded
+            <AlertCircle size={16} className="text-red-500" aria-hidden="true" />This section could not be loaded
           </p>
           <p className="text-sm text-gray-600">{error}</p>
           <Button size="sm" onClick={reload}>Try again</Button>
