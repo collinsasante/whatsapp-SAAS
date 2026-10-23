@@ -7,7 +7,10 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+- Platform-admin requests are now checked against the database on every request. A switched-off or demoted admin loses
+  access immediately instead of when their login token expires, and an admin token that was not issued by this
+  environment's own database is rejected even if it is correctly signed.
 
 ## [2.3.0] - 2026-10-20
 
