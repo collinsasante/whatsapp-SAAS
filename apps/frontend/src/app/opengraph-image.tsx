@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
 
 export const runtime = 'edge';
-export const alt = 'VerzChat: WhatsApp Business Inbox for Teams';
+export const alt = 'VerzChat: one shared inbox for WhatsApp, with Verz AI when you want it';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -10,86 +10,35 @@ export default function OGImage() {
     (
       <div
         style={{
-          background: 'linear-gradient(135deg, #0f766e 0%, #134e4a 60%, #0c2820 100%)',
           width: '100%',
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'flex-start',
-          justifyContent: 'center',
+          justifyContent: 'space-between',
+          background: '#104a25',
+          color: '#ffffff',
           padding: '72px 80px',
           fontFamily: 'sans-serif',
+          position: 'relative',
         }}
       >
-        {/* Badge */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            background: 'rgba(255,255,255,0.12)',
-            borderRadius: 100,
-            padding: '8px 18px',
-            marginBottom: 32,
-          }}
-        >
-          <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#34d399', display: 'flex' }} />
-          <span style={{ fontSize: 16, color: '#a7f3d0', fontWeight: 600, letterSpacing: 0.5 }}>
-            Official Meta Business Partner
-          </span>
-        </div>
+        <div style={{ display: 'flex', fontSize: 34, fontWeight: 800, letterSpacing: -0.5 }}>VerzChat</div>
 
-        {/* Headline */}
-        <div
-          style={{
-            fontSize: 68,
-            fontWeight: 800,
-            color: '#ffffff',
-            lineHeight: 1.1,
-            marginBottom: 20,
-            maxWidth: 780,
-          }}
-        >
-          WhatsApp Inbox for Your Team
-        </div>
-
-        {/* Sub */}
-        <div
-          style={{
-            fontSize: 26,
-            color: '#99f6e4',
-            fontWeight: 400,
-            maxWidth: 680,
-            lineHeight: 1.4,
-            marginBottom: 48,
-          }}
-        >
-          Handle every customer message from one shared inbox. Teams live in under 20 minutes.
-        </div>
-
-        {/* Brand */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: 'rgba(255,255,255,0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 24,
-              fontWeight: 800,
-              color: '#fff',
-            }}
-          >
-            V
+        <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 860 }}>
+          <div style={{ fontSize: 84, fontWeight: 800, lineHeight: 1.02, letterSpacing: -2 }}>
+            A customer messages at 9 pm. Who answers?
           </div>
-          <span style={{ fontSize: 28, fontWeight: 700, color: '#ffffff' }}>VerzChat</span>
-          <span style={{ fontSize: 18, color: '#5eead4', marginLeft: 8 }}>verzchat.com</span>
+          <div style={{ fontSize: 30, marginTop: 28, color: '#bcd9c4', lineHeight: 1.35 }}>
+            One shared inbox for WhatsApp, with every chat owned by an agent or Verz AI.
+          </div>
         </div>
+
+        <svg width="260" height="156" viewBox="0 0 200 120" fill="none" style={{ position: 'absolute', right: 56, bottom: 36 }}>
+          <path d="M14 66l38 38L118 18" stroke="#17612f" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M84 98l6 6L186 18" stroke="#17612f" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </div>
     ),
-    { width: 1200, height: 630 },
+    { ...size },
   );
 }
