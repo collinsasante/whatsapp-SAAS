@@ -1,0 +1,57 @@
+.ticks {
+  display: inline-flex;
+  color: #7c8f83;
+  line-height: 0;
+}
+.read {
+  color: var(--green-600);
+}
+
+.owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+.owner::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.person {
+  background: var(--green-100);
+  color: var(--green-700);
+}
+.ai {
+  background: var(--ai-bg);
+  color: var(--ai-ink);
+}
+.waiting {
+  background: var(--wait-bg);
+  color: var(--wait);
+}
+
+.tile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 6px;
+  color: #fff;
+}
+.tile_whatsapp {
+  background: #1ba85a;
+}
+.tile_messenger {
+  background: #1b6cf2;
+}
+.tile_instagram {
+  background: linear-gradient(135deg, #f9a03f, #dd2a7b 55%, #6a3ec8);
+}
