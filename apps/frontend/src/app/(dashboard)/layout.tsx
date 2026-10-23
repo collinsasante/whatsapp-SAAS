@@ -147,7 +147,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       <OutboundCallBar />
       <ConfirmCallModal />
       <ConfirmModal />
-      <div className="flex flex-col h-dvh overflow-hidden bg-gray-50">
+      {/* relative: absolutely positioned descendants (sr-only text, popovers) must be clipped here, or the document itself scrolls into a blank page */}
+      <div className="relative flex flex-col h-dvh overflow-hidden bg-gray-50">
         <OfflineBanner />
         <div className="flex flex-1 overflow-hidden min-h-0">
           <Sidebar />
