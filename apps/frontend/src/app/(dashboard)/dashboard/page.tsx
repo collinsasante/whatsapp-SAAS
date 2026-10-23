@@ -88,6 +88,7 @@ export default function DashboardPage() {
   }
 
   return (
+    <div className="h-full overflow-y-auto overscroll-contain bg-gray-50">
     <div className="p-4 sm:p-6 max-w-[1280px] mx-auto space-y-5 sm:space-y-6">
       <Header
         firstName={firstName}
@@ -151,6 +152,7 @@ export default function DashboardPage() {
           </WidgetCard>
         </>
       )}
+    </div>
     </div>
   );
 }
