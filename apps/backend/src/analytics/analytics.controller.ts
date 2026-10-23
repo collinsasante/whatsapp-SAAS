@@ -7,14 +7,25 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
-import { DateRangeQueryDto, ConversationsQueryDto, CampaignsQueryDto } from './dto/analytics.dto';
+import { AnalyticsIntelligenceService } from './analytics-intelligence.service';
+import { DateRangeQueryDto, ConversationsQueryDto, CampaignsQueryDto, IntelligenceQueryDto } from './dto/analytics.dto';
 
 @ApiTags('Analytics')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('analytics')
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(
+    private readonly analyticsService: AnalyticsService,
+    private readonly intelligenceService: AnalyticsIntelligenceService,
+  ) {}
+
+  @Get('intelligence')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Business intelligence: KPIs with previous-period comparison, trends, backlog, team, AI, leads, orders and rules-based insights (admin/owner only)' })
+  getIntelligence(@CurrentTenant() tenantId: string, @Query() query: IntelligenceQueryDto) {
+    return this.intelligenceService.getIntelligence(tenantId, query);
+  }
 
   @Get('overview')
   @ApiOperation({ summary: 'Overview summary cards -- admins see tenant-wide + revenue, agents see their own scope only' })
