@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import type { AuditLogRow } from '@/lib/admin-api';
-import { auditFailureReason, auditLabel, auditReason, auditTargetHref } from '@/lib/admin/audit';
+import { auditLabel, auditNote, auditTargetHref } from '@/lib/admin/audit';
 import { formatRelative } from '@/lib/admin/format';
 import { EmptyState } from './States';
 
@@ -12,7 +12,7 @@ export function AuditList({ rows, compact }: { rows: Array<Pick<AuditLogRow, 'id
     <ul className="divide-y divide-gray-100">
       {rows.map((r) => {
         const href = auditTargetHref(r);
-        const reason = auditReason(r.metadata) ?? auditFailureReason(r.metadata);
+        const reason = auditNote(r.action, r.metadata);
         return (
           <li key={r.id} className={compact ? 'py-2' : 'py-2.5'}>
             <p className="text-sm text-gray-900">

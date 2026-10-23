@@ -6,6 +6,7 @@ import { adminApi, type PlatformAdminRow } from '@/lib/admin-api';
 import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
 import { Badge, type BadgeTone } from '@/components/admin/Badge';
 import { showConfirm } from '@/store/confirm.store';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
 const ROLES = ['SUPER_ADMIN', 'SUPPORT', 'VIEWER'] as const;
 const ROLE_TONES: Record<string, BadgeTone> = { SUPER_ADMIN: 'danger', SUPPORT: 'info', VIEWER: 'neutral' };
@@ -21,7 +22,7 @@ function getCurrentAdminId(): string | null {
   }
 }
 
-export default function AdminsPage() {
+function AdminsPageContent() {
   const [rows, setRows] = useState<PlatformAdminRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -130,5 +131,13 @@ export default function AdminsPage() {
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No admins found" />
       </div>
     </div>
+  );
+}
+
+export default function AdminsPage() {
+  return (
+    <SuperAdminOnly>
+      <AdminsPageContent />
+    </SuperAdminOnly>
   );
 }

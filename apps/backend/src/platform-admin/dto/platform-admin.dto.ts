@@ -227,8 +227,13 @@ export class WebhookEventsQueryDto {
 
 // ── Analytics: AI / Commerce / Messaging / Payments / Audit ────────────────
 
+/** A balance under this many credits is shown as running low. Fixed, so the page can say exactly what "low" means. */
+export const LOW_CREDIT_THRESHOLD = 100;
+
 export class AiCreditWalletsQueryDto {
-  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  /** out = active tenants with no credits left; low = active tenants under LOW_CREDIT_THRESHOLD. */
+  @IsOptional() @IsIn(['out', 'low']) filter?: 'out' | 'low';
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
 }

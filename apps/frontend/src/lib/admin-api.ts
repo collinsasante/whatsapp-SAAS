@@ -620,8 +620,8 @@ export const adminApi = {
 
   aiAnalytics: (from?: string, to?: string) => req<AiAnalyticsData>('GET', `/analytics/ai${qs({ from, to })}`),
   aiUsageTopConsumers: (from?: string, to?: string) => req<AiUsageTopConsumersData>('GET', `/ai/usage${qs({ from, to })}`),
-  aiCreditWallets: (opts: { search?: string; limit?: number; offset?: number } = {}) =>
-    req<Paginated<AiCreditWalletRow>>('GET', `/ai/credits/wallets${qs(opts)}`),
+  aiCreditWallets: (opts: { search?: string; filter?: 'out' | 'low'; limit?: number; offset?: number } = {}) =>
+    req<Paginated<AiCreditWalletRow> & { lowThreshold: number }>('GET', `/ai/credits/wallets${qs(opts)}`),
   aiCreditTransactions: (opts: { tenantId?: string; type?: string; limit?: number; offset?: number } = {}) =>
     req<Paginated<AiCreditTransactionRow>>('GET', `/ai/credits/transactions${qs(opts)}`),
 
@@ -660,7 +660,7 @@ export const adminApi = {
 
   // ── Payments (unified) ───────────────────────────────────────────────────────
 
-  payments: (opts: { tenantId?: string; status?: string; gateway?: string; limit?: number; offset?: number } = {}) =>
+  payments: (opts: { tenantId?: string; search?: string; status?: string; gateway?: string; limit?: number; offset?: number } = {}) =>
     req<Paginated<PaymentRow>>('GET', `/payments${qs(opts)}`),
 
   // ── Audit logs ───────────────────────────────────────────────────────────────

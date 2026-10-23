@@ -15,9 +15,10 @@ export interface SelectFilter {
  * Search plus dropdown filters. The search text is sent to the server once the person pauses typing, and "Clear" puts
  * every filter back, so an empty table is never a dead end.
  */
-export function FilterBar({ search, onSearch, placeholder = 'Search', filters = [], onClear, extra }: {
-  search: string;
-  onSearch: (value: string) => void;
+export function FilterBar({ search = '', onSearch, placeholder = 'Search', filters = [], onClear, extra }: {
+  /** Leave out onSearch to show only the dropdown filters. */
+  search?: string;
+  onSearch?: (value: string) => void;
   placeholder?: string;
   filters?: SelectFilter[];
   onClear?: () => void;
@@ -28,20 +29,20 @@ export function FilterBar({ search, onSearch, placeholder = 'Search', filters = 
   const id = useId();
 
   useEffect(() => { setText(search); }, [search]);
-  useEffect(() => { if (debounced !== search) onSearch(debounced); }, [debounced]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (onSearch && debounced !== search) onSearch(debounced); }, [debounced]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const active = filters.filter((f) => f.value !== '').length + (search ? 1 : 0);
+  const active = filters.filter((f) => f.value !== '').length + (onSearch && search ? 1 : 0);
 
   return (
     <div role="search" className="flex flex-wrap items-center gap-2 mb-3">
-      <div className="relative w-full sm:w-72">
+      {onSearch && <div className="relative w-full sm:w-72">
         <label htmlFor={`${id}-q`} className="sr-only">{placeholder}</label>
         <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
         <input
           id={`${id}-q`} type="search" value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder}
           className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-md bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-teal-600"
         />
-      </div>
+      </div>}
       {filters.map((f) => (
         <div key={f.key}>
           <label htmlFor={`${id}-${f.key}`} className="sr-only">{f.label}</label>

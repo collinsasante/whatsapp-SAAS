@@ -7,7 +7,7 @@ import { Facts } from '../DetailParts';
 import { TrendChart } from '../TrendChart';
 import { Hint } from '../MetricStrip';
 import { StatusPill, SubscriptionStatus } from '../StatusPill';
-import { EmptyState } from '../States';
+import { Unavailable } from '../States';
 
 const HEALTH_PARTS = [
   ['Sign-in activity', 'loginActivity', 25], ['Messaging activity', 'messageActivity', 25], ['Broadcast activity', 'broadcastActivity', 15],
@@ -49,22 +49,26 @@ export function TenantOverviewTab({ data }: { data: WorkspaceDetail }) {
         </Section>
 
         <Section title="Activity, last 90 days" description="Daily counts from the platform's rollups.">
-          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-5">
-            <div>
-              <p className="text-xs font-medium text-gray-700 mb-1">Messages</p>
-              {messageRows.length === 0 ? <EmptyState title="No messages recorded" /> : (
-                <TrendChart height={180} data={messageRows} series={[{ key: 'sent', name: 'Sent', color: '#0f766e' }, { key: 'received', name: 'Received', color: '#64748b' }]}
-                  summary={`Messages sent and received per day over ${messageRows.length} days.`} />
+          {messageRows.length === 0 && conversationRows.length === 0 ? (
+            <Unavailable>No messages or conversations have been recorded for this tenant in the last 90 days.</Unavailable>
+          ) : (
+            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-5">
+              {messageRows.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-700 mb-1">Messages</p>
+                  <TrendChart height={180} data={messageRows} series={[{ key: 'sent', name: 'Sent', color: '#0f766e' }, { key: 'received', name: 'Received', color: '#64748b' }]}
+                    summary={`Messages sent and received per day over ${messageRows.length} days.`} />
+                </div>
+              )}
+              {conversationRows.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-700 mb-1">Conversations</p>
+                  <TrendChart height={180} data={conversationRows} series={[{ key: 'opened', name: 'Opened', color: '#0f766e' }, { key: 'resolved', name: 'Resolved', color: '#64748b' }]}
+                    summary={`Conversations opened and resolved per day over ${conversationRows.length} days.`} />
+                </div>
               )}
             </div>
-            <div>
-              <p className="text-xs font-medium text-gray-700 mb-1">Conversations</p>
-              {conversationRows.length === 0 ? <EmptyState title="No conversations recorded" /> : (
-                <TrendChart height={180} data={conversationRows} series={[{ key: 'opened', name: 'Opened', color: '#0f766e' }, { key: 'resolved', name: 'Resolved', color: '#64748b' }]}
-                  summary={`Conversations opened and resolved per day over ${conversationRows.length} days.`} />
-              )}
-            </div>
-          </div>
+          )}
         </Section>
       </div>
 

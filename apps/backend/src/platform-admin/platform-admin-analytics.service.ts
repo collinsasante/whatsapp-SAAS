@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AiCreditTransactionType, LedgerEntryType, PaymentStatus } from '@prisma/client';
+import { AiCreditTransactionType, LedgerEntryType, PaymentStatus, Prisma } from '@prisma/client';
+import { LOW_CREDIT_THRESHOLD } from './dto/platform-admin.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveDateRange } from '../analytics/analytics.util';
 
@@ -113,19 +114,27 @@ export class PlatformAdminAnalyticsService {
   }
 
   /** One aggregation query, not N+1 -- balance from Tenant.aiCredits, purchased/consumed/bonus from a single groupBy. */
-  async getAiCreditWallets(params: { search?: string; limit?: number; offset?: number } = {}) {
+  async getAiCreditWallets(params: { search?: string; filter?: 'out' | 'low'; limit?: number; offset?: number } = {}) {
     const limit = Math.min(params.limit ?? 50, 100);
     const offset = params.offset ?? 0;
 
+    const where: Prisma.TenantWhereInput = {
+      ...(params.search ? { name: { contains: params.search, mode: 'insensitive' } } : {}),
+      // Out and low only concern tenants that can still use the product; a suspended tenant's balance is not an alert.
+      ...(params.filter === 'out' ? { isActive: true, aiCredits: { lte: 0 } } : {}),
+      ...(params.filter === 'low' ? { isActive: true, aiCredits: { gt: 0, lt: LOW_CREDIT_THRESHOLD } } : {}),
+    };
+
     const [tenants, total] = await Promise.all([
       this.prisma.tenant.findMany({
-        where: params.search ? { name: { contains: params.search, mode: 'insensitive' } } : undefined,
+        where,
         select: { id: true, name: true, aiCredits: true },
-        orderBy: { name: 'asc' },
+        // Lowest balance first when looking for tenants running out; otherwise alphabetical.
+        orderBy: params.filter ? [{ aiCredits: 'asc' }, { name: 'asc' }] : { name: 'asc' },
         skip: offset,
         take: limit,
       }),
-      this.prisma.tenant.count({ where: params.search ? { name: { contains: params.search, mode: 'insensitive' } } : undefined }),
+      this.prisma.tenant.count({ where }),
     ]);
 
     const tenantIds = tenants.map((t) => t.id);
@@ -150,6 +159,7 @@ export class PlatformAdminAnalyticsService {
       total,
       limit,
       offset,
+      lowThreshold: LOW_CREDIT_THRESHOLD,
       items: tenants.map((t) => ({
         tenantId: t.id,
         tenantName: t.name,

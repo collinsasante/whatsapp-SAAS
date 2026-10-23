@@ -7,13 +7,35 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Security
+- Suspending a workspace or a user now ends their access straight away. Before, only new sign-ins and incoming webhooks
+  were blocked, so people who were already signed in kept working (access tokens last up to 30 days, and a session could be
+  refreshed without the workspace being checked).
+- The platform admin tenant page no longer sends the tenant's WhatsApp access token and webhook verify token to the browser.
+  The payment and webhook lists no longer include the provider's raw payload (which can hold card details or message text);
+  a webhook's payload is shown only to super admins, on the single event.
+- Admin password-reset and invite links are no longer written to the server logs (they contain the live token).
+- Admin sign-ins and failed sign-ins are recorded in the audit log, and sign-in, forgot-password and reset-password are
+  rate limited. Password reset now validates its input (it accepted any password, including an empty one) and needs 12 to 72 characters.
+- The tenant CSV export no longer lets a tenant name run as a spreadsheet formula.
+- Suspending a tenant or user, assigning a plan without payment, and granting credits now need a written reason, which is
+  stored in the audit log. A single credit grant is limited to 1,000,000.
+
 ### Changed
+- Platform admin console rebuilt: new navigation, sign-in screen and overview (what needs attention, key numbers, growth, MRR
+  movement, recent admin activity), a filterable tenant directory with a tabbed tenant page (members, subscription, AI credits,
+  channels, activity), a user directory with an account page, payments, credit wallets and an audit log you can filter. Buttons
+  your admin role cannot use are switched off and say why.
+- The tenant directory filters, sorts and pages in the database instead of loading every tenant on each request.
+- Platform admin billing no longer requests the server in a loop (it hit the rate limit); the error log service filter
+  now works across pages.
 - Analytics page rebuilt around three questions: what is happening, why, and what to do next. Admins get a single filtered view (date range, previous-period comparison, channel) with KPIs, trends, an insights list with evidence and next steps, customer and lead pipeline, conversation backlog and reply speed, a busiest-times heatmap, team workload, Verz AI performance, common conversation labels and order revenue. Agents see only their own conversations.
 - Analytics no longer counts the dashboard's own test chats as customer conversations.
 - Revenue now comes from Commerce orders (per currency, never mixed). The old page showed VerzChat's own subscription billing under "Revenue"; that is no longer shown there.
 - Rebuilt the marketing landing page with a new visual identity: an owner-first story (who answers a customer at 9 pm), an illustrative inbox, honest channel status, and a pricing table generated from the real plan limits. Removed the old landing components, the unverified partner claim in the social preview image, and the fake social proof.
 
 ### Added
+- Platform admin endpoints: `GET /platform-admin/attention`, `/growth` and `/users/:id`, and filters on tenants, users, audit log, payments and credit wallets. No database changes.
 - `GET /analytics/intelligence` (admin only): the aggregated data behind the new page. No database changes.
 - Messenger and Instagram now do what WhatsApp does in the inbox:
   - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails

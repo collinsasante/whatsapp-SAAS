@@ -1,58 +1,51 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle } from 'lucide-react';
 import { adminApi, type AiUsageTopConsumersData } from '@/lib/admin-api';
-import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
+import { useAdminData } from '@/lib/admin/hooks';
+import { formatNumber } from '@/lib/admin/format';
+import { PageHeader } from '@/components/admin/PageHeader';
+import { AdminTable, type Column } from '@/components/admin/AdminTable';
 import { DateRangePicker, rangeForPreset } from '@/components/admin/DateRangePicker';
+import { MetricStrip } from '@/components/admin/MetricStrip';
+import { EmptyState } from '@/components/admin/States';
 
 type Row = AiUsageTopConsumersData['items'][number];
 
 export default function AiUsagePage() {
-  const [data, setData] = useState<AiUsageTopConsumersData | null>(null);
   const [range, setRange] = useState(rangeForPreset('30d', '', ''));
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const usage = useAdminData(() => adminApi.aiUsageTopConsumers(range.from, range.to), [range.from, range.to]);
+  const data = usage.data;
+  const total = data?.totals.creditsConsumed ?? 0;
+  const listed = data ? data.items.reduce((s, r) => s + r.creditsConsumed, 0) : 0;
 
-  const load = useCallback(async (r: { from: string; to: string }) => {
-    setLoading(true);
-    try {
-      setData(await adminApi.aiUsageTopConsumers(r.from, r.to));
-      setError('');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(range); }, [load, range]);
-
-  const columns: DataTableColumn<Row>[] = [
-    { key: 'tenantName', header: 'Tenant', render: (r) => <Link href={`/platform-admin/workspaces/${r.tenantId}`} className="text-teal-600 hover:underline font-medium">{r.tenantName}</Link> },
-    { key: 'creditsConsumed', header: 'Credits Consumed', render: (r) => r.creditsConsumed.toLocaleString() },
-    { key: 'aiCalls', header: 'AI Calls', render: (r) => r.aiCalls.toLocaleString() },
+  const columns: Column<Row>[] = [
+    { key: 'tenant', header: 'Tenant', mobile: 'title', cell: (r) => r.tenantName },
+    { key: 'credits', header: 'Credits used', align: 'right', mobile: 'badge', cell: (r) => formatNumber(r.creditsConsumed) },
+    { key: 'calls', header: 'AI calls', align: 'right', mobile: 'line', cell: (r) => formatNumber(r.aiCalls) },
+    {
+      key: 'share', header: 'Share of all usage', mobile: 'line',
+      cell: (r) => (total > 0 ? (
+        <span className="inline-flex items-center gap-2"><span className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden" aria-hidden="true"><span className="block h-full bg-teal-600" style={{ width: `${Math.min(100, (r.creditsConsumed / total) * 100)}%` }} /></span><span className="tabular-nums text-xs text-gray-600">{Math.round((r.creditsConsumed / total) * 100)}%</span></span>
+      ) : null),
+    },
+    { key: 'history', header: '', align: 'right', cell: (r) => <Link href={`/platform-admin/ai/transactions?tenantId=${r.tenantId}`} className="text-sm text-teal-700 hover:underline">History</Link> },
   ];
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900">AI Usage</h1>
-          <p className="text-gray-500 text-sm mt-1">Top-20 tenants by AI credit consumption</p>
-        </div>
-        <DateRangePicker onChange={setRange} />
+      <PageHeader title="AI usage by tenant" description="Which tenants use the most Verz AI credits in a period." actions={<DateRangePicker onChange={setRange} />} />
+      <div className="mb-4">
+        <MetricStrip columns={3} metrics={[
+          { label: 'Credits used', value: data ? formatNumber(data.totals.creditsConsumed) : null, unavailable: usage.error ? 'Could not load' : 'Loading', hint: 'Credits consumed by Verz AI across every tenant in the period.' },
+          { label: 'AI calls', value: data ? formatNumber(data.totals.aiCalls) : null, unavailable: usage.error ? 'Could not load' : 'Loading' },
+          { label: 'Tenants using AI', value: data ? formatNumber(data.totals.tenants) : null, unavailable: usage.error ? 'Could not load' : 'Loading' },
+        ]} />
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 rounded-lg px-4 py-3 mb-6 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0" />{error}
-        </div>
+      <AdminTable caption="AI usage by tenant" columns={columns} rows={data?.items ?? []} rowKey={(r) => r.tenantId} rowHref={(r) => `/platform-admin/workspaces/${r.tenantId}?tab=ai`} loading={usage.loading} error={usage.error} onRetry={usage.reload} empty={<EmptyState title="No AI usage in this period" />} />
+      {data && data.totals.tenants > data.items.length && (
+        <p className="text-xs text-gray-500 mt-2">Showing the {data.items.length} heaviest tenants, who account for {total > 0 ? Math.round((listed / total) * 100) : 0}% of usage. The totals above include all {data.totals.tenants}.</p>
       )}
-
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <DataTable columns={columns} rows={data?.items ?? []} getRowKey={(r) => r.tenantId} loading={loading} emptyMessage="No AI usage in this period" />
-      </div>
     </div>
   );
 }

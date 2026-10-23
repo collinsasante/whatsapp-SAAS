@@ -310,6 +310,24 @@ describe('Platform admin console API (e2e)', () => {
     });
   });
 
+  describe('AI credit wallets', () => {
+    it('finds tenants that are out of credits or running low, lowest first, ignoring suspended tenants', async () => {
+      const mk = (name: string, aiCredits: number, isActive = true) => testPrisma.tenant.create({ data: { name, webhookVerifyToken: name, aiCredits, isActive } });
+      await mk('Plenty', 5000); await mk('Edge', 100); await mk('Low A', 40); await mk('Low B', 7); await mk('Empty', 0); await mk('Negative', -3); await mk('Suspended empty', 0, false);
+      const viewer = await admin('VIEWER');
+      const names = async (qs: string) => (await api().get(`/platform-admin/ai/credits/wallets?${qs}`).set(viewer.auth).expect(200)).body as { items: Array<{ tenantName: string }>; total: number; lowThreshold: number };
+      const out = await names('filter=out');
+      expect(out.items.map((i) => i.tenantName)).toEqual(['Negative', 'Empty']);
+      expect(out.total).toBe(2);
+      const low = await names('filter=low');
+      expect(low.items.map((i) => i.tenantName)).toEqual(['Low B', 'Low A']); // 100 is not under 100
+      expect(low.lowThreshold).toBe(100);
+      expect((await names('')).total).toBe(7);
+      expect((await names('filter=out&search=neg')).items.map((i) => i.tenantName)).toEqual(['Negative']);
+      await api().get('/platform-admin/ai/credits/wallets?filter=bogus').set(viewer.auth).expect(400);
+    });
+  });
+
   describe('webhook events', () => {
     it('keeps raw payloads out of the list, and shows them on one event only to a super admin', async () => {
       const t = await seedTenants();

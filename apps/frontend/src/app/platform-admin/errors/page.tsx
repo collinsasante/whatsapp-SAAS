@@ -1,106 +1,84 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminApi, type ErrorLogRow } from '@/lib/admin-api';
-import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
+import { useAdminData, useUrlState } from '@/lib/admin/hooks';
+import { formatDateTime, formatRelative } from '@/lib/admin/format';
+import { PageHeader } from '@/components/admin/PageHeader';
+import { useAdmin } from '@/components/admin/AdminProvider';
+import { AdminTable, type Column } from '@/components/admin/AdminTable';
+import { FilterBar } from '@/components/admin/FilterBar';
 import { Pagination } from '@/components/admin/Pagination';
-import { StatusBadge, type BadgeTone } from '@/components/admin/Badge';
-import { showConfirm } from '@/store/confirm.store';
+import { ActionDialog } from '@/components/admin/ActionDialog';
+import { StatusPill, type PillTone } from '@/components/admin/StatusPill';
+import { EmptyState } from '@/components/admin/States';
 
 const LIMIT = 30;
-const SEVERITY_TONES: Record<string, BadgeTone> = { WARN: 'warning', ERROR: 'danger', CRITICAL: 'danger' };
-const STATUS_TONES: Record<string, BadgeTone> = { OPEN: 'warning', RESOLVED: 'success', IGNORED: 'neutral' };
+const SEVERITY_TONE: Record<string, PillTone> = { WARN: 'warning', ERROR: 'danger', CRITICAL: 'danger' };
+const STATUS_TONE: Record<string, PillTone> = { OPEN: 'warning', RESOLVED: 'success', IGNORED: 'neutral' };
 
 export default function ErrorsPage() {
-  const [rows, setRows] = useState<ErrorLogRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [status, setStatus] = useState('OPEN');
-  const [service, setService] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { canChange } = useAdmin();
+  const url = useUrlState({ status: 'OPEN' });
+  const rawStatus = url.get('status');
+  // "Any status" has to be a value of its own: an empty one would fall back to the Open default.
+  const status = rawStatus === 'ANY' ? '' : rawStatus;
+  const severity = url.get('severity');
+  const service = url.get('service');
+  const tenantId = url.get('tenantId');
+  const search = url.get('q');
+  const page = Math.max(1, Number(url.get('page')) || 1);
+  const offset = (page - 1) * LIMIT;
+  const [target, setTarget] = useState<{ row: ErrorLogRow; to: 'RESOLVED' | 'IGNORED' } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await adminApi.errors({ status: status || undefined, limit: LIMIT, offset });
-      setRows(service ? res.items.filter((r) => r.service === service) : res.items);
-      setTotal(res.total);
-      setError('');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [status, service, offset]);
+  // The service filter runs on the server so the total and the pages are right.
+  const errors = useAdminData(() => adminApi.errors({ status: status || undefined, severity: severity || undefined, service: service || undefined, tenantId: tenantId || undefined, search: search || undefined, limit: LIMIT, offset }), [status, severity, service, tenantId, search, offset]);
+  const data = errors.data;
+  const clear = () => url.set({ status: '', severity: '', service: '', tenantId: '', q: '' });
 
-  useEffect(() => { void load(); }, [load]);
-
-  const updateStatus = async (row: ErrorLogRow, newStatus: 'RESOLVED' | 'IGNORED') => {
-    if (!await showConfirm(`Mark this error as ${newStatus.toLowerCase()}?`, { danger: false })) return;
-    try {
-      await adminApi.updateErrorStatus(row.id, newStatus);
-      toast.success('Updated');
-      void load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
-
-  const columns: DataTableColumn<ErrorLogRow>[] = [
-    { key: 'lastSeenAt', header: 'Last seen', render: (r) => new Date(r.lastSeenAt).toLocaleString() },
-    { key: 'severity', header: 'Severity', render: (r) => <StatusBadge status={r.severity} map={SEVERITY_TONES} /> },
-    { key: 'service', header: 'Service', render: (r) => r.service },
-    { key: 'tenant', header: 'Tenant', render: (r) => r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">-</span> },
-    { key: 'message', header: 'Message', render: (r) => <span className="text-gray-700 truncate block max-w-md" title={r.message}>{r.message}</span> },
-    { key: 'occurrenceCount', header: 'Count', render: (r) => r.occurrenceCount },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} map={STATUS_TONES} /> },
+  const columns: Column<ErrorLogRow>[] = [
+    { key: 'message', header: 'Error', mobile: 'title', cell: (r) => <span className="block max-w-md truncate font-normal" title={r.message}>{r.message}</span> },
+    { key: 'severity', header: 'Severity', mobile: 'badge', cell: (r) => <StatusPill tone={SEVERITY_TONE[r.severity] ?? 'neutral'}>{r.severity.toLowerCase()}</StatusPill> },
+    { key: 'status', header: 'Status', mobile: 'badge', cell: (r) => <StatusPill tone={STATUS_TONE[r.status] ?? 'neutral'}>{r.status.toLowerCase()}</StatusPill> },
+    { key: 'service', header: 'Service', mobile: 'line', cell: (r) => r.service },
+    { key: 'tenant', header: 'Tenant', mobile: 'line', cell: (r) => (r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-700 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">None</span>) },
+    { key: 'count', header: 'Times', align: 'right', mobile: 'line', cell: (r) => r.occurrenceCount.toLocaleString() },
+    { key: 'lastSeenAt', header: 'Last seen', mobile: 'line', cell: (r) => <time dateTime={r.lastSeenAt} title={`First seen ${formatDateTime(r.firstSeenAt)}`}>{formatRelative(r.lastSeenAt)}</time> },
     {
-      key: 'actions', header: '', render: (r) => r.status === 'OPEN' && (
-        <div className="flex gap-2">
-          <button onClick={() => updateStatus(r, 'RESOLVED')} className="text-emerald-600 hover:underline text-xs font-medium">Resolve</button>
-          <button onClick={() => updateStatus(r, 'IGNORED')} className="text-gray-500 hover:underline text-xs font-medium">Ignore</button>
-        </div>
-      ),
+      key: 'actions', header: '', align: 'right',
+      cell: (r) => (r.status === 'OPEN' ? (
+        <span className="inline-flex gap-3 text-sm">
+          <button onClick={() => setTarget({ row: r, to: 'RESOLVED' })} disabled={!canChange} title={canChange ? undefined : 'Your role cannot change error status'} className="text-teal-700 hover:underline disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed">Resolve</button>
+          <button onClick={() => setTarget({ row: r, to: 'IGNORED' })} disabled={!canChange} title={canChange ? undefined : 'Your role cannot change error status'} className="text-gray-600 hover:underline disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed">Ignore</button>
+        </span>
+      ) : null),
     },
   ];
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Errors</h1>
-          <p className="text-gray-500 text-sm mt-1">Deduped backend/frontend errors, dedup key = service+resource+message prefix</p>
-        </div>
-        <div className="flex gap-2">
-          <select value={service} onChange={(e) => { setService(e.target.value); setOffset(0); }} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white">
-            <option value="">All services</option>
-            <option value="backend">Backend</option>
-            <option value="frontend">Frontend</option>
-          </select>
-          <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white">
-            <option value="">All statuses</option>
-            <option value="OPEN">Open</option>
-            <option value="RESOLVED">Resolved</option>
-            <option value="IGNORED">Ignored</option>
-          </select>
-        </div>
-      </div>
+      <PageHeader title="Errors" description="Errors logged by the platform, grouped so the same one is counted once. Resolving hides it until it happens again." />
+      {tenantId && <p className="mb-3 text-sm text-gray-700 bg-gray-100 rounded-md px-3 py-2">Showing one tenant&apos;s errors. <button onClick={() => url.set({ tenantId: '' })} className="text-teal-700 hover:underline">Show all</button></p>}
+      <FilterBar
+        search={search} onSearch={(v) => url.set({ q: v })} placeholder="Search error text" onClear={clear}
+        filters={[
+          { key: 'status', label: 'Any status', value: status, options: [{ value: 'OPEN', label: 'Open' }, { value: 'RESOLVED', label: 'Resolved' }, { value: 'IGNORED', label: 'Ignored' }], onChange: (v) => url.set({ status: v === '' ? 'ANY' : v }) },
+          { key: 'severity', label: 'Any severity', value: severity, options: [{ value: 'CRITICAL', label: 'Critical' }, { value: 'ERROR', label: 'Error' }, { value: 'WARN', label: 'Warning' }], onChange: (v) => url.set({ severity: v }) },
+          { key: 'service', label: 'Any service', value: service, options: [{ value: 'backend', label: 'Backend' }, { value: 'frontend', label: 'Frontend' }], onChange: (v) => url.set({ service: v }) },
+        ]}
+      />
+      <AdminTable
+        caption="Errors" columns={columns} rows={data?.items ?? []} rowKey={(r) => r.id} loading={errors.loading} error={errors.error} onRetry={errors.reload}
+        empty={<EmptyState title={status === 'OPEN' && !severity && !service && !search && !tenantId ? 'No open errors' : 'No errors match these filters'}>{status === 'OPEN' ? 'Nothing is open. Change the status filter to see resolved or ignored errors.' : undefined}</EmptyState>}
+      />
+      {data && data.total > LIMIT && <div className="mt-3"><Pagination total={data.total} limit={LIMIT} offset={offset} onOffsetChange={(o) => url.set({ page: String(o / LIMIT + 1) }, { keepPage: true })} /></div>}
 
-      {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 rounded-lg px-4 py-3 mb-6 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0" />{error}
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No errors, nothing logged since this shipped" />
-        <div className="p-4 border-t border-gray-100">
-          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
-        </div>
-      </div>
+      <ActionDialog
+        open={!!target} onClose={() => setTarget(null)} title={target?.to === 'RESOLVED' ? 'Mark as resolved?' : 'Ignore this error?'} confirmLabel={target?.to === 'RESOLVED' ? 'Resolve' : 'Ignore'}
+        description={target ? <>{target.to === 'RESOLVED' ? 'It leaves the open list. If it happens again it comes back as open.' : 'It leaves the open list and will not be counted as needing attention.'}<span className="block mt-2 text-gray-800 line-clamp-3">{target.row.message}</span></> : null}
+        onConfirm={async () => { if (!target) return; await adminApi.updateErrorStatus(target.row.id, target.to); toast.success('Updated'); errors.reload(); }}
+      />
     </div>
   );
 }

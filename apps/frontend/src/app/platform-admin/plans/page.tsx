@@ -5,6 +5,7 @@ import { adminApi, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
 import { LiveBadge } from '../_components/LiveBadge';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
 function Field({ label, value, onChange, type = 'text' }: {
   label: string; value: string | number; onChange: (v: string) => void; type?: string;
@@ -31,7 +32,7 @@ const BLANK_NEW_PLAN = {
   limMaxChannels: 1, limMaxCampaigns: 5,
 };
 
-export default function PlansPage() {
+function PlansPageContent() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [edits, setEdits] = useState<Record<string, Partial<Plan>>>({});
   const [loading, setLoading] = useState(true);
@@ -242,5 +243,13 @@ export default function PlansPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PlansPage() {
+  return (
+    <SuperAdminOnly>
+      <PlansPageContent />
+    </SuperAdminOnly>
   );
 }

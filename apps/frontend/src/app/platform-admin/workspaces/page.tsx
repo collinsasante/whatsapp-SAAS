@@ -101,7 +101,7 @@ export default function TenantsPage() {
       />
 
       <FilterBar
-        search={search} onSearch={(v) => url.set({ q: v })} placeholder="Search name, ID, billing email or member email"
+        search={search} onSearch={(v) => url.set({ q: v })} placeholder="Search name, ID or email"
         onClear={clear}
         filters={[
           { key: 'status', label: 'Any status', value: status, options: STATUS_OPTIONS, onChange: (v) => url.set({ status: v }) },
@@ -110,6 +110,7 @@ export default function TenantsPage() {
         ]}
         extra={
           <div className="flex items-center gap-1.5 text-sm text-gray-600">
+            <span id="signed-up-label">Signed up</span>
             <label htmlFor="created-from" className="sr-only">Signed up from</label>
             <input id="created-from" type="date" value={createdFrom} max={createdTo || undefined} onChange={(e) => url.set({ from: e.target.value })} className="py-1.5 px-2 border border-gray-300 rounded-md text-sm bg-white" />
             <span aria-hidden="true">to</span>

@@ -72,7 +72,7 @@ const NAV: NavSection[] = [
 const ALL_ITEMS = NAV.flatMap((s) => s.items);
 
 /** The nav item that owns this path: the longest matching address, so "/ai" is not lit up on "/ai/usage". */
-export function activeHref(pathname: string): string | null {
+function activeHref(pathname: string): string | null {
   const matches = ALL_ITEMS.filter((i) => pathname === i.href || pathname.startsWith(`${i.href}/`));
   return matches.sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
 }
@@ -231,14 +231,19 @@ function Shell({ children }: { children: React.ReactNode }) {
         <SidebarNav pathname={pathname} />
       </aside>
 
-      {mobileOpen && <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />}
-      <aside className={cn('fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-[#0d1914] transition-transform duration-200 md:hidden', mobileOpen ? 'translate-x-0' : '-translate-x-full')} aria-hidden={!mobileOpen}>
-        <div className="flex items-center justify-between pr-2">
-          <Brand />
-          <button onClick={() => setMobileOpen(false)} aria-label="Close menu" className="text-gray-300 hover:text-white p-2"><X className="w-5 h-5" /></button>
-        </div>
-        <SidebarNav pathname={pathname} onNavigate={() => setMobileOpen(false)} />
-      </aside>
+      {/* Only in the page while open: a closed drawer that stays mounted keeps its links in the keyboard order. */}
+      {mobileOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside role="dialog" aria-modal="true" aria-label="Menu" className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-[#0d1914] md:hidden">
+            <div className="flex items-center justify-between pr-2">
+              <Brand />
+              <button onClick={() => setMobileOpen(false)} aria-label="Close menu" autoFocus className="text-gray-300 hover:text-white p-2"><X className="w-5 h-5" /></button>
+            </div>
+            <SidebarNav pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </>
+      )}
 
       <div className="flex-1 flex flex-col min-w-0">
         <div className="h-14 shrink-0 bg-white border-b border-gray-200 flex items-center gap-2 px-3 sm:px-4">

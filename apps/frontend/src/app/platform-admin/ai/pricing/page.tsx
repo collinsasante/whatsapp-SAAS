@@ -6,10 +6,11 @@ import { adminApi, type AiPricingConfigRow } from '@/lib/admin-api';
 import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
 import { Badge } from '@/components/admin/Badge';
 import { showConfirm } from '@/store/confirm.store';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
 const emptyForm = { provider: '', modelKey: '', inputCostPerMillionUsd: '', outputCostPerMillionUsd: '', creditsPerUsd: '' };
 
-export default function AiPricingPage() {
+function AiPricingPageContent() {
   const [rows, setRows] = useState<AiPricingConfigRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -149,5 +150,13 @@ export default function AiPricingPage() {
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No pricing configs yet" />
       </div>
     </div>
+  );
+}
+
+export default function AiPricingPage() {
+  return (
+    <SuperAdminOnly>
+      <AiPricingPageContent />
+    </SuperAdminOnly>
   );
 }

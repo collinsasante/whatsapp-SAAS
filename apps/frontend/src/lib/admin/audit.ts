@@ -61,6 +61,14 @@ export function auditReason(metadata: unknown): string | null {
   return typeof reason === 'string' && reason.trim() ? reason : null;
 }
 
+/**
+ * The note to show beside an entry. A failed sign-in stores a code in `reason` (not something an admin typed), so it is
+ * turned into words; for everything else `reason` is what the admin wrote.
+ */
+export function auditNote(action: string, metadata: unknown): string | null {
+  return action === 'auth.login_failed' ? auditFailureReason(metadata) : auditReason(metadata);
+}
+
 /** Why a sign-in failed, as recorded. */
 export function auditFailureReason(metadata: unknown): string | null {
   const reason = (metadata as { reason?: unknown } | null)?.reason;
