@@ -65,3 +65,38 @@ describeReal('transcodeWebmToOgg (real ffmpeg)', () => {
     expect(after).toBe(before);
   });
 });
+
+describe('Messenger/Instagram audio', () => {
+  const { execFileSync } = require('child_process') as typeof import('child_process');
+  const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { isMetaPlayableAudio, transcodeToM4a } = require('./audio.util') as typeof import('./audio.util');
+
+  it('recognises what Meta can play by file signature, and rejects what it cannot', () => {
+    const m4a = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypM4A '), Buffer.alloc(16)]);
+    const wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt '), Buffer.alloc(8)]);
+    const adts = Buffer.from([0xff, 0xf1, 0x50, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const ogg = Buffer.concat([Buffer.from('OggS'), Buffer.alloc(12)]);
+    expect([m4a, wav, adts].map(isMetaPlayableAudio)).toEqual([true, true, true]);
+    expect([webm, ogg, Buffer.alloc(0), Buffer.from('hello world, not audio')].map(isMetaPlayableAudio)).toEqual([false, false, false, false]);
+  });
+
+  (hasFfmpeg ? it : it.skip)('converts a real browser-style WebM/Opus voice note into playable M4A', async () => {
+    const dir = require('os').tmpdir() as string;
+    const webmPath = `${dir}/verz_test_${process.pid}.webm`;
+    execFileSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'libopus', webmPath]);
+    const webm = require('fs').readFileSync(webmPath) as Buffer;
+    require('fs').unlinkSync(webmPath);
+    expect(isMetaPlayableAudio(webm)).toBe(false);
+
+    const m4a = await transcodeToM4a(webm);
+
+    expect(isMetaPlayableAudio(m4a)).toBe(true);
+    expect(m4a.length).toBeGreaterThan(1000);
+  });
+
+  (hasFfmpeg ? it : it.skip)('rejects input that is not audio instead of returning garbage', async () => {
+    await expect(transcodeToM4a(Buffer.from('this is not audio'))).rejects.toBeDefined();
+  });
+});

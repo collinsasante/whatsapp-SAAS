@@ -10,7 +10,7 @@ import { useInboxStore } from '@/store/inbox.store';
 import { getInitials, formatRelativeTime, getProxiedMediaUrl } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { contactDisplayName } from '@/lib/contact-display';
+import { channelContactLabel, contactDisplayName } from '@/lib/contact-display';
 
 function formatJourneyLabel(entry: { action: string; metadata: Record<string, unknown>; user?: { id: string; name: string } | null }): string | null {
   const who = entry.user?.name ?? null;
@@ -228,7 +228,7 @@ export default function ConversationDetails({ conversation }: Props) {
     }
   };
 
-  const name = contactDisplayName(conversation.contact);
+  const name = contactDisplayName(conversation.contact, undefined, channelContactLabel((conversation as { channel?: { type?: string | null } | null }).channel?.type));
   const avatarColor = getAvatarColor(name);
 
   return (

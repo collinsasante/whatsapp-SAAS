@@ -28,7 +28,8 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { shouldApplyStatus } from './message-status.util';
-import { isOggBuffer, isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
+import { isMetaPlayableAudio, isOggBuffer, isWebmBuffer, transcodeToM4a, transcodeWebmToOgg } from '../common/media/audio.util';
+import type { OutboundFile } from '../facebook-messenger/facebook-messenger.service';
 import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
@@ -62,6 +63,11 @@ interface UnifiedAiResult {
  * the admin pricing API alongside AiPricingConfig.creditsPerUsd once real usage
  * data exists, not a final business decision baked into code. */
 const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
+
+/** Messenger and Instagram replies are plain text with no WhatsApp *bold* markup; everything else keeps WhatsApp formatting. */
+export function aiChannelType(type: string | null | undefined): 'WHATSAPP' | 'FACEBOOK_MESSENGER' {
+  return type === 'FACEBOOK_MESSENGER' || type === 'INSTAGRAM' ? 'FACEBOOK_MESSENGER' : 'WHATSAPP';
+}
 
 // Messenger's Send/Receive API attachment `type` values -- 'file' covers
 // documents generically (no separate 'document' type the way WhatsApp has).
@@ -162,26 +168,28 @@ export class MessagesService {
     conversation: { channel?: { id: string; type: string } | null; whatsappNumberId?: string | null },
     contact: { phone: string | null; externalId?: string | null; externalIdType?: string | null },
     payload:
-      | { kind: 'TEXT'; text: string; replyToWaMessageId?: string }
-      | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string },
+      | { kind: 'TEXT'; text: string; replyToWaMessageId?: string; replyToProviderId?: string }
+      | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string; replyToProviderId?: string },
   ): Promise<string | undefined> {
     if (conversation.channel?.type === 'FACEBOOK_MESSENGER') {
       if (!contact.externalId) throw new BadRequestException('This Messenger contact has no PSID on file.');
       if (payload.kind === 'TEXT') {
-        return this.facebookMessengerService.sendTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text);
+        return this.facebookMessengerService.sendTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text, payload.replyToProviderId);
       }
       return this.facebookMessengerService.sendMediaMessage(
         tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
+        { file: await this.prepareMetaFile(payload.mediaType, payload.mediaUrl), replyToMid: payload.replyToProviderId },
       );
     }
 
     if (conversation.channel?.type === 'INSTAGRAM') {
       if (!contact.externalId) throw new BadRequestException('This Instagram contact has no Instagram ID on file.');
       if (payload.kind === 'TEXT') {
-        return this.facebookMessengerService.sendInstagramTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text);
+        return this.facebookMessengerService.sendInstagramTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text, payload.replyToProviderId);
       }
       return this.facebookMessengerService.sendInstagramMediaMessage(
         tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
+        { file: await this.prepareMetaFile(payload.mediaType, payload.mediaUrl), replyToMid: payload.replyToProviderId },
       );
     }
 
@@ -344,6 +352,8 @@ export class MessagesService {
     // that never made it to the server — either would violate messages_reply_to_id_fkey.
     let validReplyToId: string | null = null;
     let replyToWaMessageId: string | undefined;
+    // The provider's own id for the quoted message (a wamid for WhatsApp, a mid for Messenger/Instagram).
+    let replyToProviderId: string | undefined;
     if (dto.replyToId) {
       const replyToMsg = await this.prisma.message.findFirst({
         where: { id: dto.replyToId, conversationId },
@@ -353,6 +363,7 @@ export class MessagesService {
         validReplyToId = replyToMsg.id;
         // Only use the wamid if it's a valid WhatsApp message ID (starts with "wamid.")
         replyToWaMessageId = replyToMsg.whatsappMessageId?.startsWith('wamid.') ? replyToMsg.whatsappMessageId : undefined;
+        replyToProviderId = replyToMsg.whatsappMessageId ?? undefined;
       } else {
         this.logger.warn(`Dropping unresolvable replyToId=${dto.replyToId} for conversation=${conversationId}`);
       }
@@ -389,12 +400,12 @@ export class MessagesService {
 
     try {
       if (dto.type === MessageType.TEXT || !dto.type) {
-        whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: dto.content!, replyToWaMessageId });
+        whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: dto.content!, replyToWaMessageId, replyToProviderId });
         dispatched = true;
       } else if (([MessageType.IMAGE, MessageType.VIDEO, MessageType.AUDIO, MessageType.DOCUMENT] as MessageType[]).includes(dto.type as MessageType)) {
         if (dto.mediaUrl) {
           whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, {
-            kind: 'MEDIA', mediaType: dto.type as MessageType, mediaUrl: dto.mediaUrl, caption: dto.mediaCaption, replyToWaMessageId,
+            kind: 'MEDIA', mediaType: dto.type as MessageType, mediaUrl: dto.mediaUrl, caption: dto.mediaCaption, replyToWaMessageId, replyToProviderId,
           });
           dispatched = true;
         }
@@ -515,6 +526,31 @@ export class MessagesService {
     }
     const dlRes = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
     return { buffer: Buffer.from(dlRes.data), mimeType: (dlRes.headers['content-type'] as string | undefined) ?? fallbackMime };
+  }
+
+  /**
+   * Messenger and Instagram: loads the stored file so it can be uploaded to Meta directly, and converts voice notes
+   * (browsers record WebM, which they cannot play) to M4A. If the file cannot be loaded at all we fall back to
+   * sending the link; a voice note that cannot be converted fails the send with a clear reason instead.
+   */
+  private async prepareMetaFile(mediaType: MessageType, mediaUrl: string): Promise<OutboundFile | undefined> {
+    let loaded: { buffer: Buffer; mimeType: string };
+    try {
+      loaded = await this.loadMediaBuffer(mediaUrl, 'application/octet-stream');
+    } catch (err) {
+      this.logger.warn(`Could not load media for direct upload to Meta (${err instanceof Error ? err.message : String(err)}); sending the link instead`);
+      return undefined;
+    }
+    if (mediaType === MessageType.AUDIO && !isMetaPlayableAudio(loaded.buffer)) {
+      try {
+        return { buffer: await transcodeToM4a(loaded.buffer), mimeType: 'audio/mp4', filename: 'voice-note.m4a' };
+      } catch (err) {
+        this.logger.warn(`Voice note could not be converted for Meta: ${err instanceof Error ? err.message : String(err)}`);
+        throw new BadRequestException('The voice note could not be converted to a format Messenger or Instagram can play. Please record it again.');
+      }
+    }
+    const ext = loaded.mimeType.split('/')[1]?.split(';')[0]?.replace(/[^a-z0-9]/gi, '') || 'bin';
+    return { buffer: loaded.buffer, mimeType: loaded.mimeType.split(';')[0]!, filename: `file.${ext}` };
   }
 
   /**
@@ -755,6 +791,14 @@ export class MessagesService {
       contact: (conversation as Record<string, unknown>)['contact'],
       status: updatedConversation?.status ?? conversation.status,
     });
+
+    // Chatbot flows, automations and Verz AI work on these channels exactly as on WhatsApp. Only what the customer
+    // actually typed is passed on: a media-only message, a shared post or the "can't display" placeholder is not a
+    // question to answer. A failure here must never lose the message that is already stored.
+    if (message.text) {
+      await this.dispatchAiAndChatbot(tenantId, conversation, contact, message.text, created.id).catch((err) =>
+        this.logger.warn(`AI/chatbot dispatch failed for inbound ${platform} message ${created.id}: ${err instanceof Error ? err.message : String(err)}`));
+    }
 
     return created;
   }
@@ -1583,7 +1627,7 @@ export class MessagesService {
 
   private async handleAiSuggestion(
     tenantId: string,
-    conversation: { id: string },
+    conversation: { id: string; channel?: { id: string; type: string } | null },
     contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
@@ -1611,7 +1655,7 @@ export class MessagesService {
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
       tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-      { commerceEnabled, readOnlyTools: true },
+      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type) },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1697,7 +1741,7 @@ export class MessagesService {
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
         tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-        { commerceEnabled, readOnlyTools: false },
+        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type) },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
         return null;
@@ -2049,6 +2093,50 @@ export class MessagesService {
       if (delay === undefined) return null;
       await new Promise<void>((resolve) => setTimeout(resolve, delay));
     }
+  }
+
+  /**
+   * Delivered/read receipts from Messenger and Instagram. Meta reports delivery by message id and read by a time
+   * watermark (Messenger) or the id of the last message seen (Instagram), so a read marks every earlier outbound
+   * message of that conversation. Goes through updateStatus(), so ticks only ever move forward and the dashboard is
+   * notified exactly as for WhatsApp.
+   */
+  async handleMetaReceipt(
+    tenantId: string,
+    channelId: string,
+    customerId: string,
+    platform: 'MESSENGER' | 'INSTAGRAM',
+    status: typeof MessageStatus.DELIVERED | typeof MessageStatus.READ,
+    receipt: { mids?: string[]; watermark?: number; mid?: string },
+  ): Promise<void> {
+    if (receipt.mids?.length) {
+      for (const mid of receipt.mids) await this.updateStatus(mid, status, tenantId);
+      return;
+    }
+    const contact = await this.prisma.contact.findFirst({
+      where: { tenantId, externalIdType: platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID', externalId: customerId },
+      select: { id: true },
+    });
+    if (!contact) return;
+
+    let upTo: Date | null = receipt.watermark ? new Date(receipt.watermark) : null;
+    if (!upTo && receipt.mid) {
+      const seen = await this.prisma.message.findFirst({ where: { tenantId, whatsappMessageId: receipt.mid }, select: { createdAt: true } });
+      upTo = seen?.createdAt ?? null;
+    }
+    if (!upTo) return;
+
+    const earlier = status === MessageStatus.READ ? [MessageStatus.SENT, MessageStatus.DELIVERED] : [MessageStatus.SENT];
+    const pending = await this.prisma.message.findMany({
+      where: {
+        tenantId, contactId: contact.id, direction: MessageDirection.OUTBOUND, status: { in: earlier },
+        whatsappMessageId: { not: null }, createdAt: { lte: upTo }, conversation: { channelId },
+      },
+      select: { whatsappMessageId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    for (const m of pending) await this.updateStatus(m.whatsappMessageId!, status, tenantId);
   }
 
   async updateStatus(
