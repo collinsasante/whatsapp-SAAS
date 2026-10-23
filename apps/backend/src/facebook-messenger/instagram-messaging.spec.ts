@@ -131,7 +131,7 @@ describe('FacebookMessengerService.fetchContactName', () => {
 describe('MessengerWebhookController: Instagram events', () => {
   function build(channels: object[] = [{ id: 'ch-ig', tenantId: 't1', externalId: 'ig-1' }]) {
     const prisma = { channel: { findMany: jest.fn().mockResolvedValue(channels) } };
-    const messages = { handleInboundMessenger: jest.fn().mockResolvedValue({}) };
+    const messages = { handleInboundMessenger: jest.fn().mockResolvedValue({}), handleMetaReceipt: jest.fn().mockResolvedValue(undefined) };
     const events = { recordReceived: jest.fn().mockResolvedValue('ev1'), markOutcome: jest.fn().mockResolvedValue(undefined) };
     const controller = new MessengerWebhookController(prisma as never, messages as never, events as never);
     return { controller, prisma, messages, events };
@@ -172,6 +172,25 @@ describe('MessengerWebhookController: Instagram events', () => {
     await receive(controller, { object: 'page', entry: [{ id: 'page-1', time: 1, messaging: [event({ mid: 'm4', text: 'hey' })] }] });
     expect(prisma.channel.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ type: 'FACEBOOK_MESSENGER' }) }));
     expect(messages.handleInboundMessenger).toHaveBeenCalledWith('t1', 'ch-fb', 'IGSID-9', { mid: 'm4', text: 'hey' }, 'MESSENGER');
+  });
+
+  it('applies delivered and read receipts for Instagram and Messenger, and a failure never fails the webhook', async () => {
+    const { controller, messages } = build();
+    await receive(controller, igEntry([
+      { sender: { id: 'IGSID-9' }, recipient: { id: 'ig-1' }, timestamp: 1, read: { mid: 'mid.seen' } },
+      { sender: { id: 'IGSID-9' }, recipient: { id: 'ig-1' }, timestamp: 2, delivery: { mids: ['mid.d1'] } },
+    ]));
+    expect(messages.handleMetaReceipt).toHaveBeenCalledWith('t1', 'ch-ig', 'IGSID-9', 'INSTAGRAM', 'READ', { mid: 'mid.seen' });
+    expect(messages.handleMetaReceipt).toHaveBeenCalledWith('t1', 'ch-ig', 'IGSID-9', 'INSTAGRAM', 'DELIVERED', { mids: ['mid.d1'] });
+
+    messages.handleMetaReceipt.mockRejectedValue(new Error('db down'));
+    await expect(receive(controller, igEntry([{ sender: { id: 'IGSID-9' }, recipient: { id: 'ig-1' }, timestamp: 3, read: { watermark: 5 } }]))).resolves.toEqual({ status: 'ok' });
+  });
+
+  it('a receipt is not treated as an inbound message', async () => {
+    const { controller, messages } = build();
+    await receive(controller, igEntry([{ sender: { id: 'IGSID-9' }, recipient: { id: 'ig-1' }, timestamp: 1, read: { watermark: 5 } }]));
+    expect(messages.handleInboundMessenger).not.toHaveBeenCalled();
   });
 
   it('ignores any other webhook object', async () => {

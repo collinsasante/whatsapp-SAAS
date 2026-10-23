@@ -20,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from '../messages/messages.service';
 import { WebhookEventService } from '../common/monitoring/webhook-event.service';
 import { WebhookSource, ChannelType } from '@prisma/client';
+import { MessageStatus } from '@whatsapp-platform/shared-types';
 import { notify } from '../common/notifier';
 import { verifyWhatsAppSignature } from '../whatsapp/webhook-signature.util';
 
@@ -38,8 +39,9 @@ export interface MessengerMessagingEvent {
     attachments?: MessengerAttachment[];
     is_echo?: boolean; // messages the Page itself sent, echoed back -- must not be treated as inbound
   };
-  delivery?: { mids: string[]; watermark: number };
-  read?: { watermark: number };
+  delivery?: { mids?: string[]; watermark?: number };
+  // Messenger sends a time watermark; Instagram ("messaging_seen") sends the id of the last message seen.
+  read?: { watermark?: number; mid?: string };
   postback?: { title: string; payload: string };
 }
 
@@ -183,9 +185,17 @@ export class MessengerWebhookController {
           }).catch(() => {});
         }
       }
-      // Delivery/read receipts and postbacks: handled by a later phase once
-      // outbound send (and message-status tracking) exists for Messenger --
-      // logging-only for now via the WebhookEventService record above.
+      // Delivered and read receipts become the same message ticks WhatsApp has. A failure here must never fail the
+      // webhook (Meta would retry the whole entry), so it is logged and the rest of the entry still runs.
+      for (const [status, receipt] of [[MessageStatus.DELIVERED, event.delivery], [MessageStatus.READ, event.read]] as const) {
+        if (!receipt) continue;
+        try {
+          await this.messagesService.handleMetaReceipt(tenantId, channelId, event.sender.id, platform, status, receipt);
+        } catch (error) {
+          this.logger.warn(`[tenant:${tenantId}] Failed to apply a ${status} receipt from ${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      // Postbacks stay logging-only via the WebhookEventService record above.
     }
   }
 }

@@ -2082,6 +2082,50 @@ export class MessagesService {
     }
   }
 
+  /**
+   * Delivered/read receipts from Messenger and Instagram. Meta reports delivery by message id and read by a time
+   * watermark (Messenger) or the id of the last message seen (Instagram), so a read marks every earlier outbound
+   * message of that conversation. Goes through updateStatus(), so ticks only ever move forward and the dashboard is
+   * notified exactly as for WhatsApp.
+   */
+  async handleMetaReceipt(
+    tenantId: string,
+    channelId: string,
+    customerId: string,
+    platform: 'MESSENGER' | 'INSTAGRAM',
+    status: typeof MessageStatus.DELIVERED | typeof MessageStatus.READ,
+    receipt: { mids?: string[]; watermark?: number; mid?: string },
+  ): Promise<void> {
+    if (receipt.mids?.length) {
+      for (const mid of receipt.mids) await this.updateStatus(mid, status, tenantId);
+      return;
+    }
+    const contact = await this.prisma.contact.findFirst({
+      where: { tenantId, externalIdType: platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID', externalId: customerId },
+      select: { id: true },
+    });
+    if (!contact) return;
+
+    let upTo: Date | null = receipt.watermark ? new Date(receipt.watermark) : null;
+    if (!upTo && receipt.mid) {
+      const seen = await this.prisma.message.findFirst({ where: { tenantId, whatsappMessageId: receipt.mid }, select: { createdAt: true } });
+      upTo = seen?.createdAt ?? null;
+    }
+    if (!upTo) return;
+
+    const earlier = status === MessageStatus.READ ? [MessageStatus.SENT, MessageStatus.DELIVERED] : [MessageStatus.SENT];
+    const pending = await this.prisma.message.findMany({
+      where: {
+        tenantId, contactId: contact.id, direction: MessageDirection.OUTBOUND, status: { in: earlier },
+        whatsappMessageId: { not: null }, createdAt: { lte: upTo }, conversation: { channelId },
+      },
+      select: { whatsappMessageId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    for (const m of pending) await this.updateStatus(m.whatsappMessageId!, status, tenantId);
+  }
+
   async updateStatus(
     whatsappMessageId: string,
     status: MessageStatus,

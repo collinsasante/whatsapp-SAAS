@@ -204,3 +204,61 @@ describe('dispatchOutbound media for Messenger and Instagram', () => {
     expect(facebookMessengerService.sendTextMessage).not.toHaveBeenCalled();
   });
 });
+
+describe('handleMetaReceipt: delivered and read ticks for Messenger and Instagram', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function build() {
+    const { service, prisma } = setup();
+    (prisma as Record<string, unknown>)['contact'] = { findFirst: jest.fn().mockResolvedValue({ id: 'ct-1' }) };
+    prisma.message.findFirst = jest.fn().mockResolvedValue({ createdAt: new Date('2026-10-23T12:00:00Z') });
+    (prisma.message as Record<string, unknown>)['findMany'] = jest.fn().mockResolvedValue([{ whatsappMessageId: 'mid.a' }, { whatsappMessageId: 'mid.b' }]);
+    const updateStatus = jest.spyOn(service, 'updateStatus').mockResolvedValue(undefined);
+    return { service, prisma: prisma as unknown as { contact: { findFirst: jest.Mock }; message: { findFirst: jest.Mock; findMany: jest.Mock } }, updateStatus };
+  }
+
+  it('delivery by message id marks exactly those messages delivered', async () => {
+    const { service, updateStatus, prisma } = build();
+    await service.handleMetaReceipt('t1', 'ch-fb', 'PSID-1', 'MESSENGER', 'DELIVERED', { mids: ['mid.1', 'mid.2'] });
+    expect(updateStatus.mock.calls).toEqual([['mid.1', 'DELIVERED', 't1'], ['mid.2', 'DELIVERED', 't1']]);
+    expect(prisma.contact.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('Messenger read watermark marks every earlier outbound message of that customer on that channel as read', async () => {
+    const { service, updateStatus, prisma } = build();
+    const watermark = Date.parse('2026-10-23T12:30:00Z');
+    await service.handleMetaReceipt('t1', 'ch-fb', 'PSID-1', 'MESSENGER', 'READ', { watermark });
+    expect(prisma.contact.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 't1', externalIdType: 'MESSENGER_PSID', externalId: 'PSID-1' } }));
+    const where = prisma.message.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ tenantId: 't1', contactId: 'ct-1', direction: 'OUTBOUND', conversation: { channelId: 'ch-fb' }, createdAt: { lte: new Date(watermark) } });
+    expect(where.status.in).toEqual(['SENT', 'DELIVERED']);
+    expect(updateStatus.mock.calls.map((c) => c[0])).toEqual(['mid.a', 'mid.b']);
+    expect(updateStatus.mock.calls.every((c) => c[1] === 'READ' && c[2] === 't1')).toBe(true);
+  });
+
+  it('Instagram read (the id of the last message seen) uses that message\'s time as the cut-off', async () => {
+    const { service, prisma } = build();
+    await service.handleMetaReceipt('t1', 'ch-ig', 'IGSID-9', 'INSTAGRAM', 'READ', { mid: 'mid.seen' });
+    expect(prisma.contact.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ externalIdType: 'INSTAGRAM_IGSID' }) }));
+    expect(prisma.message.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 't1', whatsappMessageId: 'mid.seen' } }));
+    expect(prisma.message.findMany.mock.calls[0][0].where.createdAt).toEqual({ lte: new Date('2026-10-23T12:00:00Z') });
+  });
+
+  it('does nothing for an unknown customer, an unknown message id, or an empty receipt', async () => {
+    const a = build(); a.prisma.contact.findFirst.mockResolvedValue(null);
+    await a.service.handleMetaReceipt('t1', 'ch', 'nobody', 'MESSENGER', 'READ', { watermark: 1 });
+    const b = build(); b.prisma.message.findFirst.mockResolvedValue(null);
+    await b.service.handleMetaReceipt('t1', 'ch', 'IGSID', 'INSTAGRAM', 'READ', { mid: 'unknown' });
+    const c = build();
+    await c.service.handleMetaReceipt('t1', 'ch', 'PSID', 'MESSENGER', 'READ', {});
+    for (const x of [a, b, c]) expect(x.updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('a read receipt never touches inbound messages or another workspace (the query is scoped and outbound-only)', async () => {
+    const { service, prisma } = build();
+    await service.handleMetaReceipt('tenant-B', 'ch', 'PSID-1', 'MESSENGER', 'READ', { watermark: 5 });
+    const where = prisma.message.findMany.mock.calls[0][0].where;
+    expect(where.tenantId).toBe('tenant-B');
+    expect(where.direction).toBe('OUTBOUND');
+  });
+});
