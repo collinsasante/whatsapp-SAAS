@@ -80,7 +80,7 @@ export default function CommerceRevenuePage() {
               <Wallet size={18} className="text-green-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Revenue</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Revenue</h1>
               <p className="text-xs text-gray-500">What you&apos;ve sold, what the platform took, and what you actually keep</p>
             </div>
           </div>

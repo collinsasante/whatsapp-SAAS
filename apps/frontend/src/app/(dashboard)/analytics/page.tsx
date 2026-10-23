@@ -10,6 +10,7 @@ import { channelName, formatRange, toCsv } from '@/lib/analytics/format';
 import { METRICS } from '@/lib/analytics/metrics';
 import type { ChannelFilter, IntelligenceResponse, RangePreset } from '@/lib/analytics/types';
 import { UserRole } from '@whatsapp-platform/shared-types';
+import PageHeader from '@/components/ui/PageHeader';
 import Toolbar, { customRangeProblem, PRESETS } from '@/components/analytics/Toolbar';
 import KpiBand from '@/components/analytics/KpiBand';
 import TrendPanel from '@/components/analytics/TrendPanel';
@@ -143,12 +144,12 @@ export default function AnalyticsPage() {
     <div className="h-full overflow-auto overscroll-contain bg-gray-50" aria-busy={loading}>
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 pt-5 pb-4">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Analytics</h1>
-          <p className="text-sm text-gray-600 mt-1 max-w-2xl">
-            {isAdmin
+          <PageHeader
+            title="Analytics"
+            description={isAdmin
               ? 'How your business is doing, why, and what to do about it.'
               : 'How your own conversations are going. Workspace-wide analytics are visible to admins.'}
-          </p>
+          />
           <div className="mt-4">
             <Toolbar
               preset={preset} customFrom={customFrom} customTo={customTo} channel={channel} showChannel={isAdmin}

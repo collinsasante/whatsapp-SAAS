@@ -3,12 +3,13 @@ import Link from 'next/link';
 import { AlertOctagon, AlertTriangle, CheckCircle2, ChevronRight, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatWaiting } from '@/lib/analytics/format';
+import StatusBadge from '@/components/ui/StatusBadge';
 import type { AttentionItem, DashboardAttention } from '@/lib/dashboard/types';
 
 const SEVERITY = {
-  critical: { label: 'Urgent', Icon: AlertOctagon, tone: 'text-rose-700', ring: 'border-rose-200 bg-rose-50/50' },
-  warning: { label: 'Needs action', Icon: AlertTriangle, tone: 'text-amber-700', ring: 'border-amber-200 bg-amber-50/50' },
-  info: { label: 'For your attention', Icon: Info, tone: 'text-gray-600', ring: 'border-gray-200 bg-gray-50/60' },
+  critical: { label: 'Urgent', Icon: AlertOctagon, tone: 'text-rose-700', badge: 'danger', ring: 'border-rose-200 bg-rose-50/50' },
+  warning: { label: 'Needs action', Icon: AlertTriangle, tone: 'text-amber-700', badge: 'warning', ring: 'border-amber-200 bg-amber-50/50' },
+  info: { label: 'For your attention', Icon: Info, tone: 'text-gray-600', badge: 'neutral', ring: 'border-gray-200 bg-gray-50/60' },
 } as const;
 
 function Item({ item }: { item: AttentionItem }) {
@@ -19,7 +20,7 @@ function Item({ item }: { item: AttentionItem }) {
         <sev.Icon size={16} className={cn('mt-0.5 shrink-0', sev.tone)} aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-gray-900">
-            <span className={cn('text-xs font-semibold mr-1.5', sev.tone)}>{sev.label}</span>
+            <StatusBadge tone={sev.badge} className="mr-1.5">{sev.label}</StatusBadge>
             {item.title}
           </p>
           <p className="text-sm text-gray-600 mt-0.5">{item.detail}</p>

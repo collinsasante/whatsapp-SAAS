@@ -157,7 +157,7 @@ export default function CommerceEvaluationPage() {
               <ClipboardCheck size={18} className="text-violet-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Evaluation Runs</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Evaluation Runs</h1>
               <p className="text-xs text-gray-500">Scripted conversations against the live commerce AI, check before enabling it for real customers</p>
             </div>
           </div>

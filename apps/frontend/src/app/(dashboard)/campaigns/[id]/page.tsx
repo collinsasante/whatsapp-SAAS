@@ -180,7 +180,7 @@ export default function CampaignDetailPage() {
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-xl font-bold text-gray-900">{campaign.name}</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">{campaign.name}</h1>
               <span className={cn('inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium', statusMeta.cls)}>
                 <span className={cn('w-1.5 h-1.5 rounded-full', statusMeta.dot, campaign.status === 'RUNNING' && 'animate-pulse')} />
                 {statusMeta.label}

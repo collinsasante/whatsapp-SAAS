@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/Button';
 import type { ChannelFilter, RangePreset } from '@/lib/analytics/types';
 
 export const PRESETS: Array<{ key: Exclude<RangePreset, 'custom'>; label: string }> = [
@@ -100,12 +101,7 @@ export default function Toolbar(p: Props) {
             <RefreshCw size={16} aria-hidden="true" className={p.loading ? 'animate-spin' : undefined} />
           </button>
           {p.onExport && (
-            <button
-              onClick={p.onExport}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
-            >
-              <Download size={14} aria-hidden="true" />Export CSV
-            </button>
+            <Button variant="secondary" onClick={p.onExport}><Download size={14} aria-hidden="true" />Export CSV</Button>
           )}
         </div>
       </div>
@@ -123,9 +119,7 @@ export default function Toolbar(p: Props) {
             <span className="block mb-1">To</span>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-sm border border-gray-300 rounded-lg px-3 py-2" />
           </label>
-          <button type="submit" disabled={!!problem} className="px-3.5 py-2 text-sm font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50">
-            Apply
-          </button>
+          <Button type="submit" disabled={!!problem}>Apply</Button>
           {problem && (from || to) && <p role="alert" className="text-sm text-rose-700 basis-full">{problem}</p>}
         </form>
       )}

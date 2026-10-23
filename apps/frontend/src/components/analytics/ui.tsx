@@ -5,6 +5,9 @@ import { AlertCircle, ArrowDownRight, ArrowUpRight, Info, Minus } from 'lucide-r
 import { cn } from '@/lib/utils';
 import { compare, type Delta, type Direction } from '@/lib/analytics/format';
 import { KIND_LABEL, type MetricDefinition } from '@/lib/analytics/metrics';
+import SharedSkeleton from '@/components/ui/Skeleton';
+import EmptyState from '@/components/ui/EmptyState';
+import { Button } from '@/components/ui/Button';
 
 /** A titled block of the page. The heading is a question so each section answers something. */
 export function Section({ id, question, description, children, aside }: {
@@ -111,20 +114,11 @@ export function DeltaView({ delta, className }: { delta: Delta; className?: stri
   );
 }
 
-export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden="true" className={cn('bg-gray-100 rounded-lg animate-pulse', className)} />;
-}
+export const Skeleton = SharedSkeleton;
 
-export function EmptyNote({ title, children, href, hrefLabel }: { title: string; children?: React.ReactNode; href?: string; hrefLabel?: string }) {
-  return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50/60 px-4 py-5 text-sm">
-      <p className="font-medium text-gray-800">{title}</p>
-      {children && <p className="text-gray-500 mt-1 max-w-xl">{children}</p>}
-      {href && hrefLabel && (
-        <Link href={href} className="inline-block mt-2 text-teal-700 font-medium hover:underline">{hrefLabel}</Link>
-      )}
-    </div>
-  );
+/** Kept under its old name for the Analytics callers; it is the shared EmptyState. */
+export function EmptyNote(props: { title: string; children?: React.ReactNode; href?: string; hrefLabel?: string }) {
+  return <EmptyState {...props} />;
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -135,9 +129,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
         <p className="font-medium text-gray-900">Analytics could not be loaded</p>
         <p className="text-sm text-gray-500 mt-0.5">{message}</p>
       </div>
-      <button onClick={onRetry} className="px-3.5 py-2 text-sm font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600">
-        Try again
-      </button>
+      <Button onClick={onRetry}>Try again</Button>
     </div>
   );
 }

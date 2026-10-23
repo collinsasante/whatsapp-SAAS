@@ -848,7 +848,7 @@ export default function ChatbotPage() {
             <Bot size={18} className="text-teal-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Chatbot Flows</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Chatbot Flows</h1>
             <p className="text-xs text-gray-500">Build visual automation flows for WhatsApp</p>
           </div>
         </div>

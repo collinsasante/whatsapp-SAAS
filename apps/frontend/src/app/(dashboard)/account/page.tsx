@@ -200,7 +200,7 @@ export default function AccountPage() {
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-6">
       <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-xl font-bold text-gray-900">My Account</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">My Account</h1>
 
         {/* Profile card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

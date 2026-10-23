@@ -121,7 +121,7 @@ export default function AiTestChatPage() {
               <MessageSquare size={18} className="text-violet-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Test Chat</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Test Chat</h1>
               <p className="text-xs text-gray-500">
                 Chat as a customer with Verz AI through the real message pipeline, no WhatsApp needed. In Suggestion mode replies are drafts only (not sent); in Auto-Reply mode they're real sent messages.
               </p>
