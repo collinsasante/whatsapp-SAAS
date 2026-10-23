@@ -358,13 +358,20 @@ export class PlatformAdminAnalyticsService {
 
   // ── Audit logs ───────────────────────────────────────────────────────────
 
-  async listAuditLogs(params: { adminId?: string; action?: string; resourceType?: string; limit?: number; offset?: number } = {}) {
+  async listAuditLogs(params: { adminId?: string; action?: string; resourceType?: string; resourceId?: string; q?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) {
     const limit = Math.min(params.limit ?? 50, 100);
     const offset = params.offset ?? 0;
     const where = {
       ...(params.adminId ? { adminId: params.adminId } : {}),
-      ...(params.action ? { action: params.action } : {}),
+      // An action may be a full name ("workspace.suspend") or a prefix of one ("workspace"), so both are accepted.
+      ...(params.action ? { OR: [{ action: params.action }, { action: { startsWith: `${params.action}.` } }] } : {}),
       ...(params.resourceType ? { resourceType: params.resourceType } : {}),
+      ...(params.resourceId ? { resourceId: params.resourceId } : {}),
+      ...(params.q ? { admin: { is: { OR: [{ name: { contains: params.q, mode: 'insensitive' as const } }, { email: { contains: params.q, mode: 'insensitive' as const } }] } } } : {}),
+      ...(params.from || params.to ? { createdAt: {
+        ...(params.from ? { gte: new Date(`${params.from}T00:00:00.000Z`) } : {}),
+        ...(params.to ? { lt: new Date(new Date(`${params.to}T00:00:00.000Z`).getTime() + 86_400_000) } : {}),
+      } } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.platformAuditLog.findMany({

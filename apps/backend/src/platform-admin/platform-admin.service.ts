@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AiCreditTransactionType, WebhookSource, WebhookEventStatus } from '@prisma/client';
+import { AiCreditTransactionType, Prisma, WebhookSource, WebhookEventStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 import { CommerceLedgerService } from '../commerce/ledger/commerce-ledger.service';
@@ -8,12 +8,29 @@ import { WebhookEventService } from '../common/monitoring/webhook-event.service'
 import {
   CreateAiCreditPackageDto, CreateAiPricingConfigDto, CreatePlanDto, GrantCreditsDto,
   TenantsQueryDto, UpdateAdminRoleDto, UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto,
-  UpdatePlanDto, UpdateWorkspaceDto, ErrorLogsQueryDto, WebhookEventsQueryDto, UpdateErrorLogStatusDto,
+  UpdatePlanDto, UpdateWorkspaceDto, UsersQueryDto, ErrorLogsQueryDto, WebhookEventsQueryDto, UpdateErrorLogStatusDto,
 } from './dto/platform-admin.dto';
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
 import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
+import { buildTenantWhere, deriveTenantStatus, needsFullScan } from './tenant-directory.util';
 import { deriveLifecycleStage, LIFECYCLE_STAGES, LifecycleStage } from './utils/lifecycle.util';
+
+/** The most tenants the directory will score in one request when a filter or sort needs every tenant's numbers. */
+const TENANT_SCAN_CAP = 5000;
+
+const TENANT_ROW_SELECT = {
+  id: true, name: true, isActive: true, billingEmail: true, createdAt: true, country: true,
+  subscription: {
+    select: {
+      status: true, cycle: true, trialEndsAt: true,
+      plan: { select: { name: true, monthlyPrice: true, yearlyPrice: true, currency: true } },
+    },
+  },
+  users: { where: { isActive: true }, select: { id: true, lastLoginAt: true } },
+} satisfies Prisma.TenantSelect;
+
+type TenantRowSource = Prisma.TenantGetPayload<{ select: typeof TENANT_ROW_SELECT }>;
 
 const MRR_MOVEMENT_CATEGORIES = ['NEW', 'EXPANSION', 'CONTRACTION', 'CHURNED'] as const;
 
@@ -21,7 +38,10 @@ const MRR_MOVEMENT_CATEGORIES = ['NEW', 'EXPANSION', 'CONTRACTION', 'CHURNED'] a
 // from anywhere central -- that file duplicates the same two functions too).
 function escapeCsv(val: unknown): string {
   if (val === null || val === undefined) return '';
-  const s = String(val);
+  let s = String(val);
+  // A cell that starts with = + - @ is run as a formula by spreadsheet apps. Tenant names are typed by customers, so
+  // they are prefixed with an apostrophe to be read as text. Numbers are not strings and are left alone.
+  if (typeof val === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   if (s.includes(',') || s.includes('"') || s.includes('\n')) {
     return `"${s.replace(/"/g, '""')}"`;
   }
@@ -464,33 +484,50 @@ export class PlatformAdminService {
   async getTenantsTable(query: TenantsQueryDto) {
     const limit = query.limit ?? 20;
     const offset = query.offset ?? 0;
-    const search = query.search;
+    const now = new Date();
+    const where = buildTenantWhere(query, now) as Prisma.TenantWhereInput;
 
-    const where = search
-      ? { OR: [
-          { name: { contains: search, mode: 'insensitive' as const } },
-          { billingEmail: { contains: search, mode: 'insensitive' as const } },
-          { users: { some: { email: { contains: search, mode: 'insensitive' as const } } } },
-        ] }
-      : {};
+    // Fast path: the database filters, orders and pages, and only the visible rows are enriched with usage numbers.
+    if (!needsFullScan(query)) {
+      const order = query.order ?? 'desc';
+      const orderBy: Prisma.TenantOrderByWithRelationInput[] = [{ [query.sort === 'name' ? 'name' : 'createdAt']: order }, { id: 'asc' }];
+      const [tenants, total] = await Promise.all([
+        this.prisma.tenant.findMany({ where, orderBy, skip: offset, take: limit, select: TENANT_ROW_SELECT }),
+        this.prisma.tenant.count({ where }),
+      ]);
+      return { tenants: await this.buildTenantRows(tenants, now), total, limit, offset };
+    }
 
-    const tenants = await this.prisma.tenant.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true, name: true, isActive: true, billingEmail: true, createdAt: true, country: true,
-        subscription: {
-          select: {
-            status: true, cycle: true, trialEndsAt: true,
-            plan: { select: { name: true, monthlyPrice: true, yearlyPrice: true, currency: true } },
-          },
-        },
-        users: { where: { isActive: true }, select: { id: true, lastLoginAt: true } },
-      },
+    // Slow path: churn risk, "high value" and sorting by MRR or health score are computed per tenant, so every tenant that
+    // matches the database filters has to be scored first. Capped so one request cannot load an unbounded table.
+    const tenants = await this.prisma.tenant.findMany({ where, orderBy: { createdAt: 'desc' }, take: TENANT_SCAN_CAP, select: TENANT_ROW_SELECT });
+    const rows = await this.buildTenantRows(tenants, now);
+
+    const highValueThreshold = this.computeTopPercentileMrr(rows.map((r) => r.mrrGhs), 0.1);
+
+    let filtered = rows;
+    switch (query.filter) {
+      case 'churn_risk': filtered = rows.filter((r) => r.churnRisk); break;
+      case 'high_value': filtered = rows.filter((r) => r.mrrGhs >= highValueThreshold && r.mrrGhs > 0); break;
+      default: break;
+    }
+
+    const sortKey = query.sort ?? 'createdAt';
+    const order = query.order ?? 'desc';
+    const sorted = [...filtered].sort((a, b) => {
+      const av = sortKey === 'name' ? a.name : sortKey === 'mrr' ? a.mrrGhs : sortKey === 'healthScore' ? a.healthScore : a.createdAt.getTime();
+      const bv = sortKey === 'name' ? b.name : sortKey === 'mrr' ? b.mrrGhs : sortKey === 'healthScore' ? b.healthScore : b.createdAt.getTime();
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return order === 'asc' ? cmp : -cmp;
     });
 
+    return { tenants: sorted.slice(offset, offset + limit), total: sorted.length, limit, offset };
+  }
+
+
+  /** Adds usage, MRR, health and churn-risk numbers to a set of tenants. Cost grows with the number of tenants passed in. */
+  private async buildTenantRows(tenants: TenantRowSource[], now: Date) {
     const tenantIds = tenants.map((t) => t.id);
-    const now = new Date();
     const startOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
@@ -543,10 +580,7 @@ export class PlatformAdminService {
         zeroActivityLast14Days: messagesLast30Days === 0 && (!lastLoginAt || lastLoginAt < fourteenDaysAgo),
       });
 
-      const status = !t.isActive ? 'suspended'
-        : !sub ? 'no_subscription'
-        : sub.status === 'CANCELED' || sub.status === 'EXPIRED' ? 'churned'
-        : sub.status.toLowerCase();
+      const status = deriveTenantStatus(t.isActive, sub?.status ?? null);
 
       return {
         id: t.id, name: t.name, status, isActive: t.isActive,
@@ -563,29 +597,7 @@ export class PlatformAdminService {
       };
     });
 
-    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const highValueThreshold = this.computeTopPercentileMrr(rows.map((r) => r.mrrGhs), 0.1);
-
-    let filtered = rows;
-    switch (query.filter) {
-      case 'churn_risk': filtered = rows.filter((r) => r.churnRisk); break;
-      case 'trial_ending_7d': filtered = rows.filter((r) => r.status === 'trial' && r.trialEndsAt && r.trialEndsAt <= sevenDaysFromNow && r.trialEndsAt >= now); break;
-      case 'high_value': filtered = rows.filter((r) => r.mrrGhs >= highValueThreshold && r.mrrGhs > 0); break;
-      case 'signed_up_this_month': filtered = rows.filter((r) => r.createdAt >= startOfThisMonth); break;
-      case 'past_due': filtered = rows.filter((r) => r.status === 'past_due'); break;
-      default: break;
-    }
-
-    const sortKey = query.sort ?? 'createdAt';
-    const order = query.order ?? 'desc';
-    const sorted = [...filtered].sort((a, b) => {
-      const av = sortKey === 'name' ? a.name : sortKey === 'mrr' ? a.mrrGhs : sortKey === 'healthScore' ? a.healthScore : a.createdAt.getTime();
-      const bv = sortKey === 'name' ? b.name : sortKey === 'mrr' ? b.mrrGhs : sortKey === 'healthScore' ? b.healthScore : b.createdAt.getTime();
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
-      return order === 'asc' ? cmp : -cmp;
-    });
-
-    return { tenants: sorted.slice(offset, offset + limit), total: sorted.length, limit, offset };
+    return rows;
   }
 
   /** CSV export of the tenant table -- same search/filter/sort as getTenantsTable, no pagination. */
@@ -888,19 +900,28 @@ export class PlatformAdminService {
     });
   }
 
-  async getUsers(page = 1, limit = 30, search?: string, tenantId?: string) {
+  async getUsers(query: UsersQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 30;
     const skip = (page - 1) * limit;
-    const where = {
-      ...(tenantId ? { tenantId } : {}),
+    const search = query.search?.trim();
+    const where: Prisma.UserWhereInput = {
+      ...(query.tenantId ? { tenantId: query.tenantId } : {}),
+      ...(query.role ? { role: query.role as never } : {}),
+      ...(query.status ? { isActive: query.status === 'active' } : {}),
       ...(search ? { OR: [
         { email: { contains: search, mode: 'insensitive' as const } },
         { name: { contains: search, mode: 'insensitive' as const } },
+        { id: search },
+        { tenant: { is: { name: { contains: search, mode: 'insensitive' as const } } } },
       ] } : {}),
     };
+    const sortField = query.sort ?? 'createdAt';
+    const orderBy: Prisma.UserOrderByWithRelationInput[] = [{ [sortField]: query.order ?? 'desc' }, { id: 'asc' }];
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
         where, skip, take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         select: {
           id: true, email: true, name: true, role: true, isActive: true, emailVerified: true, createdAt: true, lastLoginAt: true,
           tenant: { select: { id: true, name: true } },
@@ -911,9 +932,11 @@ export class PlatformAdminService {
     return { users, total, page, limit };
   }
 
-  async toggleUserActive(userId: string) {
+  /** Suspending needs a stated reason (it is recorded in the audit trail); restoring does not. */
+  async toggleUserActive(userId: string, reason?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, isActive: true } });
     if (!user) throw new NotFoundException('User not found');
+    if (user.isActive && (!reason || reason.trim().length < 3)) throw new BadRequestException('A reason is required to suspend a user');
     return this.prisma.user.update({
       where: { id: userId },
       data: { isActive: !user.isActive },
