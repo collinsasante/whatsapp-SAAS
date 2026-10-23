@@ -7,7 +7,17 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- Messenger and Instagram now do what WhatsApp does in the inbox:
+  - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails
+    when Meta cannot fetch the file from our server. Voice notes are converted so they play.
+  - Replying to a message quotes it.
+  - Delivered and read ticks update (Messenger: delivered and read; Instagram: read).
+  - Chatbot flows, automations and Verz AI now run on inbound messages, with plain-text replies.
+  - Options Meta does not support (location, contact cards, and documents on Instagram) are hidden in those chats.
+
+### Fixed
+- The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
 
 ## [2.5.0] - 2026-10-23
 
