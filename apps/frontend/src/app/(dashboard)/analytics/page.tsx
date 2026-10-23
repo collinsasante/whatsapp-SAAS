@@ -140,7 +140,7 @@ export default function AnalyticsPage() {
   const refresh = () => setRefreshKey((k) => k + 1);
 
   return (
-    <div className="h-full overflow-auto bg-gray-50" aria-busy={loading}>
+    <div className="h-full overflow-auto overscroll-contain bg-gray-50" aria-busy={loading}>
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 pt-5 pb-4">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Analytics</h1>
