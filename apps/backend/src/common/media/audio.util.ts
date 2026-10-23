@@ -38,3 +38,33 @@ export async function transcodeWebmToOgg(buffer: Buffer): Promise<Buffer> {
     if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
   }
 }
+
+/**
+ * Messenger and Instagram play AAC/M4A, MP4 and WAV audio. Browsers record voice notes as WebM/Opus, which they cannot
+ * play, so anything that is not one of those is converted. Detection is by file signature, never by the declared type.
+ */
+export function isMetaPlayableAudio(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  const isMp4Family = buf.toString('latin1', 4, 8) === 'ftyp'; // m4a / mp4
+  const isWav = buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WAVE';
+  const isAacAdts = buf[0] === 0xff && (buf[1]! & 0xf6) === 0xf0; // raw AAC (ADTS)
+  return isMp4Family || isWav || isAacAdts;
+}
+
+/** Converts any audio ffmpeg can read (WebM/Opus, OGG, MP3...) to AAC in an M4A container. */
+export async function transcodeToM4a(buffer: Buffer): Promise<Buffer> {
+  const id = crypto.randomBytes(8).toString('hex');
+  const dir = os.tmpdir();
+  const inputPath = path.join(dir, `meta_in_${id}`);
+  const outputPath = path.join(dir, `meta_out_${id}.m4a`);
+  try {
+    fs.writeFileSync(inputPath, buffer);
+    await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-i', inputPath, '-vn', '-c:a', 'aac', '-b:a', '96k', '-f', 'ipod', outputPath], { timeout: 60_000 });
+    const out = fs.readFileSync(outputPath);
+    if (!isMetaPlayableAudio(out)) throw new Error('ffmpeg did not produce an M4A file');
+    return out;
+  } finally {
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+  }
+}

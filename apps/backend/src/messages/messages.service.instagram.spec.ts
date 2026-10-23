@@ -12,7 +12,7 @@ function setup() {
   };
   const realtimeService = { emitNewMessage: jest.fn(), emitConversationUpdated: jest.fn() };
   const storageService = { uploadRaw: jest.fn().mockResolvedValue({ fileUrl: 'https://files/ig.jpeg' }) };
-  const facebookMessengerService = { fetchContactName: jest.fn().mockResolvedValue({ name: null, reason: 'not asked' }), sendInstagramTextMessage: jest.fn().mockResolvedValue('mid.1'), sendInstagramMediaMessage: jest.fn().mockResolvedValue('mid.2'), sendTextMessage: jest.fn() };
+  const facebookMessengerService = { fetchContactName: jest.fn().mockResolvedValue({ name: null, reason: 'not asked' }), sendInstagramTextMessage: jest.fn().mockResolvedValue('mid.1'), sendInstagramMediaMessage: jest.fn().mockResolvedValue('mid.2'), sendTextMessage: jest.fn(), sendMediaMessage: jest.fn().mockResolvedValue('mid.3') };
   const args: unknown[] = new Array(21).fill({});
   args[0] = prisma; args[2] = conversationsService; args[3] = contactsService; args[4] = realtimeService; args[5] = storageService; args[19] = facebookMessengerService;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,19 +130,77 @@ describe('dispatchOutbound for Instagram', () => {
   it('sends text through the Instagram sender, to the contact\'s Instagram id', async () => {
     const { service, facebookMessengerService } = setup();
     await expect(service.dispatchOutbound('t1', conversation, contact, { kind: 'TEXT', text: 'hello' })).resolves.toBe('mid.1');
-    expect(facebookMessengerService.sendInstagramTextMessage).toHaveBeenCalledWith('t1', 'ch-ig', 'IGSID-9', 'hello');
+    expect(facebookMessengerService.sendInstagramTextMessage).toHaveBeenCalledWith('t1', 'ch-ig', 'IGSID-9', 'hello', undefined);
     expect(facebookMessengerService.sendTextMessage).not.toHaveBeenCalled();
   });
 
   it('sends media through the Instagram sender with a lower-case type', async () => {
     const { service, facebookMessengerService } = setup();
+    jest.spyOn(service, 'loadMediaBuffer').mockRejectedValue(new Error('no storage in this test'));
     await service.dispatchOutbound('t1', conversation, contact, { kind: 'MEDIA', mediaType: 'IMAGE', mediaUrl: 'https://f/x.jpg', caption: 'c' });
-    expect(facebookMessengerService.sendInstagramMediaMessage).toHaveBeenCalledWith('t1', 'ch-ig', 'IGSID-9', 'image', 'https://f/x.jpg', 'c');
+    expect(facebookMessengerService.sendInstagramMediaMessage).toHaveBeenCalledWith('t1', 'ch-ig', 'IGSID-9', 'image', 'https://f/x.jpg', 'c', { file: undefined, replyToMid: undefined });
   });
 
   it('refuses a contact with no Instagram id', async () => {
     const { service, facebookMessengerService } = setup();
     await expect(service.dispatchOutbound('t1', conversation, { phone: null, externalId: null }, { kind: 'TEXT', text: 'x' })).rejects.toThrow('no Instagram ID');
     expect(facebookMessengerService.sendInstagramTextMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('dispatchOutbound media for Messenger and Instagram', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const ig = { channel: { id: 'ch-ig', type: 'INSTAGRAM' } };
+  const fb = { channel: { id: 'ch-fb', type: 'FACEBOOK_MESSENGER' } };
+  const contact = { phone: null, externalId: 'ID-9' };
+  const m4a = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypM4A '), Buffer.alloc(16)]);
+  const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const png = Buffer.from('PNGDATA-not-audio');
+
+  it('passes the loaded file and the quoted message id to the Messenger sender', async () => {
+    const { service, facebookMessengerService } = setup();
+    jest.spyOn(service, 'loadMediaBuffer').mockResolvedValue({ buffer: png, mimeType: 'image/png' });
+    await service.dispatchOutbound('t1', fb, contact, { kind: 'MEDIA', mediaType: 'IMAGE', mediaUrl: 'https://x/api/v1/media/serve/k', caption: 'c', replyToProviderId: 'mid.q' });
+    expect(facebookMessengerService.sendMediaMessage).toHaveBeenCalledWith('t1', 'ch-fb', 'ID-9', 'image', 'https://x/api/v1/media/serve/k', 'c',
+      { file: { buffer: png, mimeType: 'image/png', filename: 'file.png' }, replyToMid: 'mid.q' });
+  });
+
+  it('does the same for Instagram', async () => {
+    const { service, facebookMessengerService } = setup();
+    jest.spyOn(service, 'loadMediaBuffer').mockResolvedValue({ buffer: png, mimeType: 'image/jpeg' });
+    await service.dispatchOutbound('t1', ig, contact, { kind: 'MEDIA', mediaType: 'IMAGE', mediaUrl: 'u', replyToProviderId: 'mid.q' });
+    expect(facebookMessengerService.sendInstagramMediaMessage).toHaveBeenCalledWith('t1', 'ch-ig', 'ID-9', 'image', 'u', undefined,
+      expect.objectContaining({ file: expect.objectContaining({ filename: 'file.jpeg' }), replyToMid: 'mid.q' }));
+    await service.dispatchOutbound('t1', ig, contact, { kind: 'TEXT', text: 'hi', replyToProviderId: 'mid.q2' });
+    expect(facebookMessengerService.sendInstagramTextMessage).toHaveBeenLastCalledWith('t1', 'ch-ig', 'ID-9', 'hi', 'mid.q2');
+  });
+
+  it('keeps audio that Meta can already play (M4A) untouched', async () => {
+    const { service } = setup();
+    jest.spyOn(service, 'loadMediaBuffer').mockResolvedValue({ buffer: m4a, mimeType: 'audio/mp4' });
+    const file = await service.prepareMetaFile('AUDIO', 'u');
+    expect(file.buffer).toBe(m4a);
+    expect(file.mimeType).toBe('audio/mp4');
+  });
+
+  it('refuses a voice note that cannot be converted, with a clear reason, instead of sending something unplayable', async () => {
+    const { service } = setup();
+    jest.spyOn(service, 'loadMediaBuffer').mockResolvedValue({ buffer: webm, mimeType: 'audio/webm' }); // truncated: ffmpeg cannot read it
+    await expect(service.prepareMetaFile('AUDIO', 'u')).rejects.toThrow('could not be converted');
+  });
+
+  it('falls back to sending the link when the stored file cannot be loaded', async () => {
+    const { service } = setup();
+    jest.spyOn(service, 'loadMediaBuffer').mockRejectedValue(new Error('storage down'));
+    await expect(service.prepareMetaFile('IMAGE', 'u')).resolves.toBeUndefined();
+  });
+
+  it('WhatsApp conversations are untouched: no Meta file preparation, no Messenger sender', async () => {
+    const { service, facebookMessengerService } = setup();
+    const load = jest.spyOn(service, 'loadMediaBuffer');
+    service.whatsappService = { sendMediaMessage: jest.fn(), sendTextMessage: jest.fn().mockResolvedValue('wamid.1') };
+    await service.dispatchOutbound('t1', { channel: { id: 'c', type: 'WHATSAPP' } }, { phone: '+233555000111' }, { kind: 'TEXT', text: 'hi', replyToProviderId: 'wamid.q' });
+    expect(load).not.toHaveBeenCalled();
+    expect(facebookMessengerService.sendTextMessage).not.toHaveBeenCalled();
   });
 });

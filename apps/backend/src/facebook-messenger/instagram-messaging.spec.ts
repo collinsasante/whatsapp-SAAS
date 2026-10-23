@@ -187,3 +187,81 @@ describe('MessengerWebhookController: Instagram events', () => {
     expect(messages.handleInboundMessenger).not.toHaveBeenCalled();
   });
 });
+
+describe('FacebookMessengerService: files uploaded to Meta and quoted replies', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const file = { buffer: Buffer.from('FILEBYTES'), mimeType: 'image/jpeg', filename: 'file.jpeg' };
+
+  function both() {
+    const prisma = {
+      channel: { findFirst: jest.fn().mockResolvedValue({ isActive: true, credentials: { accessToken: `enc:${TOKEN}` } }) },
+      facebookPageConnection: { findFirst: jest.fn().mockResolvedValue({ isActive: true, pageAccessToken: `enc:${TOKEN}` }) },
+    };
+    return new FacebookMessengerService(prisma as never, { decrypt: (v: string) => v.replace(/^enc:/, '') } as never);
+  }
+  const callsTo = (post: jest.SpyInstance, fragment: string) => post.mock.calls.filter((c) => String(c[0]).includes(fragment));
+
+  it.each(['MESSENGER', 'INSTAGRAM'] as const)('%s: uploads the file to Meta and sends it by attachment id, not by link', async (platform) => {
+    const post = jest.spyOn(axios, 'post')
+      .mockResolvedValueOnce({ data: { attachment_id: 'att-1' } })
+      .mockResolvedValueOnce({ data: { message_id: 'mid.out' } });
+    const service = both();
+
+    const id = platform === 'MESSENGER'
+      ? await service.sendMediaMessage('t1', 'ch', 'PSID', 'image', 'https://our.server/f.jpg', undefined, { file })
+      : await service.sendInstagramMediaMessage('t1', 'ch', 'IGSID', 'image', 'https://our.server/f.jpg', undefined, { file });
+
+    expect(id).toBe('mid.out');
+    expect(post.mock.calls[0][0]).toBe('https://graph.facebook.com/v19.0/me/message_attachments');
+    expect(post.mock.calls[0][1]).toBeInstanceOf(FormData);
+    expect(post.mock.calls[0][2]).toMatchObject({ params: { access_token: TOKEN } });
+    const sent = post.mock.calls[1][1] as { message: { attachment: { type: string; payload: Record<string, unknown> } } };
+    expect(sent.message.attachment.payload).toEqual({ attachment_id: 'att-1' });
+    expect(JSON.stringify(sent)).not.toContain('our.server');
+  });
+
+  it('falls back to sending the link when the upload to Meta fails', async () => {
+    const post = jest.spyOn(axios, 'post')
+      .mockRejectedValueOnce(new Error('upload down'))
+      .mockResolvedValueOnce({ data: { message_id: 'mid.out' } });
+    await expect(both().sendInstagramMediaMessage('t1', 'ch', 'IGSID', 'image', 'https://our.server/f.jpg', undefined, { file })).resolves.toBe('mid.out');
+    expect((post.mock.calls[1][1] as { message: { attachment: { payload: object } } }).message.attachment.payload).toEqual({ url: 'https://our.server/f.jpg' });
+  });
+
+  it('with no file it still sends the link, exactly as before', async () => {
+    const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { message_id: 'mid.out' } });
+    await both().sendMediaMessage('t1', 'ch', 'PSID', 'video', 'https://our.server/v.mp4');
+    expect(callsTo(post, 'message_attachments')).toHaveLength(0);
+    expect((post.mock.calls[0][1] as { message: { attachment: { payload: object } } }).message.attachment.payload).toEqual({ url: 'https://our.server/v.mp4', is_reusable: true });
+  });
+
+  it.each([
+    ['Messenger text', (s: FacebookMessengerService) => s.sendTextMessage('t1', 'ch', 'PSID', 'hi', 'mid.quoted')],
+    ['Instagram text', (s: FacebookMessengerService) => s.sendInstagramTextMessage('t1', 'ch', 'IGSID', 'hi', 'mid.quoted')],
+  ])('%s: quotes the replied-to message', async (_n, send) => {
+    const post = jest.spyOn(axios, 'post').mockResolvedValue({ data: { message_id: 'mid.out' } });
+    await send(both());
+    expect((post.mock.calls[0][1] as { message: { reply_to?: { mid: string } } }).message.reply_to).toEqual({ mid: 'mid.quoted' });
+  });
+
+  it('retries without the quote if Meta rejects the reply link, so the message is never lost', async () => {
+    const post = jest.spyOn(axios, 'post')
+      .mockRejectedValueOnce(new AxiosError('bad', 'ERR_BAD_REQUEST', undefined, undefined, { data: { error: { message: 'Invalid reply_to' } } } as never))
+      .mockResolvedValueOnce({ data: { message_id: 'mid.out' } });
+    await expect(both().sendTextMessage('t1', 'ch', 'PSID', 'hi', 'mid.quoted')).resolves.toBe('mid.out');
+    expect((post.mock.calls[1][1] as { message: Record<string, unknown> }).message).toEqual({ text: 'hi' });
+  });
+
+  it('does not retry when there was no quote, and reports the failure', async () => {
+    const post = jest.spyOn(axios, 'post').mockRejectedValue(new AxiosError('bad', 'ERR_BAD_REQUEST', undefined, undefined, { data: { error: { message: 'Outside the allowed window' } } } as never));
+    await expect(both().sendTextMessage('t1', 'ch', 'PSID', 'hi')).rejects.toThrow('Outside the allowed window');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('never puts the access token in the uploaded form or the message body', async () => {
+    const post = jest.spyOn(axios, 'post').mockResolvedValueOnce({ data: { attachment_id: 'att-1' } }).mockResolvedValueOnce({ data: { message_id: 'm' } });
+    await both().sendMediaMessage('t1', 'ch', 'PSID', 'image', 'u', undefined, { file });
+    expect(JSON.stringify(post.mock.calls[1][1])).not.toContain(TOKEN);
+    expect(JSON.stringify([...(post.mock.calls[0][1] as FormData).entries()].map(([k, v]) => [k, typeof v === 'string' ? v : 'file']))).not.toContain(TOKEN);
+  });
+});
