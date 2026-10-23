@@ -169,7 +169,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiSuggestion('t1', conversation, contact, 'hi', true);
 
-      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: true });
+      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: true, channelType: 'WHATSAPP' });
     });
 
     it('scores the lead only when commerceEnabled', async () => {
@@ -219,6 +219,25 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
   });
 
   describe('handleAiAutoReply', () => {
+    it.each(['FACEBOOK_MESSENGER', 'INSTAGRAM'])('tells the AI it is writing on %s, so it formats plain text', async (type) => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const metaConversation = { ...conversation, channel: { id: 'chan1', type } };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', metaConversation, contact, 'hi', true, null);
+
+      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: false, channelType: 'FACEBOOK_MESSENGER' });
+    });
+
+    it('also for the suggestion path on Instagram', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiSuggestion('t1', { ...conversation, channel: { id: 'chan1', type: 'INSTAGRAM' } }, contact, 'hi', true);
+      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: true, channelType: 'FACEBOOK_MESSENGER' });
+    });
+
     it('sends, persists with commerce:true metadata, and logs AUTO_SENT when commerceEnabled', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
@@ -226,7 +245,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null);
 
-      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: false });
+      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', undefined, { readOnlyTools: false, channelType: 'WHATSAPP' });
       expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'We have that in stock.', undefined, undefined);
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, commerce: true } }) }));
       expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));

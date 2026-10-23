@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Logger } from '@nestjs/common';
-import { MessagesService } from './messages.service';
+import { MessagesService, aiChannelType } from './messages.service';
 
 function setup() {
   const contactsService = { findOrCreateByExternalId: jest.fn().mockResolvedValue({ id: 'ct-ig', phone: null, name: null, externalId: 'IGSID-9' }) };
@@ -260,5 +260,54 @@ describe('handleMetaReceipt: delivered and read ticks for Messenger and Instagra
     const where = prisma.message.findMany.mock.calls[0][0].where;
     expect(where.tenantId).toBe('tenant-B');
     expect(where.direction).toBe('OUTBOUND');
+  });
+});
+
+describe('AI, chatbot and automation on inbound Messenger and Instagram', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['MESSENGER', 'INSTAGRAM'] as const)('%s: hands what the customer typed to the AI/chatbot dispatcher', async (platform) => {
+    const { service } = setup();
+    const dispatch = jest.spyOn(service, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+    const created = await service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm1', text: 'what are your prices?' }, platform);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch).toHaveBeenCalledWith('t1', expect.objectContaining({ id: 'cv1' }), expect.objectContaining({ id: 'ct-ig' }), 'what are your prices?', created.id);
+  });
+
+  it('does not dispatch for a message with no text: a photo, a shared post, or an unsupported type', async () => {
+    const { service } = setup();
+    const dispatch = jest.spyOn(service, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+    jest.spyOn(axios, 'get').mockResolvedValue({ data: new ArrayBuffer(4), headers: { 'content-type': 'image/jpeg' } });
+    await service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm1', attachments: [{ type: 'image', payload: { url: 'https://cdn/x.jpg' } }] });
+    await service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm2', attachments: [{ type: 'share', payload: { url: 'https://www.instagram.com/p/abc' } }] }, 'INSTAGRAM');
+    await service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm3' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('passes only the typed text, never the link label added for a shared post', async () => {
+    const { service } = setup();
+    const dispatch = jest.spyOn(service, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+    await service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm1', text: 'love this', attachments: [{ type: 'share', payload: { url: 'https://www.instagram.com/p/abc' } }] }, 'INSTAGRAM');
+    expect(dispatch.mock.calls[0][3]).toBe('love this');
+  });
+
+  it('a dispatch failure never loses the message that is already stored', async () => {
+    const { service } = setup();
+    jest.spyOn(service, 'dispatchAiAndChatbot').mockRejectedValue(new Error('ai down'));
+    await expect(service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm1', text: 'hello' })).resolves.toMatchObject({ id: 'm1' });
+  });
+
+  it('a redelivered message does not trigger the AI twice', async () => {
+    const { service, prisma } = setup();
+    const dispatch = jest.spyOn(service, 'dispatchAiAndChatbot').mockResolvedValue(undefined);
+    prisma.message.findFirst.mockResolvedValue({ id: 'already' });
+    await service.handleInboundMessenger('t1', 'ch', 'ID-1', { mid: 'm1', text: 'hello' });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('formats AI replies as plain text on Messenger and Instagram, and keeps WhatsApp formatting everywhere else', () => {
+    expect(aiChannelType('FACEBOOK_MESSENGER')).toBe('FACEBOOK_MESSENGER');
+    expect(aiChannelType('INSTAGRAM')).toBe('FACEBOOK_MESSENGER');
+    for (const other of ['WHATSAPP', 'WHATSAPP_WEB', 'TELEGRAM', undefined, null]) expect(aiChannelType(other as string)).toBe('WHATSAPP');
   });
 });

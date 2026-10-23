@@ -64,6 +64,11 @@ interface UnifiedAiResult {
  * data exists, not a final business decision baked into code. */
 const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
 
+/** Messenger and Instagram replies are plain text with no WhatsApp *bold* markup; everything else keeps WhatsApp formatting. */
+export function aiChannelType(type: string | null | undefined): 'WHATSAPP' | 'FACEBOOK_MESSENGER' {
+  return type === 'FACEBOOK_MESSENGER' || type === 'INSTAGRAM' ? 'FACEBOOK_MESSENGER' : 'WHATSAPP';
+}
+
 // Messenger's Send/Receive API attachment `type` values -- 'file' covers
 // documents generically (no separate 'document' type the way WhatsApp has).
 const MESSENGER_ATTACHMENT_TYPE_MAP: Record<string, MessageType> = {
@@ -786,6 +791,14 @@ export class MessagesService {
       contact: (conversation as Record<string, unknown>)['contact'],
       status: updatedConversation?.status ?? conversation.status,
     });
+
+    // Chatbot flows, automations and Verz AI work on these channels exactly as on WhatsApp. Only what the customer
+    // actually typed is passed on: a media-only message, a shared post or the "can't display" placeholder is not a
+    // question to answer. A failure here must never lose the message that is already stored.
+    if (message.text) {
+      await this.dispatchAiAndChatbot(tenantId, conversation, contact, message.text, created.id).catch((err) =>
+        this.logger.warn(`AI/chatbot dispatch failed for inbound ${platform} message ${created.id}: ${err instanceof Error ? err.message : String(err)}`));
+    }
 
     return created;
   }
@@ -1614,7 +1627,7 @@ export class MessagesService {
 
   private async handleAiSuggestion(
     tenantId: string,
-    conversation: { id: string },
+    conversation: { id: string; channel?: { id: string; type: string } | null },
     contact: { id: string; phone: string | null; externalId?: string | null; name: string | null },
     content: string,
     commerceEnabled: boolean,
@@ -1642,7 +1655,7 @@ export class MessagesService {
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
       tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-      { commerceEnabled, readOnlyTools: true },
+      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type) },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1728,7 +1741,7 @@ export class MessagesService {
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
         tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-        { commerceEnabled, readOnlyTools: false },
+        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type) },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
         return null;
