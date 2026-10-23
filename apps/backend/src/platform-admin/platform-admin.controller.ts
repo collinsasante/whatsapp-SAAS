@@ -1,11 +1,13 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { PlatformAdminGuard, AdminRequest } from './platform-admin.guard';
 import { PlatformAdminAuthService } from './platform-admin-auth.service';
 import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAdminAnalyticsService } from './platform-admin-analytics.service';
 import { PlatformAuditService } from './platform-audit.service';
+import { PlatformAdminOperationsService } from './platform-admin-operations.service';
 import { PlatformHealthService } from './platform-health.service';
 import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
@@ -14,10 +16,10 @@ import { RequirePlatformRole } from './decorators/require-platform-role.decorato
 import {
   AdminLoginDto, AdminSetupDto, AiCreditTransactionsQueryDto, AiCreditWalletsQueryDto, AuditLogsQueryDto,
   CreateAiCreditPackageDto, CreateAiPricingConfigDto, CreateFeatureFlagDto, CreatePlanDto,
-  ErrorLogsQueryDto, FunnelQueryDto, GrantCreditsDto, InviteAdminDto, OrdersQueryDto, OverviewQueryDto,
+  ErrorLogsQueryDto, ForcePlanDto, ForgotPasswordDto, FunnelQueryDto, GrantCreditsDto, OptionalReasonDto, ReasonDto, ResetPasswordDto, InviteAdminDto, OrdersQueryDto, OverviewQueryDto,
   PaymentsQueryDto, RevenueQueryDto, SearchQueryDto, SetFlagRolloutDto, TenantsQueryDto,
   UpdateAdminRoleDto, UpdateAiCreditPackageDto, UpdateAiPricingConfigDto, UpdateCommerceFeeDefaultDto, UpdateErrorLogStatusDto,
-  UpdateFeatureFlagDto, UpdatePlanDto, UpdateWorkspaceDto, UsageQueryDto, WebhookEventsQueryDto,
+  UpdateFeatureFlagDto, UpdatePlanDto, UpdateWorkspaceDto, UsageQueryDto, UsersQueryDto, WebhookEventsQueryDto,
 } from './dto/platform-admin.dto';
 
 @ApiTags('Platform Admin')
@@ -31,6 +33,7 @@ export class PlatformAdminController {
     private healthService: PlatformHealthService,
     private aiCreditsService: AiCreditsService,
     private featureFlagsService: FeatureFlagsService,
+    private operationsService: PlatformAdminOperationsService,
   ) {}
 
   private auditMeta(req: AdminRequest) {
@@ -38,13 +41,16 @@ export class PlatformAdminController {
   }
 
   @Post('auth/setup')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   setup(@Body() dto: AdminSetupDto) {
     return this.authService.setup(dto);
   }
 
+  // 10 attempts a minute per address: enough for a person, far too few for password guessing.
   @Post('auth/login')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   login(@Body() dto: AdminLoginDto, @Req() req: Request) {
-    return this.authService.login(dto, req.ip);
+    return this.authService.login(dto, req.ip, req.headers['user-agent']);
   }
 
   @Get('admins')
@@ -104,8 +110,8 @@ export class PlatformAdminController {
 
   @Get('webhooks/:id')
   @UseGuards(PlatformAdminGuard)
-  getWebhookEvent(@Param('id') id: string) {
-    return this.adminService.getWebhookEvent(id);
+  getWebhookEvent(@Param('id') id: string, @Req() req: AdminRequest) {
+    return this.adminService.getWebhookEvent(id, req.adminRole === 'SUPER_ADMIN');
   }
 
   @Post('webhooks/:id/reprocess')
@@ -242,13 +248,15 @@ export class PlatformAdminController {
   }
 
   @Post('auth/forgot-password')
-  forgotPassword(@Body() body: { email: string }) {
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  forgotPassword(@Body() body: ForgotPasswordDto) {
     return this.authService.requestPasswordReset(body.email).then(() => ({ message: 'If that email exists, a reset link has been sent.' }));
   }
 
   @Post('auth/reset-password')
-  resetPassword(@Body() body: { token: string; password: string }) {
-    return this.authService.resetPassword(body.token, body.password);
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  resetPassword(@Body() body: ResetPasswordDto, @Req() req: Request) {
+    return this.authService.resetPassword(body.token, body.password, req.ip, req.headers['user-agent']);
   }
 
   @Get('auth/me')
@@ -261,6 +269,18 @@ export class PlatformAdminController {
   @UseGuards(PlatformAdminGuard)
   dashboard() {
     return this.adminService.getDashboard();
+  }
+
+  @Get('attention')
+  @UseGuards(PlatformAdminGuard)
+  attention() {
+    return this.operationsService.getAttention();
+  }
+
+  @Get('growth')
+  @UseGuards(PlatformAdminGuard)
+  growth(@Query() query: OverviewQueryDto) {
+    return this.operationsService.getGrowth(query.from, query.to);
   }
 
   @Get('overview')
@@ -328,18 +348,18 @@ export class PlatformAdminController {
   @Patch('workspaces/:id/suspend')
   @UseGuards(PlatformAdminGuard)
   @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
-  async suspendWorkspace(@Param('id') id: string, @Req() req: AdminRequest) {
+  async suspendWorkspace(@Param('id') id: string, @Body() body: ReasonDto, @Req() req: AdminRequest) {
     const result = await this.adminService.suspendWorkspace(id);
-    await this.auditService.log({ adminId: req.adminId, action: 'workspace.suspend', resourceType: 'Tenant', resourceId: id, ...this.auditMeta(req) });
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.suspend', resourceType: 'Tenant', resourceId: id, metadata: { reason: body.reason }, ...this.auditMeta(req) });
     return result;
   }
 
   @Patch('workspaces/:id/activate')
   @UseGuards(PlatformAdminGuard)
   @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
-  async activateWorkspace(@Param('id') id: string, @Req() req: AdminRequest) {
+  async activateWorkspace(@Param('id') id: string, @Body() body: OptionalReasonDto, @Req() req: AdminRequest) {
     const result = await this.adminService.activateWorkspace(id);
-    await this.auditService.log({ adminId: req.adminId, action: 'workspace.activate', resourceType: 'Tenant', resourceId: id, ...this.auditMeta(req) });
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.activate', resourceType: 'Tenant', resourceId: id, metadata: { reason: body?.reason }, ...this.auditMeta(req) });
     return result;
   }
 
@@ -376,9 +396,9 @@ export class PlatformAdminController {
   @Patch('workspaces/:id/force-plan')
   @UseGuards(PlatformAdminGuard)
   @RequirePlatformRole('SUPER_ADMIN')
-  async forceSubscription(@Param('id') id: string, @Body('planSlug') planSlug: string, @Req() req: AdminRequest) {
-    const result = await this.adminService.forceSubscription(id, planSlug);
-    await this.auditService.log({ adminId: req.adminId, action: 'workspace.force_plan', resourceType: 'Tenant', resourceId: id, metadata: { planSlug }, ...this.auditMeta(req) });
+  async forceSubscription(@Param('id') id: string, @Body() body: ForcePlanDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.forceSubscription(id, body.planSlug);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.force_plan', resourceType: 'Tenant', resourceId: id, metadata: { planSlug: body.planSlug, reason: body.reason }, ...this.auditMeta(req) });
     return result;
   }
 
@@ -478,21 +498,22 @@ export class PlatformAdminController {
 
   @Get('users')
   @UseGuards(PlatformAdminGuard)
-  users(
-    @Query('page') page: string,
-    @Query('limit') limit: string,
-    @Query('search') search?: string,
-    @Query('tenantId') tenantId?: string,
-  ) {
-    return this.adminService.getUsers(+page || 1, +limit || 30, search, tenantId);
+  users(@Query() query: UsersQueryDto) {
+    return this.adminService.getUsers(query);
+  }
+
+  @Get('users/:id')
+  @UseGuards(PlatformAdminGuard)
+  user(@Param('id') id: string) {
+    return this.operationsService.getUserDetail(id);
   }
 
   @Patch('users/:id/toggle-active')
   @UseGuards(PlatformAdminGuard)
   @RequirePlatformRole('SUPER_ADMIN', 'SUPPORT')
-  async toggleUserActive(@Param('id') id: string, @Req() req: AdminRequest) {
-    const result = await this.adminService.toggleUserActive(id);
-    await this.auditService.log({ adminId: req.adminId, action: 'user.toggle_active', resourceType: 'User', resourceId: id, metadata: { isActive: result.isActive }, ...this.auditMeta(req) });
+  async toggleUserActive(@Param('id') id: string, @Body() body: OptionalReasonDto, @Req() req: AdminRequest) {
+    const result = await this.adminService.toggleUserActive(id, body?.reason);
+    await this.auditService.log({ adminId: req.adminId, action: result.isActive ? 'user.restore' : 'user.suspend', resourceType: 'User', resourceId: id, metadata: { isActive: result.isActive, reason: body?.reason }, ...this.auditMeta(req) });
     return result;
   }
 }

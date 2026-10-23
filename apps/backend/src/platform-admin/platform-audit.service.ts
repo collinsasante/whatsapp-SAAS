@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface PlatformAuditEntry {
-  adminId: string;
+  /** Null for events with no known admin, such as a failed sign-in for an email that is not an admin. */
+  adminId: string | null;
   action: string;
   resourceType?: string;
   resourceId?: string;

@@ -6,10 +6,11 @@ import { adminApi, type AiPricingConfigRow } from '@/lib/admin-api';
 import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
 import { Badge } from '@/components/admin/Badge';
 import { showConfirm } from '@/store/confirm.store';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
 const emptyForm = { provider: '', modelKey: '', inputCostPerMillionUsd: '', outputCostPerMillionUsd: '', creditsPerUsd: '' };
 
-export default function AiPricingPage() {
+function AiPricingPageContent() {
   const [rows, setRows] = useState<AiPricingConfigRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -102,10 +103,10 @@ export default function AiPricingPage() {
   const formOpen = editing || creating;
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Pricing</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">AI Pricing</h1>
           <p className="text-gray-500 text-sm mt-1">Provider/model cost and credit-conversion configuration</p>
         </div>
         <button
@@ -149,5 +150,13 @@ export default function AiPricingPage() {
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No pricing configs yet" />
       </div>
     </div>
+  );
+}
+
+export default function AiPricingPage() {
+  return (
+    <SuperAdminOnly>
+      <AiPricingPageContent />
+    </SuperAdminOnly>
   );
 }

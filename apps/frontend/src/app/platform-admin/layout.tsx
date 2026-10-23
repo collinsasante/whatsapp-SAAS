@@ -1,268 +1,278 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
 import {
-  LayoutDashboard, Building2, CreditCard, LogOut, Shield, ChevronRight, ChevronDown, Menu, X,
-  Sparkles, ShoppingCart, MessageSquare, Activity, ShieldCheck, Sun, Moon,
+  LayoutDashboard, Building2, Users, Layers, CreditCard, BarChart3, Sparkles, Gauge, Wallet, ReceiptText, Tag, Package,
+  ShoppingCart, CircleDollarSign, Landmark, MessageSquare, Phone, HeartPulse, ListOrdered, Bug, Webhook, ScrollText,
+  ToggleRight, ShieldCheck, LogOut, Menu, X, Sun, Moon, ChevronDown, Loader2,
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { GlobalSearch } from '@/components/admin/GlobalSearch';
+import { AdminProvider, useAdmin, ROLE_LABEL, type EnvironmentName } from '@/components/admin/AdminProvider';
+import { ErrorState } from '@/components/admin/States';
+import { cn } from '@/lib/utils';
 
-type NavLink = { type: 'link'; href: string; label: string; icon: React.ElementType };
-type NavGroup = { type: 'group'; label: string; icon: React.ElementType; children: { href: string; label: string }[] };
-type NavItem = NavLink | NavGroup;
+interface NavItem { href: string; label: string; icon: React.ElementType }
+interface NavSection { label: string; items: NavItem[] }
 
-const NAV: NavItem[] = [
-  { type: 'link', href: '/platform-admin/dashboard', label: 'Overview', icon: LayoutDashboard },
+const P = '/platform-admin';
+const NAV: NavSection[] = [
+  { label: 'Overview', items: [{ href: `${P}/dashboard`, label: 'Platform overview', icon: LayoutDashboard }] },
   {
-    type: 'group', label: 'SaaS', icon: Building2,
-    children: [
-      { href: '/platform-admin/workspaces', label: 'Tenants' },
-      { href: '/platform-admin/users', label: 'Users' },
-      { href: '/platform-admin/plans', label: 'Plans & Subscriptions' },
-      { href: '/platform-admin/insights', label: 'Funnel & Usage' },
+    label: 'Business', items: [
+      { href: `${P}/workspaces`, label: 'Tenants', icon: Building2 },
+      { href: `${P}/users`, label: 'Users', icon: Users },
+      { href: `${P}/plans`, label: 'Subscriptions and plans', icon: Layers },
+      { href: `${P}/billing`, label: 'Payments', icon: CreditCard },
+      { href: `${P}/insights`, label: 'Funnel and usage', icon: BarChart3 },
     ],
   },
   {
-    type: 'group', label: 'AI', icon: Sparkles,
-    children: [
-      { href: '/platform-admin/ai', label: 'Verz AI Overview' },
-      { href: '/platform-admin/ai/usage', label: 'AI Usage' },
-      { href: '/platform-admin/ai/wallets', label: 'Credit Wallets' },
-      { href: '/platform-admin/ai/transactions', label: 'Credit Transactions' },
-      { href: '/platform-admin/ai/pricing', label: 'AI Pricing' },
-      { href: '/platform-admin/ai/packages', label: 'Credit Packages' },
+    label: 'Verz AI', items: [
+      { href: `${P}/ai`, label: 'AI overview', icon: Sparkles },
+      { href: `${P}/ai/usage`, label: 'Usage by tenant', icon: Gauge },
+      { href: `${P}/ai/wallets`, label: 'Credit wallets', icon: Wallet },
+      { href: `${P}/ai/transactions`, label: 'Credit transactions', icon: ReceiptText },
+      { href: `${P}/ai/pricing`, label: 'AI pricing', icon: Tag },
+      { href: `${P}/ai/packages`, label: 'Credit packages', icon: Package },
     ],
   },
   {
-    type: 'group', label: 'Commerce', icon: ShoppingCart,
-    children: [
-      { href: '/platform-admin/orders', label: 'Orders' },
-      { href: '/platform-admin/commerce', label: 'Commerce Revenue' },
-      { href: '/platform-admin/commerce/fees', label: 'Commerce Fee Ledger' },
-    ],
-  },
-  { type: 'link', href: '/platform-admin/billing', label: 'Payments', icon: CreditCard },
-  {
-    type: 'group', label: 'Messaging', icon: MessageSquare,
-    children: [
-      { href: '/platform-admin/messaging', label: 'Messages & Delivery' },
-      { href: '/platform-admin/messaging/whatsapp', label: 'WhatsApp Accounts' },
+    label: 'Commerce', items: [
+      { href: `${P}/orders`, label: 'Orders', icon: ShoppingCart },
+      { href: `${P}/commerce`, label: 'Commerce revenue', icon: CircleDollarSign },
+      { href: `${P}/commerce/fees`, label: 'Fee ledger', icon: Landmark },
     ],
   },
   {
-    type: 'group', label: 'Monitoring', icon: Activity,
-    children: [
-      { href: '/platform-admin/health', label: 'System Health' },
-      { href: '/platform-admin/health/queues', label: 'Queues' },
-      { href: '/platform-admin/errors', label: 'Errors' },
-      { href: '/platform-admin/webhooks', label: 'Webhooks' },
+    label: 'Channels', items: [
+      { href: `${P}/messaging`, label: 'Messages and delivery', icon: MessageSquare },
+      { href: `${P}/messaging/whatsapp`, label: 'WhatsApp numbers', icon: Phone },
     ],
   },
   {
-    type: 'group', label: 'Administration', icon: ShieldCheck,
-    children: [
-      { href: '/platform-admin/admins', label: 'Admin Users' },
-      { href: '/platform-admin/audit-logs', label: 'Audit Logs' },
-      { href: '/platform-admin/feature-flags', label: 'Feature Flags' },
+    label: 'Operations', items: [
+      { href: `${P}/health`, label: 'System health', icon: HeartPulse },
+      { href: `${P}/health/queues`, label: 'Queues', icon: ListOrdered },
+      { href: `${P}/errors`, label: 'Errors', icon: Bug },
+      { href: `${P}/webhooks`, label: 'Webhooks', icon: Webhook },
+    ],
+  },
+  {
+    label: 'Governance', items: [
+      { href: `${P}/audit-logs`, label: 'Audit log', icon: ScrollText },
+      { href: `${P}/feature-flags`, label: 'Feature flags', icon: ToggleRight },
+      { href: `${P}/admins`, label: 'Admin users', icon: ShieldCheck },
     ],
   },
 ];
 
-function isGroupActive(group: NavGroup, pathname: string): boolean {
-  return group.children.some((c) => pathname === c.href || pathname.startsWith(c.href + '/'));
+const ALL_ITEMS = NAV.flatMap((s) => s.items);
+
+/** The nav item that owns this path: the longest matching address, so "/ai" is not lit up on "/ai/usage". */
+function activeHref(pathname: string): string | null {
+  const matches = ALL_ITEMS.filter((i) => pathname === i.href || pathname.startsWith(`${i.href}/`));
+  return matches.sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
 }
+
+const ENV_STYLE: Record<EnvironmentName, string> = {
+  Production: 'bg-rose-50 text-rose-800 ring-rose-600/25',
+  Staging: 'bg-amber-50 text-amber-800 ring-amber-600/25',
+  Local: 'bg-gray-100 text-gray-700 ring-gray-500/25',
+};
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  if (!mounted) return null;
+  if (!mounted) return <span className="w-9 h-9" />;
+  const dark = theme === 'dark';
   return (
     <button
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-teal-400 hover:bg-gray-700 transition-colors"
+      onClick={() => setTheme(dark ? 'light' : 'dark')} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      className="w-9 h-9 rounded-md flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
     >
-      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+      {dark ? <Sun className="w-4 h-4" aria-hidden="true" /> : <Moon className="w-4 h-4" aria-hidden="true" />}
     </button>
   );
 }
 
-export default function PlatformAdminLayout({ children }: { children: React.ReactNode }) {
+function AdminMenu({ onSignOut }: { onSignOut: () => void }) {
+  const { admin } = useAdmin();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const away = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('keydown', key); document.addEventListener('pointerdown', away);
+    return () => { document.removeEventListener('keydown', key); document.removeEventListener('pointerdown', away); };
+  }, [open]);
+  if (!admin) return null;
+  const initials = admin.name.split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-haspopup="menu"
+        className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-md hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
+      >
+        <span className="w-7 h-7 rounded-full bg-teal-700 text-white text-xs font-semibold flex items-center justify-center" aria-hidden="true">{initials}</span>
+        <span className="hidden sm:block text-left leading-tight">
+          <span className="block text-xs font-medium text-gray-900">{admin.name}</span>
+          <span className="block text-[11px] text-gray-500">{ROLE_LABEL[admin.role]}</span>
+        </span>
+        <ChevronDown className="w-3.5 h-3.5 text-gray-400" aria-hidden="true" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-40 py-1">
+          <div className="px-3 py-2 border-b border-gray-100">
+            <p className="text-sm font-medium text-gray-900">{admin.name}</p>
+            <p className="text-xs text-gray-500 break-all">{admin.email}</p>
+            <p className="text-xs text-gray-500 mt-1">{ROLE_LABEL[admin.role]}{admin.lastLoginAt ? ` · last sign-in ${new Date(admin.lastLoginAt).toLocaleString()}` : ''}</p>
+          </div>
+          <button role="menuitem" onClick={onSignOut} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+            <LogOut className="w-4 h-4" aria-hidden="true" />Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  const current = useMemo(() => activeHref(pathname), [pathname]);
+  return (
+    <nav aria-label="Platform administration" className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+      {NAV.map((section) => (
+        <div key={section.label}>
+          <p className="px-3 mb-1 text-[11px] font-medium text-emerald-200/50">{section.label}</p>
+          <ul className="space-y-px">
+            {section.items.map((item) => {
+              const active = current === item.href;
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href} onClick={onNavigate} aria-current={active ? 'page' : undefined}
+                    className={cn(
+                      'group flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded-md text-[13px] border-l-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300',
+                      active ? 'bg-white/10 text-white border-emerald-400 font-medium' : 'text-gray-300 border-transparent hover:bg-white/5 hover:text-white',
+                    )}
+                  >
+                    <item.icon className={cn('w-4 h-4 shrink-0', active ? 'text-emerald-300' : 'text-gray-400 group-hover:text-gray-200')} aria-hidden="true" />
+                    {item.label}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="flex items-center gap-2.5 px-4 h-14 border-b border-white/10 shrink-0">
+      <span className="w-7 h-7 rounded-md bg-emerald-500/90 flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-emerald-950" /></span>
+      <span className="leading-tight">
+        <span className="block text-sm font-semibold text-white">VerzChat</span>
+        <span className="block text-[11px] text-emerald-200/60">Platform console</span>
+      </span>
+    </div>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname() ?? "";
-  const [ready, setReady] = useState(false);
+  const pathname = usePathname() ?? '';
+  const { status, environment } = useAdmin();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(NAV.filter((n): n is NavGroup => n.type === 'group').map((g) => [g.label, isGroupActive(g, pathname)])),
-  );
+  const [tokenChecked, setTokenChecked] = useState(false);
 
   useEffect(() => {
-    if (pathname === '/platform-admin/login' || pathname === '/platform-admin/reset-password') { setReady(true); return; }
-    const token = localStorage.getItem('admin_token');
-    if (!token) { router.replace('/platform-admin/login'); return; }
-    // Validate the token is still live (catches expiry after 12h or post-deploy invalidation)
-    const base = (process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001/api/v1') + '/platform-admin';
-    fetch(`${base}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => {
-        if (res.status === 401) {
-          localStorage.removeItem('admin_token');
-          router.replace('/platform-admin/login');
-        } else {
-          setReady(true);
-        }
-      })
-      .catch(() => setReady(true));
-  }, [pathname, router]);
+    if (!localStorage.getItem('admin_token')) { router.replace('/platform-admin/login'); return; }
+    setTokenChecked(true);
+  }, [router]);
 
-  // Close mobile nav on route change; auto-expand whichever group the new route belongs to
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
   useEffect(() => {
-    setMobileOpen(false);
-    const activeGroup = NAV.find((n): n is NavGroup => n.type === 'group' && isGroupActive(n, pathname));
-    if (activeGroup) setOpenGroups((prev) => ({ ...prev, [activeGroup.label]: true }));
-  }, [pathname]);
+    if (!mobileOpen) return;
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false); };
+    document.addEventListener('keydown', key);
+    return () => document.removeEventListener('keydown', key);
+  }, [mobileOpen]);
 
-  const logout = () => {
-    localStorage.removeItem('admin_token');
-    router.push('/platform-admin/login');
-  };
+  const signOut = () => { localStorage.removeItem('admin_token'); router.push('/platform-admin/login'); };
 
-  if (!ready) return null;
-  if (pathname === '/platform-admin/login' || pathname === '/platform-admin/reset-password') return <>{children}</>;
-
-  const NavLinks = ({ onClick }: { onClick?: () => void }) => (
-    <>
-      <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
-        {NAV.map((item) => {
-          if (item.type === 'link') {
-            const active = pathname === item.href || pathname.startsWith(item.href + '/');
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClick}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  active ? 'bg-teal-600 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                <item.icon className="w-4 h-4 shrink-0" />
-                {item.label}
-                {active && <ChevronRight className="w-3 h-3 ml-auto" />}
-              </Link>
-            );
-          }
-
-          const groupActive = isGroupActive(item, pathname);
-          const open = openGroups[item.label] ?? groupActive;
-          return (
-            <div key={item.label}>
-              <button
-                onClick={() => setOpenGroups((prev) => ({ ...prev, [item.label]: !open }))}
-                className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors ${
-                  groupActive ? 'text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                <item.icon className="w-4 h-4 shrink-0" />
-                {item.label}
-                <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
-              </button>
-              {open && (
-                <div className="ml-4 pl-3 border-l border-gray-700 space-y-0.5 mt-0.5">
-                  {item.children.map((child) => {
-                    const active = pathname === child.href || pathname.startsWith(child.href + '/');
-                    return (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        onClick={onClick}
-                        className={`block px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
-                          active ? 'bg-teal-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-                        }`}
-                      >
-                        {child.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-      <div className="px-2 py-4 border-t border-gray-700">
-        <button
-          onClick={() => { onClick?.(); logout(); }}
-          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign out
-        </button>
+  if (!tokenChecked || status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-50" role="status" aria-label="Checking your session"><Loader2 className="w-6 h-6 text-teal-600 animate-spin" /></div>;
+  }
+  if (status === 'error') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white border border-gray-200 rounded-lg max-w-md w-full">
+          <ErrorState message="The console could not confirm your session. The server may be unreachable, or your session may have ended." onRetry={() => window.location.reload()} />
+          <p className="text-center text-sm pb-5"><button onClick={signOut} className="text-teal-700 hover:underline">Sign in again</button></p>
+        </div>
       </div>
-    </>
-  );
+    );
+  }
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
+    <div className="flex h-screen bg-gray-50">
       <ConfirmModal />
+      <a href="#admin-main" className="sr-only focus:not-sr-only focus:absolute focus:z-[60] focus:top-2 focus:left-2 focus:bg-white focus:px-3 focus:py-2 focus:rounded-md focus:shadow focus:text-sm">Skip to content</a>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-64 bg-gray-900 text-white flex-col shrink-0">
-        <div className="flex items-center justify-between gap-2 px-5 py-5 border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-teal-400" />
-            <span className="font-semibold text-sm tracking-wide">Platform Admin</span>
-          </div>
-          <ThemeToggle />
-        </div>
-        <NavLinks />
+      <aside className="hidden md:flex w-60 shrink-0 flex-col bg-[#0d1914]">
+        <Brand />
+        <SidebarNav pathname={pathname} />
       </aside>
 
-      {/* Mobile overlay */}
+      {/* Only in the page while open: a closed drawer that stays mounted keeps its links in the keyboard order. */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
+          <aside role="dialog" aria-modal="true" aria-label="Menu" className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-[#0d1914] md:hidden">
+            <div className="flex items-center justify-between pr-2">
+              <Brand />
+              <button onClick={() => setMobileOpen(false)} aria-label="Close menu" autoFocus className="text-gray-300 hover:text-white p-2"><X className="w-5 h-5" /></button>
+            </div>
+            <SidebarNav pathname={pathname} onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </>
       )}
 
-      {/* Mobile slide-out drawer */}
-      <aside className={`fixed top-0 left-0 h-full w-72 bg-gray-900 text-white flex flex-col z-50 transition-transform duration-300 md:hidden ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex items-center justify-between px-5 py-5 border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-teal-400" />
-            <span className="font-semibold text-sm tracking-wide">Platform Admin</span>
-          </div>
-          <button onClick={() => setMobileOpen(false)} className="text-gray-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="h-14 shrink-0 bg-white border-b border-gray-200 flex items-center gap-2 px-3 sm:px-4">
+          <button onClick={() => setMobileOpen(true)} aria-label="Open menu" className="md:hidden p-2 -ml-1 text-gray-600 hover:text-gray-900"><Menu className="w-5 h-5" /></button>
+          <div className="flex-1 min-w-0"><GlobalSearch /></div>
+          <span className={cn('hidden sm:inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset', ENV_STYLE[environment])} title="The deployment this console is connected to">
+            {environment}
+          </span>
+          <ThemeToggle />
+          <AdminMenu onSignOut={signOut} />
         </div>
-        <NavLinks onClick={() => setMobileOpen(false)} />
-      </aside>
-
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
-        <header className="flex items-center gap-3 px-4 py-3 bg-gray-900 text-white shrink-0">
-          <button onClick={() => setMobileOpen(true)} className="text-gray-300 hover:text-white md:hidden">
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-2 md:hidden">
-            <Shield className="w-4 h-4 text-teal-400" />
-            <span className="font-semibold text-sm tracking-wide">Platform Admin</span>
+        <main id="admin-main" tabIndex={-1} className="flex-1 overflow-auto focus:outline-none">
+          <div className="max-w-[1400px] mx-auto p-4 sm:p-6">
+            <Suspense fallback={<div role="status" aria-label="Loading page" className="py-16 flex justify-center"><Loader2 className="w-5 h-5 text-teal-600 animate-spin" /></div>}>{children}</Suspense>
           </div>
-          <div className="hidden md:block flex-1 max-w-sm">
-            <GlobalSearch />
-          </div>
-          <div className="flex-1 md:hidden" />
-        </header>
-
-        <main className="flex-1 overflow-auto">
-          {children}
         </main>
       </div>
     </div>
+  );
+}
+
+const BARE_PAGES = ['/platform-admin/login', '/platform-admin/reset-password'];
+
+export default function PlatformAdminLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() ?? '';
+  if (BARE_PAGES.includes(pathname)) return <>{children}</>;
+  return (
+    <AdminProvider>
+      <Shell>{children}</Shell>
+    </AdminProvider>
   );
 }

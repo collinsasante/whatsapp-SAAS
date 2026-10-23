@@ -1,80 +1,46 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle } from 'lucide-react';
 import { adminApi, type AiCreditTransactionRow } from '@/lib/admin-api';
-import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
+import { useAdminData, useUrlState } from '@/lib/admin/hooks';
+import { formatDateTime, formatNumber, formatRelative } from '@/lib/admin/format';
+import { PageHeader } from '@/components/admin/PageHeader';
+import { AdminTable, type Column } from '@/components/admin/AdminTable';
+import { FilterBar } from '@/components/admin/FilterBar';
 import { Pagination } from '@/components/admin/Pagination';
-import { StatusBadge, type BadgeTone } from '@/components/admin/Badge';
+import { StatusPill, type PillTone } from '@/components/admin/StatusPill';
+import { EmptyState } from '@/components/admin/States';
 
 const LIMIT = 30;
-const TYPES = ['PURCHASE', 'BONUS', 'AI_USAGE', 'REFUND', 'ADJUSTMENT'] as const;
-const TYPE_TONES: Record<string, BadgeTone> = {
-  PURCHASE: 'success', BONUS: 'info', AI_USAGE: 'neutral', REFUND: 'warning', ADJUSTMENT: 'warning',
-};
+const TYPES: Array<{ value: string; label: string; tone: PillTone }> = [
+  { value: 'PURCHASE', label: 'Purchase', tone: 'success' }, { value: 'BONUS', label: 'Bonus grant', tone: 'info' },
+  { value: 'AI_USAGE', label: 'AI usage', tone: 'neutral' }, { value: 'REFUND', label: 'Refund', tone: 'warning' }, { value: 'ADJUSTMENT', label: 'Adjustment', tone: 'warning' },
+];
 
-export default function AiCreditTransactionsPage() {
-  const [rows, setRows] = useState<AiCreditTransactionRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [type, setType] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+export default function CreditTransactionsPage() {
+  const url = useUrlState();
+  const type = url.get('type');
+  const tenantId = url.get('tenantId');
+  const page = Math.max(1, Number(url.get('page')) || 1);
+  const offset = (page - 1) * LIMIT;
+  const tx = useAdminData(() => adminApi.aiCreditTransactions({ type: type || undefined, tenantId: tenantId || undefined, limit: LIMIT, offset }), [type, tenantId, offset]);
+  const data = tx.data;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await adminApi.aiCreditTransactions({ type: type || undefined, limit: LIMIT, offset });
-      setRows(res.items);
-      setTotal(res.total);
-      setError('');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [type, offset]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const columns: DataTableColumn<AiCreditTransactionRow>[] = [
-    { key: 'createdAt', header: 'Date', render: (r) => new Date(r.createdAt).toLocaleString() },
-    { key: 'tenant', header: 'Tenant', render: (r) => <Link href={`/platform-admin/workspaces/${r.tenantId}`} className="text-teal-600 hover:underline font-medium">{r.tenant.name}</Link> },
-    { key: 'type', header: 'Type', render: (r) => <StatusBadge status={r.type} map={TYPE_TONES} /> },
-    { key: 'credits', header: 'Credits', render: (r) => <span className={r.credits < 0 ? 'text-red-600' : 'text-emerald-600'}>{r.credits > 0 ? '+' : ''}{r.credits.toLocaleString()}</span> },
-    { key: 'balanceAfter', header: 'Balance After', render: (r) => r.balanceAfter.toLocaleString() },
-    { key: 'description', header: 'Description', render: (r) => <span className="text-gray-500">{r.description}</span> },
+  const columns: Column<AiCreditTransactionRow>[] = [
+    { key: 'when', header: 'When', mobile: 'title', cell: (r) => <time dateTime={r.createdAt} title={formatDateTime(r.createdAt)}>{formatRelative(r.createdAt)}</time> },
+    { key: 'type', header: 'Type', mobile: 'badge', cell: (r) => { const t = TYPES.find((x) => x.value === r.type); return <StatusPill tone={t?.tone ?? 'neutral'}>{t?.label ?? r.type}</StatusPill>; } },
+    { key: 'tenant', header: 'Tenant', mobile: 'line', cell: (r) => <Link href={`/platform-admin/workspaces/${r.tenant.id}?tab=ai`} className="text-teal-700 hover:underline">{r.tenant.name}</Link> },
+    { key: 'credits', header: 'Credits', align: 'right', mobile: 'line', cell: (r) => <span className={r.credits < 0 ? 'text-gray-700' : 'text-emerald-800'}>{r.credits > 0 ? '+' : ''}{formatNumber(r.credits)}</span> },
+    { key: 'after', header: 'Balance after', align: 'right', mobile: 'line', cell: (r) => formatNumber(r.balanceAfter) },
+    { key: 'description', header: 'Note', cell: (r) => <span className="text-sm text-gray-700">{r.description}</span> },
   ];
 
   return (
-    <div className="p-4 sm:p-8">
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Credit Transactions</h1>
-          <p className="text-gray-500 text-sm mt-1">The full cross-tenant AI credit ledger</p>
-        </div>
-        <select
-          value={type}
-          onChange={(e) => { setType(e.target.value); setOffset(0); }}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white"
-        >
-          <option value="">All types</option>
-          {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 rounded-lg px-4 py-3 mb-6 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0" />{error}
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No transactions found" />
-        <div className="p-4 border-t border-gray-100">
-          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
-        </div>
-      </div>
+    <div>
+      <PageHeader title="Credit transactions" description="Every change to a tenant's AI credit balance: purchases, grants, refunds, adjustments and AI usage." />
+      {tenantId && <p className="mb-3 text-sm text-gray-700 bg-gray-100 rounded-md px-3 py-2">Showing one tenant&apos;s transactions. <Link href={`/platform-admin/workspaces/${tenantId}?tab=ai`} className="text-teal-700 hover:underline">Open the tenant</Link> or <button onClick={() => url.set({ tenantId: '' })} className="text-teal-700 hover:underline">show everyone</button>.</p>}
+      <FilterBar onClear={() => url.set({ type: '', tenantId: '' })} filters={[{ key: 'type', label: 'Any type', value: type, options: TYPES, onChange: (v) => url.set({ type: v }) }]} />
+      <AdminTable caption="Credit transactions" columns={columns} rows={data?.items ?? []} rowKey={(r) => r.id} loading={tx.loading} error={tx.error} onRetry={tx.reload} empty={<EmptyState title="No transactions match" />} />
+      {data && data.total > LIMIT && <div className="mt-3"><Pagination total={data.total} limit={LIMIT} offset={offset} onOffsetChange={(o) => url.set({ page: String(o / LIMIT + 1) }, { keepPage: true })} /></div>}
     </div>
   );
 }

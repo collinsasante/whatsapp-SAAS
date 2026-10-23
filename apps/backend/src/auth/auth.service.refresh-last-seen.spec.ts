@@ -27,6 +27,7 @@ describe('AuthService.refreshTokens -- lastSeenAt freshness', () => {
       email: 'agent@example.com',
       tenantId: 'tenant-1',
       role: 'AGENT',
+      isActive: true,
       refreshToken: storedHash,
     };
 
@@ -37,6 +38,7 @@ describe('AuthService.refreshTokens -- lastSeenAt freshness', () => {
       },
       // refreshTokens now signs the role the person holds in the workspace (their membership).
       workspaceMember: { findFirst: jest.fn().mockResolvedValue({ role: 'AGENT' }) },
+      tenant: { findUnique: jest.fn().mockResolvedValue({ isActive: true }) },
     };
     const jwtService = {
       verify: jest.fn().mockReturnValue({ sub: user.id, email: user.email, tenantId: user.tenantId, role: user.role }),

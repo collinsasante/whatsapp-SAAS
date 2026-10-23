@@ -8,6 +8,7 @@ import { adminApi, type Invoice, type RevenueData } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
 import { LiveBadge } from '../_components/LiveBadge';
+import { PaymentsSection } from '@/components/admin/PaymentsSection';
 
 const GATEWAY_COLORS: Record<string, string> = {
   STRIPE: '#635bff', PAYSTACK: '#00c3f7', FLUTTERWAVE: '#f5a623', MOMO: '#ffc801',
@@ -34,13 +35,12 @@ export default function BillingPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
 
-  const load = useCallback(async (p = page) => {
+  const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [invRes, revRes] = await Promise.all([adminApi.allInvoices(p), adminApi.revenue()]);
+      const [invRes, revRes] = await Promise.all([adminApi.allInvoices(page), adminApi.revenue()]);
       setInvoices(invRes.invoices);
       setTotal(invRes.total);
-      setPage(p);
       setRevenue(revRes);
     } catch (e) {
       toast.error((e as Error).message);
@@ -50,17 +50,16 @@ export default function BillingPage() {
     }
   }, [page]);
 
-  useEffect(() => { void load(1); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const { secondsAgo, refresh } = useAutoRefresh(() => load(page));
+  // Fetches on mount, when the page changes, and every 30 seconds.
+  const { secondsAgo, refresh } = useAutoRefresh(load, [page]);
 
   const totalPages = Math.ceil(total / 20);
 
   return (
-    <div className="p-4 sm:p-8 space-y-8">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Payments and invoices</h1>
           <p className="text-gray-500 text-sm mt-1">Invoices across all workspaces: Stripe and Paystack payments activate subscriptions automatically via webhook</p>
         </div>
         <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
@@ -184,6 +183,8 @@ export default function BillingPage() {
         </>
       )}
 
+      <PaymentsSection />
+
       <div>
         <h2 className="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
           <Receipt className="w-4 h-4 text-gray-400" />
@@ -238,7 +239,7 @@ export default function BillingPage() {
         {totalPages > 1 && (
           <div className="flex items-center justify-end gap-2 mt-3 text-sm">
             <button
-              onClick={() => void load(page - 1)}
+              onClick={() => setPage(page - 1)}
               disabled={page <= 1}
               className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40"
             >
@@ -246,7 +247,7 @@ export default function BillingPage() {
             </button>
             <span className="text-gray-400 text-xs">Page {page} of {totalPages}</span>
             <button
-              onClick={() => void load(page + 1)}
+              onClick={() => setPage(page + 1)}
               disabled={page >= totalPages}
               className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40"
             >

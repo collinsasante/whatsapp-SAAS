@@ -6,10 +6,11 @@ import { adminApi, type AiCreditPackageRow } from '@/lib/admin-api';
 import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
 import { Badge } from '@/components/admin/Badge';
 import { showConfirm } from '@/store/confirm.store';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
 const emptyForm = { slug: '', name: '', credits: '', bonusCredits: '0', priceGhs: '', priceUsd: '', displayOrder: '0' };
 
-export default function AiCreditPackagesPage() {
+function AiCreditPackagesPageContent() {
   const [rows, setRows] = useState<AiCreditPackageRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -94,10 +95,10 @@ export default function AiCreditPackagesPage() {
   const formOpen = editing || creating;
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Credit Packages</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Credit Packages</h1>
           <p className="text-gray-500 text-sm mt-1">Customer-facing AI credit purchase packs</p>
         </div>
         <button
@@ -139,5 +140,13 @@ export default function AiCreditPackagesPage() {
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No credit packages yet" />
       </div>
     </div>
+  );
+}
+
+export default function AiCreditPackagesPage() {
+  return (
+    <SuperAdminOnly>
+      <AiCreditPackagesPageContent />
+    </SuperAdminOnly>
   );
 }

@@ -14,6 +14,7 @@ import { PlatformAdminService } from './platform-admin.service';
 import { PlatformAdminAnalyticsService } from './platform-admin-analytics.service';
 import { PlatformAdminGuard } from './platform-admin.guard';
 import { PlatformAuditService } from './platform-audit.service';
+import { PlatformAdminOperationsService } from './platform-admin-operations.service';
 import { PlatformHealthService } from './platform-health.service';
 
 @Module({
@@ -38,6 +39,6 @@ import { PlatformHealthService } from './platform-health.service';
     ),
   ],
   controllers: [PlatformAdminController, PromptsController],
-  providers: [PlatformAdminAuthService, PlatformAdminService, PlatformAdminAnalyticsService, PlatformAdminGuard, PlatformAuditService, PlatformHealthService, EmailService],
+  providers: [PlatformAdminOperationsService, PlatformAdminAuthService, PlatformAdminService, PlatformAdminAnalyticsService, PlatformAdminGuard, PlatformAuditService, PlatformHealthService, EmailService],
 })
 export class PlatformAdminModule {}

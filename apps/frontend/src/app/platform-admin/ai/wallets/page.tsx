@@ -1,77 +1,60 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Search } from 'lucide-react';
 import { adminApi, type AiCreditWalletRow } from '@/lib/admin-api';
-import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
+import { useAdminData, useUrlState } from '@/lib/admin/hooks';
+import { formatNumber } from '@/lib/admin/format';
+import { PageHeader } from '@/components/admin/PageHeader';
+import { AdminTable, type Column } from '@/components/admin/AdminTable';
+import { FilterBar } from '@/components/admin/FilterBar';
 import { Pagination } from '@/components/admin/Pagination';
+import { StatusPill } from '@/components/admin/StatusPill';
+import { EmptyState } from '@/components/admin/States';
 
 const LIMIT = 30;
 
-export default function AiCreditWalletsPage() {
-  const [rows, setRows] = useState<AiCreditWalletRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+export default function CreditWalletsPage() {
+  const url = useUrlState();
+  const search = url.get('q');
+  const filter = url.get('filter') as '' | 'out' | 'low';
+  const page = Math.max(1, Number(url.get('page')) || 1);
+  const offset = (page - 1) * LIMIT;
+  const wallets = useAdminData(() => adminApi.aiCreditWallets({ search: search || undefined, filter: filter || undefined, limit: LIMIT, offset }), [search, filter, offset]);
+  const data = wallets.data;
+  const low = data?.lowThreshold ?? 100;
+  const clear = () => url.set({ q: '', filter: '' });
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await adminApi.aiCreditWallets({ search: search || undefined, limit: LIMIT, offset });
-      setRows(res.items);
-      setTotal(res.total);
-      setError('');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [search, offset]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const columns: DataTableColumn<AiCreditWalletRow>[] = [
-    { key: 'tenantName', header: 'Tenant', render: (r) => <Link href={`/platform-admin/workspaces/${r.tenantId}`} className="text-teal-600 hover:underline font-medium">{r.tenantName}</Link> },
-    { key: 'balance', header: 'Balance', render: (r) => r.balance.toLocaleString() },
-    { key: 'purchased', header: 'Purchased', render: (r) => r.purchased.toLocaleString() },
-    { key: 'bonus', header: 'Bonus', render: (r) => r.bonus.toLocaleString() },
-    { key: 'consumed', header: 'Consumed', render: (r) => r.consumed.toLocaleString() },
-    { key: 'refunded', header: 'Refunded', render: (r) => r.refunded.toLocaleString() },
-    { key: 'adjusted', header: 'Adjusted', render: (r) => r.adjusted.toLocaleString() },
+  const columns: Column<AiCreditWalletRow>[] = [
+    { key: 'tenant', header: 'Tenant', mobile: 'title', cell: (r) => r.tenantName },
+    {
+      key: 'balance', header: 'Balance now', align: 'right', mobile: 'badge',
+      cell: (r) => (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          {r.balance <= 0 ? <StatusPill tone="danger">Out of credits</StatusPill> : r.balance < low ? <StatusPill tone="warning">Running low</StatusPill> : null}
+          <span className="tabular-nums font-medium">{formatNumber(r.balance)}</span>
+        </span>
+      ),
+    },
+    { key: 'purchased', header: 'Bought', align: 'right', mobile: 'line', cell: (r) => formatNumber(r.purchased) },
+    { key: 'bonus', header: 'Granted as bonus', align: 'right', mobile: 'line', cell: (r) => formatNumber(r.bonus) },
+    { key: 'consumed', header: 'Used', align: 'right', mobile: 'line', cell: (r) => formatNumber(r.consumed) },
+    { key: 'refunded', header: 'Refunded', align: 'right', cell: (r) => formatNumber(r.refunded) },
+    { key: 'adjusted', header: 'Adjusted', align: 'right', cell: (r) => formatNumber(r.adjusted) },
+    { key: 'history', header: '', align: 'right', cell: (r) => <Link href={`/platform-admin/ai/transactions?tenantId=${r.tenantId}`} className="text-sm text-teal-700 hover:underline">History</Link> },
   ];
 
   return (
-    <div className="p-4 sm:p-8">
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Credit Wallets</h1>
-          <p className="text-gray-500 text-sm mt-1">Per-tenant AI credit balances</p>
-        </div>
-        <div className="relative">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
-            placeholder="Search tenants…"
-            className="pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/30"
-          />
-        </div>
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 rounded-lg px-4 py-3 mb-6 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0" />{error}
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.tenantId} loading={loading} emptyMessage="No tenants found" />
-        <div className="p-4 border-t border-gray-100">
-          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
-        </div>
-      </div>
+    <div>
+      <PageHeader title="Credit wallets" description={`Each tenant's AI credits. Verz AI stops replying for a tenant when its balance reaches zero. "Running low" means under ${low} credits. To add credits, open the tenant.`} />
+      <FilterBar
+        search={search} onSearch={(v) => url.set({ q: v })} placeholder="Search tenants" onClear={clear}
+        filters={[{ key: 'filter', label: 'All balances', value: filter, options: [{ value: 'out', label: 'Out of credits' }, { value: 'low', label: `Running low (under ${low})` }], onChange: (v) => url.set({ filter: v }) }]}
+      />
+      <AdminTable
+        caption="Credit wallets" columns={columns} rows={data?.items ?? []} rowKey={(r) => r.tenantId} rowHref={(r) => `/platform-admin/workspaces/${r.tenantId}?tab=ai`}
+        loading={wallets.loading} error={wallets.error} onRetry={wallets.reload}
+        empty={<EmptyState title={filter === 'out' ? 'No active tenant is out of credits' : filter === 'low' ? 'No active tenant is running low' : 'No tenants found'} />}
+      />
+      {data && data.total > LIMIT && <div className="mt-3"><Pagination total={data.total} limit={LIMIT} offset={offset} onOffsetChange={(o) => url.set({ page: String(o / LIMIT + 1) }, { keepPage: true })} /></div>}
     </div>
   );
 }

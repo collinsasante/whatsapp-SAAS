@@ -5,6 +5,7 @@ import { adminApi, type Plan } from '@/lib/admin-api';
 import toast from 'react-hot-toast';
 import { useAutoRefresh } from '../_hooks/useAutoRefresh';
 import { LiveBadge } from '../_components/LiveBadge';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
 function Field({ label, value, onChange, type = 'text' }: {
   label: string; value: string | number; onChange: (v: string) => void; type?: string;
@@ -31,7 +32,7 @@ const BLANK_NEW_PLAN = {
   limMaxChannels: 1, limMaxCampaigns: 5,
 };
 
-export default function PlansPage() {
+function PlansPageContent() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [edits, setEdits] = useState<Record<string, Partial<Plan>>>({});
   const [loading, setLoading] = useState(true);
@@ -105,10 +106,10 @@ export default function PlansPage() {
   const isDirty = (id: string) => edits[id] && Object.keys(edits[id]).length > 0;
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Plans</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Plans</h1>
           <p className="text-gray-500 text-sm mt-1">Edit pricing and limits for each plan</p>
         </div>
         <div className="flex items-center gap-2">
@@ -242,5 +243,13 @@ export default function PlansPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PlansPage() {
+  return (
+    <SuperAdminOnly>
+      <PlansPageContent />
+    </SuperAdminOnly>
   );
 }

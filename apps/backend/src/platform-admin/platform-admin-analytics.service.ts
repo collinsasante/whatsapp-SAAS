@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AiCreditTransactionType, LedgerEntryType, PaymentStatus } from '@prisma/client';
+import { AiCreditTransactionType, LedgerEntryType, PaymentStatus, Prisma } from '@prisma/client';
+import { LOW_CREDIT_THRESHOLD } from './dto/platform-admin.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveDateRange } from '../analytics/analytics.util';
 
@@ -93,7 +94,13 @@ export class PlatformAdminAnalyticsService {
       _sum: { credits: true },
       _count: { id: true },
     });
-    if (rows.length === 0) return { period: { from, to }, items: [] };
+    // Totals cover every tenant that used AI; `items` below is only the top 20, so it must not be summed for a total.
+    const totals = {
+      creditsConsumed: -rows.reduce((sum, r) => sum + (r._sum.credits ?? 0), 0),
+      aiCalls: rows.reduce((sum, r) => sum + r._count.id, 0),
+      tenants: rows.length,
+    };
+    if (rows.length === 0) return { period: { from, to }, items: [], totals };
 
     const tenants = await this.prisma.tenant.findMany({ where: { id: { in: rows.map((r) => r.tenantId) } }, select: { id: true, name: true } });
     const nameByTenant = new Map(tenants.map((t) => [t.id, t.name]));
@@ -103,23 +110,31 @@ export class PlatformAdminAnalyticsService {
       .sort((a, b) => b.creditsConsumed - a.creditsConsumed)
       .slice(0, 20);
 
-    return { period: { from, to }, items };
+    return { period: { from, to }, items, totals };
   }
 
   /** One aggregation query, not N+1 -- balance from Tenant.aiCredits, purchased/consumed/bonus from a single groupBy. */
-  async getAiCreditWallets(params: { search?: string; limit?: number; offset?: number } = {}) {
+  async getAiCreditWallets(params: { search?: string; filter?: 'out' | 'low'; limit?: number; offset?: number } = {}) {
     const limit = Math.min(params.limit ?? 50, 100);
     const offset = params.offset ?? 0;
 
+    const where: Prisma.TenantWhereInput = {
+      ...(params.search ? { name: { contains: params.search, mode: 'insensitive' } } : {}),
+      // Out and low only concern tenants that can still use the product; a suspended tenant's balance is not an alert.
+      ...(params.filter === 'out' ? { isActive: true, aiCredits: { lte: 0 } } : {}),
+      ...(params.filter === 'low' ? { isActive: true, aiCredits: { gt: 0, lt: LOW_CREDIT_THRESHOLD } } : {}),
+    };
+
     const [tenants, total] = await Promise.all([
       this.prisma.tenant.findMany({
-        where: params.search ? { name: { contains: params.search, mode: 'insensitive' } } : undefined,
+        where,
         select: { id: true, name: true, aiCredits: true },
-        orderBy: { name: 'asc' },
+        // Lowest balance first when looking for tenants running out; otherwise alphabetical.
+        orderBy: params.filter ? [{ aiCredits: 'asc' }, { name: 'asc' }] : { name: 'asc' },
         skip: offset,
         take: limit,
       }),
-      this.prisma.tenant.count({ where: params.search ? { name: { contains: params.search, mode: 'insensitive' } } : undefined }),
+      this.prisma.tenant.count({ where }),
     ]);
 
     const tenantIds = tenants.map((t) => t.id);
@@ -144,6 +159,7 @@ export class PlatformAdminAnalyticsService {
       total,
       limit,
       offset,
+      lowThreshold: LOW_CREDIT_THRESHOLD,
       items: tenants.map((t) => ({
         tenantId: t.id,
         tenantName: t.name,
@@ -335,13 +351,18 @@ export class PlatformAdminAnalyticsService {
 
   // ── Payments ─────────────────────────────────────────────────────────────
 
-  async listPayments(params: { tenantId?: string; status?: string; gateway?: string; limit?: number; offset?: number } = {}) {
+  async listPayments(params: { tenantId?: string; search?: string; status?: string; gateway?: string; limit?: number; offset?: number } = {}) {
     const limit = Math.min(params.limit ?? 50, 100);
     const offset = params.offset ?? 0;
     const where = {
       ...(params.tenantId ? { tenantId: params.tenantId } : {}),
       ...(params.status ? { status: params.status as never } : {}),
       ...(params.gateway ? { gateway: params.gateway as never } : {}),
+      ...(params.search ? { OR: [
+        { id: params.search },
+        { gatewayReference: { contains: params.search, mode: 'insensitive' as const } },
+        { gatewayPaymentId: { contains: params.search, mode: 'insensitive' as const } },
+      ] } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.payment.findMany({
@@ -349,7 +370,12 @@ export class PlatformAdminAnalyticsService {
         orderBy: { createdAt: 'desc' },
         take: limit,
         skip: offset,
-        include: { tenant: { select: { id: true, name: true } } },
+        // Explicit fields: the raw row carries the provider's webhook payload, which can hold card and bank details.
+        select: {
+          id: true, tenantId: true, gateway: true, status: true, amount: true, currency: true, gatewayReference: true,
+          createdAt: true, verifiedAt: true, failReason: true,
+          tenant: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.payment.count({ where }),
     ]);
@@ -358,13 +384,20 @@ export class PlatformAdminAnalyticsService {
 
   // ── Audit logs ───────────────────────────────────────────────────────────
 
-  async listAuditLogs(params: { adminId?: string; action?: string; resourceType?: string; limit?: number; offset?: number } = {}) {
+  async listAuditLogs(params: { adminId?: string; action?: string; resourceType?: string; resourceId?: string; q?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) {
     const limit = Math.min(params.limit ?? 50, 100);
     const offset = params.offset ?? 0;
     const where = {
       ...(params.adminId ? { adminId: params.adminId } : {}),
-      ...(params.action ? { action: params.action } : {}),
+      // An action may be a full name ("workspace.suspend") or a prefix of one ("workspace"), so both are accepted.
+      ...(params.action ? { OR: [{ action: params.action }, { action: { startsWith: `${params.action}.` } }] } : {}),
       ...(params.resourceType ? { resourceType: params.resourceType } : {}),
+      ...(params.resourceId ? { resourceId: params.resourceId } : {}),
+      ...(params.q ? { admin: { is: { OR: [{ name: { contains: params.q, mode: 'insensitive' as const } }, { email: { contains: params.q, mode: 'insensitive' as const } }] } } } : {}),
+      ...(params.from || params.to ? { createdAt: {
+        ...(params.from ? { gte: new Date(`${params.from}T00:00:00.000Z`) } : {}),
+        ...(params.to ? { lt: new Date(new Date(`${params.to}T00:00:00.000Z`).getTime() + 86_400_000) } : {}),
+      } } : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.platformAuditLog.findMany({
