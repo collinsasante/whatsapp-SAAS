@@ -1,4 +1,5 @@
 'use client';
+import { activeChildHref } from '@/lib/nav-active';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
@@ -210,12 +211,13 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
                 {section.title}
               </p>
               {visibleItems.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                const isActive = activeChildHref(pathname, visibleItems) === item.href;
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
                       'flex items-center gap-3 px-5 py-3 transition-colors',
                       isActive

@@ -15,6 +15,10 @@ import { authApi, publicApi } from '@/lib/api';
 import { disconnectSocket } from '@/lib/socket';
 import { useInboxStore } from '@/store/inbox.store';
 import { MobileDrawer } from '@/components/mobile/MobileDrawer';
+import { activeChildHref, isRouteActive } from '@/lib/nav-active';
+
+// Every icon-only control in the rail shows the same keyboard focus ring.
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600';
 
 type SubItem = { href: string; icon: React.ElementType; label: string };
 type NavLink = { type: 'link'; href: string; icon: React.ElementType; label: string };
@@ -86,6 +90,7 @@ function GroupFlyout({
 }) {
   const pathname = usePathname() ?? "";
   const panelRef = useRef<HTMLDivElement>(null);
+  const activeHref = activeChildHref(pathname, group.children);
   const [pos, setPos] = useState<{ top?: number; bottom?: number }>({});
 
   useEffect(() => {
@@ -111,8 +116,10 @@ function GroupFlyout({
         onClose();
       }
     };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { onClose(); buttonRef.current?.focus(); } };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', onKey); };
   }, [open, onClose, buttonRef]);
 
   if (!open) return null;
@@ -120,19 +127,22 @@ function GroupFlyout({
   return (
     <div
       ref={panelRef}
+      role="group"
+      aria-label={group.label}
       style={{ ...pos, left: 68 }}
       className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl py-2 min-w-[192px]"
     >
       <p className="px-4 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">{group.label}</p>
       {group.children.map((child) => {
-        const isActive = pathname.startsWith(child.href);
+        const isActive = activeHref === child.href;
         return (
           <Link
             key={child.href}
             href={child.href}
             onClick={onClose}
+            aria-current={isActive ? 'page' : undefined}
             className={cn(
-              'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+              'flex items-center gap-3 px-4 py-2.5 text-sm transition-colors', FOCUS,
               isActive
                 ? 'bg-teal-50 text-teal-700 font-semibold'
                 : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900',
@@ -156,13 +166,15 @@ function NavItemButton({ item, openGroup, setOpenGroup }: {
   const btnRef = useRef<HTMLButtonElement>(null);
 
   if (item.type === 'link') {
-    const isActive = pathname.startsWith(item.href);
+    const isActive = isRouteActive(pathname, item.href);
     return (
       <Link
         href={item.href}
         title={item.label}
+        aria-label={item.label}
+        aria-current={isActive ? 'page' : undefined}
         className={cn(
-          'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+          'w-10 h-10 rounded-xl flex items-center justify-center transition-colors', FOCUS,
           isActive
             ? 'bg-teal-600 text-white shadow-sm'
             : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50',
@@ -174,16 +186,19 @@ function NavItemButton({ item, openGroup, setOpenGroup }: {
   }
 
   const isOpen = openGroup === item.label;
-  const isActive = item.children.some((c) => pathname.startsWith(c.href));
+  const isActive = activeChildHref(pathname, item.children) !== null;
 
   return (
     <>
       <button
         ref={btnRef}
         title={item.label}
+        aria-label={item.label}
+        aria-haspopup="true"
+        aria-expanded={isOpen}
         onClick={() => setOpenGroup(isOpen ? null : item.label)}
         className={cn(
-          'w-10 h-10 rounded-xl flex items-center justify-center transition-colors relative',
+          'w-10 h-10 rounded-xl flex items-center justify-center transition-colors relative', FOCUS,
           isActive || isOpen
             ? 'bg-teal-600 text-white shadow-sm'
             : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50',
@@ -242,8 +257,10 @@ function WorkspaceSwitcher() {
         btnRef.current && !btnRef.current.contains(e.target as Node)
       ) { setOpen(false); }
     };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus(); } };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
   const handleSwitch = async (ws: WorkspaceEntry) => {
@@ -273,8 +290,11 @@ function WorkspaceSwitcher() {
       <button
         ref={btnRef}
         title={tenant?.name ?? 'Workspace'}
+        aria-label={`Switch workspace, current: ${tenant?.name ?? 'workspace'}`}
+        aria-haspopup="true"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center hover:border-teal-200 transition-colors flex-shrink-0 overflow-hidden"
+        className={cn('w-10 h-10 rounded-xl bg-white border border-gray-100 flex items-center justify-center hover:border-teal-200 transition-colors flex-shrink-0 overflow-hidden', FOCUS)}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/icon.png" alt="VerzChat" className="w-7 object-contain" />
@@ -283,6 +303,8 @@ function WorkspaceSwitcher() {
       {open && (
         <div
           ref={panelRef}
+          role="group"
+          aria-label="Workspaces"
           style={{ ...pos, left: 68 }}
           className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl py-2 min-w-[220px]"
         >
@@ -295,7 +317,7 @@ function WorkspaceSwitcher() {
                 onClick={() => { void handleSwitch(ws); }}
                 disabled={isActive || switching === ws.id}
                 className={cn(
-                  'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left',
+                  'w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left', FOCUS,
                   isActive ? 'bg-teal-50 text-teal-700 font-semibold' : 'text-gray-700 hover:bg-gray-50',
                 )}
               >
@@ -379,7 +401,7 @@ export default function Sidebar() {
     ? user.name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
     : '?';
 
-  const settingsActive = visibleSettingsGroup.children.some((c) => pathname.startsWith(c.href));
+  const settingsActive = activeChildHref(pathname, visibleSettingsGroup.children) !== null;
   const settingsOpen = openGroup === settingsGroup.label;
 
   return (
@@ -391,7 +413,7 @@ export default function Sidebar() {
       </div>
 
       {/* Main nav */}
-      <nav className="flex-1 flex flex-col items-center gap-1.5">
+      <nav aria-label="Main" className="flex-1 flex flex-col items-center gap-1.5">
         {visibleMainNav.map((item) => (
           <NavItemButton
             key={item.label}
@@ -410,9 +432,12 @@ export default function Sidebar() {
             <button
               ref={settingsBtnRef}
               title="Settings"
+              aria-label="Settings"
+              aria-haspopup="true"
+              aria-expanded={settingsOpen}
               onClick={() => setOpenGroup(settingsOpen ? null : settingsGroup.label)}
               className={cn(
-                'w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+                'w-10 h-10 rounded-xl flex items-center justify-center transition-colors', FOCUS,
                 settingsActive || settingsOpen
                   ? 'bg-teal-600 text-white shadow-sm'
                   : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50',
@@ -434,7 +459,8 @@ export default function Sidebar() {
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className={cn('w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors', FOCUS)}
           >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
@@ -443,8 +469,9 @@ export default function Sidebar() {
         {/* Logout */}
         <button
           onClick={() => { void handleLogout(); }}
-          title="Logout"
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+          title="Log out"
+          aria-label="Log out"
+          className={cn('w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors', FOCUS)}
         >
           <LogOut size={18} />
         </button>
@@ -453,9 +480,11 @@ export default function Sidebar() {
         <Link
           href="/account"
           title={user?.name ?? 'My Account'}
+          aria-label={`My account${user?.name ? `, ${user.name}` : ''}`}
+          aria-current={isRouteActive(pathname, '/account') ? 'page' : undefined}
           className={cn(
-            'w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all ring-2 flex-shrink-0',
-            pathname.startsWith('/account')
+            'w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all ring-2 flex-shrink-0', FOCUS,
+            isRouteActive(pathname, '/account')
               ? 'ring-teal-500 ring-offset-1'
               : 'ring-gray-200 hover:ring-teal-400',
           )}
@@ -502,6 +531,7 @@ export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
 
       <nav
+        aria-label="Main"
         className={cn(
           'md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 items-end justify-around px-1 z-40',
           hidden ? 'hidden' : 'flex',
@@ -519,8 +549,9 @@ export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
             <Link
               key={href}
               href={href}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'relative flex flex-col items-center pt-2 pb-1.5 px-3 flex-1 min-w-0 transition-colors',
+                'relative flex flex-col items-center pt-2 pb-1.5 px-3 flex-1 min-w-0 transition-colors', FOCUS,
                 isActive ? 'text-teal-600' : 'text-gray-400',
               )}
             >
@@ -550,8 +581,10 @@ export function MobileBottomNav({ hidden = false }: { hidden?: boolean }) {
         {/* More tab — opens drawer */}
         <button
           onClick={() => setDrawerOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={drawerOpen}
           className={cn(
-            'relative flex flex-col items-center pt-2 pb-1.5 px-3 flex-1 min-w-0 transition-colors',
+            'relative flex flex-col items-center pt-2 pb-1.5 px-3 flex-1 min-w-0 transition-colors', FOCUS,
             moreIsActive ? 'text-teal-600' : 'text-gray-400',
           )}
         >
