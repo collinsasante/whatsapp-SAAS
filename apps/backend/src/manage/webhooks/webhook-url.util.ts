@@ -20,25 +20,56 @@ function isBlockedV4(ip: string): boolean {
   });
 }
 
+/** Expands any valid IPv6 text form (compressed, mixed dotted-quad) to its 16 bytes. */
+function ipv6ToBytes(ip: string): number[] | null {
+  let text = ip.toLowerCase();
+  const dotted = text.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const o = dotted[2]!.split('.').map(Number);
+    if (o.some((n) => n > 255)) return null;
+    text = `${dotted[1]}${((o[0]! << 8) | o[1]!).toString(16)}:${((o[2]! << 8) | o[3]!).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...tail];
+  const bytes: number[] = [];
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    const n = parseInt(g, 16);
+    bytes.push(n >> 8, n & 255);
+  }
+  return bytes.length === 16 ? bytes : null;
+}
+
+function isBlockedV6(ip: string): boolean {
+  const b = ipv6ToBytes(ip);
+  if (!b) return true; // unparseable: treat as blocked
+  const v4 = (o: number) => `${b[o]}.${b[o + 1]}.${b[o + 2]}.${b[o + 3]}`;
+  const zeroPrefix = b.slice(0, 10).every((x) => x === 0);
+  // IPv4-mapped (::ffff:a.b.c.d): judged by the embedded IPv4 address. Node's URL parser rewrites
+  // ::ffff:10.0.0.1 to the hex form ::ffff:a00:1, so every spelling lands here.
+  if (zeroPrefix && b[10] === 0xff && b[11] === 0xff) return isBlockedV4(v4(12));
+  // ::/96 covers the unspecified address, loopback and the deprecated IPv4-compatible form (::7f00:1).
+  if (zeroPrefix && b[10] === 0 && b[11] === 0) return true;
+  if (b[0] === 0 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) return true; // NAT64 (64:ff9b::/32 and 64:ff9b:1::/48) reaches any IPv4 address
+  if (b[0] === 0x20 && b[1] === 0x02) return isBlockedV4(v4(2)); // 6to4 carries an IPv4 address in bits 16-48
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0 && b[3] === 0) return true; // Teredo
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true; // documentation
+  if (b[0] === 0x01 && b.slice(1, 8).every((x) => x === 0)) return true; // discard-only 100::/64
+  if (b[0] === 0xff) return true; // multicast
+  if ((b[0]! & 0xfe) === 0xfc) return true; // unique-local fc00::/7
+  if (b[0] === 0xfe && (b[1]! & 0xc0) >= 0x80) return true; // link-local fe80::/10 and deprecated site-local fec0::/10
+  return false;
+}
+
 export function isBlockedIp(ip: string): boolean {
   const version = isIP(ip);
   if (version === 4) return isBlockedV4(ip);
-  if (version === 6) {
-    const lower = ip.toLowerCase();
-    if (lower === '::' || lower === '::1') return true;
-    // IPv4-mapped addresses. Node's URL parser rewrites ::ffff:10.0.0.1 to the hex form ::ffff:a00:1,
-    // so both spellings must resolve to the embedded IPv4 address before it is checked.
-    const dotted = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (dotted) return isBlockedV4(dotted[1]!);
-    const hex = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (hex) {
-      const hi = parseInt(hex[1]!, 16);
-      const lo = parseInt(hex[2]!, 16);
-      return isBlockedV4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-    }
-    if (lower.startsWith('64:ff9b:')) return true; // NAT64 can reach any IPv4 address, including private ones
-    return /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower); // unique-local fc00::/7, link-local fe80::/10
-  }
+  if (version === 6) return isBlockedV6(ip);
   return true; // not an IP at all: treat as blocked
 }
 

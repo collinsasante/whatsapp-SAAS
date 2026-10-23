@@ -7,10 +7,52 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.4.0] - 2026-10-23
+
+### Fixed
+- Automations: the inactivity trigger can be saved (its database value was missing).
+- Facebook: workspaces that manage more than a few Pages (Meta returns them in batches) now see all of them when
+  connecting. Only the first batch was read before.
+- Instagram: connecting now shows a picker, like Facebook, and connects only the account chosen. It used to connect
+  every Instagram account behind every Page it could see.
+
+### Added
+- Disconnect on every channel card that is connected through a login: Instagram (per account, plus Remove), TikTok
+  and Telegram. An account with no conversations is removed; one with history is disconnected and kept so past
+  conversations keep their channel.
+- Instagram messaging: messages sent to a connected Instagram account arrive in the inbox, and agents can reply with
+  text, images, video and audio. Shared posts, reels and story mentions show as a labelled link. Replies from the
+  Instagram app itself are not copied into Verz. Needs the Meta app to be Live and Instagram messaging webhooks
+  pointed at the existing Messenger webhook URL (see deployment notes).
+
 ### Security
+- The Channels API no longer returns stored credentials (Telegram bot tokens, TikTok and Instagram access tokens) to
+  any workspace member. Anyone who could open Channels could previously read them from the response.
+- Instagram Page tokens are stored encrypted whenever `CREDENTIALS_ENCRYPTION_KEY` is configured.
+- Adding a website to the knowledge base can no longer be pointed at internal addresses. Every address, every redirect
+  and the connection itself are checked; internal, loopback, link-local and reserved IPv4/IPv6 ranges are refused, and
+  only ports 80 and 443 are allowed. The shared address check also now covers more IPv6 forms.
+- Knowledge-base changes, uploads, website import, "learn from conversations" and "remove duplicates" are now
+  admin-only (members and viewers can still read the list). Agents who used these will now see a permission error.
+- "Learn from conversations" now obeys `KB_LEARNING_DISABLED` (it stays off unless set to `false`) and can run at most
+  once per workspace per 30 minutes, so it cannot be used to trigger repeated paid AI requests.
+- The AI's order-status check only returns orders that belong to the customer in the current conversation.
 - Platform-admin requests are now checked against the database on every request. A switched-off or demoted admin loses
   access immediately instead of when their login token expires, and an admin token that was not issued by this
   environment's own database is rejected even if it is correctly signed.
+
+### Upgrade notes (read before deploying)
+- **No new required settings. No migration in this release's own changes** (the inactivity enum migration shipped
+  earlier with the fix above).
+- **"Learn from conversations" stays off** until `KB_LEARNING_DISABLED=false` is set (its button used to bypass the
+  switch). Knowledge-base editing, upload and website import are now admin-only.
+- **Instagram messaging needs Meta setup** before it can receive anything: the app must be Live, and an Instagram
+  webhook subscription (field `messages`) must point at the existing Messenger callback URL with the same verify
+  token. The Instagram account must allow access to messages. It has not yet been tested against real Meta.
+- **Rotate Telegram bot tokens and TikTok connections.** Until this release the Channels API returned stored tokens to
+  every workspace member.
 
 ## [2.3.0] - 2026-10-20
 

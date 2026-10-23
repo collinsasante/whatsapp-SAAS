@@ -202,6 +202,11 @@ export class OrdersService {
     return updated;
   }
 
+  /** An order only if it belongs to this workspace AND this contact. A miss and "someone else's" look the same to the caller. */
+  findOwnedByContact(tenantId: string, contactId: string, orderId: string) {
+    return this.prisma.order.findFirst({ where: { id: orderId, tenantId, contactId } });
+  }
+
   async getOwned(tenantId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
     if (!order) throw new NotFoundException('Order not found');
