@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
@@ -29,6 +29,8 @@ interface InstagramCandidate {
 
 @Injectable()
 export class ChannelsService {
+  private readonly logger = new Logger(ChannelsService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
@@ -476,7 +478,29 @@ export class ChannelsService {
       // paging.next carries the access token; only ever follow it to Meta's own host.
       url = next && next.startsWith(GRAPH_HOST_PREFIX) ? next : undefined;
     }
+    // Counts only. When someone connects "fewer accounts than I have", this line says whether Meta sent them all.
+    this.logger.log(`Meta returned ${all.length} account(s) from /me/accounts`);
     return all;
+  }
+
+  /**
+   * Logs which permissions the person actually granted the app, and for how many Pages each one applies. Meta only
+   * returns the Pages they ticked in its login dialog, so this is what tells "Meta gave us 12" apart from "we dropped
+   * some". Counts and permission names only: never the token, Page names or ids. Never throws.
+   */
+  private async logGrantedAccess(userToken: string): Promise<void> {
+    try {
+      const appId = this.config.get<string>('FACEBOOK_APP_ID');
+      const appSecret = this.config.get<string>('FACEBOOK_APP_SECRET');
+      if (!appId || !appSecret) return;
+      const res = await fetch(`${GRAPH_API_BASE}/debug_token?input_token=${userToken}&access_token=${appId}|${appSecret}`);
+      const data = (await res.json() as { data?: { granular_scopes?: Array<{ scope: string; target_ids?: string[] }>; scopes?: string[] } }).data;
+      if (!data) return;
+      const granted = (data.granular_scopes ?? []).map((g) => `${g.scope}=${g.target_ids?.length ?? 0} target(s)`).join(', ');
+      this.logger.log(`Meta access granted to this login: scopes [${(data.scopes ?? []).join(', ')}]; per-asset: ${granted || 'none listed'}`);
+    } catch (err) {
+      this.logger.warn(`Could not read the granted access for this login: ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
   }
 
   private fetchFacebookPages(userToken: string): Promise<FacebookCandidatePage[]> {
@@ -513,6 +537,7 @@ export class ChannelsService {
     const shortLivedToken = await this.exchangeFacebookCode(code, redirectUri);
     const longLivedToken = await this.exchangeForLongLivedToken(shortLivedToken);
     const pages = await this.fetchFacebookPages(longLivedToken);
+    await this.logGrantedAccess(longLivedToken);
 
     if (pages.length === 0) {
       throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
@@ -542,6 +567,8 @@ export class ChannelsService {
     const shortLivedToken = await this.exchangeFacebookCode(code, redirectUri);
     const longLivedToken = await this.exchangeForLongLivedToken(shortLivedToken);
     const { candidates, pagesChecked } = await this.fetchInstagramCandidates(longLivedToken);
+    this.logger.log(`Instagram: ${candidates.length} account(s) found across ${pagesChecked} Page(s)`);
+    await this.logGrantedAccess(longLivedToken);
 
     if (candidates.length === 0) {
       throw new Error(
