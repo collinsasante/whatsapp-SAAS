@@ -117,8 +117,8 @@ export default function AiTestChatPage() {
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-violet-50 rounded-xl flex items-center justify-center">
-              <MessageSquare size={18} className="text-violet-600" />
+            <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center">
+              <MessageSquare size={18} className="text-purple-600" />
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Test Chat</h1>
@@ -153,13 +153,13 @@ export default function AiTestChatPage() {
                   : e.kind === 'note'
                     ? 'bg-amber-50 text-amber-700 rounded-tl-sm border border-amber-200'
                     : e.kind === 'suggestion'
-                      ? 'bg-violet-50 text-violet-900 rounded-tl-sm border border-dashed border-violet-300'
+                      ? 'bg-purple-50 text-purple-900 rounded-tl-sm border border-dashed border-purple-300'
                       : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm',
               )}>
                 {linkify(e.content)}
               </div>
               {e.kind === 'suggestion' && (
-                <span className="flex items-center gap-1 text-[11px] text-violet-500 mt-1 px-1">
+                <span className="flex items-center gap-1 text-[11px] text-purple-500 mt-1 px-1">
                   <Sparkles size={10} /> Suggested, not sent{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
                 </span>
               )}

@@ -77,9 +77,9 @@ const NODE_PALETTE: NodeConfig[] = [
   { type: 'condition',   label: 'Condition',      icon: GitBranch,     color: 'text-green-600',   bg: 'bg-green-50',   group: 'Logic',       description: 'Branch based on a condition' },
   { type: 'split',       label: 'Random Split',   icon: Shuffle,       color: 'text-lime-600',    bg: 'bg-lime-50',    group: 'Logic',       description: 'A/B test with random split' },
   { type: 'delay',       label: 'Delay',          icon: Clock,         color: 'text-orange-600',  bg: 'bg-orange-50',  group: 'Logic',       description: 'Wait before the next step' },
-  { type: 'jump',        label: 'Jump to Flow',   icon: Zap,           color: 'text-yellow-600',  bg: 'bg-yellow-50',  group: 'Logic',       description: 'Redirect to another flow' },
+  { type: 'jump',        label: 'Jump to Flow',   icon: Zap,           color: 'text-amber-600',  bg: 'bg-amber-50',  group: 'Logic',       description: 'Redirect to another flow' },
   { type: 'tag',         label: 'Add Tag',        icon: Tag,           color: 'text-teal-600',    bg: 'bg-teal-50',    group: 'CRM',         description: 'Tag the contact' },
-  { type: 'assign',      label: 'Assign Agent',   icon: UserCheck,     color: 'text-emerald-600', bg: 'bg-emerald-50', group: 'CRM',         description: 'Assign to a team member' },
+  { type: 'assign',      label: 'Assign Agent',   icon: UserCheck,     color: 'text-green-600', bg: 'bg-green-50', group: 'CRM',         description: 'Assign to a team member' },
   { type: 'updateField', label: 'Update Field',   icon: Database,      color: 'text-green-700',   bg: 'bg-green-50',   group: 'CRM',         description: 'Update a contact attribute' },
   { type: 'webhook',     label: 'Webhook',        icon: Globe,         color: 'text-amber-600',   bg: 'bg-amber-50',   group: 'Automation',  description: 'Send data to a URL' },
   { type: 'email',       label: 'Send Email',     icon: Mail,          color: 'text-red-500',     bg: 'bg-red-50',     group: 'Automation',  description: 'Send an email notification' },
@@ -237,7 +237,7 @@ function FlowNode({ data, selected, type }: NodeProps) {
         )}
         {type === 'delay' && d.delaySeconds && <p className="text-xs text-orange-600 font-mono mt-1">⏱ {Number(d.delaySeconds) >= 3600 ? `${Math.round(Number(d.delaySeconds)/3600)}h` : `${d.delaySeconds}s`}</p>}
         {type === 'tag' && d.tag && <p className="text-xs text-teal-600 font-mono mt-1">#{String(d.tag)}</p>}
-        {type === 'assign' && d.agent && <p className="text-xs text-emerald-600 mt-1">→ {String(d.agent)}</p>}
+        {type === 'assign' && d.agent && <p className="text-xs text-green-600 mt-1">→ {String(d.agent)}</p>}
         {type === 'webhook' && d.url && <p className="text-xs text-amber-600 font-mono truncate mt-1">{String(d.method ?? 'POST')} {String(d.url)}</p>}
         {(type === 'aiResponse' || type === 'aiClassify') && d.prompt && <p className="text-xs text-violet-600 italic line-clamp-2 mt-1">{String(d.prompt)}</p>}
         {type === 'condition' && d.condition && <p className="text-xs text-green-600 font-mono mt-1">if {String(d.condition)}</p>}
@@ -774,7 +774,7 @@ function FlowCard({ flow, onEdit, onToggle, onDelete }: {
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <button onClick={onToggle}
             className={cn('flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-              flow.isActive ? 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100' : 'bg-green-50 text-green-700 hover:bg-green-100')}>
+              flow.isActive ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-green-50 text-green-700 hover:bg-green-100')}>
             {flow.isActive ? <Pause size={10} /> : <Play size={10} />}
             {flow.isActive ? 'Pause' : 'Activate'}
           </button>

@@ -3,10 +3,10 @@ import { Sparkles, Bot, BarChart2, MessageSquare, Clock } from 'lucide-react';
 
 export default function AiPendingPage() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 p-8">
+    <div className="flex-1 flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 p-8">
       <div className="max-w-lg w-full text-center">
         {/* Icon */}
-        <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
+        <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
           <Sparkles size={36} className="text-white" />
         </div>
 
