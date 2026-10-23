@@ -7,7 +7,25 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Fixed
+- Facebook: workspaces that manage more than a few Pages (Meta returns them in batches) now see all of them when
+  connecting. Only the first batch was read before.
+- Instagram: connecting now shows a picker, like Facebook, and connects only the account chosen. It used to connect
+  every Instagram account behind every Page it could see.
+
+### Added
+- Disconnect on every channel card that is connected through a login: Instagram (per account, plus Remove), TikTok
+  and Telegram. An account with no conversations is removed; one with history is disconnected and kept so past
+  conversations keep their channel.
+- Instagram messaging: messages sent to a connected Instagram account arrive in the inbox, and agents can reply with
+  text, images, video and audio. Shared posts, reels and story mentions show as a labelled link. Replies from the
+  Instagram app itself are not copied into Verz. Needs the Meta app to be Live and Instagram messaging webhooks
+  pointed at the existing Messenger webhook URL (see deployment notes).
+
 ### Security
+- The Channels API no longer returns stored credentials (Telegram bot tokens, TikTok and Instagram access tokens) to
+  any workspace member. Anyone who could open Channels could previously read them from the response.
+- Instagram Page tokens are stored encrypted whenever `CREDENTIALS_ENCRYPTION_KEY` is configured.
 - Adding a website to the knowledge base can no longer be pointed at internal addresses. Every address, every redirect
   and the connection itself are checked; internal, loopback, link-local and reserved IPv4/IPv6 ranges are refused, and
   only ports 80 and 443 are allowed. The shared address check also now covers more IPv6 forms.
