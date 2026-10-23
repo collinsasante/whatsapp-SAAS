@@ -7,6 +7,10 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.6.0] - 2026-10-23
+
 ### Added
 - Messenger and Instagram now do what WhatsApp does in the inbox:
   - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails
@@ -20,6 +24,14 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
 - Messenger and Instagram contacts are now named from the Page's conversation list when Meta refuses the direct
   profile lookup (it needs a permission the app may not have yet). The log line says which route failed and why.
+
+### Upgrade notes
+- **Meta setup for ticks:** delivered and read ticks need `message_deliveries` and `message_reads` (and, for Instagram,
+  `messaging_seen`) subscribed in the Meta app's webhook settings.
+- **Names:** Messenger and Instagram contacts are named from Meta when they next write in. If Meta refuses, the server
+  log says why.
+- **Customers outside your own team** can use Messenger and Instagram only after Meta's App Review (Advanced access).
+- No new settings and no migration.
 
 ## [2.5.0] - 2026-10-23
 
