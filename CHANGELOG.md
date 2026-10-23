@@ -18,6 +18,8 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ### Fixed
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
+- Messenger and Instagram contacts are now named from the Page's conversation list when Meta refuses the direct
+  profile lookup (it needs a permission the app may not have yet). The log line says which route failed and why.
 
 ## [2.5.0] - 2026-10-23
 
