@@ -116,8 +116,8 @@ export class ResetPasswordDto {
 }
 
 export class UpdateWorkspaceDto {
-  @IsOptional() @IsString() name?: string;
-  @IsOptional() @IsString() billingEmail?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name?: string;
+  @IsOptional() @IsEmail() @MaxLength(254) billingEmail?: string;
 }
 
 export class UpdatePlanDto {

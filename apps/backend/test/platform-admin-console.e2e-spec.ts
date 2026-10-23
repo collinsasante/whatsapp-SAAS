@@ -88,6 +88,34 @@ describe('Platform admin console API (e2e)', () => {
     });
   });
 
+  describe('suspension takes effect for people who are already signed in', () => {
+    it('locks a suspended workspace out of the API, and lets it back in when reactivated', async () => {
+      const { tenant, user } = await createTenantWithUser({ role: UserRole.ADMIN });
+      const sessionToken = signTestToken(app, { sub: user.id, email: user.email, tenantId: tenant.id, role: UserRole.ADMIN });
+      const useApi = () => api().get('/analytics/overview?from=2026-03-01&to=2026-03-02').set('Authorization', `Bearer ${sessionToken}`);
+      await useApi().expect(200);
+
+      const support = await admin('SUPPORT');
+      await api().patch(`/platform-admin/workspaces/${tenant.id}/suspend`).set(support.auth).send({ reason: 'chargeback dispute' }).expect(200);
+      const refused = await useApi().expect(401);
+      expect(refused.body.message).toBe('This workspace has been suspended');
+
+      await api().patch(`/platform-admin/workspaces/${tenant.id}/activate`).set(support.auth).send({}).expect(200);
+      await useApi().expect(200);
+    });
+
+    it('locks a suspended user out of the API, and lets them back in when restored', async () => {
+      const { tenant, user } = await createTenantWithUser({ role: UserRole.ADMIN });
+      const sessionToken = signTestToken(app, { sub: user.id, email: user.email, tenantId: tenant.id, role: UserRole.ADMIN });
+      const useApi = () => api().get('/analytics/overview?from=2026-03-01&to=2026-03-02').set('Authorization', `Bearer ${sessionToken}`);
+      const support = await admin('SUPPORT');
+      await api().patch(`/platform-admin/users/${user.id}/toggle-active`).set(support.auth).send({ reason: 'security review' }).expect(200);
+      await useApi().expect(401);
+      await api().patch(`/platform-admin/users/${user.id}/toggle-active`).set(support.auth).send({}).expect(200);
+      await useApi().expect(200);
+    });
+  });
+
   describe('privileged actions are validated and recorded', () => {
     it('refuses to suspend without a reason, and records the reason when given', async () => {
       const t = await seedTenants();
@@ -125,6 +153,18 @@ describe('Platform admin console API (e2e)', () => {
       await grant({ credits: 50, description: 'goodwill credit' }).expect(201);
       const log = await testPrisma.platformAuditLog.findFirst({ where: { action: 'workspace.grant_credits' } });
       expect(log?.metadata).toMatchObject({ credits: 50 });
+    });
+
+    it('edits a tenant\'s name and billing email only with valid values, and audits the change', async () => {
+      const t = await seedTenants();
+      const support = await admin('SUPPORT');
+      const edit = (body: Record<string, unknown>) => api().patch(`/platform-admin/workspaces/${t.alpha.id}`).set(support.auth).send(body);
+      await edit({ name: '' }).expect(400);
+      await edit({ billingEmail: 'not-an-email' }).expect(400);
+      await edit({ isActive: false }).expect(400); // not an editable field: suspension has its own action with a reason
+      await edit({ name: 'Alpha Foods Ltd', billingEmail: 'billing@alpha.example' }).expect(200);
+      expect((await testPrisma.tenant.findUnique({ where: { id: t.alpha.id } }))).toMatchObject({ name: 'Alpha Foods Ltd', billingEmail: 'billing@alpha.example', isActive: true });
+      expect(await testPrisma.platformAuditLog.count({ where: { action: 'workspace.update', resourceId: t.alpha.id } })).toBe(1);
     });
 
     it('requires a reason to override a plan, and refuses an unknown plan', async () => {
