@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { parseDateRange } from './date-range.util';
+import { parseDateRange, parseTrendDays } from './date-range.util';
 import { DashboardService } from './dashboard.service';
 
 const NOW = new Date('2026-10-15T12:00:00.000Z');
@@ -59,5 +59,18 @@ describe('DashboardService', () => {
     expect(await svc.getBusinessProfile('t1')).toBeNull();
     expect(await svc.getBusinessProfile('t1')).toEqual({ phone: {}, profile: {} });
     expect(whatsapp.getBusinessProfile).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('parseTrendDays', () => {
+  it('defaults when missing or not a number', () => {
+    expect(parseTrendDays(undefined)).toBe(14);
+    expect(parseTrendDays('abc')).toBe(14);
+  });
+  it('bounds the value so a request cannot loop for years', () => {
+    expect(parseTrendDays('100000')).toBe(90);
+    expect(parseTrendDays('0')).toBe(1);
+    expect(parseTrendDays('-5')).toBe(1);
+    expect(parseTrendDays('30')).toBe(30);
   });
 });

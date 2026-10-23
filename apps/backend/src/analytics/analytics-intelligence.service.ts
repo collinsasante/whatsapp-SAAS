@@ -110,7 +110,7 @@ export class AnalyticsIntelligenceService {
   // ─── Fragments ─────────────────────────────────────────────────────────────
 
   /** Excludes test and evaluation conversations for the conversations table under the given alias (a fixed literal, never input). */
-  private notTest(alias: 'c' | 'p'): Prisma.Sql {
+  notTest(alias: 'c' | 'p'): Prisma.Sql {
     return Prisma.sql`${Prisma.raw(`${alias}.contact_source`)} NOT IN (${Prisma.join(TEST_CONTACT_SOURCES)})`;
   }
 
@@ -118,7 +118,7 @@ export class AnalyticsIntelligenceService {
    * Channel condition on the aliases `c` (conversations) and `ch` (channels). A conversation with no channel row is a
    * legacy WhatsApp conversation, which is why the missing type is coalesced to WHATSAPP.
    */
-  private channelCondition(channel: ChannelFilter, requireConversation = false): Prisma.Sql {
+  channelCondition(channel: ChannelFilter, requireConversation = false): Prisma.Sql {
     if (channel === 'ALL') return Prisma.empty;
     const types = CHANNEL_GROUP_TYPES[channel];
     const typeMatch = Prisma.sql`AND COALESCE(ch.type::text, 'WHATSAPP') = ANY(${types}::text[])`;
@@ -127,7 +127,7 @@ export class AnalyticsIntelligenceService {
 
   // ─── Period KPIs ───────────────────────────────────────────────────────────
 
-  private async periodKpis(tenantId: string, range: Range, channel: ChannelFilter): Promise<PeriodKpis> {
+  async periodKpis(tenantId: string, range: Range, channel: ChannelFilter): Promise<PeriodKpis> {
     const [
       conversations, resolved, reopened, newContacts, activity, firstResponse, resolution, sla, csat, leads, orders,
       refunded, withOrder, ai,
@@ -234,11 +234,13 @@ export class AnalyticsIntelligenceService {
         ) i ON true
         JOIN LATERAL (
           SELECT created_at FROM messages WHERE conversation_id = conv.id AND direction = 'OUTBOUND' AND created_at > i.created_at
+            AND status::text <> 'FAILED'
           ORDER BY created_at ASC LIMIT 1
         ) oa ON true
         LEFT JOIN LATERAL (
           SELECT m.created_at FROM messages m JOIN users u ON u.id = m.sender_id
           WHERE m.conversation_id = conv.id AND m.direction = 'OUTBOUND' AND m.created_at > i.created_at AND NOT u.is_ai_agent
+            AND m.status::text <> 'FAILED'
           ORDER BY m.created_at ASC LIMIT 1
         ) oh ON true
       )
@@ -378,7 +380,7 @@ export class AnalyticsIntelligenceService {
   }
 
   /** Verz AI measures. Message text is never selected here: only statuses, counts and scores. */
-  private async aiKpis(tenantId: string, r: Range, channel: ChannelFilter): Promise<PeriodKpis['ai']> {
+  async aiKpis(tenantId: string, r: Range, channel: ChannelFilter): Promise<PeriodKpis['ai']> {
     const [byStatus, handed, resolvedWithout, credits] = await Promise.all([
       this.prisma.$queryRaw<Array<{ status: string; n: number; conf_sum: number | null; conf_n: number }>>`
         SELECT l.status, COUNT(*)::int AS n, SUM(l.confidence_score)::float8 AS conf_sum, COUNT(l.confidence_score)::int AS conf_n
@@ -482,7 +484,7 @@ export class AnalyticsIntelligenceService {
     return new Map(rows.map((row) => [row.day, num(row.n)]));
   }
 
-  private async series(
+  async series(
     tenantId: string, cur: { from: string; to: string }, prev: { from: string; to: string }, timezone: string, channel: ChannelFilter,
   ): Promise<SeriesPoint[]> {
     const curRange = getTenantDateRangeBoundaries(cur.from, cur.to, timezone);
@@ -523,7 +525,7 @@ export class AnalyticsIntelligenceService {
   }
 
   /** Always unfiltered by channel: this is the table that compares the channels with one another. */
-  private async channelRows(tenantId: string, cur: Range, prev: Range): Promise<ChannelRow[]> {
+  async channelRows(tenantId: string, cur: Range, prev: Range): Promise<ChannelRow[]> {
     const grouped = async (r: Range) => this.prisma.$queryRaw<Array<{ type: string | null; n: number }>>`
       SELECT ch.type::text AS type, COUNT(*)::int AS n
       FROM conversations c LEFT JOIN channels ch ON ch.id = c.channel_id
@@ -638,7 +640,7 @@ export class AnalyticsIntelligenceService {
 
   // ─── Backlog (a snapshot of right now, not bound to the date range) ────────
 
-  private async backlog(tenantId: string, channel: ChannelFilter, now: Date): Promise<BacklogSnapshot> {
+  async backlog(tenantId: string, channel: ChannelFilter, now: Date): Promise<BacklogSnapshot> {
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const openWhere = Prisma.sql`
       c.tenant_id = ${tenantId} AND ${this.notTest('c')} AND c.status::text NOT IN ('RESOLVED', 'SNOOZED')
@@ -694,7 +696,7 @@ export class AnalyticsIntelligenceService {
 
   // ─── Agents (people only: the Verz AI user is excluded) ────────────────────
 
-  private async agents(tenantId: string, r: Range, channel: ChannelFilter): Promise<AgentRow[]> {
+  async agents(tenantId: string, r: Range, channel: ChannelFilter): Promise<AgentRow[]> {
     const people = await this.prisma.user.findMany({
       where: { tenantId, isActive: true, isAiAgent: false, role: { in: [UserRole.ADMIN, UserRole.AGENT, UserRole.SUPER_ADMIN] } },
       select: { id: true, name: true, avatarUrl: true },
@@ -746,6 +748,7 @@ export class AnalyticsIntelligenceService {
           JOIN LATERAL (
             SELECT m.created_at, m.sender_id FROM messages m JOIN users u ON u.id = m.sender_id
             WHERE m.conversation_id = conv.id AND m.direction = 'OUTBOUND' AND m.created_at > i.created_at AND NOT u.is_ai_agent
+            AND m.status::text <> 'FAILED'
             ORDER BY m.created_at ASC LIMIT 1
           ) oh ON true
         )
@@ -779,7 +782,7 @@ export class AnalyticsIntelligenceService {
       .sort((a, b) => b.resolved - a.resolved || a.name.localeCompare(b.name));
   }
 
-  private async coverage(tenantId: string): Promise<Coverage> {
+  async coverage(tenantId: string): Promise<Coverage> {
     const rows = await this.prisma.$queryRaw<Array<Coverage>>`
       SELECT
         EXISTS (SELECT 1 FROM commerce_orders WHERE tenant_id = ${tenantId} AND NOT is_eval_order) AS orders,
