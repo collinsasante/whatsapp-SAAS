@@ -30,8 +30,8 @@ interface HealthResponse {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
-      <BarChart3 size={28} className="text-gray-300" />
+    <div className="flex items-center justify-center py-6 text-gray-400 gap-2.5">
+      <BarChart3 size={20} className="text-gray-300" />
       <p className="text-sm">{message}</p>
     </div>
   );
@@ -39,7 +39,7 @@ function EmptyState({ message }: { message: string }) {
 
 function ErrorState({ onRetry }: { onRetry: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+    <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-3">
       <AlertCircle size={28} className="text-red-300" />
       <p className="text-sm">Failed to load this data.</p>
       <button onClick={onRetry} className="text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700">Retry</button>
@@ -109,7 +109,7 @@ export function CampaignsPanel({ from, to }: { from: string; to: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading) return <Skeleton className="h-96" />;
+  if (loading) return <Skeleton className="h-48" />;
   if (error) return <ErrorState onRetry={() => void load()} />;
   if (!data) return null;
 
@@ -183,7 +183,7 @@ export function HealthPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading) return <Skeleton className="h-72" />;
+  if (loading) return <Skeleton className="h-32" />;
   if (error) return <ErrorState onRetry={() => void load()} />;
   if (!data) return null;
 
