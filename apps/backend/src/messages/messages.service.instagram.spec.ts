@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Logger } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 
 function setup() {
@@ -11,7 +12,7 @@ function setup() {
   };
   const realtimeService = { emitNewMessage: jest.fn(), emitConversationUpdated: jest.fn() };
   const storageService = { uploadRaw: jest.fn().mockResolvedValue({ fileUrl: 'https://files/ig.jpeg' }) };
-  const facebookMessengerService = { sendInstagramTextMessage: jest.fn().mockResolvedValue('mid.1'), sendInstagramMediaMessage: jest.fn().mockResolvedValue('mid.2'), sendTextMessage: jest.fn() };
+  const facebookMessengerService = { fetchContactName: jest.fn().mockResolvedValue({ name: null, reason: 'not asked' }), sendInstagramTextMessage: jest.fn().mockResolvedValue('mid.1'), sendInstagramMediaMessage: jest.fn().mockResolvedValue('mid.2'), sendTextMessage: jest.fn() };
   const args: unknown[] = new Array(21).fill({});
   args[0] = prisma; args[2] = conversationsService; args[3] = contactsService; args[4] = realtimeService; args[5] = storageService; args[19] = facebookMessengerService;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,6 +68,58 @@ describe('handleInboundMessenger for Instagram', () => {
     prisma.message.findFirst.mockResolvedValue({ id: 'existing' });
     await expect(service.handleInboundMessenger('t1', 'ch-ig', 'IGSID-9', { mid: 'm1', text: 'hi' }, 'INSTAGRAM')).resolves.toEqual({ id: 'existing' });
     expect(prisma.message.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('inbound contact name lookup', () => {
+  afterEach(() => jest.restoreAllMocks());
+  const logged: string[] = [];
+  beforeEach(() => {
+    logged.length = 0;
+    jest.spyOn(Logger.prototype, 'log').mockImplementation((m: unknown) => { logged.push(String(m)); });
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation((m: unknown) => { logged.push(String(m)); });
+  });
+
+  it('asks Meta for the name of a nameless Messenger contact and saves it', async () => {
+    const { service, contactsService, facebookMessengerService } = setup();
+    facebookMessengerService.fetchContactName.mockResolvedValue({ name: 'Ama Mensah' });
+    await service.handleInboundMessenger('t1', 'ch-fb', 'PSID-1', { mid: 'm1', text: 'hi' });
+    expect(facebookMessengerService.fetchContactName).toHaveBeenCalledWith('t1', 'ch-fb', 'MESSENGER', 'PSID-1');
+    expect(contactsService.findOrCreateByExternalId).toHaveBeenLastCalledWith('t1', 'MESSENGER_PSID', 'PSID-1', 'Ama Mensah');
+    expect(logged.join('\n')).toContain('name found');
+    expect(logged.join('\n')).not.toContain('Ama Mensah');
+  });
+
+  it('does the same for Instagram, as an Instagram contact', async () => {
+    const { service, contactsService, facebookMessengerService } = setup();
+    facebookMessengerService.fetchContactName.mockResolvedValue({ name: '@glam_pack' });
+    await service.handleInboundMessenger('t1', 'ch-ig', 'IGSID-9', { mid: 'm1', text: 'hi' }, 'INSTAGRAM');
+    expect(facebookMessengerService.fetchContactName).toHaveBeenCalledWith('t1', 'ch-ig', 'INSTAGRAM', 'IGSID-9');
+    expect(contactsService.findOrCreateByExternalId).toHaveBeenLastCalledWith('t1', 'INSTAGRAM_IGSID', 'IGSID-9', '@glam_pack');
+  });
+
+  it('does not ask Meta again for a contact that already has a name', async () => {
+    const { service, contactsService, facebookMessengerService } = setup();
+    contactsService.findOrCreateByExternalId.mockResolvedValue({ id: 'ct', phone: null, name: 'Ama Mensah', externalId: 'PSID-1' });
+    await service.handleInboundMessenger('t1', 'ch-fb', 'PSID-1', { mid: 'm1', text: 'hi' });
+    expect(facebookMessengerService.fetchContactName).not.toHaveBeenCalled();
+  });
+
+  it('logs why when Meta gives no name, and still stores the message', async () => {
+    const { service, prisma, facebookMessengerService } = setup();
+    facebookMessengerService.fetchContactName.mockResolvedValue({ name: null, reason: '(#10) permission missing' });
+    await service.handleInboundMessenger('t1', 'ch-fb', 'PSID-1', { mid: 'm1', text: 'hi' });
+    expect(logged.join('\n')).toContain('no name');
+    expect(logged.join('\n')).toContain('permission missing');
+    expect(prisma.message.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('a lookup that throws never loses the message', async () => {
+    const { service, prisma, facebookMessengerService } = setup();
+    facebookMessengerService.fetchContactName.mockRejectedValue(new Error('boom'));
+    await expect(service.handleInboundMessenger('t1', 'ch-fb', 'PSID-1', { mid: 'm1', text: 'hi' })).resolves.toBeDefined();
+    expect(prisma.message.create).toHaveBeenCalledTimes(1);
+    expect(logged.join('\n')).toContain('lookup failed');
   });
 });
 

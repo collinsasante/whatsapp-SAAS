@@ -36,7 +36,7 @@ const MAX_PENDING_FILES = 10;
 import { MessageStatus, MessageDirection } from '@whatsapp-platform/shared-types';
 import type { Message } from '@whatsapp-platform/shared-types';
 import type { ActivityEntry } from '@/store/inbox.store';
-import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
+import { channelContactLabel, contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
 import { describeAiHandling, type AiHandling } from '@/lib/ai-handling';
 import { ChannelBadge } from './ChannelBadge';
 import { VoiceNotePlayer } from './VoiceNotePlayer';
@@ -339,7 +339,9 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const typing = typingUsers[conversation.id] ?? [];
   const isResolved = localStatus === 'RESOLVED';
   const isArchived = localStatus === 'ARCHIVED';
-  const name = contactDisplayName(conversation.contact, undefined, '');
+  // Keep the old blank fallback for WhatsApp; only Messenger/Instagram contacts get a channel label.
+  const channelLabel = channelContactLabel(conversation.channel?.type);
+  const name = contactDisplayName(conversation.contact, undefined, channelLabel === 'Unknown' ? '' : channelLabel);
   const avatarColor = getAvatarColor(name);
 
   const lastInboundMsg = [...convMessages].reverse().find((m) => m.direction === MessageDirection.INBOUND);
@@ -933,15 +935,21 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     }
 
     setSending(true);
+    const sendStartedAt = Date.now();
+    const channelLabel = conversation.channel?.type ?? 'WHATSAPP';
     try {
       const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', clientMessageId: tempId, ...(replyToId ? { replyToId } : {}) });
       // Replace temp immediately from API response — don't wait for socket (socket may be down)
       const real = res.data as Message;
+      // Lifecycle trace for "sent but stuck on sending" reports (status and timing only, never the text).
+      console.info(`[verz:send] ${channelLabel} text: API replied in ${Date.now() - sendStartedAt}ms, status=${real?.status ?? 'none'}, id=${real?.id ? 'present' : 'MISSING'}`);
+      if (real?.status === 'QUEUED') console.warn('[verz:send] the server returned this message still QUEUED; it will keep showing as sending until a status update arrives');
       if (real?.id) {
         removeMessage(conversation.id, tempId);
         addMessage(conversation.id, real);
       }
     } catch (err) {
+      console.warn(`[verz:send] ${channelLabel} text: request failed after ${Date.now() - sendStartedAt}ms`, getApiError(err, 'unknown error'));
       removeMessage(conversation.id, tempId);
       setText(content);
       toast.error(getApiError(err, 'Failed to send message'));

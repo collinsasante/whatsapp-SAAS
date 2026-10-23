@@ -566,6 +566,7 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
   const copy = PICKER_COPY[provider];
   const [pages, setPages] = useState<CandidatePage[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
@@ -587,6 +588,15 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
     })();
     return () => { cancelled = true; };
   }, [sessionId]);
+
+  // The list can be long (a workspace may manage dozens of Pages), so it can be filtered by name, and Select all /
+  // Deselect all act on what the filter currently shows.
+  const visible = pages.filter(p => p.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const selectVisible = () => setSelected(prev => new Set([...prev, ...visible.map(p => p.id)]));
+  const deselectVisible = () => setSelected(prev => {
+    const hide = new Set(visible.map(p => p.id));
+    return new Set([...prev].filter(id => !hide.has(id)));
+  });
 
   const toggle = (id: string) => {
     setSelected(prev => {
@@ -638,7 +648,25 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
           <p className="text-sm text-gray-400 text-center py-6">{copy.empty}</p>
         ) : (
           <div className="space-y-2">
-            {pages.map(p => (
+            <div className="flex items-center gap-2 pb-1">
+              <div className="relative flex-1">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder={`Filter ${copy.nounPlural}…`}
+                  aria-label={`Filter ${copy.nounPlural}`}
+                  className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <button type="button" onClick={selectVisible} className="px-2.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded-lg whitespace-nowrap">Select all</button>
+              <button type="button" onClick={deselectVisible} className="px-2.5 py-2 text-xs font-semibold text-gray-500 hover:bg-gray-100 rounded-lg whitespace-nowrap">Deselect all</button>
+            </div>
+            <p className="text-xs text-gray-400 pb-1" aria-live="polite">
+              {selected.size} of {pages.length} selected{query.trim() ? ` · showing ${visible.length}` : ''}
+            </p>
+            {visible.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No {copy.nounPlural} match "{query}".</p>}
+            {visible.map(p => (
               <label key={p.id} className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors',
                 selected.has(p.id) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-gray-200',

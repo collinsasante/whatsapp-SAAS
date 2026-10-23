@@ -384,6 +384,8 @@ export class MessagesService {
     let whatsappMessageId: string | undefined;
     // Set only when a provider call actually ran: a send that reached no branch must FAIL, not be marked SENT.
     let dispatched = false;
+    const sendStartedAt = Date.now();
+    const sendLabel = `${conversation.channel?.type ?? 'WHATSAPP'} ${dto.type ?? 'TEXT'}`;
 
     try {
       if (dto.type === MessageType.TEXT || !dto.type) {
@@ -452,6 +454,9 @@ export class MessagesService {
           sentAt: new Date(),
         },
       });
+      // Lifecycle trace for "sent but still shows as sending" reports: status, timing and whether the provider
+      // returned an id. Never the message text.
+      this.logger.log(`Send ${sendLabel} ${message.id}: accepted by provider in ${Date.now() - sendStartedAt}ms (provider id ${whatsappMessageId ? 'present' : 'MISSING'}), status QUEUED -> SENT`);
 
       // Outbound: bump recency for list ordering only. incrementUnread() would count our own
       // agent reply as an unread customer message.
@@ -473,6 +478,7 @@ export class MessagesService {
 
       return updatedMessage;
     } catch (error) {
+      this.logger.warn(`Send ${sendLabel} ${message.id}: FAILED after ${Date.now() - sendStartedAt}ms: ${error instanceof Error ? error.message : 'unknown error'}`);
       const failedMessage = await this.prisma.message.update({
         where: { id: message.id },
         data: {
@@ -643,7 +649,23 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const contact = await this.contactsService.findOrCreateByExternalId(tenantId, platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID', senderPsid);
+    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID';
+    let contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, senderPsid);
+    // Meta only gives us an opaque id. Without a name the inbox shows "Unknown", so ask Meta for the display name
+    // once, while the person is still writing to us. Never fatal, and the name itself is never logged.
+    if (!contact.name) {
+      try {
+        const profile = await this.facebookMessengerService.fetchContactName(tenantId, channelId, platform, senderPsid);
+        if (profile.name) {
+          contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, senderPsid, profile.name);
+          this.logger.log(`${platform} contact profile lookup: name found`);
+        } else {
+          this.logger.warn(`${platform} contact profile lookup: no name (${profile.reason ?? 'unknown reason'})`);
+        }
+      } catch (err) {
+        this.logger.warn(`${platform} contact profile lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, channelId);
 
     // Tag conversation with the receiving channel the first time only,
