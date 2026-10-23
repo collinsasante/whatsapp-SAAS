@@ -1,4 +1,6 @@
 # Standalone staging compose — run with a single -f flag (no merge with production).
+# Staging reads infra/.env.staging, never the production infra/.env (they would share every secret). To recreate
+# containers use infra/scripts/staging-recreate.sh, which refuses to run if a secret matches production's.
 # Usage:
 #   docker compose --env-file .env.staging -f infra/docker-compose.staging.yml up -d --build
 # Access: http://VPS_IP:8080, or https://staging.verzchat.com:8443 once
