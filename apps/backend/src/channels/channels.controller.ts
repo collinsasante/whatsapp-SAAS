@@ -6,6 +6,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ChannelsService } from './channels.service';
 import { CreateChannelDto, UpdateChannelDto, SelectFacebookPagesDto } from './dto/channel.dto';
 import { signOAuthState, verifyOAuthState } from './oauth-state.util';
+import { toPublicChannel } from './channel-public.util';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -33,8 +34,8 @@ export class ChannelsController {
 
   @Get()
   @ApiOperation({ summary: 'List all channels' })
-  findAll(@CurrentTenant() tenantId: string) {
-    return this.channelsService.findAll(tenantId);
+  async findAll(@CurrentTenant() tenantId: string) {
+    return (await this.channelsService.findAll(tenantId)).map(toPublicChannel);
   }
 
   // Returns the OAuth URL as JSON rather than issuing an HTTP redirect
@@ -169,39 +170,39 @@ export class ChannelsController {
     @CurrentUser() user: JwtPayload,
     @Body() body: { botToken: string },
   ) {
-    return this.channelsService.connectTelegramBot(tenantId, body.botToken, user.sub);
+    return toPublicChannel(await this.channelsService.connectTelegramBot(tenantId, body.botToken, user.sub));
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get channel by ID' })
-  findOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.channelsService.findOne(tenantId, id);
+  async findOne(@CurrentTenant() tenantId: string, @Param('id') id: string) {
+    return toPublicChannel(await this.channelsService.findOne(tenantId, id));
   }
 
   @Post()
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create a new channel' })
-  create(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: CreateChannelDto) {
-    return this.channelsService.create(tenantId, dto, user.sub);
+  async create(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: CreateChannelDto) {
+    return toPublicChannel(await this.channelsService.create(tenantId, dto, user.sub));
   }
 
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Update a channel' })
-  update(
+  async update(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,
     @Body() dto: UpdateChannelDto,
   ) {
-    return this.channelsService.update(tenantId, id, dto, user.sub);
+    return toPublicChannel(await this.channelsService.update(tenantId, id, dto, user.sub));
   }
 
   @Patch(':id/toggle')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Toggle channel active status' })
-  toggle(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    return this.channelsService.toggle(tenantId, id, user.sub);
+  async toggle(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return toPublicChannel(await this.channelsService.toggle(tenantId, id, user.sub));
   }
 
   @Delete(':id')
