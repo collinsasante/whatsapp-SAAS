@@ -353,7 +353,7 @@ export function buildInsights(input: InsightInput): Insight[] {
       why: 'VerzChat can only report revenue from orders created through Commerce. Message counts are never used to estimate money.',
       evidence: ['No orders have been recorded in this workspace'],
       action: 'Use Commerce to create orders from conversations if you want revenue and conversion reporting here.',
-      link: { href: '/commerce', label: 'Open Commerce' },
+      link: { href: '/commerce/orders', label: 'Open Commerce orders' },
       priority: 5,
     });
   }

@@ -125,7 +125,7 @@ export default function KpiBand({ data }: { data: IntelligenceResponse }) {
             metric="revenue"
             value={money.length === 0 ? 'No paid orders' : money.length === 1 ? formatMoney(money[0].revenue, money[0].currency) : `${money.length} currencies`}
             unavailable={money.length === 0}
-            href="/commerce" hrefLabel="Open Commerce"
+            href="/commerce/revenue" hrefLabel="Open Commerce revenue"
             detail={money.length === 0 ? `No order${channelNote} was paid in this period.` : money.length === 1 ? (
               <span className="flex flex-wrap items-center gap-x-2">
                 <DeltaBadge current={money[0].revenue} previous={p.orders.byCurrency.find((o) => o.currency === money[0].currency)?.revenue ?? 0} direction="higher-is-better" />
@@ -134,7 +134,7 @@ export default function KpiBand({ data }: { data: IntelligenceResponse }) {
             ) : money.map((m) => formatMoney(m.revenue, m.currency)).join(', ')}
           />
         ) : (
-          <Tile metric="revenue" value="Not tracked" unavailable href="/commerce" hrefLabel="Open Commerce" detail="No orders are recorded. Revenue comes from Commerce orders." />
+          <Tile metric="revenue" value="Not tracked" unavailable href="/commerce/orders" hrefLabel="Open Commerce orders" detail="No orders are recorded. Revenue comes from Commerce orders." />
         )}
       </div>
       <p className="px-4 py-2 text-xs text-gray-500 border-t border-gray-200 bg-gray-50/60 rounded-b-xl">
