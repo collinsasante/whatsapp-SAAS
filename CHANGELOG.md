@@ -7,7 +7,10 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+- Connecting Facebook or Instagram now writes a short line to the server log with how many accounts Meta returned and
+  how many Pages the person granted the app (counts only: no tokens, names or ids). It answers "why do I see fewer
+  accounts than I have" without guessing.
 
 ## [2.4.0] - 2026-10-23
 
