@@ -71,6 +71,12 @@ const MESSENGER_ATTACHMENT_TYPE_MAP: Record<string, MessageType> = {
   audio: MessageType.AUDIO,
   file: MessageType.DOCUMENT,
 };
+const INSTAGRAM_LINK_LABELS: Record<string, string> = {
+  share: 'Shared a post',
+  story_mention: 'Mentioned you in a story',
+  ig_reel: 'Shared a reel',
+  reel: 'Shared a reel',
+};
 const MESSENGER_ATTACHMENT_FALLBACK_MIME: Record<string, string> = {
   image: 'image/jpeg',
   video: 'video/mp4',
@@ -169,6 +175,16 @@ export class MessagesService {
       );
     }
 
+    if (conversation.channel?.type === 'INSTAGRAM') {
+      if (!contact.externalId) throw new BadRequestException('This Instagram contact has no Instagram ID on file.');
+      if (payload.kind === 'TEXT') {
+        return this.facebookMessengerService.sendInstagramTextMessage(tenantId, conversation.channel.id, contact.externalId, payload.text);
+      }
+      return this.facebookMessengerService.sendInstagramMediaMessage(
+        tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
+      );
+    }
+
     // Unofficial WhatsApp Web (QR/linked-device) -- unlike Messenger, this
     // contact genuinely has a real phone number (contact.phone), since
     // Baileys addresses recipients by phone/JID rather than a page-scoped
@@ -246,7 +262,8 @@ export class MessagesService {
       throw new ForbiddenException('This conversation is being handled by another agent. Take it over before sending.');
     }
 
-    const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER';
+    const isMessenger = conversation.channel?.type === 'FACEBOOK_MESSENGER' || conversation.channel?.type === 'INSTAGRAM';
+    const messengerLabel = conversation.channel?.type === 'INSTAGRAM' ? 'Instagram' : 'Facebook Messenger';
     // Unofficial WhatsApp Web (QR/linked-device): a real Baileys socket, not
     // the Cloud API Graph client -- Meta-specific concepts below (templates,
     // the 24h customer-service window) don't apply to it either.
@@ -264,7 +281,7 @@ export class MessagesService {
     // attempt (and silently mis-send via) a Cloud-API-shaped call for a
     // Messenger or WhatsApp Web contact.
     if ((isMessenger || isWhatsAppWeb) && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
-      throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? 'Facebook Messenger' : 'WhatsApp Web'}.`);
+      throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? messengerLabel : 'WhatsApp Web'}.`);
     }
 
     // WhatsApp Cloud API only allows free-form (non-template) sends within 24h
@@ -611,6 +628,9 @@ export class MessagesService {
     channelId: string,
     senderPsid: string,
     message: { mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }> },
+    // Instagram messaging arrives through the same Meta Messaging webhook and shares this handler; only the
+    // contact identity differs (an Instagram-scoped id instead of a Page-scoped one).
+    platform: 'MESSENGER' | 'INSTAGRAM' = 'MESSENGER',
   ) {
     // Pre-check (mirrors handleInbound's) plus a P2002 catch around the
     // actual create below -- defense-in-depth against the race between two
@@ -623,7 +643,7 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const contact = await this.contactsService.findOrCreateByExternalId(tenantId, 'MESSENGER_PSID', senderPsid);
+    const contact = await this.contactsService.findOrCreateByExternalId(tenantId, platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID', senderPsid);
     const conversation = await this.conversationsService.findOrCreate(tenantId, contact.id, undefined, channelId);
 
     // Tag conversation with the receiving channel the first time only,
@@ -643,7 +663,14 @@ export class MessagesService {
     let msgType: MessageType = MessageType.TEXT;
 
     const attachment = message.attachments?.[0];
-    if (attachment?.payload?.url) {
+    // Instagram also sends shared posts, reels and story mentions as "attachments" whose url is a web link, not a
+    // file. Downloading that would store a web page as a document, so those are shown as a labelled link instead.
+    const isFile = !!attachment && (platform !== 'INSTAGRAM' || attachment.type in MESSENGER_ATTACHMENT_TYPE_MAP);
+    if (attachment?.payload?.url && !isFile) {
+      const label = INSTAGRAM_LINK_LABELS[attachment.type] ?? 'Shared content';
+      content = [message.text, `[${label}] ${attachment.payload.url}`].filter(Boolean).join('\n');
+    }
+    if (attachment?.payload?.url && isFile) {
       // Messenger's webhook payload already includes a fetchable CDN URL per
       // attachment -- unlike WhatsApp's Graph API, there's no separate
       // metadata-lookup-by-id step before the actual download.
