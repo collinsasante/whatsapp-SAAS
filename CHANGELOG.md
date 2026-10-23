@@ -7,6 +7,10 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.5.0] - 2026-10-23
+
 ### Added
 - Facebook and Instagram account picker: filter by name, Select all and Deselect all (they act on what the filter
   shows), and a count of how many are selected.
@@ -23,6 +27,12 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - Connecting Facebook or Instagram now writes a short line to the server log with how many accounts Meta returned and
   how many Pages the person granted the app (counts only: no tokens, names or ids). It answers "why do I see fewer
   accounts than I have" without guessing.
+
+### Upgrade notes
+- **Facebook Pages managed through a Business portfolio** are only returned by Meta when the Facebook Login for
+  Business configuration includes `business_management` (now added to the production configuration). For customers
+  outside your own team this permission needs Meta App Review.
+- No new settings and no migration.
 
 ## [2.4.0] - 2026-10-23
 
