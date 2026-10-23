@@ -8,6 +8,8 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 ## [Unreleased]
 
 ### Changed
+- The Dashboard is rebuilt as an owner command center. It shows a greeting and workspace, a Today / 7 days / 30 days / custom range kept in the address with comparison to the previous period, key numbers with plain explanations and links, a conversation trend (conversations, messages, new vs returning customers, channels), a "Needs attention" list whose links open the matching filtered inbox, team workload, Verz AI activity and credits, customers and sales, recent activity and evidence-based recommendations. Each section loads on its own and can be retried. Sales and lead figures only appear for workspaces that record them. It uses the same definitions as Analytics, so the numbers agree.
+- Inbox links can open pre-filtered: `?status=REQUESTED|UNREPLIED|ACTIVE|RESOLVED`, `?assignee=unassigned|<user id>` and `?channel=`. Unknown values are ignored.
 - Analytics page rebuilt around three questions: what is happening, why, and what to do next. Admins get a single filtered view (date range, previous-period comparison, channel) with KPIs, trends, an insights list with evidence and next steps, customer and lead pipeline, conversation backlog and reply speed, a busiest-times heatmap, team workload, Verz AI performance, common conversation labels and order revenue. Agents see only their own conversations.
 - Analytics no longer counts the dashboard's own test chats as customer conversations.
 - Revenue now comes from Commerce orders (per currency, never mixed). The old page showed VerzChat's own subscription billing under "Revenue"; that is no longer shown there.
@@ -24,6 +26,8 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
   - Options Meta does not support (location, contact cards, and documents on Instagram) are hidden in those chats.
 
 ### Fixed
+- A message that failed to send no longer counts as the first reply to a customer, so median first-reply times in Analytics and the Dashboard are no longer too fast for workspaces with failed sends.
+- Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
 
 ## [2.5.0] - 2026-10-23

@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
-import { parseDateRange } from './date-range.util';
+import { parseDateRange, parseTrendDays } from './date-range.util';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
@@ -30,7 +30,7 @@ export class DashboardController {
     @CurrentTenant() tenantId: string,
     @Query('days') days?: string,
   ) {
-    return this.dashboardService.getConversationTrend(tenantId, days ? parseInt(days, 10) : 14);
+    return this.dashboardService.getConversationTrend(tenantId, parseTrendDays(days));
   }
 
   @Get('conversation-stats')
@@ -50,7 +50,7 @@ export class DashboardController {
     @CurrentTenant() tenantId: string,
     @Query('days') days?: string,
   ) {
-    return this.dashboardService.getMessageVolume(tenantId, days ? parseInt(days, 10) : 14);
+    return this.dashboardService.getMessageVolume(tenantId, parseTrendDays(days));
   }
 
   @Get('response-time')
@@ -59,7 +59,7 @@ export class DashboardController {
     @CurrentTenant() tenantId: string,
     @Query('days') days?: string,
   ) {
-    return this.dashboardService.getResponseTimeStats(tenantId, days ? parseInt(days, 10) : 14);
+    return this.dashboardService.getResponseTimeStats(tenantId, parseTrendDays(days));
   }
 
   @Get('whatsapp-status')
