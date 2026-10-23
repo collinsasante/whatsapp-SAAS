@@ -93,7 +93,13 @@ export class PlatformAdminAnalyticsService {
       _sum: { credits: true },
       _count: { id: true },
     });
-    if (rows.length === 0) return { period: { from, to }, items: [] };
+    // Totals cover every tenant that used AI; `items` below is only the top 20, so it must not be summed for a total.
+    const totals = {
+      creditsConsumed: -rows.reduce((sum, r) => sum + (r._sum.credits ?? 0), 0),
+      aiCalls: rows.reduce((sum, r) => sum + r._count.id, 0),
+      tenants: rows.length,
+    };
+    if (rows.length === 0) return { period: { from, to }, items: [], totals };
 
     const tenants = await this.prisma.tenant.findMany({ where: { id: { in: rows.map((r) => r.tenantId) } }, select: { id: true, name: true } });
     const nameByTenant = new Map(tenants.map((t) => [t.id, t.name]));
@@ -103,7 +109,7 @@ export class PlatformAdminAnalyticsService {
       .sort((a, b) => b.creditsConsumed - a.creditsConsumed)
       .slice(0, 20);
 
-    return { period: { from, to }, items };
+    return { period: { from, to }, items, totals };
   }
 
   /** One aggregation query, not N+1 -- balance from Tenant.aiCredits, purchased/consumed/bonus from a single groupBy. */

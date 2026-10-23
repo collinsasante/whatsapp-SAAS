@@ -222,6 +222,38 @@ describe('Platform admin console API (e2e)', () => {
     });
   });
 
+  describe('tenant detail', () => {
+    it('never sends secrets to the browser, and reports channel health from recorded facts', async () => {
+      const t = await seedTenants();
+      await testPrisma.tenant.update({ where: { id: t.alpha.id }, data: { accessToken: 'EAAB-TENANT-WHATSAPP-TOKEN', webhookVerifyToken: 'VERIFY-SECRET-VALUE', phoneNumberId: '123' } });
+      const messenger = await testPrisma.channel.create({ data: { tenantId: t.alpha.id, type: 'FACEBOOK_MESSENGER', name: 'Alpha page', externalId: 'page-1', credentials: { token: 'CHANNEL-CREDENTIAL-SECRET' } } });
+      await testPrisma.facebookPageConnection.create({
+        data: { tenantId: t.alpha.id, channelId: messenger.id, pageId: 'page-1', pageName: 'Alpha page', pageAccessToken: 'PAGE-ACCESS-TOKEN-SECRET', webhookVerified: false, pageAccessTokenExpiresAt: new Date(Date.now() - 86_400_000) },
+      });
+      const qr = await testPrisma.channel.create({ data: { tenantId: t.alpha.id, type: 'WHATSAPP_WEB', name: 'Shop phone', externalId: 'qr-1' } });
+      await testPrisma.whatsAppWebSession.create({ data: { tenantId: t.alpha.id, channelId: qr.id, status: 'LOGGED_OUT', phoneNumber: '+233200000000', encryptedAuthState: 'AUTH-STATE-SECRET' } });
+      await testPrisma.payment.create({ data: { tenantId: t.alpha.id, gateway: 'PAYSTACK', status: 'FAILED', amount: 25, gatewayWebhookData: { authorization: { last4: '4081', bank: 'SECRET BANK' } } } as never });
+      await testPrisma.errorLog.create({ data: { tenantId: t.alpha.id, service: 'backend', severity: 'ERROR', message: 'tenant error', fingerprint: 'tenant-fp' } });
+      const viewer = await admin('VIEWER');
+
+      const { body } = await api().get(`/platform-admin/workspaces/${t.alpha.id}`).set(viewer.auth).expect(200);
+      const text = JSON.stringify(body);
+      for (const secret of ['EAAB-TENANT-WHATSAPP-TOKEN', 'VERIFY-SECRET-VALUE', 'CHANNEL-CREDENTIAL-SECRET', 'PAGE-ACCESS-TOKEN-SECRET', 'AUTH-STATE-SECRET', 'SECRET BANK', '4081']) {
+        expect(text).not.toContain(secret);
+      }
+      expect(body).not.toHaveProperty('accessToken');
+      expect(body).not.toHaveProperty('webhookVerifyToken');
+
+      const byName = Object.fromEntries(body.channels.map((c: { name: string }) => [c.name, c]));
+      expect(byName['Alpha page'].health.state).toBe('attention');
+      expect(byName['Alpha page'].health.reasons).toEqual(expect.arrayContaining(['The page access token has expired', 'Meta has not verified the webhook']));
+      expect(byName['Shop phone'].health).toMatchObject({ state: 'disconnected', reasons: ['The phone logged this device out'] });
+      expect(byName['Shop phone'].phoneNumber).toBe('+233200000000');
+      expect(body.issues).toEqual({ openErrors: 1, failedWebhooks7d: 0, failedPayments30d: 1 });
+      expect(body.payments[0]).not.toHaveProperty('gatewayWebhookData');
+    });
+  });
+
   describe('attention required', () => {
     it('is empty, with every check clear, for a healthy platform', async () => {
       await createTenantWithUser({ role: UserRole.ADMIN });
@@ -288,6 +320,20 @@ describe('Platform admin console API (e2e)', () => {
       expect(await ids('role=AGENT')).toEqual([b.user.id]);
       expect(await ids(`search=${encodeURIComponent(a.tenant.name)}`)).toEqual([a.user.id]); // matches the tenant name too
       expect(await ids(`search=${b.user.id}`)).toEqual([b.user.id]);
+    });
+  });
+
+  describe('AI usage totals', () => {
+    it('totals every tenant, not just the 20 listed', async () => {
+      const root = await admin('VIEWER');
+      for (let i = 0; i < 22; i++) {
+        const tenant = await testPrisma.tenant.create({ data: { name: `AI tenant ${i}`, webhookVerifyToken: `ai-${i}` } });
+        await testPrisma.aiCreditTransaction.create({ data: { tenantId: tenant.id, type: 'AI_USAGE', credits: -10, balanceAfter: 0, description: 'usage' } });
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const { body } = await api().get(`/platform-admin/ai/usage?from=${today}&to=${today}`).set(root.auth).expect(200);
+      expect(body.items).toHaveLength(20);
+      expect(body.totals).toEqual({ creditsConsumed: 220, aiCalls: 22, tenants: 22 });
     });
   });
 

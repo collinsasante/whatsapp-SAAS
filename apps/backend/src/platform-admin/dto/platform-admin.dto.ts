@@ -207,6 +207,7 @@ export class ErrorLogsQueryDto {
   @IsOptional() @IsIn(['OPEN', 'RESOLVED', 'IGNORED']) status?: string;
   @IsOptional() @IsIn(['WARN', 'ERROR', 'CRITICAL']) severity?: string;
   @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsString() @MaxLength(60) service?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;

@@ -13,6 +13,7 @@ import {
 import { resolveDateRange, previousPeriod, percentChange } from '../analytics/analytics.util';
 import { computeArpu, computeLogoChurnRate, computeNetRevenueRetention, computeTrialConversionRate } from './utils/overview.util';
 import { computeHealthScore, isChurnRisk } from './utils/health-score.util';
+import { deriveChannelHealth } from './utils/channel-health.util';
 import { buildTenantWhere, deriveTenantStatus, needsFullScan } from './tenant-directory.util';
 import { deriveLifecycleStage, LIFECYCLE_STAGES, LifecycleStage } from './utils/lifecycle.util';
 
@@ -664,9 +665,13 @@ export class PlatformAdminService {
     const [
       payments, auditLog, messageTrend, conversationTrend, recentCampaigns,
       approvedTemplateCount, everSucceededPayment, resolvedConversationCount,
-      messagesLast30, messagesPrior30,
+      messagesLast30, messagesPrior30, channelRows, openErrors, failedWebhooks7d, failedPayments30d,
     ] = await Promise.all([
-      this.prisma.payment.findMany({ where: { tenantId: id }, orderBy: { createdAt: 'desc' }, take: 20 }),
+      // Explicit fields: the raw payment row carries the gateway's webhook payload, which can hold card and bank details.
+      this.prisma.payment.findMany({
+        where: { tenantId: id }, orderBy: { createdAt: 'desc' }, take: 20,
+        select: { id: true, gateway: true, status: true, amount: true, currency: true, createdAt: true, verifiedAt: true, failReason: true },
+      }),
       this.prisma.platformAuditLog.findMany({
         where: { resourceType: 'Tenant', resourceId: id },
         orderBy: { createdAt: 'desc' }, take: 20,
@@ -680,6 +685,19 @@ export class PlatformAdminService {
       this.prisma.conversation.count({ where: { tenantId: id, resolvedAt: { not: null } } }),
       this.prisma.message.count({ where: { tenantId: id, createdAt: { gte: thirtyDaysAgo } } }),
       this.prisma.message.count({ where: { tenantId: id, createdAt: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } } }),
+      // Channel records are read without credentials: no access tokens, page tokens, auth state or channel secrets.
+      this.prisma.channel.findMany({
+        where: { tenantId: id },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true, type: true, name: true, isActive: true, createdAt: true,
+          facebookPageConnection: { select: { webhookVerified: true, isActive: true, pageAccessTokenExpiresAt: true, lastError: true, lastErrorAt: true } },
+          whatsAppWebSession: { select: { status: true, lastSeenAt: true, lastError: true, lastErrorAt: true, phoneNumber: true } },
+        },
+      }),
+      this.prisma.errorLog.count({ where: { tenantId: id, status: 'OPEN' } }),
+      this.prisma.webhookEvent.count({ where: { tenantId: id, status: 'FAILED', createdAt: { gte: sevenDaysAgo } } }),
+      this.prisma.payment.count({ where: { tenantId: id, status: 'FAILED', createdAt: { gte: thirtyDaysAgo } } }),
     ]);
 
     const lastLoginAt = tenant.users.reduce<Date | null>((latest, u) => {
@@ -711,8 +729,11 @@ export class PlatformAdminService {
       activeLast7Days: !!lastLoginAt && lastLoginAt >= sevenDaysAgo,
     });
 
+    // The tenant's own WhatsApp access token and webhook verify token are secrets. They never leave the server.
+    const { accessToken: _accessToken, webhookVerifyToken: _webhookVerifyToken, ...tenantFields } = tenant;
+
     return {
-      ...tenant,
+      ...tenantFields,
       payments,
       auditLog,
       usage: {
@@ -720,6 +741,16 @@ export class PlatformAdminService {
         conversationTrend: conversationTrend.map((r) => ({ date: r.date.toISOString().slice(0, 10), opened: r.openedCount, resolved: r.resolvedCount })),
       },
       recentCampaigns,
+      channels: channelRows.map(({ whatsAppWebSession, facebookPageConnection, ...channel }) => ({
+        ...channel,
+        // The session's phone number is useful to support; its auth state and the page's token never leave the server.
+        phoneNumber: whatsAppWebSession?.phoneNumber ?? null,
+        health: deriveChannelHealth({
+          type: channel.type, isActive: channel.isActive, facebookPageConnection, whatsAppWebSession,
+          whatsappQualityRatings: tenant.whatsappNumbers.map((n) => n.qualityRating),
+        }, now),
+      })),
+      issues: { openErrors, failedWebhooks7d, failedPayments30d },
       healthScore, healthBreakdown, churnRisk, lifecycleStage,
     };
   }
