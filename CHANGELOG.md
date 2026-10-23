@@ -7,7 +7,47 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Added
+- Messenger and Instagram now do what WhatsApp does in the inbox:
+  - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails
+    when Meta cannot fetch the file from our server. Voice notes are converted so they play.
+  - Replying to a message quotes it.
+  - Delivered and read ticks update (Messenger: delivered and read; Instagram: read).
+  - Chatbot flows, automations and Verz AI now run on inbound messages, with plain-text replies.
+  - Options Meta does not support (location, contact cards, and documents on Instagram) are hidden in those chats.
+
 ### Fixed
+- The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
+
+## [2.5.0] - 2026-10-23
+
+### Added
+- Facebook and Instagram account picker: filter by name, Select all and Deselect all (they act on what the filter
+  shows), and a count of how many are selected.
+- Messenger and Instagram contacts now get their real name from Meta when they write in, instead of showing as
+  "Unknown". Contacts we have no name for show as "Messenger user" or "Instagram user".
+
+### Fixed
+- The Contacts page no longer crashes when a Messenger or Instagram contact (which has no phone number) is in the list.
+- The channel marker on avatars (WhatsApp Web QR, Messenger, Instagram) is larger and easier to read.
+
+### Changed
+- Sending a message now writes a short server log line (channel, type, timing, whether the provider returned an id,
+  never the text) and the browser console shows the same lifecycle, to track down "sent but still shows as sending".
+- Connecting Facebook or Instagram now writes a short line to the server log with how many accounts Meta returned and
+  how many Pages the person granted the app (counts only: no tokens, names or ids). It answers "why do I see fewer
+  accounts than I have" without guessing.
+
+### Upgrade notes
+- **Facebook Pages managed through a Business portfolio** are only returned by Meta when the Facebook Login for
+  Business configuration includes `business_management` (now added to the production configuration). For customers
+  outside your own team this permission needs Meta App Review.
+- No new settings and no migration.
+
+## [2.4.0] - 2026-10-23
+
+### Fixed
+- Automations: the inactivity trigger can be saved (its database value was missing).
 - Facebook: workspaces that manage more than a few Pages (Meta returns them in batches) now see all of them when
   connecting. Only the first batch was read before.
 - Instagram: connecting now shows a picker, like Facebook, and connects only the account chosen. It used to connect
@@ -34,6 +74,20 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - "Learn from conversations" now obeys `KB_LEARNING_DISABLED` (it stays off unless set to `false`) and can run at most
   once per workspace per 30 minutes, so it cannot be used to trigger repeated paid AI requests.
 - The AI's order-status check only returns orders that belong to the customer in the current conversation.
+- Platform-admin requests are now checked against the database on every request. A switched-off or demoted admin loses
+  access immediately instead of when their login token expires, and an admin token that was not issued by this
+  environment's own database is rejected even if it is correctly signed.
+
+### Upgrade notes (read before deploying)
+- **No new required settings. No migration in this release's own changes** (the inactivity enum migration shipped
+  earlier with the fix above).
+- **"Learn from conversations" stays off** until `KB_LEARNING_DISABLED=false` is set (its button used to bypass the
+  switch). Knowledge-base editing, upload and website import are now admin-only.
+- **Instagram messaging needs Meta setup** before it can receive anything: the app must be Live, and an Instagram
+  webhook subscription (field `messages`) must point at the existing Messenger callback URL with the same verify
+  token. The Instagram account must allow access to messages. It has not yet been tested against real Meta.
+- **Rotate Telegram bot tokens and TikTok connections.** Until this release the Channels API returned stored tokens to
+  every workspace member.
 
 ## [2.3.0] - 2026-10-20
 

@@ -8,6 +8,14 @@ export function looksLikeProviderId(value: string): boolean {
   return PROVIDER_ID.test(value.trim());
 }
 
+/** What to call a contact we hold no name or phone for, by the channel they wrote in on. */
+export function channelContactLabel(channelType?: string | null): string {
+  const type = (channelType ?? '').toUpperCase();
+  if (type === 'FACEBOOK_MESSENGER' || type === 'MESSENGER') return 'Messenger user';
+  if (type === 'INSTAGRAM') return 'Instagram user';
+  return 'Unknown';
+}
+
 interface DisplayableContact {
   name?: string | null;
   phone?: string | null;

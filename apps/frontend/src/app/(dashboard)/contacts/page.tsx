@@ -541,7 +541,9 @@ const DIAL_MAP: Record<string, { name: string; flag: string }> = {
   '998': { name: 'Uzbekistan', flag: '🇺🇿' },
 };
 
-function phoneToCountry(phone: string): { name: string; flag: string } | null {
+// Messenger and Instagram contacts have no phone number, so this must accept null.
+function phoneToCountry(phone: string | null | undefined): { name: string; flag: string } | null {
+  if (!phone) return null;
   const digits = phone.replace(/^\+/, '').replace(/^00/, '');
   for (const len of [3, 2, 1]) {
     const prefix = digits.slice(0, len);

@@ -1176,6 +1176,7 @@ enum AutomationTrigger {
   CONVERSATION_CREATED
   CONVERSATION_RESOLVED
   LABEL_ADDED
+  INACTIVITY
 }
 
 model MediaAsset {

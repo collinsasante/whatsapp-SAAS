@@ -11,7 +11,7 @@ import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import toast from 'react-hot-toast';
-import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
+import { channelContactLabel, contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
 
 interface Conversation {
   id: string;
@@ -175,7 +175,7 @@ const ConvRow = memo(function ConvRow({
   };
 
   if (!conv.contact) return null;
-  const name = contactDisplayName(conv.contact);
+  const name = contactDisplayName(conv.contact, undefined, channelContactLabel(conv.channel?.type));
   const lastMsg = conv.messages?.[0];
   const avatarColor = getAvatarColor(name);
   return (
