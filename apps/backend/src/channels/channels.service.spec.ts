@@ -12,6 +12,7 @@ function buildPrismaMock() {
     whatsAppNumber: {
       findFirst: jest.fn(),
     },
+    conversation: { count: jest.fn().mockResolvedValue(0) },
   };
 }
 
@@ -90,9 +91,9 @@ describe('ChannelsService', () => {
       expect(deps.prisma.channel.delete).toHaveBeenCalledWith({ where: { id: 'c1' } });
       expect(deps.audit.log).toHaveBeenCalledWith(expect.objectContaining({
         userId: 'user-1', action: 'DELETE', resource: 'channel', resourceId: 'c1',
-        // softDisconnect is false here -- only FACEBOOK_MESSENGER channels
-        // soft-disconnect; every other type (Telegram here) is still a real
-        // hard delete, this field just records which path was taken.
+        // softDisconnect is false here -- this Telegram channel has no
+        // conversations, so it is a real hard delete (channels with history, and
+        // Facebook Pages, soft-disconnect); this field records which path was taken.
         metadata: { type: 'TELEGRAM', name: '@my_bot', softDisconnect: false },
       }));
     });

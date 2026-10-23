@@ -7,7 +7,19 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- Facebook: workspaces that manage more than a few Pages (Meta returns them in batches) now see all of them when
+  connecting. Only the first batch was read before.
+- Instagram: connecting now shows a picker, like Facebook, and connects only the account chosen. It used to connect
+  every Instagram account behind every Page it could see.
+
+### Added
+- Disconnect on every channel card that is connected through a login: Instagram (per account, plus Remove), TikTok
+  and Telegram. An account with no conversations is removed; one with history is disconnected and kept so past
+  conversations keep their channel.
+
+### Security
+- Instagram Page tokens are stored encrypted.
 
 ## [2.3.0] - 2026-10-20
 

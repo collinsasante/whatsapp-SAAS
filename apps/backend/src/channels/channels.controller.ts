@@ -123,6 +123,12 @@ export class ChannelsController {
         );
         return res.redirect(`${frontendUrl}/channels?picker=facebook&session=${sessionId}`);
       }
+      if (provider === 'instagram') {
+        const { sessionId } = await this.channelsService.startInstagramAccountSelection(
+          tenantId, userId, code, `${apiUrl}/channels/oauth/${provider}/callback`,
+        );
+        return res.redirect(`${frontendUrl}/channels?picker=instagram&session=${sessionId}`);
+      }
 
       await this.channelsService.connectOAuth(
         provider,
@@ -138,21 +144,21 @@ export class ChannelsController {
   }
 
   @Get('oauth/sessions/:sessionId')
-  @ApiOperation({ summary: 'Candidate Facebook Pages for a pending connection session' })
+  @ApiOperation({ summary: 'Candidate Facebook Pages or Instagram accounts for a pending connection session' })
   getOAuthSession(@CurrentTenant() tenantId: string, @Param('sessionId') sessionId: string) {
-    return this.channelsService.getFacebookConnectSession(tenantId, sessionId);
+    return this.channelsService.getConnectSession(tenantId, sessionId);
   }
 
   @Post('oauth/sessions/:sessionId/select')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Connect the selected Facebook Page(s) from a pending session' })
+  @ApiOperation({ summary: 'Connect the selected Facebook Page(s) or Instagram account(s) from a pending session' })
   selectFacebookPages(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @Param('sessionId') sessionId: string,
     @Body() dto: SelectFacebookPagesDto,
   ) {
-    return this.channelsService.selectFacebookPages(tenantId, user.sub, sessionId, dto.pageIds);
+    return this.channelsService.selectFromSession(tenantId, user.sub, sessionId, dto.pageIds);
   }
 
   @Post('telegram/connect')
