@@ -99,7 +99,7 @@ export default function TasksPage() {
               <ClipboardList size={18} className="text-violet-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Tasks</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Tasks</h1>
               <p className="text-xs text-gray-500">Work handed off from Verz AI to your team: order approvals, forwarded requests and follow-ups</p>
             </div>
           </div>

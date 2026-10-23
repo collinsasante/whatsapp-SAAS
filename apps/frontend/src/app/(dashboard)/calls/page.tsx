@@ -829,7 +829,7 @@ export default function CallsPage() {
       <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Calls</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Calls</h1>
             <p className="text-xs text-gray-500 mt-0.5">Manage and track all calls</p>
           </div>
           <div className="flex items-center gap-2.5">

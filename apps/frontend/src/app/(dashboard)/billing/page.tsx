@@ -729,7 +729,7 @@ export default function BillingPage() {
         <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Billing & Plans</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Billing & Plans</h1>
               <p className="text-sm text-gray-500">Manage your subscription, usage, and invoices</p>
             </div>
             <button onClick={() => { void load(); }}

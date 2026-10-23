@@ -2,7 +2,9 @@
 import { AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Widget } from '@/lib/dashboard/useWidget';
-import { Skeleton } from '@/components/analytics/ui';
+import Skeleton from '@/components/ui/Skeleton';
+import { Button } from '@/components/ui/Button';
+import { CardHeader } from '@/components/ui/Card';
 
 /**
  * Frame for one dashboard widget. It owns the loading, error and retry states so each widget fails on its own:
@@ -22,13 +24,7 @@ export default function WidgetCard<T>({ id, title, description, aside, widget, s
   const { data, loading, error, reload } = widget;
   return (
     <section id={id} aria-labelledby={headingId} aria-busy={loading} className={cn('bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24', className)}>
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <h2 id={headingId} className="text-base font-semibold text-gray-900">{title}</h2>
-          {description && <p className="text-sm text-gray-500 mt-0.5">{description}</p>}
-        </div>
-        {aside}
-      </div>
+      <CardHeader id={headingId} title={title} description={description} aside={aside} />
       {data ? (
         <div className={cn('transition-opacity', loading && 'opacity-60')}>
           {children(data)}
@@ -45,12 +41,7 @@ export default function WidgetCard<T>({ id, title, description, aside, widget, s
             <AlertCircle size={16} className="text-rose-500" aria-hidden="true" />This section could not be loaded
           </p>
           <p className="text-sm text-gray-600">{error}</p>
-          <button
-            onClick={reload}
-            className="px-3 py-1.5 text-sm font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
-          >
-            Try again
-          </button>
+          <Button size="sm" onClick={reload}>Try again</Button>
         </div>
       ) : (
         <Skeleton className={skeletonClassName} />

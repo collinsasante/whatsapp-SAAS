@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react';
 import { greeting, freshness } from '@/lib/dashboard/format';
 import { formatRange } from '@/lib/analytics/format';
 import type { DashboardMeta, DashboardRange } from '@/lib/dashboard/types';
+import PageHeader from '@/components/ui/PageHeader';
 import Toolbar, { PRESETS } from '@/components/analytics/Toolbar';
 import { DASHBOARD_MAX_DAYS } from '@/lib/dashboard/format';
 
@@ -28,23 +29,21 @@ export default function Header({ firstName, meta, range, loading, onPreset, onCu
 
   return (
     <header className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            {greeting(meta?.timezone)}{firstName ? `, ${firstName}` : ''}
-          </h1>
-          <p className="text-sm text-gray-600 mt-0.5">
+      <PageHeader
+        title={<>{greeting(meta?.timezone)}{firstName ? `, ${firstName}` : ''}</>}
+        description={
+          <>
             {meta?.workspaceName ? <span className="font-medium text-gray-800">{meta.workspaceName}</span> : null}
             {meta ? <span>{meta.workspaceName ? ', ' : ''}{formatRange(meta.from, meta.to)}{meta.timezone ? ` (${meta.timezone})` : ''}</span> : <span>Loading your workspace</span>}
-          </p>
-        </div>
-        {fresh && (
+          </>
+        }
+        actions={fresh && (
           <p className={fresh.stale ? 'text-sm text-amber-700 flex items-center gap-1.5' : 'text-sm text-gray-500'} role="status">
             {fresh.stale && <AlertTriangle size={14} aria-hidden="true" />}
             {fresh.stale ? `Data is from ${fresh.text}. Refresh to update it.` : `Updated ${fresh.text}`}
           </p>
         )}
-      </div>
+      />
       <Toolbar
         preset={range.preset}
         presets={DASHBOARD_PRESETS}

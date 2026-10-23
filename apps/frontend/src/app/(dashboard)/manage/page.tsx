@@ -1446,7 +1446,7 @@ function ManagePageInner() {
       {/* Sidebar — desktop only */}
       <aside className="hidden md:block w-56 bg-white border-r border-gray-200 flex-shrink-0 overflow-y-auto">
         <div className="p-4 border-b border-gray-100">
-          <h1 className="text-base font-bold text-gray-900">Manage</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Manage</h1>
           <p className="text-xs text-gray-400 mt-0.5">Operational controls</p>
         </div>
         <nav className="p-2 space-y-0.5">
@@ -1469,7 +1469,7 @@ function ManagePageInner() {
         {/* Mobile header + horizontally scrollable section switcher */}
         <div className="md:hidden sticky top-0 z-10 bg-gray-50">
           <div className="px-4 pt-3 pb-1">
-            <h1 className="text-base font-bold text-gray-900">Manage</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Manage</h1>
             <p className="text-xs text-gray-400 mt-0.5">{activeSection?.label ?? 'Operational controls'}</p>
           </div>
           <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto scrollbar-hide border-b border-gray-200">

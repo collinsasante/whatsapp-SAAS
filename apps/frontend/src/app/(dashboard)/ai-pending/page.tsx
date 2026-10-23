@@ -15,7 +15,7 @@ export default function AiPendingPage() {
           <Clock size={11} /> Coming Soon
         </span>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">AI Conversation Summaries</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-3">AI Conversation Summaries</h1>
         <p className="text-gray-500 text-sm leading-relaxed mb-8">
           Get instant AI-powered insights for every customer conversation, topic detection, sentiment analysis, action items, and resolution summaries, all in one place.
         </p>

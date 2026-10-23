@@ -348,7 +348,7 @@ export default function AiPage() {
             <Brain size={18} className="text-teal-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Verz AI</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Verz AI</h1>
             <p className="text-xs text-gray-500">Knowledge base + after-hours responder</p>
           </div>
         </div>

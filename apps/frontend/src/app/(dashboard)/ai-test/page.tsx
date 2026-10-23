@@ -78,7 +78,7 @@ export default function AiTestPage() {
             <FlaskConical size={18} className="text-violet-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">AI Testing Center</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">AI Testing Center</h1>
             <p className="text-xs text-gray-500">Test AI responses in a sandbox, nothing is sent to customers</p>
           </div>
         </div>

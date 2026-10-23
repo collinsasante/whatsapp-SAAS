@@ -216,7 +216,7 @@ export default function CommerceProductsPage() {
               <Package size={18} className="text-teal-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Products</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Products</h1>
               <p className="text-xs text-gray-500">Your Managed Commerce catalogue, what the AI can sell</p>
             </div>
           </div>
