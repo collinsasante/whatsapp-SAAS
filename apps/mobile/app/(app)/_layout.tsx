@@ -6,6 +6,7 @@ import { useAuthStore } from '../../src/store/auth.store';
 import { useAppTheme } from '../../src/theme/useAppTheme';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+type IoniconColor = React.ComponentProps<typeof Ionicons>['color'];
 
 function TabIcon({
   name,
@@ -14,7 +15,7 @@ function TabIcon({
 }: {
   name: IoniconName;
   focused: boolean;
-  color: string;
+  color: IoniconColor;
 }) {
   return <Ionicons name={focused ? name : (`${name}-outline` as IoniconName)} size={22} color={color} />;
 }
@@ -63,14 +64,14 @@ export default function AppLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: colors.card,
-          borderTopColor: colors.border,
+          backgroundColor: String(colors.card),
+          borderTopColor: String(colors.border),
           borderTopWidth: 1,
           paddingBottom: 4,
           height: 60,
         },
         tabBarActiveTintColor: '#25D366',
-        tabBarInactiveTintColor: isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted,
+        tabBarInactiveTintColor: String(isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted),
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
       }}
     >

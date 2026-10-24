@@ -1,0 +1,12 @@
+{
+  "extends": "./library.json",
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "module": "esnext",
+    "lib": ["ES2022"],
+    "jsx": "react-jsx",
+    "types": ["react", "react-native"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}

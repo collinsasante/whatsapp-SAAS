@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, TouchableOpacity, type ViewProps } from 'react-native';
+import { View, TouchableOpacity, type TouchableOpacityProps } from 'react-native';
 
-interface CardProps extends ViewProps {
-  onPress?: () => void;
+interface CardProps extends Omit<TouchableOpacityProps, 'onPress'> {
+  onPress?: TouchableOpacityProps['onPress'];
   padded?: boolean;
   children: React.ReactNode;
 }

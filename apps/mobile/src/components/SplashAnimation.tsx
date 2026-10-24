@@ -66,7 +66,7 @@ export function SplashAnimation({ visible, onComplete }: SplashAnimationProps) {
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     width,
     height,
     backgroundColor: '#ffffff',

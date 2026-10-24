@@ -83,7 +83,7 @@ export default function MoreScreen() {
       href: '/(app)/settings/templates',
       visible: permissions.showTemplates,
     },
-  ].filter((i) => i.visible);
+  ].filter((item): item is Item => item.visible);
 
   return (
     <SafeAreaView className="flex-1 bg-light-background dark:bg-surface" edges={['top']}>

@@ -54,15 +54,16 @@ export function DialPad() {
 
   // Real-time: contact accepts/rejects the permission request on their phone
   useEffect(() => {
-    const handler = (data: { call: { phone: string; granted: boolean; response: string } }) => {
+    const handler = (data: unknown) => {
+      const payload = data as { call?: { phone?: string; granted?: boolean; response?: string } } | undefined;
       const dialPhone = numberRef.current.trim().replace(/^\+/, '');
-      const eventPhone = (data?.call?.phone ?? '').replace(/^\+/, '');
+      const eventPhone = (payload?.call?.phone ?? '').replace(/^\+/, '');
       if (eventPhone && dialPhone && eventPhone.endsWith(dialPhone.slice(-9))) {
-        setPermission(data.call.granted ? 'granted' : 'denied');
+        setPermission(payload?.call?.granted ? 'granted' : 'denied');
       }
     };
-    socketClient.on('call_permission_updated', handler);
-    return () => socketClient.off('call_permission_updated', handler);
+    socketClient.on('call_permission_updated', handler as (...args: unknown[]) => void);
+    return () => socketClient.off('call_permission_updated', handler as (...args: unknown[]) => void);
   }, []);
 
   const handleClose = () => { setPendingDial(null); setNumber(''); setPermission('unknown'); };
