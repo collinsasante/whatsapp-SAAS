@@ -55,7 +55,7 @@ function Change({ ratio, upIsGood }: { ratio: number | null; upIsGood: boolean |
   const good = upIsGood == null ? null : up === upIsGood;
   const Icon = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium', good == null ? 'text-gray-600' : good ? 'text-emerald-700' : 'text-rose-700')}>
+    <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium', good == null ? 'text-gray-600' : good ? 'text-green-700' : 'text-red-700')}>
       <Icon className="w-3 h-3" aria-hidden="true" />
       {up ? 'Up' : 'Down'} {Math.round(Math.abs(ratio) * 1000) / 10}%{good == null ? '' : good ? ', better' : ', worse'}
     </span>

@@ -16,15 +16,15 @@ export function AuthShell({ title, description, children }: { title: string; des
     <div className="min-h-screen grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] bg-white">
       <aside className="hidden lg:flex flex-col justify-between bg-[#0d1914] text-white p-10">
         <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-md bg-emerald-500/90 flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-emerald-950" /></span>
-          <span className="leading-tight"><span className="block text-sm font-semibold">VerzChat</span><span className="block text-xs text-emerald-200/60">Platform console</span></span>
+          <span className="w-8 h-8 rounded-md bg-green-500/90 flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-green-950" /></span>
+          <span className="leading-tight"><span className="block text-sm font-semibold">VerzChat</span><span className="block text-xs text-green-200/60">Platform console</span></span>
         </div>
         <div className="max-w-sm">
           <h2 className="text-2xl font-semibold tracking-tight leading-snug">The controls for the whole platform, in one place.</h2>
           <ul className="mt-6 space-y-3 text-sm text-gray-300">
-            <li className="flex gap-2.5"><Lock className="w-4 h-4 mt-0.5 text-emerald-300 shrink-0" aria-hidden="true" />For authorised VerzChat administrators only.</li>
-            <li className="flex gap-2.5"><Lock className="w-4 h-4 mt-0.5 text-emerald-300 shrink-0" aria-hidden="true" />Every sign-in and every failed attempt is recorded.</li>
-            <li className="flex gap-2.5"><Lock className="w-4 h-4 mt-0.5 text-emerald-300 shrink-0" aria-hidden="true" />Sensitive changes ask for a reason and are logged with your name.</li>
+            <li className="flex gap-2.5"><Lock className="w-4 h-4 mt-0.5 text-green-300 shrink-0" aria-hidden="true" />For authorised VerzChat administrators only.</li>
+            <li className="flex gap-2.5"><Lock className="w-4 h-4 mt-0.5 text-green-300 shrink-0" aria-hidden="true" />Every sign-in and every failed attempt is recorded.</li>
+            <li className="flex gap-2.5"><Lock className="w-4 h-4 mt-0.5 text-green-300 shrink-0" aria-hidden="true" />Sensitive changes ask for a reason and are logged with your name.</li>
           </ul>
         </div>
         <p className="text-xs text-gray-500">Customer workspaces sign in at the main VerzChat address, not here.</p>
@@ -33,7 +33,7 @@ export function AuthShell({ title, description, children }: { title: string; des
       <main className="flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <span className="w-8 h-8 rounded-md bg-[#0d1914] flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-emerald-300" /></span>
+            <span className="w-8 h-8 rounded-md bg-[#0d1914] flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-green-300" /></span>
             <span className="text-sm font-semibold text-gray-900">VerzChat Platform console</span>
           </div>
           {env && env !== 'Production' && (

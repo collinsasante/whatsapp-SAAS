@@ -86,7 +86,7 @@ export function TenantSubscriptionTab({ data, onChanged }: { data: WorkspaceDeta
             </label>
             <button type="button" disabled={!isSuperAdmin || !dirty || !rateOk} onClick={() => setConfirmCommerce(true)} title={isSuperAdmin ? undefined : 'Only a super admin can change commerce settings'} className="px-3 py-1.5 text-sm font-medium rounded-md bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed">Save</button>
           </div>
-          {!rateOk && <p role="alert" className="text-xs text-rose-700 mt-2">Enter a number from 0 to 100.</p>}
+          {!rateOk && <p role="alert" className="text-xs text-red-700 mt-2">Enter a number from 0 to 100.</p>}
           {!isSuperAdmin && <p className="text-xs text-gray-500 mt-2">Only a super admin can change this.</p>}
         </div>
         <ActionDialog

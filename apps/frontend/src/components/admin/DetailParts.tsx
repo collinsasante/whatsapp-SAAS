@@ -14,7 +14,7 @@ export function CopyId({ value, label = 'ID' }: { value: string; label?: string 
       <span>{label}</span>
       <code className="font-mono text-gray-700 select-all break-all">{value}</code>
       <button type="button" onClick={copy} aria-label={`Copy ${label}`} className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600">
-        {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
+        {copied ? <Check className="w-3.5 h-3.5 text-green-600" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
         <span className="sr-only" role="status">{copied ? 'Copied' : ''}</span>
       </button>
     </span>

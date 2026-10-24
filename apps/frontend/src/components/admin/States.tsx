@@ -20,7 +20,7 @@ export function EmptyState({ title, children, action }: { title: string; childre
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div role="alert" className="flex flex-col items-center text-center gap-2 py-12 px-4">
-      <AlertCircle className="w-6 h-6 text-rose-400" aria-hidden="true" />
+      <AlertCircle className="w-6 h-6 text-red-400" aria-hidden="true" />
       <p className="text-sm font-medium text-gray-900">This could not be loaded</p>
       <p className="text-sm text-gray-500 max-w-md">{message}</p>
       {onRetry && (

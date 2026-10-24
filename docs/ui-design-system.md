@@ -48,3 +48,6 @@ Measured from `apps/frontend/src` (counts of Tailwind colour utilities, `h1` siz
 - Colour changes in 20+ large files are easy to get subtly wrong (status colours changing meaning), so each step is reviewed in a browser, not only type-checked.
 - The frontend has no automated UI tests and no ESLint configuration, so verification is manual and Playwright-driven.
 - The inbox and chat window are intentionally excluded from layout standardisation; they only take tokens.
+- **Steps 2 to 5 (done):** shell active state and accessibility; one status palette (green, amber, red, blue, purple) with dark-mode shades; signed-in pages moved onto it. Chatbot node colours and Channels provider colours are deliberate exceptions.
+- **Step 6 (done):** platform admin moved onto the same palette. The legal pages and Book a demo use the marketing header and footer (links now point to `/#section` so they work from any page); the old landing navbar, footer and `landing.css` are deleted. The `bootstrap` dependency is now unused and can be removed in a separate change that updates the lockfile.
+- **Still open:** card corner radii vary between pages; dark mode is only verified on the Dashboard; tablet widths are unchecked.

@@ -31,7 +31,7 @@ function ActionButton({ icon: Icon, children, onClick, disabled, why, tone }: { 
     <button
       type="button" onClick={onClick} disabled={disabled} title={disabled ? why : undefined}
       className={cn('inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-600',
-        tone === 'danger' ? 'border-rose-300 text-rose-700 hover:bg-rose-50' : 'border-gray-300 text-gray-700 hover:bg-gray-50')}
+        tone === 'danger' ? 'border-red-300 text-red-700 hover:bg-red-50' : 'border-gray-300 text-gray-700 hover:bg-gray-50')}
     >
       <Icon className="w-4 h-4" aria-hidden="true" />{children}
     </button>
@@ -113,7 +113,7 @@ export default function TenantDetailPage() {
       />
       {!canChange && <ReadOnlyNotice />}
       {!data.isActive && (
-        <p role="status" className="mb-4 text-sm text-rose-900 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
+        <p role="status" className="mb-4 text-sm text-red-900 bg-red-50 border border-red-200 rounded-md px-3 py-2">
           <StatusPill tone="danger" className="mr-2">Suspended</StatusPill>Nobody in this workspace can use it, and messages arriving through WhatsApp Cloud API, Messenger and Instagram are not processed. Nothing has been deleted.
         </p>
       )}
@@ -159,7 +159,7 @@ export default function TenantDetailPage() {
       >
         <div className="space-y-3">
           <div><label htmlFor="t-name" className="block text-sm font-medium text-gray-800 mb-1">Name</label><input id="t-name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} className={inputCls} /></div>
-          <div><label htmlFor="t-email" className="block text-sm font-medium text-gray-800 mb-1">Billing email</label><input id="t-email" type="email" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)} aria-invalid={!emailOk} className={inputCls} />{!emailOk && <p role="alert" className="text-xs text-rose-700 mt-1">Enter a valid email address.</p>}</div>
+          <div><label htmlFor="t-email" className="block text-sm font-medium text-gray-800 mb-1">Billing email</label><input id="t-email" type="email" value={billingEmail} onChange={(e) => setBillingEmail(e.target.value)} aria-invalid={!emailOk} className={inputCls} />{!emailOk && <p role="alert" className="text-xs text-red-700 mt-1">Enter a valid email address.</p>}</div>
         </div>
       </ActionDialog>
       <ActionDialog
@@ -175,7 +175,7 @@ export default function TenantDetailPage() {
             <option value="">Choose a plan</option>
             {(plans.data ?? []).map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
           </select>
-          {plans.error && <p role="alert" className="text-xs text-rose-700 mt-1">Plans could not be loaded: {plans.error}</p>}
+          {plans.error && <p role="alert" className="text-xs text-red-700 mt-1">Plans could not be loaded: {plans.error}</p>}
         </div>
       </ActionDialog>
       <ActionDialog
@@ -194,7 +194,7 @@ export default function TenantDetailPage() {
         }}
       >
         <div className="grid grid-cols-2 gap-3">
-          <div><label htmlFor="t-credits" className="block text-sm font-medium text-gray-800 mb-1">Credits</label><input id="t-credits" inputMode="numeric" value={credits} onChange={(e) => setCredits(e.target.value.replace(/[^\d]/g, ''))} aria-invalid={credits !== '' && !creditsOk} className={inputCls} />{credits !== '' && !creditsOk && <p role="alert" className="text-xs text-rose-700 mt-1">A whole number from 1 to {MAX_CREDIT_GRANT.toLocaleString()}.</p>}</div>
+          <div><label htmlFor="t-credits" className="block text-sm font-medium text-gray-800 mb-1">Credits</label><input id="t-credits" inputMode="numeric" value={credits} onChange={(e) => setCredits(e.target.value.replace(/[^\d]/g, ''))} aria-invalid={credits !== '' && !creditsOk} className={inputCls} />{credits !== '' && !creditsOk && <p role="alert" className="text-xs text-red-700 mt-1">A whole number from 1 to {MAX_CREDIT_GRANT.toLocaleString()}.</p>}</div>
           <div><label htmlFor="t-ctype" className="block text-sm font-medium text-gray-800 mb-1">Type</label><select id="t-ctype" value={creditType} onChange={(e) => setCreditType(e.target.value as 'BONUS' | 'ADJUSTMENT')} className={inputCls}><option value="BONUS">Bonus</option><option value="ADJUSTMENT">Adjustment</option></select></div>
         </div>
       </ActionDialog>

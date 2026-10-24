@@ -4,10 +4,10 @@ import MobileMenu from './MobileMenu';
 import styles from './SiteNav.module.css';
 
 export const NAV_LINKS = [
-  { href: '#owner', label: 'Who answers' },
-  { href: '#channels', label: 'Channels' },
-  { href: '#pricing', label: 'Pricing' },
-  { href: '#faq', label: 'FAQ' },
+  { href: '/#owner', label: 'Who answers' },
+  { href: '/#channels', label: 'Channels' },
+  { href: '/#pricing', label: 'Pricing' },
+  { href: '/#faq', label: 'FAQ' },
 ] as const;
 
 export default function SiteNav() {

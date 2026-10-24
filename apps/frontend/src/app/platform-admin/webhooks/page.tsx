@@ -41,7 +41,7 @@ export default function WebhooksPage() {
     { key: 'eventType', header: 'Event', mobile: 'line', cell: (r) => <span className="font-mono text-xs">{r.eventType}</span> },
     { key: 'tenant', header: 'Tenant', mobile: 'line', cell: (r) => (r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-700 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">None</span>) },
     { key: 'attempts', header: 'Attempts', align: 'right', cell: (r) => r.attempts },
-    { key: 'error', header: 'Error', cell: (r) => (r.error ? <span className="text-xs text-rose-800 line-clamp-2 max-w-xs" title={r.error}>{r.error}</span> : <span className="text-gray-400">None</span>) },
+    { key: 'error', header: 'Error', cell: (r) => (r.error ? <span className="text-xs text-red-800 line-clamp-2 max-w-xs" title={r.error}>{r.error}</span> : <span className="text-gray-400">None</span>) },
     {
       key: 'actions', header: '', align: 'right',
       cell: (r) => (r.source === 'PAYSTACK_COMMERCE' && r.status === 'FAILED' ? (

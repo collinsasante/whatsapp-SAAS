@@ -149,7 +149,7 @@ export default function InsightsPage() {
                           <span className="text-gray-500">{f.adoptionPct}%</span>
                         </div>
                         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${f.adoptionPct}%` }} />
+                          <div className="h-full bg-blue-500 rounded-full" style={{ width: `${f.adoptionPct}%` }} />
                         </div>
                       </div>
                     ))}
@@ -182,9 +182,9 @@ export default function InsightsPage() {
                     <p className="text-xs text-gray-400 py-6 text-center">No active WhatsApp numbers</p>
                   ) : (
                     <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-emerald-50 rounded-lg p-3 text-center">
-                        <div className="text-xl font-bold text-emerald-700">{health.whatsappQuality.GREEN}</div>
-                        <div className="text-[11px] text-emerald-600">Green</div>
+                      <div className="bg-green-50 rounded-lg p-3 text-center">
+                        <div className="text-xl font-bold text-green-700">{health.whatsappQuality.GREEN}</div>
+                        <div className="text-[11px] text-green-600">Green</div>
                       </div>
                       <div className="bg-amber-50 rounded-lg p-3 text-center">
                         <div className="text-xl font-bold text-amber-700">{health.whatsappQuality.YELLOW}</div>

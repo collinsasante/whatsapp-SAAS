@@ -19,7 +19,7 @@ function fmt(amount: number, currency = 'USD') {
 }
 
 const STATUS_META: Record<string, string> = {
-  PAID: 'bg-emerald-100 text-emerald-700',
+  PAID: 'bg-green-100 text-green-700',
   OPEN: 'bg-amber-100 text-amber-700',
   DRAFT: 'bg-gray-100 text-gray-500',
   VOID: 'bg-gray-100 text-gray-400',
@@ -117,7 +117,7 @@ export default function BillingPage() {
                         </span>
                       </div>
                       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${s.successRatePct != null && s.successRatePct < 90 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${s.successRatePct ?? 0}%` }} />
+                        <div className={`h-full rounded-full ${s.successRatePct != null && s.successRatePct < 90 ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${s.successRatePct ?? 0}%` }} />
                       </div>
                     </div>
                   ))}

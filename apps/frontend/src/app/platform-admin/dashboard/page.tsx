@@ -176,7 +176,7 @@ export default function PlatformOverviewPage() {
                     ))}
                   </tbody>
                 </table>
-                <p className="text-xs text-gray-500 px-3 py-2 border-t border-gray-100 bg-gray-50/60">
+                <p className="text-xs text-gray-500 px-3 py-2 border-t border-gray-100 bg-gray-50">
                   Net revenue retention {o.netRevenueRetention != null ? `${Math.round(o.netRevenueRetention * 100)}%` : 'is not available yet'} · logo churn {o.logoChurnRate != null ? `${Math.round(o.logoChurnRate * 1000) / 10}%` : 'is not available yet'}
                 </p>
               </div>

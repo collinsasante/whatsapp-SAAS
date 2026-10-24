@@ -7,9 +7,9 @@ const COLUMNS = [
   {
     title: 'Product',
     links: [
-      { href: '#channels', label: 'Channels' },
-      { href: '#pricing', label: 'Pricing' },
-      { href: '#faq', label: 'FAQ' },
+      { href: '/#channels', label: 'Channels' },
+      { href: '/#pricing', label: 'Pricing' },
+      { href: '/#faq', label: 'FAQ' },
       { href: '/changelog', label: 'Changelog' },
       { href: '/api-docs', label: 'API documentation' },
     ],
@@ -52,7 +52,7 @@ export default function SiteFooter() {
             <ul>
               {c.links.map((l) => (
                 <li key={l.href}>
-                  {l.href.startsWith('#') ? <a href={l.href}>{l.label}</a> : <Link href={l.href}>{l.label}</Link>}
+                  {l.href.startsWith('/#') ? <a href={l.href}>{l.label}</a> : <Link href={l.href}>{l.label}</Link>}
                 </li>
               ))}
             </ul>

@@ -19,7 +19,7 @@ export function AttentionPanel({ data, loading, error, onRetry }: { data: Attent
     <div className={cn('rounded-lg border bg-white overflow-hidden', data.items.length > 0 ? 'border-amber-300' : 'border-gray-200', loading && 'opacity-70')}>
       {data.items.length === 0 ? (
         <div className="flex items-start gap-3 p-4">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" aria-hidden="true" />
+          <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5 shrink-0" aria-hidden="true" />
           <div>
             <p className="text-sm font-medium text-gray-900">Nothing needs attention right now</p>
             <p className="text-sm text-gray-600">All {data.checks.length} checks came back clear. That covers only what is listed below, not everything that could go wrong.</p>
@@ -32,11 +32,11 @@ export function AttentionPanel({ data, loading, error, onRetry }: { data: Attent
             return (
               <li key={item.id}>
                 <Link href={item.href} className="group flex items-start gap-3 p-3.5 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-teal-600">
-                  <Icon className={cn('w-5 h-5 mt-0.5 shrink-0', item.severity === 'critical' ? 'text-rose-600' : 'text-amber-600')} aria-hidden="true" />
+                  <Icon className={cn('w-5 h-5 mt-0.5 shrink-0', item.severity === 'critical' ? 'text-red-600' : 'text-amber-600')} aria-hidden="true" />
                   <span className="flex-1 min-w-0">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium text-gray-900">{item.title}</span>
-                      <span className={cn('text-xs font-medium', item.severity === 'critical' ? 'text-rose-700' : 'text-amber-800')}>{item.severity === 'critical' ? 'Critical' : 'Warning'}</span>
+                      <span className={cn('text-xs font-medium', item.severity === 'critical' ? 'text-red-700' : 'text-amber-800')}>{item.severity === 'critical' ? 'Critical' : 'Warning'}</span>
                     </span>
                     <span className="block text-sm text-gray-600 mt-0.5">{item.detail}</span>
                   </span>
@@ -48,7 +48,7 @@ export function AttentionPanel({ data, loading, error, onRetry }: { data: Attent
         </ul>
       )}
 
-      <div className="border-t border-gray-100 bg-gray-50/70 px-3.5 py-2">
+      <div className="border-t border-gray-100 bg-gray-50 px-3.5 py-2">
         <button type="button" onClick={() => setShowChecks((v) => !v)} aria-expanded={showChecks} className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600">
           <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', showChecks && 'rotate-180')} aria-hidden="true" />
           {clearCount} of {data.checks.length} checks clear · checked {formatRelative(data.checkedAt)}
@@ -58,7 +58,7 @@ export function AttentionPanel({ data, loading, error, onRetry }: { data: Attent
             <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
               {data.checks.map((c) => (
                 <li key={c.id} className="flex items-center gap-1.5">
-                  {c.clear ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" /> : <AlertTriangle className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" />}
+                  {c.clear ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" aria-hidden="true" /> : <AlertTriangle className="w-3.5 h-3.5 text-amber-600" aria-hidden="true" />}
                   <span>{c.label}<span className="sr-only">{c.clear ? ': clear' : ': needs attention'}</span></span>
                 </li>
               ))}

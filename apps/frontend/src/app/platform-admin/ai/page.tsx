@@ -49,8 +49,8 @@ export default function AiOverviewPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <KpiCard label="AI Calls" value={data.totals.calls.toLocaleString()} icon={PhoneCall} color="bg-teal-600" />
             <KpiCard label="AI Cost (USD)" value={`$${data.totals.costUsd.toFixed(2)}`} icon={DollarSign} color="bg-amber-500" />
-            <KpiCard label="Credit Revenue (USD)" value={`$${data.totals.revenueUsd.toFixed(2)}`} icon={Zap} color="bg-emerald-600" />
-            <KpiCard label="Margin (USD)" value={`$${data.totals.marginUsd.toFixed(2)}`} icon={TrendingUp} color={data.totals.marginUsd >= 0 ? 'bg-emerald-600' : 'bg-red-500'} />
+            <KpiCard label="Credit Revenue (USD)" value={`$${data.totals.revenueUsd.toFixed(2)}`} icon={Zap} color="bg-green-600" />
+            <KpiCard label="Margin (USD)" value={`$${data.totals.marginUsd.toFixed(2)}`} icon={TrendingUp} color={data.totals.marginUsd >= 0 ? 'bg-green-600' : 'bg-red-500'} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

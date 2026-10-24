@@ -87,7 +87,7 @@ export function ActionDialog({ open, title, description, confirmLabel, tone = 'd
       <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={`${id}-t`} aria-describedby={`${id}-d`} className="relative w-full sm:max-w-md bg-white rounded-t-xl sm:rounded-xl shadow-xl max-h-[90vh] overflow-y-auto">
         <form onSubmit={submit} className="p-5 space-y-4">
           <div className="flex gap-3">
-            {tone === 'danger' && <span className="mt-0.5 shrink-0 w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-rose-600" aria-hidden="true" /></span>}
+            {tone === 'danger' && <span className="mt-0.5 shrink-0 w-8 h-8 rounded-full bg-red-50 flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-red-600" aria-hidden="true" /></span>}
             <div>
               <h2 id={`${id}-t`} className="text-base font-semibold text-gray-900">{title}</h2>
               <div id={`${id}-d`} className="text-sm text-gray-600 mt-1">{description}</div>
@@ -118,13 +118,13 @@ export function ActionDialog({ open, title, description, confirmLabel, tone = 'd
             </div>
           )}
 
-          {error && <p role="alert" className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">{error}</p>}
+          {error && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</p>}
 
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} disabled={pending} className="px-3.5 py-2 text-sm font-medium text-gray-700 rounded-md border border-gray-300 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
             <button
               type="submit" disabled={!ready}
-              className={cn('inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed', tone === 'danger' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-teal-600 hover:bg-teal-700')}
+              className={cn('inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed', tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700')}
             >
               {pending && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
               {confirmLabel}

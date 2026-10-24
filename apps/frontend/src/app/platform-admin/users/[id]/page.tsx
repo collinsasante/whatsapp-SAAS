@@ -46,7 +46,7 @@ export default function UserDetailPage() {
         title={title}
         description={<span className="flex flex-wrap items-center gap-x-3 gap-y-1"><AccountStatus active={data.isActive} /><span className="text-sm text-gray-600">{data.email}</span><CopyId value={data.id} label="User ID" /></span>}
         actions={data.isActive ? (
-          <button onClick={() => setDialog('suspend')} disabled={!canChange} title={canChange ? undefined : 'Your role cannot suspend users'} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          <button onClick={() => setDialog('suspend')} disabled={!canChange} title={canChange ? undefined : 'Your role cannot suspend users'} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed">
             <PauseCircle className="w-4 h-4" aria-hidden="true" />Suspend user
           </button>
         ) : (

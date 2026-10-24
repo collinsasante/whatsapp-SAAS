@@ -68,7 +68,7 @@ export default function OrderDetailPage() {
               {order.ledgerEntries.map((e) => (
                 <div key={e.id} className="flex justify-between text-sm">
                   <span className="text-gray-700">{e.type}</span>
-                  <span className={e.amountMajorUnits < 0 ? 'text-red-600' : 'text-emerald-600'}>
+                  <span className={e.amountMajorUnits < 0 ? 'text-red-600' : 'text-green-600'}>
                     {e.amountMajorUnits > 0 ? '+' : ''}{e.amountMajorUnits.toFixed(2)} {order.currency}
                   </span>
                 </div>
