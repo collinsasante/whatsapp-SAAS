@@ -259,7 +259,7 @@ export function IncomingCallModal() {
   const initials = getInitials(displayName);
 
   const headerBg =
-    state === 'ringing'    ? 'from-emerald-600 to-emerald-500' :
+    state === 'ringing'    ? 'from-green-600 to-green-500' :
     state === 'connecting' ? 'from-teal-700 to-teal-600' :
     state === 'active'     ? 'from-teal-800 to-teal-700' :
     state === 'declined'   ? 'from-red-700 to-red-600' :
@@ -275,7 +275,7 @@ export function IncomingCallModal() {
       )}>
         <div className={cn(
           'bg-white rounded-2xl shadow-2xl border overflow-hidden',
-          state === 'ringing' ? 'border-emerald-200' :
+          state === 'ringing' ? 'border-green-200' :
           state === 'declined' ? 'border-red-200' :
           'border-gray-200',
         )}>
@@ -337,7 +337,7 @@ export function IncomingCallModal() {
                 </button>
                 <button
                   onClick={() => { void handleAccept(); }}
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 text-sm font-semibold transition-colors border border-emerald-100"
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-50 hover:bg-green-100 active:bg-green-200 text-green-700 text-sm font-semibold transition-colors border border-green-100"
                 >
                   <Phone size={15} /> Accept
                 </button>

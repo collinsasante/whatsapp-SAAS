@@ -153,8 +153,8 @@ export default function CommerceEvaluationPage() {
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-violet-50 rounded-xl flex items-center justify-center">
-              <ClipboardCheck size={18} className="text-violet-600" />
+            <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center">
+              <ClipboardCheck size={18} className="text-purple-600" />
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Evaluation Runs</h1>
@@ -164,7 +164,7 @@ export default function CommerceEvaluationPage() {
           <button
             onClick={triggerRun}
             disabled={triggering}
-            className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-500 disabled:opacity-50 transition-colors font-medium"
+            className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors font-medium"
           >
             {triggering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             Run Evaluation

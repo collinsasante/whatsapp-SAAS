@@ -49,9 +49,9 @@ const CHANNELS: ChannelDef[] = [
     description: 'Reach customers where they are. Send campaigns, automate support, and close deals at scale via the Meta Cloud API.',
     badge: 'Popular',
     connectType: 'api',
-    accentClass: 'border-l-emerald-500',
-    accentBg: 'bg-emerald-500',
-    btnClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+    accentClass: 'border-l-green-500',
+    accentBg: 'bg-green-500',
+    btnClass: 'bg-green-600 hover:bg-green-700 text-white',
     btnLabel: 'Connect via API',
     features: ['Broadcast campaigns to thousands', 'Automate replies with keywords', 'Rich media & template messages'],
   },
@@ -113,7 +113,7 @@ const CHANNELS: ChannelDef[] = [
     badge: 'Beta',
     connectType: 'qr',
     accentClass: 'border-l-amber-500',
-    accentBg: 'bg-gradient-to-br from-emerald-500 to-teal-600',
+    accentBg: 'bg-gradient-to-br from-green-500 to-teal-600',
     btnClass: 'bg-gray-900 hover:bg-black text-white',
     btnLabel: 'Connect via QR Code',
     features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial, real ban risk, no SLA'],
@@ -190,7 +190,7 @@ function ChannelIcon({ ch, size = 'md' }: { ch: ChannelDef; size?: 'sm' | 'md' |
 
 function LiveDot({ color = 'emerald' }: { color?: 'emerald' | 'amber' | 'red' | 'gray' }) {
   const colors = {
-    emerald: 'bg-emerald-500',
+    emerald: 'bg-green-500',
     amber: 'bg-amber-500',
     red: 'bg-red-500',
     gray: 'bg-gray-400',
@@ -418,7 +418,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div className="px-6 pb-6 space-y-2">
             <button
               onClick={() => setStep('credentials')}
-              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-emerald-600 hover:bg-emerald-700 text-white transition-all"
+              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-green-600 hover:bg-green-700 text-white transition-all"
             >
               I&apos;ve configured this, continue
             </button>
@@ -434,7 +434,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
                 <input
                   type={f.secret ? 'password' : 'text'} placeholder={f.placeholder}
                   value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-colors"
                 />
               </div>
             ))}
@@ -446,7 +446,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </div>
           <div className="px-6 pb-6 flex gap-2.5">
             <button onClick={() => setStep('webhook')} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Back</button>
-            <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
+            <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
               {saving ? 'Connecting…' : 'Connect'}
             </button>
           </div>
@@ -1016,8 +1016,8 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
 
       {step === 'connected' && (
         <div className="px-6 py-10 flex flex-col items-center gap-3 text-center">
-          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center">
-            <CheckCircle2 size={24} className="text-emerald-600" />
+          <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center">
+            <CheckCircle2 size={24} className="text-green-600" />
           </div>
           <p className="text-sm font-bold text-gray-900">WhatsApp connected!</p>
           {phoneNumber && <p className="text-xs text-gray-500">{phoneNumber}</p>}
@@ -1130,7 +1130,7 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
                   <span className="text-sm font-medium text-gray-800 truncate">{s.phoneNumber ?? s.name}</span>
                   <span className={cn(
                     'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                    meta.dot === 'emerald' && 'bg-emerald-50 text-emerald-700',
+                    meta.dot === 'emerald' && 'bg-green-50 text-green-700',
                     meta.dot === 'amber' && 'bg-amber-50 text-amber-700',
                     meta.dot === 'red' && 'bg-red-50 text-red-700',
                     meta.dot === 'gray' && 'bg-gray-100 text-gray-500',
@@ -1236,8 +1236,8 @@ function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
               </div>
             </div>
             <div className="flex items-center gap-2.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-2xl px-4 py-3 min-w-[110px]">
-              <div className="w-8 h-8 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                <Activity size={15} className="text-emerald-400" />
+              <div className="w-8 h-8 bg-green-500/20 rounded-xl flex items-center justify-center">
+                <Activity size={15} className="text-green-400" />
               </div>
               <div>
                 <p className="text-xl font-bold text-white leading-none">{activeCount}</p>
@@ -1269,7 +1269,7 @@ function StatsBar({ connected }: { connected: ConnectedChannel[] }) {
   const stats = [
     { label: 'Total Platforms', value: CHANNELS.length, icon: <Shield size={16} className="text-slate-500" />, bg: 'bg-slate-50', border: 'border-slate-200' },
     { label: 'Connected', value: connected.length, icon: <Plug2 size={16} className="text-teal-600" />, bg: 'bg-teal-50', border: 'border-teal-200', highlight: true },
-    { label: 'Active & Syncing', value: activeCount, icon: <Activity size={16} className="text-emerald-600" />, bg: 'bg-emerald-50', border: 'border-emerald-200' },
+    { label: 'Active & Syncing', value: activeCount, icon: <Activity size={16} className="text-green-600" />, bg: 'bg-green-50', border: 'border-green-200' },
     { label: 'Not Connected', value: notConnected, icon: <PlugZap size={16} className="text-amber-600" />, bg: 'bg-amber-50', border: 'border-amber-200' },
   ];
 
@@ -1378,8 +1378,8 @@ function ChannelCard({
               <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
                 {isConnected ? (
                   <>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                       {isActive ? 'Connected' : 'Inactive'}
                     </span>
                     <button

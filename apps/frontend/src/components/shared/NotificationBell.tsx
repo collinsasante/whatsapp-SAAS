@@ -9,7 +9,7 @@ import { formatMessageTime } from '@/lib/utils';
 
 const TYPE_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
   NEW_MESSAGE:              { icon: MessageSquare, color: 'text-teal-600',   bg: 'bg-teal-50' },
-  CONVERSATION_ASSIGNED:    { icon: UserPlus,      color: 'text-indigo-600', bg: 'bg-indigo-50' },
+  CONVERSATION_ASSIGNED:    { icon: UserPlus,      color: 'text-blue-600', bg: 'bg-blue-50' },
   CONVERSATION_RESOLVED:    { icon: CheckCheck,    color: 'text-green-600',  bg: 'bg-green-50' },
   CAMPAIGN_COMPLETED:       { icon: Megaphone,     color: 'text-blue-600',   bg: 'bg-blue-50' },
   CAMPAIGN_FAILED:          { icon: Megaphone,     color: 'text-red-600',    bg: 'bg-red-50' },
@@ -32,7 +32,7 @@ function NotifItem({ notif, onRead }: { notif: AppNotification; onRead: (id: str
       onClick={handleClick}
       className={cn(
         'w-full flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left',
-        !notif.isRead && 'bg-teal-50/40',
+        !notif.isRead && 'bg-teal-50',
       )}
     >
       <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5', cfg.bg)}>
