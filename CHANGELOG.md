@@ -7,6 +7,10 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.7.0] - 2026-10-24
+
 ### Security
 - Suspending a workspace or a user now ends their access straight away. Before, only new sign-ins and incoming webhooks
   were blocked, so people who were already signed in kept working (access tokens last up to 30 days, and a session could be
@@ -34,11 +38,22 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - Analytics page rebuilt around three questions: what is happening, why, and what to do next. Admins get a single filtered view (date range, previous-period comparison, channel) with KPIs, trends, an insights list with evidence and next steps, customer and lead pipeline, conversation backlog and reply speed, a busiest-times heatmap, team workload, Verz AI performance, common conversation labels and order revenue. Agents see only their own conversations.
 - Analytics no longer counts the dashboard's own test chats as customer conversations.
 - Revenue now comes from Commerce orders (per currency, never mixed). The old page showed VerzChat's own subscription billing under "Revenue"; that is no longer shown there.
+- Every signed-in page now uses one page-title size, one status palette (green, amber, red, blue, purple) and shared buttons, cards and empty states. Status colours are readable in dark mode, the sidebar highlights only the page you are on, and icon-only controls have names and a visible keyboard focus. The legal pages and Book a demo use the same header and footer as the home page, so their links work from any page.
 - Rebuilt the marketing landing page with a new visual identity: an owner-first story (who answers a customer at 9 pm), an illustrative inbox, honest channel status, and a pricing table generated from the real plan limits. Removed the old landing components, the unverified partner claim in the social preview image, and the fake social proof.
 
 ### Added
 - Platform admin endpoints: `GET /platform-admin/attention`, `/growth` and `/users/:id`, and filters on tenants, users, audit log, payments and credit wallets. No database changes.
 - `GET /analytics/intelligence` (admin only): the aggregated data behind the new page. No database changes.
+
+### Fixed
+- A message that failed to send no longer counts as the first reply to a customer, so median first-reply times in Analytics and the Dashboard are no longer too fast for workspaces with failed sends.
+- Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
+- The Dashboard scrolls, and Analytics no longer scrolls into a blank page at the end.
+- Billing shows an error with a retry button instead of a blank page when its data fails to load.
+
+## [2.6.0] - 2026-10-23
+
+### Added
 - Messenger and Instagram now do what WhatsApp does in the inbox:
   - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails
     when Meta cannot fetch the file from our server. Voice notes are converted so they play.
@@ -48,9 +63,17 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
   - Options Meta does not support (location, contact cards, and documents on Instagram) are hidden in those chats.
 
 ### Fixed
-- A message that failed to send no longer counts as the first reply to a customer, so median first-reply times in Analytics and the Dashboard are no longer too fast for workspaces with failed sends.
-- Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
+- Messenger and Instagram contacts are now named from the Page's conversation list when Meta refuses the direct
+  profile lookup (it needs a permission the app may not have yet). The log line says which route failed and why.
+
+### Upgrade notes
+- **Meta setup for ticks:** delivered and read ticks need `message_deliveries` and `message_reads` (and, for Instagram,
+  `messaging_seen`) subscribed in the Meta app's webhook settings.
+- **Names:** Messenger and Instagram contacts are named from Meta when they next write in. If Meta refuses, the server
+  log says why.
+- **Customers outside your own team** can use Messenger and Instagram only after Meta's App Review (Advanced access).
+- No new settings and no migration.
 
 ## [2.5.0] - 2026-10-23
 
