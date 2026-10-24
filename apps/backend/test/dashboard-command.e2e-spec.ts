@@ -2,6 +2,8 @@ import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { createTestingApp, signTestToken } from './utils/test-app';
+import { ConversationsService } from '../src/conversations/conversations.service';
+import { MetaPhoneStatusClient } from '../src/dashboard/meta-phone-status.client';
 import { testPrisma, resetTestDatabase, createTenantWithUser, disconnectTestDatabase } from './utils/test-db';
 
 /**
@@ -12,7 +14,22 @@ import { testPrisma, resetTestDatabase, createTenantWithUser, disconnectTestData
 describe('GET /dashboard/command/* (e2e)', () => {
   let app: INestApplication;
 
-  beforeAll(async () => { app = await createTestingApp({ validation: true }); });
+  // Meta is never called from tests: this stub answers per phone-number id.
+  const metaStub = {
+    fetch: async (phoneNumberId: string) => {
+      if (phoneNumberId === 'pn-good') {
+        return { ok: true, data: { verified_name: 'Kente Shop', display_phone_number: '+233 20 000 0000', quality_rating: 'GREEN', messaging_limit_tier: 'TIER_1K', code_verification_status: 'VERIFIED', name_status: 'APPROVED', status: 'CONNECTED' } };
+      }
+      return { ok: false, kind: 'TOKEN_INVALID', message: 'Meta rejected the saved access token. Reconnect this number in Channels.' };
+    },
+  };
+
+  beforeAll(async () => {
+    app = await createTestingApp({
+      validation: true,
+      configure: (b) => b.overrideProvider(MetaPhoneStatusClient).useValue(metaStub),
+    });
+  });
   afterAll(async () => { await app.close(); await disconnectTestDatabase(); });
   beforeEach(async () => { await resetTestDatabase(); });
 
@@ -159,7 +176,6 @@ describe('GET /dashboard/command/* (e2e)', () => {
     const { body } = await get('attention', token(app, w)).expect(200);
     const byKind = Object.fromEntries(body.items.map((i: { kind: string }) => [i.kind, i]));
 
-    expect(byKind.requests).toMatchObject({ count: 1, href: '/inbox?status=REQUESTED' });
     expect(byKind.sla_breached).toMatchObject({ count: 1 });
     expect(byKind.unassigned).toMatchObject({ count: 1, href: '/inbox?status=ACTIVE&assignee=unassigned' });
     expect(byKind.awaiting_reply).toMatchObject({ count: 1, href: '/inbox?status=UNREPLIED' });
@@ -171,53 +187,125 @@ describe('GET /dashboard/command/* (e2e)', () => {
     expect(body.notChecked).toEqual([]);
   });
 
-  it('attention: says a check was not run when reply deadlines were never used', async () => {
+  it('attention: runs the reply-deadline check by default and says so when the deadline is turned off', async () => {
     const { tenant, user: admin } = await createTenantWithUser({ role: UserRole.ADMIN });
-    const { body } = await get('attention', token(app, { tenant, admin })).expect(200);
-    expect(body.items).toEqual([]);
-    expect(body.notChecked.map((n: { kind: string }) => n.kind)).toEqual(['sla_breached']);
-    expect(body.checked).not.toContain('sla_breached');
+    const on = (await get('attention', token(app, { tenant, admin })).expect(200)).body;
+    expect(on.notChecked).toEqual([]);
+    expect(on.checked).toContain('sla_breached');
+
+    await testPrisma.tenantSettings.create({ data: { tenantId: tenant.id, replyDeadlineMinutes: null } });
+    const off = (await get('attention', token(app, { tenant, admin })).expect(200)).body;
+    expect(off.items).toEqual([]);
+    expect(off.notChecked.map((n: { kind: string }) => n.kind)).toEqual(['sla_breached']);
+    expect(off.checked).not.toContain('sla_breached');
   });
 
-  it('team: lists people alphabetically with their own workload, never the AI user', async () => {
+  it('requests: counts requests waiting for a person, the overdue ones, and the deadline in force', async () => {
     const w = await seedWorkspace();
-    const { body } = await get('team', token(app, w)).expect(200);
-    expect(body.agents.map((a: { name: string }) => a.name)).toEqual(['Ama']);
-    expect(body.agents[0]).toMatchObject({ assigned: 2, resolved: 1, openNow: 1 });
-    expect(body.agents[0].firstResponse).toMatchObject({ samples: 1, medianSeconds: 600 });
-    expect(body.workload).toEqual({ open: 2, unassigned: 1 });
+    const { body } = await get('requests', token(app, w)).expect(200);
+    expect(body).toMatchObject({ requesting: 1, overdue: 1, deadlineMinutes: 15 });
+    expect(body.oldestWaitingSeconds).toBeGreaterThan(0);
+    expect(body.samples).toHaveLength(1);
+    expect(body.samples[0]).toMatchObject({ conversationId: w.conv3.id, contactName: 'Kojo', overdue: true });
   });
 
-  it('ai: separates AI activity, hand-offs and credits, and never calls an AI message a resolution on its own', async () => {
-    const w = await seedWorkspace();
-    const { body } = await get('ai', token(app, w)).expect(200);
-    expect(body.credits).toEqual({ balance: 42, usedCurrent: 3, usedPrevious: 0 });
-    expect(body.current).toMatchObject({ engagedConversations: 2, autoReplies: 1, suggestions: 1, handedToPerson: 1, resolvedWithoutPerson: 1 });
-    expect(body.coverage.ai).toBe(true);
-    expect(body.enabled).toBe(false);
+  it('business: shows the workspace details, the account and what is still missing, without secrets', async () => {
+    const w = await seedWorkspace({ name: 'Kente Shop' });
+    await testPrisma.tenantSettings.create({ data: { tenantId: w.tenant.id, businessName: 'Kente Shop Ltd', businessEmail: 'hi@kente.test', timezone: 'Africa/Accra' } });
+    const { body } = await get('business', token(app, w)).expect(200);
+    expect(body.business).toMatchObject({ name: 'Kente Shop Ltd', email: 'hi@kente.test', phone: null });
+    expect(body.missing).toEqual(expect.arrayContaining(['phone', 'address', 'website', 'description']));
+    expect(body.missing).not.toContain('email');
+    expect(body.account).toMatchObject({ members: 2, channels: 1, timezone: 'Africa/Accra' }); // the Verz AI user is not a member
+    expect(JSON.stringify(body)).not.toMatch(/accessToken|webhookVerifyToken|passwordHash/);
   });
 
-  it('activity: returns recent events without any message or note content, and excludes test conversations', async () => {
+  it('whatsapp-status: reports each connected number from Meta, falls back honestly, never returns tokens', async () => {
     const w = await seedWorkspace();
-    const res = await get('activity', token(app, w)).expect(200);
-    const kinds = res.body.entries.map((e: { kind: string }) => e.kind);
-    expect(kinds).toEqual(['requested', 'resolved']); // newest first; the note and the eval-conversation event are excluded
-    expect(res.body.entries[1]).toMatchObject({ actorName: 'Ama', contactName: 'Kojo', conversationId: w.conv1.id });
-    expect(JSON.stringify(res.body)).not.toContain('private note text');
+    // A workspace with no WhatsApp number is reported as not connected (a separate workspace: answers are cached per workspace).
+    const fresh = await createTenantWithUser({ role: UserRole.ADMIN });
+    const empty = (await get('whatsapp-status', token(app, { tenant: fresh.tenant, admin: fresh.user }), '').expect(200)).body;
+    expect(empty).toMatchObject({ connected: false, numbers: [] });
+
+    const num = (label: string, phoneNumberId: string) => testPrisma.whatsAppNumber.create({
+      data: { tenantId: w.tenant.id, label, phoneNumberId, wabaId: `waba-${phoneNumberId}`, accessToken: 'secret-token-value', qualityRating: 'YELLOW', messagingLimitTier: 'TIER_250' },
+    });
+    await num('Main line', 'pn-good');
+    await num('Old line', 'pn-bad');
+    // Another workspace's number must never appear.
+    const other = await seedWorkspace({ name: 'Other' });
+    await testPrisma.whatsAppNumber.create({ data: { tenantId: other.tenant.id, label: 'Their line', phoneNumberId: 'pn-good', wabaId: 'w2', accessToken: 'x' } });
+
+    const { body } = await get('whatsapp-status', token(app, w), 'refresh=true').expect(200);
+    expect(body.connected).toBe(true);
+    expect(body.numbers).toHaveLength(2);
+    const good = body.numbers.find((n: { label: string }) => n.label === 'Main line');
+    expect(good.live).toMatchObject({ quality: 'GREEN', messagingLimit: 'TIER_1K', verification: 'VERIFIED', numberStatus: 'CONNECTED' });
+    expect(good.error).toBeNull();
+    const bad = body.numbers.find((n: { label: string }) => n.label === 'Old line');
+    expect(bad.live).toBeNull();
+    expect(bad.error.kind).toBe('TOKEN_INVALID');
+    expect(bad.lastKnown).toMatchObject({ quality: 'YELLOW', messagingLimit: 'TIER_250' });
+    expect(JSON.stringify(body)).not.toContain('secret-token-value');
+    expect(JSON.stringify(body)).not.toContain('Their line');
   });
 
-  it('recommendations: every link points at a page that exists and each item carries evidence', async () => {
-    const w = await seedWorkspace();
-    const { body } = await get('recommendations', token(app, w)).expect(200);
-    expect(Array.isArray(body.insights)).toBe(true);
-    for (const i of body.insights) {
-      expect(i.evidence.length).toBeGreaterThan(0);
-      if (i.link) expect(i.link.href).toMatch(/^\/(inbox|analytics|contacts|campaigns|channels|commerce\/(orders|revenue)|ai|billing|settings)/);
-    }
+  describe('reply deadline setting', () => {
+    const patch = (tkn: string, body: unknown) =>
+      request(app.getHttpServer()).patch('/manage/settings/reply-deadline').set('Authorization', `Bearer ${tkn}`).send(body as object);
+
+    it('lets an admin change it, re-times waiting requests, and applies it to new requests', async () => {
+      const w = await seedWorkspace();
+      const waiting = await testPrisma.conversation.create({
+        data: { tenantId: w.tenant.id, contactId: (await testPrisma.contact.findFirstOrThrow({ where: { tenantId: w.tenant.id } })).id, status: 'REQUESTED', requestedAt: at('2026-03-20T10:00:00Z'), slaDeadline: at('2026-03-20T10:15:00Z') },
+      });
+      const res = await patch(token(app, w), { minutes: 45 }).expect(200);
+      expect(res.body.replyDeadlineMinutes).toBe(45);
+      const retimed = await testPrisma.conversation.findUniqueOrThrow({ where: { id: waiting.id } });
+      expect(retimed.slaDeadline?.toISOString()).toBe('2026-03-20T10:45:00.000Z');
+      // A request already flagged as breached keeps its flag and deadline.
+      const flagged = await testPrisma.conversation.findUniqueOrThrow({ where: { id: w.conv3.id } });
+      expect(flagged.slaBreached).toBe(true);
+      expect(flagged.slaDeadline?.toISOString()).toBe('2026-03-12T09:30:00.000Z');
+      expect((await get('requests', token(app, w)).expect(200)).body.deadlineMinutes).toBe(45);
+
+      // A new request made through the service now gets the new deadline.
+      const open = await testPrisma.conversation.findFirstOrThrow({ where: { tenantId: w.tenant.id, status: 'OPEN' } });
+      const asked = await app.get(ConversationsService).request(w.tenant.id, open.id);
+      const minutes = ((asked.slaDeadline as Date).getTime() - Date.now()) / 60_000;
+      expect(minutes).toBeGreaterThan(44);
+      expect(minutes).toBeLessThanOrEqual(45);
+    });
+
+    it('turns the deadline off with null, and new requests then have no deadline', async () => {
+      const w = await seedWorkspace();
+      await patch(token(app, w), { minutes: null }).expect(200);
+      expect((await get('requests', token(app, w)).expect(200)).body.deadlineMinutes).toBeNull();
+      const open = await testPrisma.conversation.findFirstOrThrow({ where: { tenantId: w.tenant.id, status: 'OPEN' } });
+      const asked = await app.get(ConversationsService).request(w.tenant.id, open.id);
+      expect(asked.slaDeadline).toBeNull();
+    });
+
+    it('rejects values outside 1 to 1440 minutes, fractions and text', async () => {
+      const w = await seedWorkspace();
+      for (const minutes of [0, -5, 1441, 1.5, 'soon', undefined]) await patch(token(app, w), { minutes }).expect(400);
+      await patch(token(app, w), { minutes: 1 }).expect(200);
+      await patch(token(app, w), { minutes: 1440 }).expect(200);
+    });
+
+    it('is admin only and only changes the caller\'s workspace', async () => {
+      const a = await seedWorkspace({ name: 'A' });
+      const b = await seedWorkspace({ name: 'B' });
+      const agent = signTestToken(app, { sub: a.ama.id, email: a.ama.email, tenantId: a.tenant.id, role: UserRole.AGENT });
+      await patch(agent, { minutes: 5 }).expect(403);
+      await patch(token(app, a), { minutes: 5, tenantId: b.tenant.id }).expect(400); // unknown field is rejected
+      await patch(token(app, a), { minutes: 5 }).expect(200);
+      expect((await get('requests', token(app, b)).expect(200)).body.deadlineMinutes).toBe(15);
+    });
   });
 
   describe('security', () => {
-    const paths = ['summary', 'trend', 'attention', 'team', 'ai', 'activity', 'recommendations'];
+    const paths = ['summary', 'trend', 'attention', 'requests', 'business', 'whatsapp-status'];
 
     it('rejects unauthenticated requests', async () => {
       for (const p of paths) await request(app.getHttpServer()).get(`/dashboard/command/${p}`).expect(401);
@@ -238,10 +326,9 @@ describe('GET /dashboard/command/* (e2e)', () => {
       expect(alone.conversations.total).toBe(4); // not 8: B's conversations are not counted
       const attention = (await get('attention', token(app, a)).expect(200)).body;
       expect(JSON.stringify(attention)).not.toContain(b.conv3.id);
-      const activity = (await get('activity', token(app, a)).expect(200)).body;
-      expect(JSON.stringify(activity)).not.toContain(b.conv1.id);
-      const teamNames = (await get('team', token(app, a)).expect(200)).body.agents.length;
-      expect(teamNames).toBe(1);
+      const requests = (await get('requests', token(app, a)).expect(200)).body;
+      expect(JSON.stringify(requests)).not.toContain(b.conv3.id);
+      expect(requests.requesting).toBe(1); // A's own request only, not B's
     });
 
     it('validates the range', async () => {

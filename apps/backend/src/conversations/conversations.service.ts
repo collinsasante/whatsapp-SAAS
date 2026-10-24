@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestEx
 import { ModuleRef } from '@nestjs/core';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { effectiveReplyDeadlineMinutes, replyDeadlineAt } from './reply-deadline.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -25,10 +26,10 @@ const CONV_INCLUDE = {
   channel: CHANNEL_SELECT,
 } as const;
 
-// SLA deadlines: minutes until breach per status
+// Minutes an agent has to resolve a conversation they took over. The deadline for a customer's request for a person
+// is a workspace setting instead (TenantSettings.replyDeadlineMinutes); see requestDeadline().
 const SLA_MINUTES: Record<string, number> = {
-  REQUESTED: 15,   // agent must intervene within 15 min
-  INTERVENED: 120, // agent must resolve within 2 hours
+  INTERVENED: 120,
 };
 
 export interface AiHandlingSummary {
@@ -51,6 +52,12 @@ export class ConversationsService {
     private aiCompletionService: AiCompletionService,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
   ) {}
+
+  /** When a request for a person made now becomes overdue under this workspace's reply deadline (null: no deadline). */
+  private async requestDeadline(tenantId: string): Promise<Date | null> {
+    const settings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { replyDeadlineMinutes: true } });
+    return replyDeadlineAt(new Date(), effectiveReplyDeadlineMinutes(settings));
+  }
 
   // ─── Finders ─────────────────────────────────────────────────────────────
 
@@ -117,7 +124,7 @@ export class ConversationsService {
       orderBy: { updatedAt: 'desc' },
     });
     if (resolved) {
-      const slaDeadline = new Date(Date.now() + SLA_MINUTES.REQUESTED * 60_000);
+      const slaDeadline = await this.requestDeadline(tenantId);
       const reopened = await this.prisma.conversation.update({
         where: { id: resolved.id },
         data: {
@@ -144,7 +151,7 @@ export class ConversationsService {
     }
 
     // Create fresh conversation
-    const slaDeadline = new Date(Date.now() + SLA_MINUTES.REQUESTED * 60_000);
+    const slaDeadline = await this.requestDeadline(tenantId);
     const newConv = await this.prisma.conversation.create({
       data: {
         tenantId, contactId, status: ConversationStatus.REQUESTED, requestedAt: new Date(), slaDeadline,
@@ -305,7 +312,7 @@ export class ConversationsService {
     const existing = await this.findOne(tenantId, id);
     if (existing.status === ConversationStatus.REQUESTED) return existing;
 
-    const slaDeadline = new Date(Date.now() + SLA_MINUTES.REQUESTED * 60_000);
+    const slaDeadline = await this.requestDeadline(tenantId);
 
     const result = await this.prisma.conversation.update({
       where: { id },
@@ -574,7 +581,7 @@ export class ConversationsService {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv || conv.status !== ConversationStatus.RESOLVED) return;
 
-    const slaDeadline = new Date(Date.now() + SLA_MINUTES.REQUESTED * 60_000);
+    const slaDeadline = await this.requestDeadline(tenantId);
     await this.prisma.conversation.update({
       where: { id: conversationId },
       data: {

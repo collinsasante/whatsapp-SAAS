@@ -335,10 +335,11 @@ export const dashboardApi = {
   summary: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/summary', { params, signal }),
   trend: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/trend', { params, signal }),
   attention: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/attention', { params, signal }),
-  team: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/team', { params, signal }),
-  ai: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/ai', { params, signal }),
-  activity: (signal?: AbortSignal) => api.get('/dashboard/command/activity', { signal }),
-  recommendations: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/recommendations', { params, signal }),
+  requests: (signal?: AbortSignal) => api.get('/dashboard/command/requests', { signal }),
+  business: (signal?: AbortSignal) => api.get('/dashboard/command/business', { signal }),
+  /** `refresh` asks Meta again instead of using the answer cached for the last minute. */
+  whatsappStatus: (refresh: boolean, signal?: AbortSignal) =>
+    api.get('/dashboard/command/whatsapp-status', { params: refresh ? { refresh: 'true' } : undefined, signal }),
 };
 
 export const analyticsApi = {
@@ -532,6 +533,8 @@ export const manageSettingsApi = {
   updateWelcome: (data: { welcomeEnabled?: boolean; welcomeMessage?: string }) =>
     api.patch('/manage/settings/welcome', data),
   updateOffHours: (data: Record<string, unknown>) => api.patch('/manage/settings/off-hours', data),
+  /** `minutes` 1 to 1440, or null to turn the reply deadline off. */
+  updateReplyDeadline: (minutes: number | null) => api.patch('/manage/settings/reply-deadline', { minutes }),
   updateOptInOut: (data: Record<string, unknown>) => api.patch('/manage/settings/opt-in-out', data),
   updateWidget: (data: Record<string, unknown>) => api.patch('/manage/settings/widget', data),
   updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string; aiMode?: string; aiPilotGroup?: boolean }) =>

@@ -5,8 +5,6 @@ const HOUR = 3600;
 
 export interface AttentionInput {
   backlog: BacklogSnapshot;
-  /** Conversations in REQUESTED status: the customer asked for a person (or the AI handed off) and nobody has taken over. */
-  requested: number;
   /** Requested conversations past their reply deadline. Null when the workspace has never set up reply deadlines. */
   slaBreachedRequested: number | null;
   failedDeliveries: { count: number; samples: AttentionConversation[] };
@@ -32,15 +30,6 @@ function formatAge(seconds: number): string {
 export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
   const { backlog } = input;
   const items: AttentionItem[] = [];
-
-  if (input.requested > 0) {
-    items.push({
-      kind: 'requests', severity: 'warning', count: input.requested,
-      title: `${plural(input.requested, 'customer')} waiting for a person`,
-      detail: 'They asked for a person, or Verz AI handed the conversation over, and nobody has taken it yet.',
-      href: '/inbox?status=REQUESTED', samples: [],
-    });
-  }
 
   if (input.slaBreachedRequested != null && input.slaBreachedRequested > 0) {
     items.push({
@@ -112,5 +101,5 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
 }
 
 export const ATTENTION_KINDS: AttentionKind[] = [
-  'requests', 'unassigned', 'awaiting_reply', 'sla_breached', 'failed_deliveries', 'failed_campaigns', 'channel_problems',
+  'unassigned', 'awaiting_reply', 'sla_breached', 'failed_deliveries', 'failed_campaigns', 'channel_problems',
 ];

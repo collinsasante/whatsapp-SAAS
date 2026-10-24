@@ -18,3 +18,10 @@ export class DashboardRangeQueryDto {
   @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' })
   to?: string;
 }
+
+export class WhatsAppStatusQueryDto {
+  /** `true` asks for a fresh check with Meta instead of the answer cached for the last minute. */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  refresh?: 'true' | 'false';
+}
