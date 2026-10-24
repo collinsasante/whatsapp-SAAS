@@ -64,7 +64,7 @@ export default function BusinessCard({ data }: { data: DashboardBusiness }) {
       )}
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4 pt-4 border-t border-gray-100">
-        <Fact label="Plan" value={<span className="inline-flex flex-wrap items-center gap-1.5">{a.plan}{status && <StatusBadge tone={status.tone}>{status.label}</StatusBadge>}</span>} />
+        <Fact label="Plan" value={<span className="inline-flex flex-wrap items-center gap-1.5">{a.plan.charAt(0).toUpperCase() + a.plan.slice(1)}{status && <StatusBadge tone={status.tone}>{status.label}</StatusBadge>}</span>} />
         <Fact label={renewLabel} value={renews ?? 'Not set'} />
         <Fact label="Team members" value={formatNumber(a.members)} />
         <Fact label="Connected channels" value={formatNumber(a.channels)} />
