@@ -20,7 +20,6 @@ import WidgetCard from '@/components/dashboard/WidgetCard';
 import KpiCards from '@/components/dashboard/KpiCards';
 import TrendCard from '@/components/dashboard/TrendCard';
 import AttentionCard from '@/components/dashboard/AttentionCard';
-import RequestsCard from '@/components/dashboard/RequestsCard';
 import BusinessCard from '@/components/dashboard/BusinessCard';
 import WhatsAppCard from '@/components/dashboard/WhatsAppCard';
 
@@ -106,12 +105,12 @@ export default function DashboardPage() {
       {enabled && (
         <>
           {summary.data ? (
-            <KpiCards data={summary.data} range={range} />
+            <KpiCards data={summary.data} range={range} requests={requests} />
           ) : summary.error ? (
             <WidgetCard id="kpis" title="Key numbers" widget={summary}>{() => null}</WidgetCard>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24" aria-busy="true" aria-label="Loading key numbers">
-              {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-40" />)}
+              {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-40" />)}
             </div>
           )}
 
@@ -127,9 +126,6 @@ export default function DashboardPage() {
           {/* Workspace state: waiting requests and WhatsApp health stacked on the left, the business and account on the right. */}
           <div className="grid gap-4 sm:gap-5 lg:grid-cols-2 lg:items-start">
             <div className="space-y-4 sm:space-y-5">
-              <WidgetCard id="requests" title="Requesting" description="Customers waiting for a person" widget={requests}>
-                {(data) => <RequestsCard data={data} />}
-              </WidgetCard>
               <WidgetCard id="whatsapp" title="WhatsApp account status" description="As reported by Meta" widget={whatsapp}>
                 {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
               </WidgetCard>

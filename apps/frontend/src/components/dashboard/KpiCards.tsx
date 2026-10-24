@@ -5,10 +5,14 @@ import { cn } from '@/lib/utils';
 import { compare, formatDuration, formatMoney, formatNumber } from '@/lib/analytics/format';
 import { DASHBOARD_METRICS } from '@/lib/dashboard/metrics';
 import { analyticsHref, pointsDelta, periodWord } from '@/lib/dashboard/format';
-import type { DashboardRange, DashboardSummary, PeriodSummary } from '@/lib/dashboard/types';
+import type { DashboardRange, DashboardRequests, DashboardSummary, PeriodSummary } from '@/lib/dashboard/types';
 import type { MetricDefinition } from '@/lib/analytics/metrics';
 import type { Delta } from '@/lib/analytics/format';
 import { DeltaView, InfoTip } from '@/components/analytics/ui';
+import { CardHeader } from '@/components/ui/Card';
+import Skeleton from '@/components/ui/Skeleton';
+import RequestsCard from '@/components/dashboard/RequestsCard';
+import type { Widget } from '@/lib/dashboard/useWidget';
 
 interface Card {
   key: string;
@@ -98,22 +102,17 @@ export function buildCards(data: DashboardSummary, range: DashboardRange): Card[
   return cards;
 }
 
-/**
- * The last card takes whatever room is left in its row, so the grid never ends with an empty slot
- * (two columns from sm up, three from xl up).
- */
-function lastCardSpan(count: number): string {
-  const sm = count % 2 === 1 ? 'sm:col-span-2' : '';
-  const xl = count % 3 === 2 ? 'xl:col-span-2' : count % 3 === 1 ? 'xl:col-span-3' : sm ? 'xl:col-span-1' : '';
-  return cn(sm, xl);
-}
-
-export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
+export default function KpiCards({ data, range, requests }: {
+  data: DashboardSummary;
+  range: DashboardRange;
+  requests: Widget<DashboardRequests>;
+}) {
   const cards = buildCards(data, range);
+  const finalCard = cards[cards.length - 1];
   return (
     <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24" aria-label="Key numbers">
-      {cards.map((card, i) => (
-        <li key={card.key} className={cn('bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col', i === cards.length - 1 && lastCardSpan(cards.length))}>
+      {cards.slice(0, -1).map((card) => (
+        <li key={card.key} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col">
           <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
             <span>{card.definition.label}</span>
             <InfoTip definition={card.definition} />
@@ -134,6 +133,53 @@ export default function KpiCards({ data, range }: { data: DashboardSummary; rang
           </Link>
         </li>
       ))}
+      {finalCard && (
+        <li className="sm:col-span-2 xl:col-span-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col sm:col-span-2 xl:col-span-2">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
+                <span>{finalCard.definition.label}</span>
+                <InfoTip definition={finalCard.definition} />
+              </div>
+              <p className="text-3xl font-semibold text-gray-900 tabular-nums mt-1.5">{finalCard.value}</p>
+              <div className="mt-1 min-h-[1.25rem]">
+                {finalCard.delta && finalCard.delta.verdict !== 'unknown'
+                  ? <span className="inline-flex items-center gap-1.5"><DeltaView delta={finalCard.delta} /><span className="text-xs text-gray-500">vs {periodWord(range)}</span></span>
+                  : <span className="text-xs text-gray-500">{finalCard.delta?.label ?? 'No comparison'}</span>}
+              </div>
+              <p className="text-sm text-gray-600 mt-2 flex-1">{finalCard.explanation}</p>
+              <Link
+                href={finalCard.href}
+                className={cn('inline-flex items-center gap-0.5 mt-3 text-sm font-medium text-teal-700 hover:underline w-fit',
+                  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded')}
+              >
+                {finalCard.linkLabel}<ChevronRight size={14} aria-hidden="true" />
+              </Link>
+            </div>
+            <section id="requests" aria-labelledby="requests-heading" className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col">
+              <CardHeader id="requests-heading" title="Requesting" description="Customers waiting for a person" />
+              {requests.data ? (
+                <div className={cn('flex-1', requests.loading && 'opacity-60')}>
+                  <RequestsCard data={requests.data} />
+                  {requests.error && (
+                    <p role="alert" className="mt-3 text-sm text-red-700">
+                      Could not refresh this section. {requests.error}{' '}
+                      <button onClick={requests.reload} className="font-medium underline hover:no-underline">Try again</button>
+                    </p>
+                  )}
+                </div>
+              ) : requests.error ? (
+                <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-50 border border-red-100 p-4">
+                  <p className="text-sm text-gray-600">{requests.error}</p>
+                  <button onClick={requests.reload} className="text-sm font-medium underline hover:no-underline">Try again</button>
+                </div>
+              ) : (
+                <Skeleton className="h-40" />
+              )}
+            </section>
+          </div>
+        </li>
+      )}
     </ul>
   );
 }
