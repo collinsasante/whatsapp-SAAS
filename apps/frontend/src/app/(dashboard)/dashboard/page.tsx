@@ -105,18 +105,6 @@ export default function DashboardPage() {
 
       {enabled && (
         <>
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
-            <WidgetCard id="requests" title="Requesting" description="Customers waiting for a person" widget={requests}>
-              {(data) => <RequestsCard data={data} />}
-            </WidgetCard>
-            <WidgetCard id="whatsapp" title="WhatsApp account status" description="As reported by Meta" widget={whatsapp}>
-              {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
-            </WidgetCard>
-            <WidgetCard id="business" title="Business and account" description="Your business details and plan" widget={business}>
-              {(data) => <BusinessCard data={data} />}
-            </WidgetCard>
-          </div>
-
           {summary.data ? (
             <KpiCards data={summary.data} range={range} />
           ) : summary.error ? (
@@ -133,6 +121,21 @@ export default function DashboardPage() {
             </WidgetCard>
             <WidgetCard id="attention" title="Needs attention" description="Things waiting on you right now" widget={attention} skeletonClassName="h-80">
               {(data) => <AttentionCard data={data} />}
+            </WidgetCard>
+          </div>
+
+          {/* Workspace state: waiting requests and WhatsApp health stacked on the left, the business and account on the right. */}
+          <div className="grid gap-4 sm:gap-5 lg:grid-cols-2 lg:items-start">
+            <div className="space-y-4 sm:space-y-5">
+              <WidgetCard id="requests" title="Requesting" description="Customers waiting for a person" widget={requests}>
+                {(data) => <RequestsCard data={data} />}
+              </WidgetCard>
+              <WidgetCard id="whatsapp" title="WhatsApp account status" description="As reported by Meta" widget={whatsapp}>
+                {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
+              </WidgetCard>
+            </div>
+            <WidgetCard id="business" title="Business and account" description="Your business details and plan" widget={business}>
+              {(data) => <BusinessCard data={data} />}
             </WidgetCard>
           </div>
         </>

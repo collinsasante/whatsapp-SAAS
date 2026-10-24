@@ -98,12 +98,22 @@ export function buildCards(data: DashboardSummary, range: DashboardRange): Card[
   return cards;
 }
 
+/**
+ * The last card takes whatever room is left in its row, so the grid never ends with an empty slot
+ * (two columns from sm up, three from xl up).
+ */
+function lastCardSpan(count: number): string {
+  const sm = count % 2 === 1 ? 'sm:col-span-2' : '';
+  const xl = count % 3 === 2 ? 'xl:col-span-2' : count % 3 === 1 ? 'xl:col-span-3' : sm ? 'xl:col-span-1' : '';
+  return cn(sm, xl);
+}
+
 export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
   const cards = buildCards(data, range);
   return (
     <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" aria-label="Key numbers">
-      {cards.map((card) => (
-        <li key={card.key} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col">
+      {cards.map((card, i) => (
+        <li key={card.key} className={cn('bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col', i === cards.length - 1 && lastCardSpan(cards.length))}>
           <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
             <span>{card.definition.label}</span>
             <InfoTip definition={card.definition} />
