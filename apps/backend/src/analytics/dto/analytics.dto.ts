@@ -35,3 +35,14 @@ export class CampaignsQueryDto extends DateRangeQueryDto {
   @Min(0)
   offset?: number;
 }
+
+export class IntelligenceQueryDto extends DateRangeQueryDto {
+  /** Relative range, resolved in the workspace timezone. When omitted, `from` and `to` are used. */
+  @IsOptional()
+  @IsIn(['today', '7d', '30d', '90d', 'custom'])
+  preset?: 'today' | '7d' | '30d' | '90d' | 'custom';
+
+  @IsOptional()
+  @IsIn(['ALL', 'WHATSAPP', 'FACEBOOK_MESSENGER', 'INSTAGRAM'])
+  channel?: 'ALL' | 'WHATSAPP' | 'FACEBOOK_MESSENGER' | 'INSTAGRAM';
+}

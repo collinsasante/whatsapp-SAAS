@@ -15,7 +15,7 @@ export function LiveBadge({
   return (
     <div className="flex items-center gap-2">
       <span className="flex items-center gap-1.5 text-xs text-gray-400">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
         Updated {label}
       </span>
       <button

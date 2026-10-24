@@ -3,7 +3,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const INTERVAL_MS = 30_000;
 
-export function useAutoRefresh(load: () => Promise<void> | void) {
+/**
+ * Loads on mount, every 30 seconds, and whenever `deps` change. Pass `deps` (for example the current page) whenever
+ * `load` is an inline function: without them the effect below re-runs on every render, because an inline function is a
+ * new function each time, and the page requests the API in a loop until the rate limiter stops it.
+ */
+export function useAutoRefresh(load: () => Promise<void> | void, deps?: ReadonlyArray<unknown>) {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [secondsAgo, setSecondsAgo] = useState(0);
   const loadRef = useRef(load);
@@ -22,7 +27,7 @@ export function useAutoRefresh(load: () => Promise<void> | void) {
   // Changing a filter/search/sort/page updated the relevant state and re-rendered,
   // but never actually re-fetched -- the table just sat there showing stale data
   // until the next 30s auto-poll tick or a manual refresh click papered over it.
-  useEffect(() => { void refresh(); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void refresh(); }, deps ?? [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-poll every 30 s
   useEffect(() => {

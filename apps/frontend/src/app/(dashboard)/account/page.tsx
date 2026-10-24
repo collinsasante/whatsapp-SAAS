@@ -11,9 +11,9 @@ import { userRoleToWorkspaceRole, workspaceRoleDescription, workspaceRoleLabel }
 const WORKSPACE_ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-orange-100 text-orange-700',
   ADMIN: 'bg-blue-100 text-blue-700',
-  MANAGER: 'bg-indigo-100 text-indigo-700',
+  MANAGER: 'bg-blue-100 text-blue-700',
   AGENT: 'bg-teal-100 text-teal-700',
-  ANALYST: 'bg-cyan-100 text-cyan-700',
+  ANALYST: 'bg-blue-100 text-blue-700',
   VIEWER: 'bg-gray-100 text-gray-600',
 };
 
@@ -200,7 +200,7 @@ export default function AccountPage() {
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-6">
       <div className="max-w-2xl mx-auto space-y-6">
-        <h1 className="text-xl font-bold text-gray-900">My Account</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">My Account</h1>
 
         {/* Profile card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

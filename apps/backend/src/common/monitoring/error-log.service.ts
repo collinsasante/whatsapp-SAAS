@@ -17,6 +17,7 @@ export interface ListErrorLogsParams {
   status?: string;
   severity?: string;
   tenantId?: string;
+  service?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -62,9 +63,10 @@ export class ErrorLogService {
   }
 
   async list(params: ListErrorLogsParams) {
-    const { status, severity, tenantId, search, limit = 50, offset = 0 } = params;
+    const { status, severity, tenantId, service, search, limit = 50, offset = 0 } = params;
     const where = {
       ...(status ? { status } : {}),
+      ...(service ? { service } : {}),
       ...(severity ? { severity } : {}),
       ...(tenantId ? { tenantId } : {}),
       ...(search ? { message: { contains: search, mode: 'insensitive' as const } } : {}),

@@ -4,6 +4,7 @@ import {
   Plus, Play, Pause, BarChart3, X, AlertCircle, Search, RefreshCw,
   ChevronRight, Users, Send, CheckCheck, Eye,
   Filter, Upload, Tag, Layers, Trash2,
+  CalendarDays,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { campaignsApi, templatesApi, segmentsApi, apiKeysApi } from '@/lib/api';
@@ -56,7 +57,7 @@ type AudienceMode = 'all' | 'segment' | 'label' | 'csv';
 const STATUS_META: Record<string, { label: string; cls: string; dot: string }> = {
   DRAFT:     { label: 'Draft',     cls: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400' },
   SCHEDULED: { label: 'Scheduled', cls: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
-  RUNNING:   { label: 'Running',   cls: 'bg-yellow-100 text-yellow-700', dot: 'bg-yellow-500' },
+  RUNNING:   { label: 'Running',   cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
   PAUSED:    { label: 'Paused',    cls: 'bg-orange-100 text-orange-700', dot: 'bg-orange-400' },
   COMPLETED: { label: 'Completed', cls: 'bg-teal-100 text-teal-700',    dot: 'bg-teal-500' },
   FAILED:    { label: 'Failed',    cls: 'bg-red-100 text-red-600',      dot: 'bg-red-500' },
@@ -341,7 +342,7 @@ export default function CampaignsPage() {
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Campaigns</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Campaigns</h1>
             <p className="text-sm text-gray-500 hidden sm:block">Broadcast messages to your WhatsApp contacts</p>
           </div>
           <div className="flex items-center gap-2">
@@ -532,8 +533,8 @@ export default function CampaignsPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', typeMeta.cls)}>{typeMeta.label}</span>
                       {campaign.scheduledAt && (
-                        <span className="text-xs text-blue-600">
-                          📅 {new Date(campaign.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600">
+                          <CalendarDays size={12} aria-hidden="true" />{new Date(campaign.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                     </div>
@@ -619,7 +620,7 @@ export default function CampaignsPage() {
               {/* Broadcast Campaign */}
               <button
                 onClick={() => { setShowTypeSelect(false); resetForm(); setShowCreate(true); }}
-                className="group flex flex-col items-start gap-3 p-5 border-2 border-teal-200 rounded-2xl hover:border-teal-500 hover:bg-teal-50/50 transition-all text-left"
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-teal-200 rounded-2xl hover:border-teal-500 hover:bg-teal-50 transition-all text-left"
               >
                 <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
                   <Send size={18} />
@@ -634,16 +635,16 @@ export default function CampaignsPage() {
               {/* CSV Broadcast */}
               <button
                 onClick={() => { setShowTypeSelect(false); resetForm(); setAudienceMode('csv'); setShowCreate(true); }}
-                className="group flex flex-col items-start gap-3 p-5 border-2 border-emerald-200 rounded-2xl hover:border-emerald-500 hover:bg-emerald-50/50 transition-all text-left"
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-green-200 rounded-2xl hover:border-green-500 hover:bg-green-50 transition-all text-left"
               >
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-green-100 text-green-700 flex items-center justify-center">
                   <Upload size={18} />
                 </div>
                 <div>
                   <p className="font-semibold text-gray-900 text-sm">CSV Broadcast</p>
                   <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Upload a CSV or TXT file with phone numbers and send to that exact list.</p>
                 </div>
-                <span className="text-xs font-semibold text-emerald-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
+                <span className="text-xs font-semibold text-green-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
               </button>
 
               {/* API Campaign */}
@@ -659,22 +660,22 @@ export default function CampaignsPage() {
                   } catch { setApiKeys([]); }
                   setShowApiCreate(true);
                 }}
-                className="group flex flex-col items-start gap-3 p-5 border-2 border-indigo-200 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50/50 transition-all text-left"
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-blue-200 rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
               >
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
                   <Layers size={18} />
                 </div>
                 <div>
                   <p className="font-semibold text-gray-900 text-sm">API Campaign</p>
                   <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Send personalized template messages programmatically from your own systems via REST API.</p>
                 </div>
-                <span className="text-xs font-semibold text-indigo-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
+                <span className="text-xs font-semibold text-blue-600 group-hover:translate-x-0.5 transition-transform">Get started →</span>
               </button>
 
               {/* Meta Ads */}
               <button
                 onClick={() => { setShowTypeSelect(false); setMetaStep(1); setMetaForm({ name: '', phoneNumber: '', welcomeText: '' }); setShowMetaAdsCreate(true); }}
-                className="group flex flex-col items-start gap-3 p-5 border-2 border-blue-200 rounded-2xl hover:border-blue-500 hover:bg-blue-50/50 transition-all text-left"
+                className="group flex flex-col items-start gap-3 p-5 border-2 border-blue-200 rounded-2xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left"
               >
                 <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
                   <BarChart3 size={18} />
@@ -985,12 +986,12 @@ export default function CampaignsPage() {
                   {['Template', 'Variable Schema', 'Integration'].map((label, i) => (
                     <div key={label} className="flex items-center gap-2 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold', apiStep > i + 1 ? 'bg-indigo-600 text-white' : apiStep === i + 1 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500')}>
+                        <div className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold', apiStep > i + 1 ? 'bg-blue-600 text-white' : apiStep === i + 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500')}>
                           {apiStep > i + 1 ? '✓' : i + 1}
                         </div>
-                        <span className={cn('text-xs font-medium', apiStep === i + 1 ? 'text-indigo-700' : 'text-gray-400')}>{label}</span>
+                        <span className={cn('text-xs font-medium', apiStep === i + 1 ? 'text-blue-700' : 'text-gray-400')}>{label}</span>
                       </div>
-                      {i < 2 && <div className={cn('flex-1 h-0.5 mx-1', apiStep > i + 1 ? 'bg-indigo-500' : 'bg-gray-200')} />}
+                      {i < 2 && <div className={cn('flex-1 h-0.5 mx-1', apiStep > i + 1 ? 'bg-blue-500' : 'bg-gray-200')} />}
                     </div>
                   ))}
                 </div>
@@ -1004,13 +1005,13 @@ export default function CampaignsPage() {
                       <input type="text" placeholder="e.g. Order Confirmation API"
                         value={apiForm.name}
                         onChange={(e) => setApiForm(f => ({ ...f, name: e.target.value }))}
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-gray-700 mb-1.5 block">WhatsApp Template *</label>
                       <select value={apiForm.templateId}
                         onChange={(e) => setApiForm(f => ({ ...f, templateId: e.target.value, variableDescriptions: {} }))}
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                         <option value="">Choose an approved template…</option>
                         {templates.map((t) => <option key={t.id} value={t.id}>{t.name}: {t.language}</option>)}
                       </select>
@@ -1022,7 +1023,7 @@ export default function CampaignsPage() {
                           <p key={i} className="text-xs text-gray-600">{c.text}</p>
                         ))}
                         {apiTemplateVars.length > 0 && (
-                          <p className="text-xs text-indigo-600 font-medium mt-1">{apiTemplateVars.length} variable{apiTemplateVars.length > 1 ? 's' : ''} detected: {apiTemplateVars.map(v => `{{${v}}}`).join(', ')}</p>
+                          <p className="text-xs text-blue-600 font-medium mt-1">{apiTemplateVars.length} variable{apiTemplateVars.length > 1 ? 's' : ''} detected: {apiTemplateVars.map(v => `{{${v}}}`).join(', ')}</p>
                         )}
                       </div>
                     )}
@@ -1042,7 +1043,7 @@ export default function CampaignsPage() {
                             <input type="text" placeholder="e.g. Customer name, Order ID, Amount…"
                               value={apiForm.variableDescriptions[v] ?? ''}
                               onChange={(e) => setApiForm(f => ({ ...f, variableDescriptions: { ...f.variableDescriptions, [v]: e.target.value } }))}
-                              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                           </div>
                         ))}
                       </div>
@@ -1052,12 +1053,12 @@ export default function CampaignsPage() {
 
                 {apiStep === 3 && (
                   <>
-                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3">
-                      <p className="text-xs font-semibold text-indigo-800 mb-1">Endpoint</p>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                      <p className="text-xs font-semibold text-blue-800 mb-1">Endpoint</p>
                       <div className="flex items-center gap-2">
-                        <code className="flex-1 text-xs font-mono text-indigo-700 break-all">POST {apiBaseUrl}/api/v1/send</code>
+                        <code className="flex-1 text-xs font-mono text-blue-700 break-all">POST {apiBaseUrl}/api/v1/send</code>
                         <button onClick={() => { void navigator.clipboard.writeText(`${apiBaseUrl}/api/v1/send`); toast.success('Copied!'); }}
-                          className="text-xs text-indigo-600 font-semibold whitespace-nowrap">Copy</button>
+                          className="text-xs text-blue-600 font-semibold whitespace-nowrap">Copy</button>
                       </div>
                     </div>
 
@@ -1089,7 +1090,7 @@ export default function CampaignsPage() {
                             finally { setCreatingApiKey(false); }
                           }}
                           disabled={creatingApiKey}
-                          className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold disabled:opacity-50"
+                          className="text-xs text-blue-600 hover:text-blue-800 font-semibold disabled:opacity-50"
                         >
                           {creatingApiKey ? 'Creating…' : '+ New key'}
                         </button>
@@ -1126,7 +1127,7 @@ export default function CampaignsPage() {
                         <div className="flex items-center justify-between mb-1.5">
                           <p className="text-xs font-semibold text-gray-700">cURL Example</p>
                           <button onClick={() => { void navigator.clipboard.writeText(exampleCurl); toast.success('Copied!'); }}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Copy</button>
+                            className="text-xs text-blue-600 hover:text-blue-800 font-semibold">Copy</button>
                         </div>
                         <div className="bg-gray-900 rounded-xl p-3 text-xs font-mono text-gray-300 overflow-x-auto">
                           <pre>{exampleCurl}</pre>
@@ -1146,7 +1147,7 @@ export default function CampaignsPage() {
                 {apiStep < 3 ? (
                   <button onClick={() => setApiStep(s => s + 1)}
                     disabled={apiStep === 1 && (!apiForm.name.trim() || !apiForm.templateId)}
-                    className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 font-medium flex items-center justify-center gap-1">
+                    className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-medium flex items-center justify-center gap-1">
                     Next <ChevronRight size={14} />
                   </button>
                 ) : (
@@ -1165,7 +1166,7 @@ export default function CampaignsPage() {
                       }
                     }}
                     disabled={submitting}
-                    className="flex-1 py-2.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-60 font-medium"
+                    className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-60 font-medium"
                   >
                     {submitting ? 'Creating…' : 'Done'}
                   </button>

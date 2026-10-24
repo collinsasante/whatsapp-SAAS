@@ -1,107 +1,84 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminApi, type WebhookEventRow } from '@/lib/admin-api';
-import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
+import { useAdminData, useUrlState } from '@/lib/admin/hooks';
+import { formatDateTime, formatRelative } from '@/lib/admin/format';
+import { PageHeader } from '@/components/admin/PageHeader';
+import { useAdmin } from '@/components/admin/AdminProvider';
+import { AdminTable, type Column } from '@/components/admin/AdminTable';
+import { FilterBar } from '@/components/admin/FilterBar';
 import { Pagination } from '@/components/admin/Pagination';
-import { StatusBadge, type BadgeTone } from '@/components/admin/Badge';
-import { showConfirm } from '@/store/confirm.store';
+import { ActionDialog } from '@/components/admin/ActionDialog';
+import { StatusPill, type PillTone } from '@/components/admin/StatusPill';
+import { EmptyState } from '@/components/admin/States';
 
 const LIMIT = 30;
-const STATUS_TONES: Record<string, BadgeTone> = { RECEIVED: 'info', PROCESSED: 'success', FAILED: 'danger' };
-const SOURCES = ['WHATSAPP', 'STRIPE_BILLING', 'PAYSTACK_BILLING', 'PAYSTACK_COMMERCE'];
+const TONE: Record<string, PillTone> = { RECEIVED: 'info', PROCESSED: 'success', FAILED: 'danger' };
+const SOURCE_LABEL: Record<string, string> = { WHATSAPP: 'WhatsApp', STRIPE_BILLING: 'Stripe billing', PAYSTACK_BILLING: 'Paystack billing', PAYSTACK_COMMERCE: 'Paystack commerce' };
+const SOURCES = Object.entries(SOURCE_LABEL).map(([value, label]) => ({ value, label }));
+const STATUSES = [{ value: 'FAILED', label: 'Failed' }, { value: 'RECEIVED', label: 'Received' }, { value: 'PROCESSED', label: 'Processed' }];
 
 export default function WebhooksPage() {
-  const [rows, setRows] = useState<WebhookEventRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [source, setSource] = useState('');
-  const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [reprocessing, setReprocessing] = useState<string | null>(null);
+  const { isSuperAdmin } = useAdmin();
+  const url = useUrlState();
+  const source = url.get('source');
+  const status = url.get('status');
+  const tenantId = url.get('tenantId');
+  const page = Math.max(1, Number(url.get('page')) || 1);
+  const offset = (page - 1) * LIMIT;
+  const [target, setTarget] = useState<WebhookEventRow | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await adminApi.webhookEvents({ source: source || undefined, status: status || undefined, limit: LIMIT, offset });
-      setRows(res.items);
-      setTotal(res.total);
-      setError('');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [source, status, offset]);
+  const events = useAdminData(() => adminApi.webhookEvents({ source: source || undefined, status: status || undefined, tenantId: tenantId || undefined, limit: LIMIT, offset }), [source, status, tenantId, offset]);
+  const data = events.data;
+  const clear = () => url.set({ source: '', status: '', tenantId: '' });
 
-  useEffect(() => { void load(); }, [load]);
-
-  const reprocess = async (row: WebhookEventRow) => {
-    if (!await showConfirm('Reprocess this webhook event?', { subtext: 'Only offered for sources with a proven idempotent handler.', danger: false })) return;
-    setReprocessing(row.id);
-    try {
-      const result = await adminApi.reprocessWebhookEvent(row.id);
-      toast[result.status === 'PROCESSED' ? 'success' : 'error'](`Reprocess ${result.status.toLowerCase()}`);
-      void load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setReprocessing(null);
-    }
-  };
-
-  const columns: DataTableColumn<WebhookEventRow>[] = [
-    { key: 'createdAt', header: 'Received', render: (r) => new Date(r.createdAt).toLocaleString() },
-    { key: 'source', header: 'Source', render: (r) => r.source },
-    { key: 'eventType', header: 'Event', render: (r) => r.eventType },
-    { key: 'tenant', header: 'Tenant', render: (r) => r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">-</span> },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} map={STATUS_TONES} /> },
-    { key: 'attempts', header: 'Attempts', render: (r) => r.attempts },
+  const columns: Column<WebhookEventRow>[] = [
+    { key: 'createdAt', header: 'Received', mobile: 'title', cell: (r) => <time dateTime={r.createdAt} title={formatDateTime(r.createdAt)}>{formatRelative(r.createdAt)}</time> },
+    { key: 'status', header: 'Status', mobile: 'badge', cell: (r) => <StatusPill tone={TONE[r.status] ?? 'neutral'}>{r.status.toLowerCase()}</StatusPill> },
+    { key: 'source', header: 'Source', mobile: 'line', cell: (r) => SOURCE_LABEL[r.source] ?? r.source },
+    { key: 'eventType', header: 'Event', mobile: 'line', cell: (r) => <span className="font-mono text-xs">{r.eventType}</span> },
+    { key: 'tenant', header: 'Tenant', mobile: 'line', cell: (r) => (r.tenant ? <Link href={`/platform-admin/workspaces/${r.tenant.id}`} className="text-teal-700 hover:underline">{r.tenant.name}</Link> : <span className="text-gray-400">None</span>) },
+    { key: 'attempts', header: 'Attempts', align: 'right', cell: (r) => r.attempts },
+    { key: 'error', header: 'Error', cell: (r) => (r.error ? <span className="text-xs text-red-800 line-clamp-2 max-w-xs" title={r.error}>{r.error}</span> : <span className="text-gray-400">None</span>) },
     {
-      key: 'actions', header: '', render: (r) => r.source === 'PAYSTACK_COMMERCE' && r.status === 'FAILED' && (
-        <button onClick={() => reprocess(r)} disabled={reprocessing === r.id} className="text-teal-600 hover:underline text-xs font-medium disabled:opacity-50">
-          {reprocessing === r.id ? 'Reprocessing…' : 'Reprocess'}
-        </button>
-      ),
+      key: 'actions', header: '', align: 'right',
+      cell: (r) => (r.source === 'PAYSTACK_COMMERCE' && r.status === 'FAILED' ? (
+        <button onClick={() => setTarget(r)} disabled={!isSuperAdmin} title={isSuperAdmin ? undefined : 'Only a super admin can reprocess events'} className="text-sm text-teal-700 hover:underline disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed">Reprocess</button>
+      ) : null),
     },
   ];
 
   return (
-    <div className="p-4 sm:p-8">
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Webhooks</h1>
-          <p className="text-gray-500 text-sm mt-1">Every inbound webhook delivery: WhatsApp, Stripe, Paystack</p>
-        </div>
-        <div className="flex gap-2">
-          <select value={source} onChange={(e) => { setSource(e.target.value); setOffset(0); }} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white">
-            <option value="">All sources</option>
-            {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0); }} className="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white">
-            <option value="">All statuses</option>
-            <option value="RECEIVED">Received</option>
-            <option value="PROCESSED">Processed</option>
-            <option value="FAILED">Failed</option>
-          </select>
-        </div>
-      </div>
+    <div>
+      <PageHeader title="Webhooks" description="Every event received from WhatsApp, Stripe and Paystack, and whether it was processed." />
+      {tenantId && <p className="mb-3 text-sm text-gray-700 bg-gray-100 rounded-md px-3 py-2">Showing one tenant&apos;s events. <button onClick={() => url.set({ tenantId: '' })} className="text-teal-700 hover:underline">Show all</button></p>}
+      <FilterBar
+        onClear={clear}
+        filters={[
+          { key: 'source', label: 'Any source', value: source, options: SOURCES, onChange: (v) => url.set({ source: v }) },
+          { key: 'status', label: 'Any status', value: status, options: STATUSES, onChange: (v) => url.set({ status: v }) },
+        ]}
+      />
+      <AdminTable
+        caption="Webhook events" columns={columns} rows={data?.items ?? []} rowKey={(r) => r.id} loading={events.loading} error={events.error} onRetry={events.reload}
+        empty={<EmptyState title={source || status || tenantId ? 'No events match these filters' : 'No webhook events recorded'} />}
+      />
+      {data && data.total > LIMIT && <div className="mt-3"><Pagination total={data.total} limit={LIMIT} offset={offset} onOffsetChange={(o) => url.set({ page: String(o / LIMIT + 1) }, { keepPage: true })} /></div>}
+      <p className="text-xs text-gray-500 mt-3">Only failed Paystack commerce events can be reprocessed. The other sources have no replay that is safe to run twice.</p>
 
-      {error && (
-        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 rounded-lg px-4 py-3 mb-6 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0" />{error}
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No webhook events found" />
-        <div className="p-4 border-t border-gray-100">
-          <Pagination total={total} limit={LIMIT} offset={offset} onOffsetChange={setOffset} />
-        </div>
-      </div>
+      <ActionDialog
+        open={!!target} onClose={() => setTarget(null)} title="Reprocess this event?" confirmLabel="Reprocess"
+        description={<>The platform will run the original handler for this event again. It is safe to run twice: the handler ignores events it has already applied.</>}
+        details={target ? <>{SOURCE_LABEL[target.source]} · <span className="font-mono text-xs">{target.eventType}</span> · {target.attempts} {target.attempts === 1 ? 'attempt' : 'attempts'} so far</> : undefined}
+        onConfirm={async () => {
+          if (!target) return;
+          const result = await adminApi.reprocessWebhookEvent(target.id);
+          if (result.status !== 'PROCESSED') throw new Error('The event was tried again and failed again. See the error on the row.');
+          toast.success('Event processed'); events.reload();
+        }}
+      />
     </div>
   );
 }

@@ -151,7 +151,7 @@ export function ConfirmCallModal() {
           <button
             onClick={() => { void handleCall(); }}
             disabled={calling}
-            className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition-colors"
+            className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition-colors"
           >
             {calling
               ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />Calling…</>

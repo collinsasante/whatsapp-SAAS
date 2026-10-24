@@ -24,6 +24,20 @@ export function resolveDateRange(fromStr: string | undefined, toStr: string | un
   return { from, to };
 }
 
+export type RangePreset = 'today' | '7d' | '30d' | '90d' | 'custom';
+
+/** Resolves a preset relative to "today" in the tenant's timezone, so presets match the dates the data is bucketed by. */
+export function resolvePreset(preset: Exclude<RangePreset, 'custom'>, timezone: string): { from: string; to: string } {
+  const to = toTenantDateString(new Date(), timezone);
+  const days = preset === 'today' ? 1 : preset === '7d' ? 7 : preset === '30d' ? 30 : 90;
+  return { from: addDays(to, -(days - 1)), to };
+}
+
+/** Number of calendar days in an inclusive [from, to] range. */
+export function daysInRange(from: string, to: string): number {
+  return daysBetween(from, to) + 1;
+}
+
 /** The equal-length period immediately preceding [from, to] -- for "% change vs previous period" comparisons. */
 export function previousPeriod(from: string, to: string): { from: string; to: string } {
   const rangeDays = daysBetween(from, to) + 1;

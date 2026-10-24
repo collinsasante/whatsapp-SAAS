@@ -135,7 +135,7 @@ export default function CommerceChatPage() {
               <MessageSquare size={18} className="text-green-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Test Chat</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Test Chat</h1>
               <p className="text-xs text-gray-500">Chat as a customer with your commerce AI, real orders, real (test-mode) payments, no WhatsApp needed</p>
             </div>
           </div>

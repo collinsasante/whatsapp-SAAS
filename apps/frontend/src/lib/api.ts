@@ -329,13 +329,16 @@ export const usersApi = {
   deactivate: (id: string) => api.delete(`/users/${id}`),
 };
 
+/** Owner dashboard widgets. Each one loads on its own so a slow or failing query never blanks the page. */
+export interface DashboardQuery { preset: string; from?: string; to?: string }
 export const dashboardApi = {
-  overview: () => api.get('/dashboard/overview'),
-  teamStats: () => api.get('/dashboard/team'),
-  conversationTrend: (days = 30) => api.get('/dashboard/conversation-trend', { params: { days } }),
-  conversationStats: (from: string, to: string) => api.get('/dashboard/conversation-stats', { params: { from, to } }),
-  whatsappStatus: () => api.get('/dashboard/whatsapp-status'),
-  businessProfile: () => api.get('/dashboard/business-profile'),
+  summary: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/summary', { params, signal }),
+  trend: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/trend', { params, signal }),
+  attention: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/attention', { params, signal }),
+  team: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/team', { params, signal }),
+  ai: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/ai', { params, signal }),
+  activity: (signal?: AbortSignal) => api.get('/dashboard/command/activity', { signal }),
+  recommendations: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/recommendations', { params, signal }),
 };
 
 export const analyticsApi = {
@@ -347,6 +350,9 @@ export const analyticsApi = {
     api.get('/analytics/campaigns', { params: { from, to, limit, offset } }),
   health: () => api.get('/analytics/health'),
   revenue: (from: string, to: string) => api.get('/analytics/revenue', { params: { from, to } }),
+  /** Business intelligence for admins. Send `preset` for a relative range (resolved in the workspace timezone) or from/to for a custom one. */
+  intelligence: (params: { preset?: string; from?: string; to?: string; channel?: string }) =>
+    api.get('/analytics/intelligence', { params }),
 };
 
 export const channelsApi = {

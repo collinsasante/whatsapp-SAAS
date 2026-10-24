@@ -29,10 +29,10 @@ export default function AiOverviewPage() {
   useEffect(() => { void load(range); }, [load, range]);
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Verz AI Overview</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Verz AI Overview</h1>
           <p className="text-gray-500 text-sm mt-1">AI usage, cost, and revenue across every tenant</p>
         </div>
         <DateRangePicker onChange={setRange} />
@@ -49,8 +49,8 @@ export default function AiOverviewPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <KpiCard label="AI Calls" value={data.totals.calls.toLocaleString()} icon={PhoneCall} color="bg-teal-600" />
             <KpiCard label="AI Cost (USD)" value={`$${data.totals.costUsd.toFixed(2)}`} icon={DollarSign} color="bg-amber-500" />
-            <KpiCard label="Credit Revenue (USD)" value={`$${data.totals.revenueUsd.toFixed(2)}`} icon={Zap} color="bg-emerald-600" />
-            <KpiCard label="Margin (USD)" value={`$${data.totals.marginUsd.toFixed(2)}`} icon={TrendingUp} color={data.totals.marginUsd >= 0 ? 'bg-emerald-600' : 'bg-red-500'} />
+            <KpiCard label="Credit Revenue (USD)" value={`$${data.totals.revenueUsd.toFixed(2)}`} icon={Zap} color="bg-green-600" />
+            <KpiCard label="Margin (USD)" value={`$${data.totals.marginUsd.toFixed(2)}`} icon={TrendingUp} color={data.totals.marginUsd >= 0 ? 'bg-green-600' : 'bg-red-500'} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

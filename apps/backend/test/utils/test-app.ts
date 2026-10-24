@@ -1,12 +1,18 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { AppModule } from '../../src/app.module';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
 
-export async function createTestingApp(): Promise<INestApplication> {
+/** `validation: true` installs the same global ValidationPipe as src/main.ts, so DTO rules are exercised. */
+export async function createTestingApp(opts: { validation?: boolean } = {}): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication();
+  if (opts.validation) {
+    app.useGlobalPipes(new ValidationPipe({
+      whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true },
+    }));
+  }
   await app.init();
   return app;
 }

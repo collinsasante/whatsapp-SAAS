@@ -3,10 +3,10 @@ import { Sparkles, Bot, BarChart2, MessageSquare, Clock } from 'lucide-react';
 
 export default function AiPendingPage() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 p-8">
+    <div className="flex-1 flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 p-8">
       <div className="max-w-lg w-full text-center">
         {/* Icon */}
-        <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
+        <div className="w-20 h-20 bg-gradient-to-br from-purple-500 to-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-purple-200">
           <Sparkles size={36} className="text-white" />
         </div>
 
@@ -15,7 +15,7 @@ export default function AiPendingPage() {
           <Clock size={11} /> Coming Soon
         </span>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">AI Conversation Summaries</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-3">AI Conversation Summaries</h1>
         <p className="text-gray-500 text-sm leading-relaxed mb-8">
           Get instant AI-powered insights for every customer conversation, topic detection, sentiment analysis, action items, and resolution summaries, all in one place.
         </p>

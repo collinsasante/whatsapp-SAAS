@@ -5,6 +5,8 @@ import {
   CreditCard, Download, Mail, Receipt, RefreshCw, Sparkles, Users, X, Zap,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
+import EmptyState from '@/components/ui/EmptyState';
+import { Button } from '@/components/ui/Button';
 import toast from 'react-hot-toast';
 import { cn, getApiError } from '@/lib/utils';
 import { PaystackCheckoutButton } from '@/components/billing/GatewayCheckout';
@@ -699,7 +701,16 @@ export default function BillingPage() {
     );
   }
 
-  if (!status || !usageData) return null;
+  if (!status || !usageData) {
+    return (
+      <div className="max-w-xl mx-auto p-6">
+        <EmptyState title="Billing could not be loaded" compact>
+          Your plan and invoices are not affected. Check your connection and try again.
+        </EmptyState>
+        <Button className="mt-3" onClick={() => { void load(); }}>Try again</Button>
+      </div>
+    );
+  }
 
   const sub = status.subscription;
   const currentPlan = sub.plan;
@@ -729,7 +740,7 @@ export default function BillingPage() {
         <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Billing & Plans</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Billing & Plans</h1>
               <p className="text-sm text-gray-500">Manage your subscription, usage, and invoices</p>
             </div>
             <button onClick={() => { void load(); }}
@@ -831,8 +842,8 @@ export default function BillingPage() {
               <UsageBar label="Total Contacts"  used={usage.totalContacts}  limit={limits.maxContacts}      color="bg-blue-500" />
               <UsageBar label="Active Agents"   used={usage.activeAgents}   limit={limits.maxAgents}        color="bg-purple-500" />
               <UsageBar label="Templates"       used={usage.totalTemplates} limit={limits.maxTemplates}     color="bg-orange-400" />
-              <UsageBar label="Active Channels" used={usage.activeChannels} limit={limits.maxChannels}      color="bg-indigo-400" />
-              <UsageBar label="Campaigns Sent"  used={usage.campaignsSent}  limit={limits.maxCampaigns}     color="bg-yellow-400" />
+              <UsageBar label="Active Channels" used={usage.activeChannels} limit={limits.maxChannels}      color="bg-blue-400" />
+              <UsageBar label="Campaigns Sent"  used={usage.campaignsSent}  limit={limits.maxCampaigns}     color="bg-amber-400" />
               {limits.aiCreditsPerMonth !== 0 && (
                 <UsageBar label="AI Credits Used" used={usage.aiCreditsUsed} limit={limits.aiCreditsPerMonth} color="bg-pink-500" />
               )}
@@ -896,7 +907,7 @@ export default function BillingPage() {
                         <td className="px-4 py-3">
                           <span className={cn('text-xs px-2.5 py-1 rounded-full font-medium',
                             inv.status === 'PAID' ? 'bg-teal-100 text-teal-700' :
-                            inv.status === 'OPEN' ? 'bg-yellow-100 text-yellow-700' :
+                            inv.status === 'OPEN' ? 'bg-amber-100 text-amber-700' :
                             'bg-gray-100 text-gray-500')}>
                             {inv.status}
                           </span>

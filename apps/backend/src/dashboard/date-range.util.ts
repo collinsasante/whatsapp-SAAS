@@ -23,3 +23,13 @@ export function parseDateRange(from: string | undefined, to: string | undefined,
   }
   return { from: fromDate, to: toDate };
 }
+
+export const DEFAULT_TREND_DAYS = 14;
+export const MAX_TREND_DAYS = 90;
+
+/** Parses the legacy `days` query value. Anything unparsable falls back to the default; the result is bounded so a request cannot trigger an unbounded per-day loop. */
+export function parseTrendDays(value: string | undefined): number {
+  const parsed = value == null ? NaN : parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_TREND_DAYS;
+  return Math.min(Math.max(parsed, 1), MAX_TREND_DAYS);
+}

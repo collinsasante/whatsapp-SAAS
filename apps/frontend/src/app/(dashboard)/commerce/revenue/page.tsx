@@ -32,7 +32,7 @@ function apiErr(e: unknown, fallback: string): string {
 
 const TYPE_STYLE: Record<LedgerEntry['type'], string> = {
   GMV: 'bg-green-50 text-green-600',
-  TAKE_RATE: 'bg-violet-50 text-violet-600',
+  TAKE_RATE: 'bg-purple-50 text-purple-600',
   REFUND_ADJUSTMENT: 'bg-red-50 text-red-600',
 };
 
@@ -80,7 +80,7 @@ export default function CommerceRevenuePage() {
               <Wallet size={18} className="text-green-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Revenue</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Revenue</h1>
               <p className="text-xs text-gray-500">What you&apos;ve sold, what the platform took, and what you actually keep</p>
             </div>
           </div>
@@ -110,7 +110,7 @@ export default function CommerceRevenuePage() {
               </div>
               <div className="bg-white rounded-xl border border-gray-100 p-4">
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-1"><Percent size={12} /> Platform fee</div>
-                <div className="text-lg font-bold text-violet-600">-{currency} {fee.toFixed(2)}</div>
+                <div className="text-lg font-bold text-purple-600">-{currency} {fee.toFixed(2)}</div>
               </div>
               <div className="bg-white rounded-xl border border-gray-100 p-4">
                 <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-1"><RotateCcw size={12} /> Refunds</div>

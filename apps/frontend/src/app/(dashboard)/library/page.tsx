@@ -337,7 +337,7 @@ export default function LibraryPage() {
               <Images size={18} className="text-teal-600" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold text-gray-900 truncate">File Library</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 truncate">File Library</h1>
               <p className="text-xs sm:text-sm text-gray-500 mt-0.5 truncate">{((showLibraryUploads ? agentAssets.length : 0) + total).toLocaleString()} media files</p>
             </div>
           </div>

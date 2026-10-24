@@ -1,365 +1,134 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Search, CheckCircle2, XCircle, Loader2, ChevronLeft, ChevronRight, CreditCard, AlertTriangle, ChevronUp, ChevronDown, Download } from 'lucide-react';
-import { adminApi, type TenantTableRow, type Plan } from '@/lib/admin-api';
+import { useState } from 'react';
+import { Download } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { showConfirm } from '@/store/confirm.store';
-import { useAutoRefresh } from '../_hooks/useAutoRefresh';
-import { LiveBadge } from '../_components/LiveBadge';
+import { adminApi, type TenantTableRow } from '@/lib/admin-api';
+import { useAdminData, useUrlState } from '@/lib/admin/hooks';
+import { formatDate, formatGhs, formatNumber } from '@/lib/admin/format';
+import { PageHeader } from '@/components/admin/PageHeader';
+import { FilterBar } from '@/components/admin/FilterBar';
+import { AdminTable, type Column } from '@/components/admin/AdminTable';
+import { Pagination } from '@/components/admin/Pagination';
+import { StatusPill, TenantStatus } from '@/components/admin/StatusPill';
+import { EmptyState } from '@/components/admin/States';
+import { Hint } from '@/components/admin/MetricStrip';
 
-const STATUS_COLOR: Record<string, string> = {
-  active: 'bg-emerald-100 text-emerald-700',
-  trial: 'bg-sky-100 text-sky-700',
-  past_due: 'bg-amber-100 text-amber-700',
-  suspended: 'bg-red-100 text-red-700',
-  churned: 'bg-gray-100 text-gray-500',
-  no_subscription: 'bg-gray-100 text-gray-400',
-};
+const LIMIT = 25;
 
-const FILTERS: { key: string; label: string }[] = [
-  { key: 'churn_risk', label: 'Churn risk' },
-  { key: 'trial_ending_7d', label: 'Trial ending in 7 days' },
-  { key: 'high_value', label: 'High value (top 10%)' },
-  { key: 'signed_up_this_month', label: 'Signed up this month' },
-  { key: 'past_due', label: 'Past due' },
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' }, { value: 'trial', label: 'Trial' }, { value: 'past_due', label: 'Past due' },
+  { value: 'suspended', label: 'Suspended' }, { value: 'churned', label: 'Churned' }, { value: 'no_subscription', label: 'No plan' },
 ];
 
-function healthColor(score: number) {
-  if (score >= 70) return 'bg-emerald-100 text-emerald-700';
-  if (score >= 40) return 'bg-amber-100 text-amber-700';
-  return 'bg-red-100 text-red-700';
-}
+const SEGMENT_OPTIONS = [
+  { value: 'churn_risk', label: 'Churn risk' }, { value: 'trial_ending_7d', label: 'Trial ending within 7 days' },
+  { value: 'high_value', label: 'High value (top 10% by MRR)' }, { value: 'signed_up_this_month', label: 'Signed up this month' },
+];
 
-function statusLabel(status: string) {
-  return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ');
-}
+type SortKey = 'name' | 'createdAt' | 'mrr' | 'healthScore';
 
-export default function WorkspacesPage() {
-  const router = useRouter();
-  const [tenants, setTenants] = useState<TenantTableRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
-  const [limit] = useState(20);
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<string | undefined>(undefined);
-  const [sort, setSort] = useState<'name' | 'createdAt' | 'mrr' | 'healthScore'>('createdAt');
-  const [order, setOrder] = useState<'asc' | 'desc'>('desc');
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [acting, setActing] = useState<string | null>(null);
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [setPlanFor, setSetPlanFor] = useState<TenantTableRow | null>(null);
-  const [selectedPlanSlug, setSelectedPlanSlug] = useState('');
-  const [settingPlan, setSettingPlan] = useState(false);
-  const [expandedHealthId, setExpandedHealthId] = useState<string | null>(null);
+export default function TenantsPage() {
+  const url = useUrlState({ sort: 'createdAt', order: 'desc' });
+  const search = url.get('q');
+  const status = url.get('status');
+  const plan = url.get('plan');
+  const segment = url.get('filter');
+  const createdFrom = url.get('from');
+  const createdTo = url.get('to');
+  const sort = url.get('sort') as SortKey;
+  const order = url.get('order') as 'asc' | 'desc';
+  const offset = (Math.max(1, Number(url.get('page')) || 1) - 1) * LIMIT;
 
-  const load = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const res = await adminApi.workspaces({ search: query, filter, sort, order, limit, offset });
-      setTenants(res.tenants);
-      setTotal(res.total);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [query, filter, sort, order, limit, offset]);
+  const query = { search, status: status || undefined, plan: plan || undefined, filter: segment || undefined, createdFrom: createdFrom || undefined, createdTo: createdTo || undefined, sort, order };
+  const tenants = useAdminData(() => adminApi.workspaces({ ...query, limit: LIMIT, offset }), [search, status, plan, segment, createdFrom, createdTo, sort, order, offset]);
+  const plans = useAdminData(() => adminApi.plans(), []);
+  const [exporting, setExporting] = useState(false);
 
-  const { secondsAgo, refresh } = useAutoRefresh(load);
-  useEffect(() => { adminApi.plans().then(setPlans).catch(() => {}); }, []);
-
-  const handleSearch = (e: React.FormEvent) => { e.preventDefault(); setOffset(0); setQuery(search); };
-  const toggleFilter = (key: string) => { setOffset(0); setFilter((f) => (f === key ? undefined : key)); };
-  const toggleSort = (key: typeof sort) => {
-    setOffset(0);
-    if (sort === key) setOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
-    else { setSort(key); setOrder('desc'); }
+  const onSort = (key: string) => {
+    if (key === sort) url.set({ order: order === 'asc' ? 'desc' : 'asc' });
+    else url.set({ sort: key, order: key === 'name' ? 'asc' : 'desc' });
   };
 
-  const [exporting, setExporting] = useState(false);
-  const handleExport = async () => {
+  const exportCsv = async () => {
     setExporting(true);
     try {
-      const blob = await adminApi.exportWorkspacesCsv({ search: query, filter, sort, order });
-      const url = URL.createObjectURL(blob);
+      const blob = await adminApi.exportWorkspacesCsv(query);
+      const href = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `tenants-${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setExporting(false);
-    }
+      a.href = href; a.download = `tenants-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(href);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'The export failed.');
+    } finally { setExporting(false); }
   };
 
-  const confirmSetPlan = async () => {
-    if (!setPlanFor || !selectedPlanSlug) return;
-    setSettingPlan(true);
-    try {
-      const res = await adminApi.forceSubscription(setPlanFor.id, selectedPlanSlug);
-      toast.success(`${setPlanFor.name} upgraded to ${res.plan}`);
-      setSetPlanFor(null);
-      setSelectedPlanSlug('');
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setSettingPlan(false);
-    }
-  };
+  const columns: Column<TenantTableRow>[] = [
+    {
+      key: 'name', header: 'Tenant', sortable: true, mobile: 'title',
+      cell: (t) => <span>{t.name}<span className="block text-xs font-normal text-gray-500 font-mono" title="Tenant ID">{t.id.slice(0, 8)}{t.country ? ` · ${t.country}` : ''}</span></span>,
+    },
+    { key: 'status', header: 'Status', mobile: 'badge', cell: (t) => <TenantStatus status={t.status} /> },
+    { key: 'plan', header: 'Plan', mobile: 'line', cell: (t) => t.plan ?? <span className="text-gray-400">None</span> },
+    { key: 'mrr', header: 'MRR', sortable: true, align: 'right', mobile: 'line', cell: (t) => (t.mrrGhs > 0 ? formatGhs(t.mrrGhs) : <span className="text-gray-400">0</span>) },
+    {
+      key: 'healthScore', header: 'Health', sortable: true, align: 'right', mobile: 'line',
+      cell: (t) => (
+        <span className="inline-flex items-center justify-end gap-1.5">
+          {t.churnRisk && <StatusPill tone="warning">At risk</StatusPill>}
+          <span className="tabular-nums">{t.healthScore}</span>
+        </span>
+      ),
+    },
+    { key: 'team', header: 'Team', align: 'right', cell: (t) => formatNumber(t.teammateCount) },
+    { key: 'messages', header: 'Messages, 30 days', align: 'right', cell: (t) => formatNumber(t.usage.messagesLast30Days) },
+    { key: 'createdAt', header: 'Signed up', sortable: true, mobile: 'line', cell: (t) => formatDate(t.createdAt) },
+  ];
 
-  const toggleActive = async (t: TenantTableRow) => {
-    const willSuspend = t.isActive;
-    if (!await showConfirm(`${willSuspend ? 'Suspend' : 'Activate'} ${t.name}?`, {
-      subtext: willSuspend ? 'This blocks the whole workspace from logging in until reactivated.' : undefined,
-      danger: willSuspend,
-    })) return;
-    setActing(t.id);
-    try {
-      if (t.isActive) {
-        await adminApi.suspendWorkspace(t.id);
-        toast.success(`${t.name} suspended`);
-      } else {
-        await adminApi.activateWorkspace(t.id);
-        toast.success(`${t.name} activated`);
-      }
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setActing(null);
-    }
-  };
-
-  const totalPages = Math.ceil(total / limit) || 1;
-  const currentPage = Math.floor(offset / limit) + 1;
-
-  const SortHeader = ({ label, sortKey }: { label: string; sortKey: typeof sort }) => (
-    <th className="text-left px-4 py-3 font-medium text-gray-500 cursor-pointer select-none" onClick={() => toggleSort(sortKey)}>
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {sort === sortKey && (order === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-      </span>
-    </th>
-  );
+  const data = tenants.data;
+  const filtersActive = !!(search || status || plan || segment || createdFrom || createdTo);
+  const clear = () => url.set({ q: '', status: '', plan: '', filter: '', from: '', to: '' });
 
   return (
-    <div className="p-4 sm:p-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Workspaces</h1>
-          <p className="text-gray-500 text-sm mt-1">{total} total</p>
-        </div>
-        <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />
-      </div>
-
-      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name or email..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
-          />
-        </div>
-        <button type="submit" className="px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-500 transition-colors">Search</button>
-        <button
-          type="button"
-          onClick={() => { void handleExport(); }}
-          disabled={exporting}
-          className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-          title="Export the currently filtered/searched tenant list to CSV"
-        >
-          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          Export CSV
-        </button>
-      </form>
-
-      <div className="flex flex-wrap gap-2 mb-5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => toggleFilter(f.key)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-              filter === f.key ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            {f.label}
+    <div>
+      <PageHeader
+        title="Tenants"
+        description={data ? `${data.total.toLocaleString()} ${data.total === 1 ? 'tenant' : 'tenants'}${filtersActive ? ' match these filters' : ''}.` : 'Every workspace on the platform.'}
+        actions={
+          <button onClick={exportCsv} disabled={exporting} className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600" title="Exports every tenant matching the current filters">
+            <Download className="w-4 h-4" aria-hidden="true" />{exporting ? 'Exporting' : 'Export CSV'}
           </button>
-        ))}
-      </div>
+        }
+      />
 
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[960px]">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
-              <SortHeader label="Workspace" sortKey="name" />
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Status</th>
-              <SortHeader label="MRR" sortKey="mrr" />
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Last payment</th>
-              <SortHeader label="Health" sortKey="healthScore" />
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Usage (30d)</th>
-              <SortHeader label="Signed up" sortKey="createdAt" />
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={8} className="px-4 py-3"><div className="h-4 bg-gray-100 rounded animate-pulse" /></td></tr>
-              ))
-            ) : tenants.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No workspaces found</td></tr>
-            ) : tenants.map(t => (
-              <tr
-                key={t.id}
-                onClick={() => router.push(`/platform-admin/workspaces/${t.id}`)}
-                className="hover:bg-gray-50 transition-colors cursor-pointer"
-              >
-                <td className="px-4 py-3">
-                  <Link href={`/platform-admin/workspaces/${t.id}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-teal-600 hover:underline">{t.name}</Link>
-                  <div className="text-xs text-gray-400">{t.billingEmail ?? '-'}{t.country ? ` · ${t.country}` : ''}</div>
-                  {t.churnRisk && (
-                    <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium text-red-600">
-                      <AlertTriangle className="w-3 h-3" />Churn risk
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[t.status] ?? 'bg-gray-100 text-gray-500'}`}>
-                    {statusLabel(t.status)}
-                  </span>
-                  {t.plan && <div className="text-xs text-gray-400 mt-0.5">{t.plan}</div>}
-                </td>
-                <td className="px-4 py-3 text-gray-700 font-medium">{t.mrrGhs > 0 ? `GHS ${t.mrrGhs.toFixed(2)}` : '-'}</td>
-                <td className="px-4 py-3">
-                  {t.lastPayment ? (
-                    <div>
-                      <span className={`text-xs font-medium ${t.lastPayment.status === 'SUCCEEDED' ? 'text-emerald-600' : 'text-red-500'}`}>
-                        {t.lastPayment.status}
-                      </span>
-                      <div className="text-[10px] text-gray-400">{t.lastPayment.gateway} · {new Date(t.lastPayment.createdAt).toLocaleDateString()}</div>
-                    </div>
-                  ) : <span className="text-gray-400 text-xs">-</span>}
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setExpandedHealthId(expandedHealthId === t.id ? null : t.id); }}
-                    className={`px-2 py-0.5 rounded-full text-xs font-semibold ${healthColor(t.healthScore)}`}
-                    title="Click for breakdown"
-                  >
-                    {t.healthScore}
-                  </button>
-                  {expandedHealthId === t.id && (
-                    <div onClick={(e) => e.stopPropagation()} className="mt-1.5 text-[10px] text-gray-500 space-y-0.5 bg-gray-50 rounded-lg p-2 w-40">
-                      <div>Login activity: {t.healthBreakdown.loginActivity}/25</div>
-                      <div>Message activity: {t.healthBreakdown.messageActivity}/25</div>
-                      <div>Broadcast activity: {t.healthBreakdown.broadcastActivity}/15</div>
-                      <div>Team size: {t.healthBreakdown.teamSize}/15</div>
-                      <div>Payment status: {t.healthBreakdown.paymentStatus}/20</div>
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-xs text-gray-500">
-                  <div>{t.usage.conversationsThisMonth} conv.</div>
-                  <div>{t.usage.messagesLast30Days} msgs</div>
-                  <div>{t.usage.broadcastsThisMonth} broadcasts</div>
-                </td>
-                <td className="px-4 py-3 text-gray-400 text-xs">{new Date(t.createdAt).toLocaleDateString()}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setSetPlanFor(t); setSelectedPlanSlug(plans.find(p => p.name === t.plan)?.slug ?? ''); }}
-                      className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                    >
-                      <CreditCard className="w-3 h-3" /> Set Plan
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void toggleActive(t); }}
-                      disabled={acting === t.id}
-                      className={`flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                        t.isActive
-                          ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                          : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                      } disabled:opacity-50`}
-                    >
-                      {acting === t.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : t.isActive ? (
-                        <XCircle className="w-3 h-3" />
-                      ) : (
-                        <CheckCircle2 className="w-3 h-3" />
-                      )}
-                      {t.isActive ? 'Suspend' : 'Activate'}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-            <span className="text-xs text-gray-400">Page {currentPage} of {totalPages}</span>
-            <div className="flex gap-1">
-              <button onClick={() => setOffset(o => Math.max(0, o - limit))} disabled={currentPage === 1}
-                className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button onClick={() => setOffset(o => o + limit)} disabled={currentPage === totalPages}
-                className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-30 transition-colors">
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
+      <FilterBar
+        search={search} onSearch={(v) => url.set({ q: v })} placeholder="Search name, ID or email"
+        onClear={clear}
+        filters={[
+          { key: 'status', label: 'Any status', value: status, options: STATUS_OPTIONS, onChange: (v) => url.set({ status: v }) },
+          { key: 'plan', label: 'Any plan', value: plan, options: (plans.data ?? []).map((p) => ({ value: p.slug, label: p.name })), onChange: (v) => url.set({ plan: v }) },
+          { key: 'segment', label: 'Any segment', value: segment, options: SEGMENT_OPTIONS, onChange: (v) => url.set({ filter: v }) },
+        ]}
+        extra={
+          <div className="flex items-center gap-1.5 text-sm text-gray-600">
+            <span id="signed-up-label">Signed up</span>
+            <label htmlFor="created-from" className="sr-only">Signed up from</label>
+            <input id="created-from" type="date" value={createdFrom} max={createdTo || undefined} onChange={(e) => url.set({ from: e.target.value })} className="py-1.5 px-2 border border-gray-300 rounded-md text-sm bg-white" />
+            <span aria-hidden="true">to</span>
+            <label htmlFor="created-to" className="sr-only">Signed up until</label>
+            <input id="created-to" type="date" value={createdTo} min={createdFrom || undefined} onChange={(e) => url.set({ to: e.target.value })} className="py-1.5 px-2 border border-gray-300 rounded-md text-sm bg-white" />
+            <Hint label="Health">Health is a 0 to 100 score from sign-in activity, messaging, broadcasts, team size and payment status. At risk means the subscription is past due, activity fell sharply, or there has been no activity for 14 days.</Hint>
           </div>
-        )}
-      </div>
+        }
+      />
 
-      {/* Set Plan Modal */}
-      {setPlanFor && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-bold text-gray-900">Set Plan</h2>
-              <p className="text-sm text-gray-500 mt-0.5">Workspace: <span className="font-medium text-gray-700">{setPlanFor.name}</span></p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Select Plan</label>
-              <select
-                value={selectedPlanSlug}
-                onChange={e => setSelectedPlanSlug(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="">- choose a plan</option>
-                {plans.map(p => (
-                  <option key={p.id} value={p.slug}>{p.name} ({p.slug})</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button onClick={() => { setSetPlanFor(null); setSelectedPlanSlug(''); }}
-                className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm hover:bg-gray-50">
-                Cancel
-              </button>
-              <button onClick={() => { void confirmSetPlan(); }} disabled={!selectedPlanSlug || settingPlan}
-                className="flex-1 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                {settingPlan && <Loader2 className="w-4 h-4 animate-spin" />}
-                Confirm
-              </button>
-            </div>
-          </div>
-        </div>
+      <AdminTable
+        caption="Tenants" columns={columns} rows={data?.tenants ?? []} rowKey={(t) => t.id} rowHref={(t) => `/platform-admin/workspaces/${t.id}`}
+        loading={tenants.loading} error={tenants.error} onRetry={tenants.reload}
+        sortKey={sort} sortOrder={order} onSort={onSort}
+        empty={<EmptyState title={filtersActive ? 'No tenants match these filters' : 'No tenants yet'} action={filtersActive ? <button onClick={clear} className="text-sm text-teal-700 hover:underline">Clear the filters</button> : undefined}>{filtersActive ? 'Try removing a filter or searching for something shorter.' : 'Tenants appear here when people sign up.'}</EmptyState>}
+      />
+      {data && data.total > LIMIT && (
+        <div className="mt-3"><Pagination total={data.total} limit={LIMIT} offset={offset} onOffsetChange={(o) => url.set({ page: String(o / LIMIT + 1) }, { keepPage: true })} /></div>
       )}
     </div>
   );

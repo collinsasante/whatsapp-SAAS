@@ -1,0 +1,36 @@
+.section {
+  position: relative;
+  overflow: hidden;
+  background: var(--green-700);
+  color: #fff;
+  padding: var(--space-9) 0;
+}
+.tick {
+  position: absolute;
+  right: max(2vw, calc((100vw - var(--page)) / 2));
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(40vw, 460px);
+  color: var(--green-600);
+  pointer-events: none;
+}
+.inner {
+  position: relative;
+  display: grid;
+  gap: var(--space-5);
+  justify-items: start;
+}
+.inner h2 {
+  max-width: 16ch;
+}
+.sub {
+  max-width: 44ch;
+  color: var(--green-100);
+  font-size: 1.15rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}

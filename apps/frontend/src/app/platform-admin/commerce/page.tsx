@@ -29,10 +29,10 @@ export default function CommerceRevenuePage() {
   useEffect(() => { void load(range); }, [load, range]);
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Commerce Revenue</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Commerce Revenue</h1>
           <p className="text-gray-500 text-sm mt-1">GMV, fees, and refunds across managed commerce</p>
         </div>
         <DateRangePicker onChange={setRange} />
@@ -48,7 +48,7 @@ export default function CommerceRevenuePage() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <KpiCard label="GMV" value={`GHS ${data.totals.gmv.toLocaleString()}`} icon={DollarSign} color="bg-teal-600" />
-            <KpiCard label="Fee Revenue" value={`GHS ${data.totals.fees.toLocaleString()}`} icon={Percent} color="bg-emerald-600" />
+            <KpiCard label="Fee Revenue" value={`GHS ${data.totals.fees.toLocaleString()}`} icon={Percent} color="bg-green-600" />
             <KpiCard label="Refunds" value={`GHS ${data.totals.refunds.toLocaleString()}`} icon={TrendingDown} color="bg-red-500" />
           </div>
 

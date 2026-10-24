@@ -1,0 +1,55 @@
+.hero {
+  --edge: max(var(--gutter), calc((100vw - var(--page)) / 2 + var(--gutter)));
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.copy {
+  padding: var(--space-8) var(--gutter) var(--space-7);
+  display: grid;
+  align-content: center;
+  gap: var(--space-5);
+}
+
+.copy .lede {
+  margin-top: var(--space-1);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.fine {
+  font-size: var(--text-small);
+  color: var(--ink-soft);
+}
+
+.slab {
+  background: var(--green-700);
+  padding: var(--space-7) var(--gutter) var(--space-6);
+}
+
+@media (min-width: 1000px) {
+  .hero {
+    grid-template-columns: var(--edge) minmax(0, 5fr) minmax(0, 6fr) var(--edge);
+    min-height: min(88vh, 780px);
+  }
+  .copy {
+    grid-column: 2;
+    padding: var(--space-9) var(--space-6) var(--space-9) 0;
+  }
+  .slab {
+    grid-column: 3 / 5;
+    padding: var(--space-8) var(--gutter) var(--space-8) var(--space-7);
+    display: grid;
+    align-content: center;
+  }
+}
+
+/* Each phrase of the headline sits on its own line, so it reads as a stacked statement at every width. */
+.title span {
+  display: block;
+}

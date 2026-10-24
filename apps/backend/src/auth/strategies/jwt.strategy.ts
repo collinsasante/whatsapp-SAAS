@@ -49,6 +49,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('Access to this workspace denied');
     }
 
+    // A suspended workspace must stop working for people who are already signed in, not only for new sign-ins.
+    // Checked on every request because the access token itself can stay valid for days.
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: payload.tenantId }, select: { isActive: true } });
+    if (!tenant?.isActive) throw new UnauthorizedException('This workspace has been suspended');
+
     const effectiveRole = membership
       ? workspaceRoleToUserRole(membership.role)
       : (user.role as UserRole);

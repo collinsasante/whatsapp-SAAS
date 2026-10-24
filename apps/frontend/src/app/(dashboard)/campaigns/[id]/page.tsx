@@ -38,7 +38,7 @@ interface Recipient {
 const STATUS_META: Record<string, { label: string; cls: string; dot: string }> = {
   DRAFT:     { label: 'Draft',     cls: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400' },
   SCHEDULED: { label: 'Scheduled', cls: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
-  RUNNING:   { label: 'Running',   cls: 'bg-yellow-100 text-yellow-700', dot: 'bg-yellow-500' },
+  RUNNING:   { label: 'Running',   cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
   PAUSED:    { label: 'Paused',    cls: 'bg-orange-100 text-orange-700', dot: 'bg-orange-400' },
   COMPLETED: { label: 'Completed', cls: 'bg-teal-100 text-teal-700',    dot: 'bg-teal-500' },
   FAILED:    { label: 'Failed',    cls: 'bg-red-100 text-red-600',      dot: 'bg-red-500' },
@@ -65,7 +65,7 @@ function initials(name: string) {
 const AVATAR_COLORS = [
   'bg-teal-100 text-teal-700', 'bg-blue-100 text-blue-700',
   'bg-purple-100 text-purple-700', 'bg-orange-100 text-orange-700',
-  'bg-pink-100 text-pink-700', 'bg-indigo-100 text-indigo-700',
+  'bg-pink-100 text-pink-700', 'bg-blue-100 text-blue-700',
 ];
 function avatarColor(name: string) {
   let h = 0;
@@ -180,7 +180,7 @@ export default function CampaignDetailPage() {
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-xl font-bold text-gray-900">{campaign.name}</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">{campaign.name}</h1>
               <span className={cn('inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium', statusMeta.cls)}>
                 <span className={cn('w-1.5 h-1.5 rounded-full', statusMeta.dot, campaign.status === 'RUNNING' && 'animate-pulse')} />
                 {statusMeta.label}

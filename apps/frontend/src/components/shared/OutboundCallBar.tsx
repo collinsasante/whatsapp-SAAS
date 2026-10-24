@@ -12,7 +12,7 @@ function WaveformBars() {
   return (
     <div className="flex items-center gap-0.5 h-5">
       {[3, 6, 9, 6, 4, 8, 5, 7, 3, 6].map((h, i) => (
-        <div key={i} className="w-0.5 bg-emerald-400 rounded-full animate-pulse"
+        <div key={i} className="w-0.5 bg-green-400 rounded-full animate-pulse"
           style={{ height: `${h * 2}px`, animationDelay: `${i * 80}ms`, animationDuration: `${600 + i * 50}ms` }} />
       ))}
     </div>
@@ -345,8 +345,8 @@ export function OutboundCallBar() {
     terminal                  ? 'text-red-400 bg-red-500/10 border-red-500/20' :
     phase === 'held'          ? 'text-purple-400 bg-purple-500/10 border-purple-500/20' :
     phase === 'reconnecting'  ? 'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse' :
-    phase === 'connected'     ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' :
-    phase === 'ringing'       ? 'text-sky-400 bg-sky-500/10 border-sky-500/20 animate-pulse' :
+    phase === 'connected'     ? 'text-green-400 bg-green-500/10 border-green-500/20' :
+    phase === 'ringing'       ? 'text-blue-400 bg-blue-500/10 border-blue-500/20 animate-pulse' :
                                 'text-amber-400 bg-amber-500/10 border-amber-500/20 animate-pulse';
 
   return (
@@ -363,13 +363,13 @@ export function OutboundCallBar() {
       {/* Contact info */}
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <div className="relative flex-shrink-0">
-          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
             <PhoneCall size={18} className={cn(
-              terminal ? 'text-red-400' : 'text-emerald-400',
+              terminal ? 'text-red-400' : 'text-green-400',
             )} />
           </div>
           {!terminal && (
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-pulse border-2 border-slate-900" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse border-2 border-slate-900" />
           )}
         </div>
 
