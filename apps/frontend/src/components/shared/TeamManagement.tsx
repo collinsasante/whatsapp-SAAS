@@ -48,7 +48,7 @@ interface MemberActivity {
 const ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-orange-50 text-orange-700 border-orange-200',
   ADMIN: 'bg-purple-50 text-purple-700 border-purple-200',
-  MANAGER: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  MANAGER: 'bg-blue-50 text-blue-700 border-blue-200',
   AGENT: 'bg-blue-50 text-blue-700 border-blue-200',
   ANALYST: 'bg-teal-50 text-teal-700 border-teal-200',
   VIEWER: 'bg-gray-100 text-gray-600 border-gray-200',

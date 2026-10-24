@@ -11,9 +11,9 @@ import { userRoleToWorkspaceRole, workspaceRoleDescription, workspaceRoleLabel }
 const WORKSPACE_ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-orange-100 text-orange-700',
   ADMIN: 'bg-blue-100 text-blue-700',
-  MANAGER: 'bg-indigo-100 text-indigo-700',
+  MANAGER: 'bg-blue-100 text-blue-700',
   AGENT: 'bg-teal-100 text-teal-700',
-  ANALYST: 'bg-cyan-100 text-cyan-700',
+  ANALYST: 'bg-blue-100 text-blue-700',
   VIEWER: 'bg-gray-100 text-gray-600',
 };
 

@@ -190,10 +190,10 @@ function StepAllSet({ name }: { name: string }) {
     <div className="space-y-6 text-center">
       <div className="flex justify-center">
         <div className="relative">
-          <div className="w-20 h-20 bg-gradient-to-br from-teal-400 to-emerald-500 rounded-full flex items-center justify-center shadow-lg">
+          <div className="w-20 h-20 bg-gradient-to-br from-teal-400 to-green-500 rounded-full flex items-center justify-center shadow-lg">
             <Sparkles className="w-9 h-9 text-white" />
           </div>
-          <div className="absolute -top-1 -right-1 w-6 h-6 bg-yellow-400 rounded-full flex items-center justify-center">
+          <div className="absolute -top-1 -right-1 w-6 h-6 bg-amber-400 rounded-full flex items-center justify-center">
             <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
           </div>
         </div>

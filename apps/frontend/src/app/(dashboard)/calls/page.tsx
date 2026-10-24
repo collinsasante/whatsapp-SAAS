@@ -76,7 +76,7 @@ function getInitials(name: string | null, phone: string): string {
   return phone.slice(-2);
 }
 
-const AVATAR_COLORS = ['bg-orange-500', 'bg-violet-600', 'bg-teal-600', 'bg-blue-600', 'bg-pink-600', 'bg-amber-500', 'bg-emerald-600', 'bg-rose-500'];
+const AVATAR_COLORS = ['bg-orange-500', 'bg-purple-600', 'bg-teal-600', 'bg-blue-600', 'bg-pink-600', 'bg-amber-500', 'bg-green-600', 'bg-red-500'];
 function avatarColor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
@@ -115,24 +115,24 @@ function downloadCallLog(call: CallLog) {
 type DisplayStatus = CallStatus;
 
 const STATUS_CONFIG: Record<string, { label: string; dot: string; badge: string; text: string }> = {
-  ENDED:        { label: 'Ended',        dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  ENDED:        { label: 'Ended',        dot: 'bg-green-500', badge: 'bg-green-50 border-green-200',  text: 'text-green-700' },
   ONGOING:      { label: 'Connected',    dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
   MISSED:       { label: 'Missed',       dot: 'bg-red-500',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
   UNANSWERED:   { label: 'Unanswered',   dot: 'bg-orange-500',  badge: 'bg-orange-50 border-orange-200',    text: 'text-orange-700' },
   DECLINED:     { label: 'Declined',     dot: 'bg-gray-500',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-600' },
   CANCELED:     { label: 'Canceled',     dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
-  BUSY:         { label: 'Busy',         dot: 'bg-yellow-500',  badge: 'bg-yellow-50 border-yellow-200',    text: 'text-yellow-700' },
+  BUSY:         { label: 'Busy',         dot: 'bg-amber-500',  badge: 'bg-amber-50 border-amber-200',    text: 'text-amber-700' },
   RINGING:      { label: 'Ringing',      dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
   SCHEDULED:    { label: 'Scheduled',    dot: 'bg-blue-500',    badge: 'bg-blue-50 border-blue-200',        text: 'text-blue-700' },
-  INITIATED:    { label: 'Calling…',     dot: 'bg-sky-500',     badge: 'bg-sky-50 border-sky-200',          text: 'text-sky-700' },
+  INITIATED:    { label: 'Calling…',     dot: 'bg-blue-500',     badge: 'bg-blue-50 border-blue-200',          text: 'text-blue-700' },
   FAILED:       { label: 'Failed',       dot: 'bg-red-600',     badge: 'bg-red-50 border-red-200',          text: 'text-red-700' },
   RECONNECTING: { label: 'Reconnecting', dot: 'bg-amber-400',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
   HOLD:         { label: 'On Hold',      dot: 'bg-purple-400',  badge: 'bg-purple-50 border-purple-200',    text: 'text-purple-700' },
-  VOICEMAIL:    { label: 'Voicemail',    dot: 'bg-indigo-400',  badge: 'bg-indigo-50 border-indigo-200',    text: 'text-indigo-700' },
+  VOICEMAIL:    { label: 'Voicemail',    dot: 'bg-blue-400',  badge: 'bg-blue-50 border-blue-200',    text: 'text-blue-700' },
   // Legacy values (old records)
   INCOMING:     { label: 'Ringing',      dot: 'bg-amber-500',   badge: 'bg-amber-50 border-amber-200',      text: 'text-amber-700' },
   ANSWERED:     { label: 'Answered',     dot: 'bg-teal-500',    badge: 'bg-teal-50 border-teal-200',        text: 'text-teal-700' },
-  COMPLETED:    { label: 'Completed',    dot: 'bg-emerald-500', badge: 'bg-emerald-50 border-emerald-200',  text: 'text-emerald-700' },
+  COMPLETED:    { label: 'Completed',    dot: 'bg-green-500', badge: 'bg-green-50 border-green-200',  text: 'text-green-700' },
   CANCELLED:    { label: 'Cancelled',    dot: 'bg-gray-400',    badge: 'bg-gray-50 border-gray-200',        text: 'text-gray-500' },
   TRANSFERRED:  { label: 'Transferred',  dot: 'bg-purple-500',  badge: 'bg-purple-50 border-purple-200',    text: 'text-purple-700' },
 };
@@ -155,7 +155,7 @@ function StatusBadge({ status }: { status: DisplayStatus }) {
 }
 
 function DirectionIcon({ direction, size = 14 }: { direction: CallDirection; size?: number }) {
-  if (direction === 'INCOMING') return <ArrowDownLeft size={size} className="text-emerald-500 flex-shrink-0" />;
+  if (direction === 'INCOMING') return <ArrowDownLeft size={size} className="text-green-500 flex-shrink-0" />;
   return <ArrowUpRight size={size} className="text-blue-500 flex-shrink-0" />;
 }
 
@@ -169,7 +169,7 @@ function Avatar({ call, size = 'md' }: { call: CallLog; size?: 'sm' | 'md' | 'lg
       {getInitials(name, phone)}
       <span className={cn(
         'absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white',
-        ACTIVE_STATUSES.has(call.status) ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300',
+        ACTIVE_STATUSES.has(call.status) ? 'bg-green-500 animate-pulse' : 'bg-gray-300',
       )} />
     </div>
   );
@@ -430,7 +430,7 @@ function CallDetail({
           </div>
           <div className="flex gap-2">
             <button onClick={() => onDial(displayPhone)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors">
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors">
               <Phone size={13} />Call back
             </button>
             {call.contact?.id && (
@@ -531,10 +531,10 @@ function CallDetail({
 function AnalyticsBanner({ analytics }: { analytics: Analytics }) {
   const items = [
     { label: 'Total Calls', value: analytics.total, icon: <Phone size={14} className="text-gray-500" />, color: 'text-gray-700' },
-    { label: 'Total Duration', value: formatDuration(analytics.totalDuration), icon: <Clock size={14} className="text-indigo-500" />, color: 'text-indigo-700' },
+    { label: 'Total Duration', value: formatDuration(analytics.totalDuration), icon: <Clock size={14} className="text-blue-500" />, color: 'text-blue-700' },
     { label: 'Avg Duration', value: formatDuration(analytics.avgDuration), icon: <Clock size={14} className="text-teal-500" />, color: 'text-teal-700' },
     { label: 'Missed Rate', value: `${analytics.missedRate}%`, icon: <PhoneMissed size={14} className="text-red-500" />, color: analytics.missedRate > 20 ? 'text-red-600' : 'text-gray-700' },
-    { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: <TrendingUp size={14} className="text-emerald-500" />, color: 'text-emerald-700' },
+    { label: 'Completion Rate', value: `${analytics.completionRate}%`, icon: <TrendingUp size={14} className="text-green-500" />, color: 'text-green-700' },
     { label: 'Avg Response', value: analytics.avgResponseTime > 0 ? formatDuration(analytics.avgResponseTime) : '-', icon: <Activity size={14} className="text-blue-500" />, color: 'text-blue-700' },
   ];
 
@@ -634,7 +634,7 @@ function CallRow({
           <span className="text-xs text-gray-400 group-hover:hidden">{timeAgo(call.createdAt)}</span>
           <div className="hidden group-hover:flex items-center gap-1">
             <button title="Call back" onClick={() => onDial(phone)}
-              className="w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center transition-colors">
+              className="w-7 h-7 rounded-lg bg-green-600 hover:bg-green-500 flex items-center justify-center transition-colors">
               <Phone size={12} className="text-white" />
             </button>
             <button onClick={() => setMenuOpen(p => !p)}
@@ -823,7 +823,7 @@ export default function CallsPage() {
   };
 
   return (
-    <div className={cn('h-full flex flex-col overflow-hidden bg-gray-50/50', outboundCall && 'pb-20')}>
+    <div className={cn('h-full flex flex-col overflow-hidden bg-gray-50', outboundCall && 'pb-20')}>
 
       {/* ── Page header ── */}
       <div className="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-4 flex-shrink-0">
@@ -843,7 +843,7 @@ export default function CallsPage() {
               <Link2 size={14} /><span className="hidden sm:inline">Call Link</span>
             </button>
             <button onClick={() => openDial()}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">
               <Phone size={14} />New Call
             </button>
           </div>
@@ -857,7 +857,7 @@ export default function CallsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2 sm:gap-3 mb-4">
             <StatCard label="Total Calls" value={stats.total} icon={<Phone size={18} className="text-teal-600" />} sub={`${stats.todayTotal} today`} color="bg-teal-50" onClick={() => setNav('all')} active={nav === 'all'} />
             <StatCard label="Missed" value={stats.missed} icon={<PhoneMissed size={18} className="text-red-500" />} color="bg-red-50" onClick={() => setNav('missed')} active={nav === 'missed'} />
-            <StatCard label="Inbound" value={stats.inbound} icon={<PhoneIncoming size={18} className="text-emerald-600" />} color="bg-emerald-50" onClick={() => setNav('incoming')} active={nav === 'incoming'} />
+            <StatCard label="Inbound" value={stats.inbound} icon={<PhoneIncoming size={18} className="text-green-600" />} color="bg-green-50" onClick={() => setNav('incoming')} active={nav === 'incoming'} />
             <StatCard label="Outbound" value={stats.outbound} icon={<PhoneOutgoing size={18} className="text-blue-500" />} color="bg-blue-50" onClick={() => setNav('outgoing')} active={nav === 'outgoing'} />
             <StatCard label="Live Calls" value={stats.active} icon={<Activity size={18} className="text-orange-500" />} sub="Active now" color="bg-orange-50" onClick={() => setNav('all')} active={false} />
           </div>
@@ -934,7 +934,7 @@ export default function CallsPage() {
                 <p className="text-sm text-gray-400 mt-1 mb-5">
                   {search ? `No calls matching "${search}"` : 'No calls in this category yet'}
                 </p>
-                <button onClick={() => openDial()} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors">
+                <button onClick={() => openDial()} className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-colors">
                   <Plus size={15} />Make first call
                 </button>
               </div>
@@ -997,8 +997,8 @@ export default function CallsPage() {
                               <span className="text-xs text-gray-500 font-mono flex-shrink-0">{formatDuration(call.duration)}</span>
                             ) : null}
                             {isActive && (
-                              <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />Live
+                              <span className="flex-shrink-0 flex items-center gap-1 text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />Live
                               </span>
                             )}
                           </div>
@@ -1011,7 +1011,7 @@ export default function CallsPage() {
                 </div>
 
                 {total > limit && (
-                  <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100 bg-gray-50/50">
+                  <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100 bg-gray-50">
                     <span className="text-xs text-gray-500">Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}</span>
                     <div className="flex items-center gap-2">
                       <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
