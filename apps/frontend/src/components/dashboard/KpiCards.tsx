@@ -111,7 +111,7 @@ function lastCardSpan(count: number): string {
 export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
   const cards = buildCards(data, range);
   return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" aria-label="Key numbers">
+    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24" aria-label="Key numbers">
       {cards.map((card, i) => (
         <li key={card.key} className={cn('bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col', i === cards.length - 1 && lastCardSpan(cards.length))}>
           <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">

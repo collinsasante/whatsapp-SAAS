@@ -110,7 +110,7 @@ export default function DashboardPage() {
           ) : summary.error ? (
             <WidgetCard id="kpis" title="Key numbers" widget={summary}>{() => null}</WidgetCard>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" aria-busy="true" aria-label="Loading key numbers">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24" aria-busy="true" aria-label="Loading key numbers">
               {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} className="h-40" />)}
             </div>
           )}
