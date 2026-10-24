@@ -1,6 +1,5 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { dashboardApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -8,11 +7,11 @@ import { getPermissions } from '@/lib/permissions';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { useWidget } from '@/lib/dashboard/useWidget';
 import {
-  DASHBOARD_MAX_DAYS, DEFAULT_PRESET, PRESET_KEYS, analyticsHref, isoToday, rangeKey, rangeQuery,
+  DASHBOARD_MAX_DAYS, DEFAULT_PRESET, PRESET_KEYS, rangeKey, rangeQuery,
 } from '@/lib/dashboard/format';
 import type {
-  DashboardActivity, DashboardAi, DashboardAttention, DashboardPreset, DashboardRange, DashboardRecommendations,
-  DashboardSummary, DashboardTeam, DashboardTrend,
+  DashboardAttention, DashboardBusiness, DashboardPreset, DashboardRange, DashboardRequests, DashboardSummary,
+  DashboardTrend, DashboardWhatsAppStatus,
 } from '@/lib/dashboard/types';
 import { customRangeProblem } from '@/components/analytics/Toolbar';
 import { EmptyNote, Skeleton } from '@/components/analytics/ui';
@@ -21,11 +20,9 @@ import WidgetCard from '@/components/dashboard/WidgetCard';
 import KpiCards from '@/components/dashboard/KpiCards';
 import TrendCard from '@/components/dashboard/TrendCard';
 import AttentionCard from '@/components/dashboard/AttentionCard';
-import TeamCard from '@/components/dashboard/TeamCard';
-import AiCard from '@/components/dashboard/AiCard';
-import CustomersCard from '@/components/dashboard/CustomersCard';
-import ActivityCard from '@/components/dashboard/ActivityCard';
-import RecommendationsCard from '@/components/dashboard/RecommendationsCard';
+import RequestsCard from '@/components/dashboard/RequestsCard';
+import BusinessCard from '@/components/dashboard/BusinessCard';
+import WhatsAppCard from '@/components/dashboard/WhatsAppCard';
 
 /** How often the page refreshes itself while it is open and visible. */
 const AUTO_REFRESH_MS = 5 * 60_000;
@@ -68,10 +65,12 @@ export default function DashboardPage() {
   const summary = useWidget<DashboardSummary>(key, (s) => dashboardApi.summary(query, s).then((r) => r.data), opts);
   const trend = useWidget<DashboardTrend>(key, (s) => dashboardApi.trend(query, s).then((r) => r.data), opts);
   const attention = useWidget<DashboardAttention>(key, (s) => dashboardApi.attention(query, s).then((r) => r.data), opts);
-  const team = useWidget<DashboardTeam>(key, (s) => dashboardApi.team(query, s).then((r) => r.data), opts);
-  const ai = useWidget<DashboardAi>(key, (s) => dashboardApi.ai(query, s).then((r) => r.data), opts);
-  const activity = useWidget<DashboardActivity>('activity', (s) => dashboardApi.activity(s).then((r) => r.data), opts);
-  const recommendations = useWidget<DashboardRecommendations>(key, (s) => dashboardApi.recommendations(query, s).then((r) => r.data), opts);
+  // These three describe the workspace as it is now, so they do not depend on the date range.
+  const [metaChecks, setMetaChecks] = useState(0);
+  const workspaceOpts = { enabled, refreshKey: refreshKey + metaChecks };
+  const requests = useWidget<DashboardRequests>('workspace', (s) => dashboardApi.requests(s).then((r) => r.data), workspaceOpts);
+  const business = useWidget<DashboardBusiness>('workspace', (s) => dashboardApi.business(s).then((r) => r.data), workspaceOpts);
+  const whatsapp = useWidget<DashboardWhatsAppStatus>('workspace', (s) => dashboardApi.whatsappStatus(metaChecks > 0, s).then((r) => r.data), workspaceOpts);
 
   const reloadAll = () => { refresh(); };
   const anyLoading = summary.loading || trend.loading || attention.loading;
@@ -106,6 +105,18 @@ export default function DashboardPage() {
 
       {enabled && (
         <>
+          <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
+            <WidgetCard id="requests" title="Requesting" description="Customers waiting for a person" widget={requests}>
+              {(data) => <RequestsCard data={data} />}
+            </WidgetCard>
+            <WidgetCard id="whatsapp" title="WhatsApp account status" description="As reported by Meta" widget={whatsapp}>
+              {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
+            </WidgetCard>
+            <WidgetCard id="business" title="Business and account" description="Your business details and plan" widget={business}>
+              {(data) => <BusinessCard data={data} />}
+            </WidgetCard>
+          </div>
+
           {summary.data ? (
             <KpiCards data={summary.data} range={range} />
           ) : summary.error ? (
@@ -124,32 +135,6 @@ export default function DashboardPage() {
               {(data) => <AttentionCard data={data} />}
             </WidgetCard>
           </div>
-
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
-            <WidgetCard id="team" title="Team" description="Workload and response times" widget={team} className="lg:col-span-2">
-              {(data) => <TeamCard data={data} />}
-            </WidgetCard>
-            <WidgetCard id="ai" title="Verz AI" description="What the assistant handled" widget={ai}>
-              {(data) => <AiCard data={data} />}
-            </WidgetCard>
-          </div>
-
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
-            <WidgetCard id="customers" title="Customers and sales" widget={summary} className="lg:col-span-2">
-              {(data) => <CustomersCard data={data} range={range} />}
-            </WidgetCard>
-            <WidgetCard id="activity" title="Recent activity" description="Last 30 days" widget={activity}>
-              {(data) => <ActivityCard data={data} />}
-            </WidgetCard>
-          </div>
-
-          <WidgetCard
-            id="next" title="What to do next" description="Suggestions based on your numbers, with the evidence behind each"
-            widget={recommendations}
-            aside={<Link href={analyticsHref(range, 'next')} className="text-sm font-medium text-teal-700 hover:underline whitespace-nowrap">See all in Analytics</Link>}
-          >
-            {(data) => <RecommendationsCard data={data} />}
-          </WidgetCard>
         </>
       )}
     </div>

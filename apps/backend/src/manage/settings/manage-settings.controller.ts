@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Post, Body, UseGuards, Headers, UnauthorizedException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { UpdateReplyDeadlineDto } from './dto/reply-deadline.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CurrentUser } from '../../common/decorators/user.decorator';
@@ -46,6 +47,13 @@ export class ManageSettingsController {
   @Patch('ai')
   updateAi(@CurrentUser() u: JwtPayload, @Body() body: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string; aiMode?: string; aiPilotGroup?: boolean }) {
     return this.service.updateAi(u.tenantId, body);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Patch('reply-deadline')
+  updateReplyDeadline(@CurrentUser() u: JwtPayload, @Body() body: UpdateReplyDeadlineDto) {
+    return this.service.updateReplyDeadline(u.tenantId, u.sub, body.minutes);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

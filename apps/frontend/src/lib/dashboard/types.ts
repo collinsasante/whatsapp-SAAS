@@ -1,5 +1,5 @@
 /** Response shapes of GET /dashboard/command/* (mirrors apps/backend/src/dashboard/dashboard-command.types.ts). */
-import type { AgentRow, ChannelRow, Coverage, HealthArea, Insight } from '@/lib/analytics/types';
+import type { ChannelRow, Coverage } from '@/lib/analytics/types';
 
 export type DashboardPreset = 'today' | '7d' | '30d' | 'custom';
 
@@ -74,43 +74,48 @@ export interface DashboardAttention {
   notChecked: Array<{ kind: AttentionKind; reason: string }>;
 }
 
-export interface DashboardTeam {
+export interface DashboardRequests {
   meta: DashboardMeta;
-  agents: AgentRow[];
-  workload: { open: number; unassigned: number };
+  requesting: number;
+  overdue: number;
+  oldestWaitingSeconds: number | null;
+  deadlineMinutes: number | null;
+  samples: Array<{ conversationId: string; contactName: string | null; waitingSeconds: number; overdue: boolean }>;
 }
 
-export interface AiPeriod {
-  engagedConversations: number;
-  autoReplies: number;
-  suggestions: number;
-  suggestionsSent: number;
-  handedToPerson: number;
-  resolvedWithoutPerson: number;
-  averageConfidence: number | null;
+export interface DashboardBusiness {
+  meta: DashboardMeta;
+  business: {
+    name: string; phone: string | null; email: string | null; address: string | null; website: string | null;
+    description: string | null; category: string | null; logoUrl: string | null;
+  };
+  missing: Array<'phone' | 'email' | 'address' | 'website' | 'description'>;
+  account: {
+    plan: string; subscriptionStatus: string | null; billingCycle: string | null; trialEndsAt: string | null;
+    currentPeriodEnd: string | null; cancelAtPeriodEnd: boolean; createdAt: string; timezone: string;
+    members: number; channels: number; aiCreditsBalance: number; billingEmail: string | null;
+  };
 }
 
-export interface DashboardAi {
-  meta: DashboardMeta;
-  coverage: Coverage;
-  enabled: boolean;
-  mode: 'SUGGESTION' | 'AUTO_REPLY' | null;
-  credits: { balance: number; usedCurrent: number | null; usedPrevious: number | null };
-  current: AiPeriod;
-  previous: AiPeriod;
+export type MetaCheckError = 'TOKEN_INVALID' | 'META_ERROR' | 'UNREACHABLE';
+
+export interface WhatsAppNumberStatus {
+  id: string;
+  label: string;
+  isDefault: boolean;
+  live: {
+    displayPhone: string | null; verifiedName: string | null; quality: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN';
+    messagingLimit: string | null; numberStatus: string | null; nameStatus: string | null; verification: string | null;
+  } | null;
+  error: { kind: MetaCheckError; message: string } | null;
+  lastKnown: { quality: string | null; messagingLimit: string | null; syncedAt: string | null } | null;
+  lastError: string | null;
 }
 
-export type ActivityKind = 'requested' | 'intervened' | 'resolved' | 'reopened' | 'assigned' | 'unassigned' | 'transferred' | 'sla_breached';
-
-export interface DashboardActivity {
+export interface DashboardWhatsAppStatus {
   meta: DashboardMeta;
-  entries: Array<{
-    id: string; kind: ActivityKind; at: string; conversationId: string; contactName: string | null; actorName: string | null;
-  }>;
-}
-
-export interface DashboardRecommendations {
-  meta: DashboardMeta;
-  insights: Insight[];
-  health: HealthArea[];
+  checkedAt: string;
+  connected: boolean;
+  numbers: WhatsAppNumberStatus[];
+  qrSessions: Array<{ id: string; phoneNumber: string | null; status: string; lastSeenAt: string | null; lastError: string | null }>;
 }

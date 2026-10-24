@@ -4,12 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { getTenantDateRangeBoundaries } from '../common/utils/timezone.util';
 import { AnalyticsIntelligenceService } from '../analytics/analytics-intelligence.service';
 import type { PeriodKpis } from '../analytics/analytics-intelligence.types';
+import { effectiveReplyDeadlineMinutes } from '../conversations/reply-deadline.util';
 import { buildAttentionItems, ATTENTION_KINDS } from './dashboard-attention.util';
 import { resolveDashboardWindow, trendBuckets, type DashboardWindow } from './dashboard-window.util';
 import type { DashboardRangeQueryDto } from './dto/dashboard-command.dto';
 import type {
-  ActivityEntry, ActivityKind, AiPeriod, AttentionConversation, DashboardActivity, DashboardAi, DashboardAttention,
-  DashboardMeta, DashboardRecommendations, DashboardSummary, DashboardTeam, DashboardTrend, PeriodSummary, TrendPoint,
+  AttentionConversation, DashboardAttention, DashboardMeta, DashboardSummary, DashboardTrend, PeriodSummary, TrendPoint,
 } from './dashboard-command.types';
 
 interface Range {
@@ -27,12 +27,6 @@ interface Context {
   meta: DashboardMeta;
 }
 
-const ACTIVITY_TYPES: Record<string, ActivityKind> = {
-  REQUESTED: 'requested', INTERVENED: 'intervened', RESOLVED: 'resolved', REOPENED: 'reopened',
-  ASSIGNED: 'assigned', UNASSIGNED: 'unassigned', TRANSFERRED: 'transferred', SLA_BREACHED: 'sla_breached',
-};
-const ACTIVITY_LOOKBACK_DAYS = 30;
-const ACTIVITY_LIMIT = 15;
 const SAMPLE_LIMIT = 5;
 /** A connection reporting an error older than this is treated as recovered, not as a current problem. */
 const CHANNEL_ERROR_WINDOW_DAYS = 7;
@@ -192,41 +186,34 @@ export class DashboardCommandService {
   async getAttention(tenantId: string, query: DashboardRangeQueryDto): Promise<DashboardAttention> {
     const ctx = await this.context(tenantId, query);
     const now = new Date();
-    const [backlog, coverage, requested, sla, failed, campaigns, channels] = await Promise.all([
+    const [backlog, deadlineSettings, sla, failed, campaigns, channels] = await Promise.all([
       this.analytics.backlog(tenantId, 'ALL', now),
-      this.analytics.coverage(tenantId),
-      this.requestedCount(tenantId),
-      this.slaBreachedRequested(tenantId),
+      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { replyDeadlineMinutes: true } }),
+      this.overdueRequests(tenantId, now),
       this.failedDeliveries(tenantId, ctx.current, now),
       this.failedCampaigns(tenantId, ctx.current),
       this.channelProblems(tenantId, now),
     ]);
 
+    const deadline = effectiveReplyDeadlineMinutes(deadlineSettings);
     const items = buildAttentionItems({
-      backlog, requested,
-      slaBreachedRequested: coverage.sla ? sla : null,
+      backlog,
+      slaBreachedRequested: deadline != null ? sla : null,
       failedDeliveries: failed, failedCampaigns: campaigns, channelProblems: channels, days: ctx.window.days,
     });
-    const notChecked: DashboardAttention['notChecked'] = coverage.sla
+    const notChecked: DashboardAttention['notChecked'] = deadline != null
       ? []
-      : [{ kind: 'sla_breached', reason: 'No reply deadline has been recorded for this workspace yet.' }];
+      : [{ kind: 'sla_breached', reason: 'The reply deadline is turned off. Set one in Manage, under Reply deadline.' }];
     const skipped = new Set(notChecked.map((n) => n.kind));
     return { meta: ctx.meta, items, checked: ATTENTION_KINDS.filter((k) => !skipped.has(k)), notChecked };
   }
 
-  private async requestedCount(tenantId: string): Promise<number> {
+  /** Requests still waiting for a person whose reply deadline has passed. The worker flags breaches once a minute, so the deadline itself is checked too. */
+  private async overdueRequests(tenantId: string, now: Date): Promise<number> {
     const rows = await this.prisma.$queryRaw<Array<{ n: number }>>`
       SELECT COUNT(*)::int AS n FROM conversations c
       WHERE c.tenant_id = ${tenantId} AND c.status::text = 'REQUESTED' AND ${this.analytics.notTest('c')}
-    `;
-    return num(rows[0]?.n);
-  }
-
-  private async slaBreachedRequested(tenantId: string): Promise<number> {
-    const rows = await this.prisma.$queryRaw<Array<{ n: number }>>`
-      SELECT COUNT(*)::int AS n FROM conversations c
-      WHERE c.tenant_id = ${tenantId} AND c.status::text = 'REQUESTED' AND c.sla_deadline IS NOT NULL
-        AND c.sla_breached AND ${this.analytics.notTest('c')}
+        AND (c.sla_breached OR (c.sla_deadline IS NOT NULL AND c.sla_deadline <= ${now}))
     `;
     return num(rows[0]?.n);
   }
@@ -296,79 +283,5 @@ export class DashboardCommandService {
     ]);
     const names = [...pages.map((p) => p.pageName), ...sessions.map((s) => s.channel.name)];
     return { count: names.length, names };
-  }
-
-  // ─── Team ──────────────────────────────────────────────────────────────────
-
-  async getTeam(tenantId: string, query: DashboardRangeQueryDto): Promise<DashboardTeam> {
-    const ctx = await this.context(tenantId, query);
-    const [agents, load] = await Promise.all([
-      this.analytics.agents(tenantId, ctx.current, 'ALL'),
-      this.prisma.$queryRaw<Array<{ open: number; unassigned: number }>>`
-        SELECT COUNT(*)::int AS open, COUNT(*) FILTER (WHERE c.assigned_to_id IS NULL)::int AS unassigned
-        FROM conversations c
-        WHERE c.tenant_id = ${tenantId} AND ${this.analytics.notTest('c')} AND c.status::text NOT IN ('RESOLVED', 'SNOOZED')
-      `,
-    ]);
-    // Alphabetical on purpose: the dashboard shows each person's workload, it does not rank people against each other.
-    agents.sort((a, b) => a.name.localeCompare(b.name));
-    return { meta: ctx.meta, agents, workload: { open: num(load[0]?.open), unassigned: num(load[0]?.unassigned) } };
-  }
-
-  // ─── AI ────────────────────────────────────────────────────────────────────
-
-  async getAi(tenantId: string, query: DashboardRangeQueryDto): Promise<DashboardAi> {
-    const ctx = await this.context(tenantId, query);
-    const [coverage, settings, tenant, current, previous] = await Promise.all([
-      this.analytics.coverage(tenantId),
-      this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { aiEnabled: true, aiMode: true } }),
-      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { aiCredits: true } }),
-      this.analytics.aiKpis(tenantId, ctx.current, 'ALL'),
-      this.analytics.aiKpis(tenantId, ctx.previous, 'ALL'),
-    ]);
-    const period = (k: PeriodKpis['ai']): AiPeriod => ({
-      engagedConversations: k.engagedConversations, autoReplies: k.autoReplies, suggestions: k.suggestions,
-      suggestionsSent: k.suggestionsSent, handedToPerson: k.handedToPerson,
-      resolvedWithoutPerson: k.resolvedWithoutPerson, averageConfidence: k.averageConfidence,
-    });
-    const mode = settings?.aiMode === 'AUTO_REPLY' ? 'AUTO_REPLY' : settings?.aiMode === 'SUGGESTION' ? 'SUGGESTION' : null;
-    return {
-      meta: ctx.meta, coverage,
-      enabled: !!settings?.aiEnabled, mode,
-      credits: { balance: tenant?.aiCredits ?? 0, usedCurrent: current.creditsUsed, usedPrevious: previous.creditsUsed },
-      current: period(current), previous: period(previous),
-    };
-  }
-
-  // ─── Recent activity ───────────────────────────────────────────────────────
-
-  /** Who did what to which conversation. Message text, notes and tag names are never selected. */
-  async getActivity(tenantId: string): Promise<DashboardActivity> {
-    const ctx = await this.context(tenantId, {});
-    const since = new Date(Date.now() - ACTIVITY_LOOKBACK_DAYS * 86_400_000);
-    const rows = await this.prisma.$queryRaw<Array<{ id: string; type: string; at: Date; conversation_id: string; contact: string | null; actor: string | null }>>`
-      SELECT e.id, e.type::text AS type, e.created_at AS at, e.conversation_id, k.name AS contact, u.name AS actor
-      FROM conversation_events e
-      JOIN conversations c ON c.id = e.conversation_id
-      JOIN contacts k ON k.id = c.contact_id
-      LEFT JOIN users u ON u.id = e.actor_id
-      WHERE e.tenant_id = ${tenantId} AND e.created_at >= ${since}
-        AND e.type::text = ANY(${Object.keys(ACTIVITY_TYPES)}::text[]) AND ${this.analytics.notTest('c')}
-      ORDER BY e.created_at DESC LIMIT ${ACTIVITY_LIMIT}
-    `;
-    const entries: ActivityEntry[] = rows.map((r) => ({
-      id: r.id, kind: ACTIVITY_TYPES[r.type], at: r.at.toISOString(),
-      conversationId: r.conversation_id, contactName: r.contact, actorName: r.actor,
-    }));
-    return { meta: ctx.meta, entries };
-  }
-
-  // ─── Recommendations ───────────────────────────────────────────────────────
-
-  /** The same rules-based insights Analytics shows, each carrying the numbers it was derived from. */
-  async getRecommendations(tenantId: string, query: DashboardRangeQueryDto): Promise<DashboardRecommendations> {
-    const ctx = await this.context(tenantId, query);
-    const intelligence = await this.analytics.getIntelligence(tenantId, { from: ctx.window.from, to: ctx.window.to, preset: 'custom' });
-    return { meta: ctx.meta, insights: intelligence.insights.slice(0, 4), health: intelligence.health };
   }
 }

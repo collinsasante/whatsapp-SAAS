@@ -251,6 +251,9 @@ model TenantSettings {
   maxAgents                   Int       @default(10) @map("max_agents")
   welcomeEnabled              Boolean   @default(false) @map("welcome_enabled")
   welcomeMessage              String?   @map("welcome_message")
+  // Minutes a customer may wait for a person after asking for one (conversation status REQUESTED) before the
+  // request counts as overdue. Null turns the deadline off. Applies to new requests; see ManageSettingsService.
+  replyDeadlineMinutes        Int?      @default(15) @map("reply_deadline_minutes")
   offHoursEnabled             Boolean   @default(false) @map("off_hours_enabled")
   offHoursMessage             String?   @map("off_hours_message")
   offHoursSchedule            Json      @default("{}") @map("off_hours_schedule")

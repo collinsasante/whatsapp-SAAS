@@ -25,6 +25,28 @@ export class ManageSettingsService {
     return this.prisma.tenantSettings.findUnique({ where: { tenantId } });
   }
 
+  /**
+   * Sets how long a customer may wait for a person (null: no deadline). The new value also applies to requests that
+   * are waiting right now and have not been flagged yet, so changing it takes effect immediately rather than only
+   * for the next customer. Requests already flagged as breached stay flagged.
+   */
+  async updateReplyDeadline(tenantId: string, actorId: string, minutes: number | null) {
+    const settings = await this.prisma.tenantSettings.upsert({
+      where: { tenantId },
+      create: { tenantId, replyDeadlineMinutes: minutes },
+      update: { replyDeadlineMinutes: minutes },
+    });
+    const updated = minutes == null
+      ? await this.prisma.$executeRaw`
+          UPDATE conversations SET sla_deadline = NULL
+          WHERE tenant_id = ${tenantId} AND status::text = 'REQUESTED' AND NOT sla_breached`
+      : await this.prisma.$executeRaw`
+          UPDATE conversations SET sla_deadline = COALESCE(requested_at, created_at) + make_interval(mins => ${minutes}::int)
+          WHERE tenant_id = ${tenantId} AND status::text = 'REQUESTED' AND NOT sla_breached`;
+    this.logger.log(`[tenant:${tenantId}] reply deadline set to ${minutes ?? 'off'} by ${actorId}; ${updated} waiting request(s) re-timed`);
+    return settings;
+  }
+
   async updateWelcome(tenantId: string, data: { welcomeEnabled?: boolean; welcomeMessage?: string }) {
     return this.prisma.tenantSettings.upsert({
       where: { tenantId },

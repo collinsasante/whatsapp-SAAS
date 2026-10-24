@@ -7,6 +7,14 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Added
+- Reply deadline is now a setting. In Manage, Reply Deadline, an admin chooses how many minutes (1 to 1,440) a customer may wait for a person, or turns the deadline off. It applies to new requests and to requests already waiting; requests already marked overdue stay overdue. The deadline used to be fixed at 15 minutes, which is still the default. This adds one column (`tenant_settings.reply_deadline_minutes`, default 15) and needs the database migration.
+- Dashboard: a Requesting card (customers waiting for a person, how many are past the deadline, who has waited longest, and the deadline in force), a WhatsApp account status card read from Meta for each connected number (quality rating, messaging limit, verification, display name, number status, with the time of the check and a Check again button), and a Business and account card (business details, what is missing, plan and billing status, team members, channels, AI credits).
+
+### Changed
+- Dashboard: removed the Team, Verz AI, Customers and sales, Recent activity and What to do next sections. Their endpoints under `/dashboard/command` are gone too (`team`, `ai`, `activity`, `recommendations`); nothing else used them.
+- The Needs attention list no longer repeats the waiting-requests count (the Requesting card shows it) and counts a request as past the deadline as soon as the deadline passes, instead of waiting up to a minute for the background check.
+
 ### Security
 - Suspending a workspace or a user now ends their access straight away. Before, only new sign-ins and incoming webhooks
   were blocked, so people who were already signed in kept working (access tokens last up to 30 days, and a session could be
