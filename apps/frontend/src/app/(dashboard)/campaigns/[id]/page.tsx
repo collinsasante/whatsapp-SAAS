@@ -38,7 +38,7 @@ interface Recipient {
 const STATUS_META: Record<string, { label: string; cls: string; dot: string }> = {
   DRAFT:     { label: 'Draft',     cls: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400' },
   SCHEDULED: { label: 'Scheduled', cls: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
-  RUNNING:   { label: 'Running',   cls: 'bg-yellow-100 text-yellow-700', dot: 'bg-yellow-500' },
+  RUNNING:   { label: 'Running',   cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
   PAUSED:    { label: 'Paused',    cls: 'bg-orange-100 text-orange-700', dot: 'bg-orange-400' },
   COMPLETED: { label: 'Completed', cls: 'bg-teal-100 text-teal-700',    dot: 'bg-teal-500' },
   FAILED:    { label: 'Failed',    cls: 'bg-red-100 text-red-600',      dot: 'bg-red-500' },
@@ -65,7 +65,7 @@ function initials(name: string) {
 const AVATAR_COLORS = [
   'bg-teal-100 text-teal-700', 'bg-blue-100 text-blue-700',
   'bg-purple-100 text-purple-700', 'bg-orange-100 text-orange-700',
-  'bg-pink-100 text-pink-700', 'bg-indigo-100 text-indigo-700',
+  'bg-pink-100 text-pink-700', 'bg-blue-100 text-blue-700',
 ];
 function avatarColor(name: string) {
   let h = 0;

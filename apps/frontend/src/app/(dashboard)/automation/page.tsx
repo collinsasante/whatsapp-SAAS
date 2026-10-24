@@ -85,7 +85,7 @@ const TRIGGERS: Record<
   CAMPAIGN_RESPONSE: {
     label: "Campaign Response",
     description: "When contact replies to a campaign",
-    color: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    color: "bg-amber-100 text-amber-700 border-amber-200",
   },
 };
 

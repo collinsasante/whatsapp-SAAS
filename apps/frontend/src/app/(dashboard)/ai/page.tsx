@@ -58,7 +58,7 @@ const DEFAULT_PERSONALITY = 'You are helpful, friendly, and professional. Keep r
 const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   manual: { label: 'Manual', color: 'bg-gray-100 text-gray-600' },
   upload: { label: 'File', color: 'bg-blue-50 text-blue-600' },
-  url: { label: 'URL', color: 'bg-violet-50 text-violet-600' },
+  url: { label: 'URL', color: 'bg-purple-50 text-purple-600' },
   learned: { label: 'AI-Learned', color: 'bg-teal-50 text-teal-600' },
 };
 
@@ -697,7 +697,7 @@ export default function AiPage() {
                     onClick={() => { setShowUrlInput(v => !v); setEditingId(null); }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 border text-xs font-semibold rounded-lg transition-colors ${
                       showUrlInput
-                        ? 'border-violet-300 bg-violet-50 text-violet-700'
+                        ? 'border-purple-300 bg-purple-50 text-purple-700'
                         : 'border-gray-200 hover:border-gray-300 text-gray-700 hover:bg-gray-50'
                     }`}
                   >
@@ -710,7 +710,7 @@ export default function AiPage() {
 
                 {/* URL input */}
                 {showUrlInput && (
-                  <div className="px-5 py-4 border-b border-gray-100 bg-violet-50/50">
+                  <div className="px-5 py-4 border-b border-gray-100 bg-purple-50">
                     <p className="text-xs font-semibold text-gray-700 mb-2">Import from URL</p>
                     <div className="flex gap-2">
                       <input
@@ -719,12 +719,12 @@ export default function AiPage() {
                         onChange={e => setUrlInput(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') void handleScrapeUrl(); }}
                         placeholder="https://yoursite.com/faq"
-                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 bg-white"
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 bg-white"
                       />
                       <button
                         onClick={() => void handleScrapeUrl()}
                         disabled={scrapingUrl || !urlInput.trim()}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
+                        className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
                       >
                         {scrapingUrl
                           ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -930,7 +930,7 @@ export default function AiPage() {
                         { label: 'Edit Rate', value: `${analytics.editRate}%`, color: 'text-blue-600' },
                         { label: 'Rejection Rate', value: `${analytics.rejectionRate}%`, color: 'text-red-500' },
                         { label: 'Avg Response Time', value: analytics.avgResponseMs !== null ? `${(analytics.avgResponseMs / 1000).toFixed(1)}s` : '-', color: 'text-gray-700' },
-                        { label: 'Avg Rating', value: analytics.avgRating !== null ? `${analytics.avgRating}/5` : '-', color: 'text-yellow-500' },
+                        { label: 'Avg Rating', value: analytics.avgRating !== null ? `${analytics.avgRating}/5` : '-', color: 'text-amber-500' },
                         { label: 'Avg Confidence', value: analytics.avgConfidence !== null ? `${analytics.avgConfidence}%` : '-', color: analytics.avgConfidence !== null && analytics.avgConfidence < 70 ? 'text-orange-500' : 'text-teal-600' },
                       ].map(({ label, value, color }) => (
                         <div key={label} className="bg-gray-50 rounded-xl p-3">
@@ -992,8 +992,8 @@ export default function AiPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-                <Brain size={20} className="text-violet-600" />
+              <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
+                <Brain size={20} className="text-purple-600" />
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900">Enable Verz?</p>
