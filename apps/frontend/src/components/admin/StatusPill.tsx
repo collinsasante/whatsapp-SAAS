@@ -4,12 +4,12 @@ import { cn } from '@/lib/utils';
 export type PillTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info' | 'pending';
 
 const TONES: Record<PillTone, { cls: string; icon: React.ElementType }> = {
-  success: { cls: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20', icon: CheckCircle2 },
+  success: { cls: 'bg-green-50 text-green-800 ring-green-600/20', icon: CheckCircle2 },
   warning: { cls: 'bg-amber-50 text-amber-800 ring-amber-600/25', icon: AlertTriangle },
-  danger: { cls: 'bg-rose-50 text-rose-800 ring-rose-600/20', icon: XCircle },
+  danger: { cls: 'bg-red-50 text-red-800 ring-red-600/20', icon: XCircle },
   neutral: { cls: 'bg-gray-100 text-gray-700 ring-gray-500/20', icon: MinusCircle },
-  info: { cls: 'bg-sky-50 text-sky-800 ring-sky-600/20', icon: Info },
-  pending: { cls: 'bg-indigo-50 text-indigo-800 ring-indigo-600/20', icon: Clock },
+  info: { cls: 'bg-blue-50 text-blue-800 ring-blue-600/20', icon: Info },
+  pending: { cls: 'bg-blue-50 text-blue-800 ring-blue-600/20', icon: Clock },
 };
 
 /** A status as an icon and a word, so it never depends on colour alone to be understood. */

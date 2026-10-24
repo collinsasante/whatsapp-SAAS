@@ -35,7 +35,7 @@ export default function CommerceFeeLedgerPage() {
     { key: 'tenant', header: 'Tenant', render: (r) => <Link href={`/platform-admin/workspaces/${r.tenantId}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> },
     { key: 'orderId', header: 'Order', render: (r) => <Link href={`/platform-admin/orders/${r.orderId}`} className="font-mono text-xs text-gray-500 hover:underline">{r.orderId.slice(0, 8)}</Link> },
     { key: 'type', header: 'Type', render: (r) => <StatusBadge status={r.type} map={TYPE_TONES} /> },
-    { key: 'amount', header: 'Amount', render: (r) => <span className={r.amountMajorUnits < 0 ? 'text-red-600' : 'text-emerald-600'}>{r.amountMajorUnits > 0 ? '+' : ''}{r.amountMajorUnits.toFixed(2)} {r.currency}</span> },
+    { key: 'amount', header: 'Amount', render: (r) => <span className={r.amountMajorUnits < 0 ? 'text-red-600' : 'text-green-600'}>{r.amountMajorUnits > 0 ? '+' : ''}{r.amountMajorUnits.toFixed(2)} {r.currency}</span> },
   ];
 
   return (

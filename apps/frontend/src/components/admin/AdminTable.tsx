@@ -53,7 +53,7 @@ export function AdminTable<T>({ columns, rows, rowKey, loading, error, onRetry, 
 
   return (
     <div className={cn('rounded-lg border border-gray-200 bg-white overflow-hidden transition-opacity', loading && 'opacity-60')} aria-busy={loading}>
-      {error && <p role="alert" className="px-3 py-2 text-sm text-rose-700 bg-rose-50 border-b border-rose-100">Showing the last results. Refreshing failed: {error}</p>}
+      {error && <p role="alert" className="px-3 py-2 text-sm text-red-700 bg-red-50 border-b border-red-100">Showing the last results. Refreshing failed: {error}</p>}
 
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm">
@@ -77,7 +77,7 @@ export function AdminTable<T>({ columns, rows, rowKey, loading, error, onRetry, 
           </thead>
           <tbody className="divide-y divide-gray-100">
             {rows.map((row) => (
-              <tr key={rowKey(row)} className="hover:bg-gray-50/70">
+              <tr key={rowKey(row)} className="hover:bg-gray-50">
                 {columns.map((c, i) => (
                   <td key={c.key} className={cn('px-3 py-2.5 align-middle', c.align === 'right' && 'text-right tabular-nums', c.className)}>
                     {i === 0 && rowHref ? (

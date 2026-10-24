@@ -21,7 +21,7 @@ function Submit({ loading, children }: { loading: boolean; children: React.React
 
 function ErrorLine({ message }: { message: string }) {
   if (!message) return null;
-  return <p role="alert" className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">{message}</p>;
+  return <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{message}</p>;
 }
 
 export default function AdminLoginPage() {

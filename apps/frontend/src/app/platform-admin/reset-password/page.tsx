@@ -26,7 +26,7 @@ function ResetForm() {
   if (done) {
     return (
       <AuthShell title="Password updated">
-        <p className="flex gap-2.5 text-sm text-gray-700"><CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" aria-hidden="true" />Your password has been changed. Sign in with the new one.</p>
+        <p className="flex gap-2.5 text-sm text-gray-700"><CheckCircle2 className="w-5 h-5 text-green-600 shrink-0" aria-hidden="true" />Your password has been changed. Sign in with the new one.</p>
         <Link href="/platform-admin/login" className="inline-block mt-4 text-sm font-medium text-teal-700 hover:underline">Go to sign in</Link>
       </AuthShell>
     );
@@ -51,7 +51,7 @@ function ResetForm() {
   return (
     <AuthShell title="Choose a new password" description={`At least ${MIN_PASSWORD_LENGTH} characters. A few unrelated words make a strong one.`}>
       <form onSubmit={submit} className="space-y-4" noValidate>
-        {error && <p role="alert" className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">{error}</p>}
         <Field id="new-password" label="New password">
           <PasswordInput id="new-password" value={password} onChange={setPassword} autoComplete="new-password" />
         </Field>

@@ -78,7 +78,7 @@ function activeHref(pathname: string): string | null {
 }
 
 const ENV_STYLE: Record<EnvironmentName, string> = {
-  Production: 'bg-rose-50 text-rose-800 ring-rose-600/25',
+  Production: 'bg-red-50 text-red-800 ring-red-600/25',
   Staging: 'bg-amber-50 text-amber-800 ring-amber-600/25',
   Local: 'bg-gray-100 text-gray-700 ring-gray-500/25',
 };
@@ -147,7 +147,7 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
     <nav aria-label="Platform administration" className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
       {NAV.map((section) => (
         <div key={section.label}>
-          <p className="px-3 mb-1 text-[11px] font-medium text-emerald-200/50">{section.label}</p>
+          <p className="px-3 mb-1 text-[11px] font-medium text-green-200/50">{section.label}</p>
           <ul className="space-y-px">
             {section.items.map((item) => {
               const active = current === item.href;
@@ -156,11 +156,11 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
                   <Link
                     href={item.href} onClick={onNavigate} aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'group flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded-md text-[13px] border-l-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-300',
-                      active ? 'bg-white/10 text-white border-emerald-400 font-medium' : 'text-gray-300 border-transparent hover:bg-white/5 hover:text-white',
+                      'group flex items-center gap-2.5 pl-3 pr-2 py-1.5 rounded-md text-[13px] border-l-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-green-300',
+                      active ? 'bg-white/10 text-white border-green-400 font-medium' : 'text-gray-300 border-transparent hover:bg-white/5 hover:text-white',
                     )}
                   >
-                    <item.icon className={cn('w-4 h-4 shrink-0', active ? 'text-emerald-300' : 'text-gray-400 group-hover:text-gray-200')} aria-hidden="true" />
+                    <item.icon className={cn('w-4 h-4 shrink-0', active ? 'text-green-300' : 'text-gray-400 group-hover:text-gray-200')} aria-hidden="true" />
                     {item.label}
                   </Link>
                 </li>
@@ -176,10 +176,10 @@ function SidebarNav({ pathname, onNavigate }: { pathname: string; onNavigate?: (
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-4 h-14 border-b border-white/10 shrink-0">
-      <span className="w-7 h-7 rounded-md bg-emerald-500/90 flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-emerald-950" /></span>
+      <span className="w-7 h-7 rounded-md bg-green-500/90 flex items-center justify-center" aria-hidden="true"><ShieldCheck className="w-4 h-4 text-green-950" /></span>
       <span className="leading-tight">
         <span className="block text-sm font-semibold text-white">VerzChat</span>
-        <span className="block text-[11px] text-emerald-200/60">Platform console</span>
+        <span className="block text-[11px] text-green-200/60">Platform console</span>
       </span>
     </div>
   );

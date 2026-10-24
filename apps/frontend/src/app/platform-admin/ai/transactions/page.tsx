@@ -29,7 +29,7 @@ export default function CreditTransactionsPage() {
     { key: 'when', header: 'When', mobile: 'title', cell: (r) => <time dateTime={r.createdAt} title={formatDateTime(r.createdAt)}>{formatRelative(r.createdAt)}</time> },
     { key: 'type', header: 'Type', mobile: 'badge', cell: (r) => { const t = TYPES.find((x) => x.value === r.type); return <StatusPill tone={t?.tone ?? 'neutral'}>{t?.label ?? r.type}</StatusPill>; } },
     { key: 'tenant', header: 'Tenant', mobile: 'line', cell: (r) => <Link href={`/platform-admin/workspaces/${r.tenant.id}?tab=ai`} className="text-teal-700 hover:underline">{r.tenant.name}</Link> },
-    { key: 'credits', header: 'Credits', align: 'right', mobile: 'line', cell: (r) => <span className={r.credits < 0 ? 'text-gray-700' : 'text-emerald-800'}>{r.credits > 0 ? '+' : ''}{formatNumber(r.credits)}</span> },
+    { key: 'credits', header: 'Credits', align: 'right', mobile: 'line', cell: (r) => <span className={r.credits < 0 ? 'text-gray-700' : 'text-green-800'}>{r.credits > 0 ? '+' : ''}{formatNumber(r.credits)}</span> },
     { key: 'after', header: 'Balance after', align: 'right', mobile: 'line', cell: (r) => formatNumber(r.balanceAfter) },
     { key: 'description', header: 'Note', cell: (r) => <span className="text-sm text-gray-700">{r.description}</span> },
   ];

@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
-  success: 'bg-emerald-100 text-emerald-700',
+  success: 'bg-green-100 text-green-700',
   warning: 'bg-amber-100 text-amber-700',
   danger: 'bg-red-100 text-red-700',
   neutral: 'bg-gray-100 text-gray-500',

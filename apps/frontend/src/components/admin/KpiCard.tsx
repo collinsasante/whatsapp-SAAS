@@ -52,7 +52,7 @@ export function KpiCard({
         </div>
         {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
         {changePct != null && (
-          <div className={cn('flex items-center gap-1 text-xs font-medium mt-1', changePct >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+          <div className={cn('flex items-center gap-1 text-xs font-medium mt-1', changePct >= 0 ? 'text-green-600' : 'text-red-500')}>
             {changePct >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
             {Math.abs(changePct)}% vs previous period
           </div>

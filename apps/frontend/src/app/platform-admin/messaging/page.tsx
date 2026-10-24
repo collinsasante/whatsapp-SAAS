@@ -48,7 +48,7 @@ export default function MessagingPage() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <KpiCard label="Sent" value={data.totals.sent.toLocaleString()} icon={Send} color="bg-teal-600" />
-            <KpiCard label="Delivered" value={data.totals.delivered.toLocaleString()} icon={CheckCircle2} color="bg-emerald-600" />
+            <KpiCard label="Delivered" value={data.totals.delivered.toLocaleString()} icon={CheckCircle2} color="bg-green-600" />
             <KpiCard label="Failed" value={data.totals.failed.toLocaleString()} icon={XCircle} color="bg-red-500" />
             <KpiCard label="Inbound" value={data.totals.inbound.toLocaleString()} icon={Inbox} color="bg-blue-500" />
           </div>
