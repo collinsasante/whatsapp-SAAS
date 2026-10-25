@@ -18,7 +18,12 @@ describe('AiCompletionService', () => {
     (provider as { key: string }).key = 'deepseek';
     executions = buildExecutionsMock();
     const registry = new ProviderRegistryService(provider as never);
-    service = new AiCompletionService(registry, executions as never);
+    const meteredProvider = {
+      complete: jest.fn(async (selectedProvider: MockProvider, _tenantId: string, _taskType: string, request: Parameters<MockProvider['complete']>[0]) => ({
+        result: await selectedProvider.complete(request),
+      })),
+    };
+    service = new AiCompletionService(registry, executions as never, meteredProvider as never);
   });
 
   it('returns the completion content and records a SUCCESS trace', async () => {

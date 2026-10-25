@@ -50,6 +50,7 @@ function sleep(ms: number): Promise<void> {
 @Injectable()
 export class DeepSeekProvider implements AiProvider {
   readonly key = 'deepseek';
+  readonly maxAttempts = 2;
   private readonly logger = new Logger(DeepSeekProvider.name);
 
   async complete(req: ChatCompletionRequest): Promise<ChatCompletionResult> {
@@ -59,7 +60,8 @@ export class DeepSeekProvider implements AiProvider {
     }
 
     let lastError: AiProviderError | undefined;
-    for (let attempt = 0; attempt <= 1; attempt++) {
+    let uncertainPriorAttempt = false;
+    for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
       const startedAt = Date.now();
       try {
         const res = await axios.post<DeepSeekResponseBody>(
@@ -103,16 +105,22 @@ export class DeepSeekProvider implements AiProvider {
             inputTokens: res.data.usage?.prompt_tokens ?? 0,
             outputTokens: res.data.usage?.completion_tokens ?? 0,
           },
+          attemptsUsed: attempt + 1,
           provider: this.key,
           model: res.data.model ?? req.modelKey,
           latencyMs: Date.now() - startedAt,
         };
       } catch (err) {
         lastError = classifyError(err);
-        if (!lastError.retryable || attempt === 1) {
+        if (!lastError.retryable || attempt === this.maxAttempts - 1) {
           this.logger.warn(`DeepSeek call failed (${lastError.code}, retryable=${lastError.retryable}, attempt=${attempt + 1}): ${lastError.message}`);
+          const uncertainOutcome = uncertainPriorAttempt || ['timeout', 'network', 'server_error'].includes(lastError.code);
+          if (uncertainOutcome) {
+            throw new AiProviderError(lastError.code, lastError.message, lastError.retryable, lastError.cause, true);
+          }
           throw lastError;
         }
+        uncertainPriorAttempt ||= ['timeout', 'network', 'server_error'].includes(lastError.code);
         this.logger.warn(`DeepSeek call failed (${lastError.code}), retrying once: ${lastError.message}`);
         await sleep(RETRY_BASE_DELAY_MS + Math.random() * RETRY_BASE_DELAY_MS);
       }

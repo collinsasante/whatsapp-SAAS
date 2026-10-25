@@ -1601,17 +1601,52 @@ export class MessagesService {
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
     if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType);
 
-    const legacy = await this.aiResponderService.generateSuggestion(tenantId, conversationId, content, contactName);
-    // The legacy responder calls DeepSeek via raw axios with no token tracking, so it
-    // never flows through AiExecutionsService.record() (the central settlement hook
-    // every other path uses) -- a fixed, honestly-labeled estimate instead. This path
-    // is a strangler-pattern leftover slated for retirement, not worth instrumenting.
-    if (legacy.response) {
-      await this.aiCreditsService
-        .chargeFlat(tenantId, LEGACY_RESPONDER_FLAT_CREDIT_COST, 'Legacy AI responder usage')
-        .catch((err) => this.logger.warn(`Legacy credit charge failed for tenant ${tenantId}: ${String(err)}`));
-    }
+    const legacy = await this.aiResponderService.generateSuggestion(
+      tenantId,
+      conversationId,
+      content,
+      contactName,
+      (providerCall) => this.runLegacyAiProviderCall(tenantId, providerCall),
+    );
+    // The legacy responder still uses a fixed estimate, but its provider request is
+    // wrapped in the same durable hold so concurrent calls cannot spend held credits.
     return { ...legacy, executionId: null };
+  }
+
+  private async runLegacyAiProviderCall<T>(tenantId: string, providerCall: () => Promise<T>): Promise<T> {
+    const reservation = await this.aiCreditsService.reserveFixedCredits(tenantId, LEGACY_RESPONDER_FLAT_CREDIT_COST);
+    try {
+      const result = await providerCall();
+      try {
+        const settlement = await this.aiCreditsService.settleReservation(
+          reservation.id,
+          LEGACY_RESPONDER_FLAT_CREDIT_COST,
+          'Legacy AI responder usage',
+          { estimated: true, reason: 'legacy path, no token tracking' },
+        );
+        if (!settlement.settled) throw new Error(`Legacy AI reservation ${reservation.id} was not settled`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to settle legacy AI reservation ${reservation.id}; it remains held for conservative expiry`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+      return result;
+    } catch (error) {
+      if (this.isDefinitiveProviderRejection(error)) {
+        await this.aiCreditsService.releaseReservation(reservation.id);
+      } else {
+        this.logger.warn(`Keeping legacy AI reservation ${reservation.id} for an uncertain provider outcome`);
+      }
+      throw error;
+    }
+  }
+
+  private isDefinitiveProviderRejection(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null || !('response' in error)) return false;
+    const response = error.response;
+    if (typeof response !== 'object' || response === null || !('status' in response) || typeof response.status !== 'number') return false;
+    return response.status >= 400 && response.status < 500;
   }
 
   /** Fire-and-forget background lead scoring, throttled inside LeadsService (see
@@ -1815,9 +1850,8 @@ export class MessagesService {
     }
 
     // Verz AI Credits: the flat -1-per-send decrement that used to live here is gone --
-    // real usage-based charging now happens automatically as part of generateAiReply()
-    // above (either via AiExecutionsService.record()'s central settlement hook, or the
-    // legacy path's explicit chargeFlat), right when real token usage is known. By the
+    // charging happens as part of generateAiReply() above (token-based for ai-core,
+    // estimated and reservation-backed for the legacy path). By the
     // time we're here the AI call already happened and already cost real money --
     // the ownership recheck just above this is what decides whether the ALREADY-PAID-FOR
     // reply is still worth delivering; reaching this line means it passed that check.

@@ -75,6 +75,7 @@ export interface PipelineTrace {
    * trace() helper for any tool-calling run (Commerce, or the v2 pipeline's tools
    * branch) -- absent for non-tool-calling turns. */
   toolTrace?: unknown;
+  reservationIds?: string[];
 }
 
 /**

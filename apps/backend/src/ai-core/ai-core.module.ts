@@ -21,6 +21,7 @@ import { VerzAiPipelineService } from './pipeline/verz-ai-pipeline.service';
 import { AiExecutionsService } from './executions/ai-executions.service';
 import { AiExecutionsController } from './executions/ai-executions.controller';
 import { AiCompletionService } from './completion/ai-completion.service';
+import { AiMeteredProviderService } from './completion/ai-metered-provider.service';
 import { ToolRegistryService } from './tools/tool-registry.service';
 import { ToolCallingService } from './tools/tool-calling.service';
 import { AiCreditsService } from './credits/ai-credits.service';
@@ -63,11 +64,12 @@ import { AiPricingService } from './pricing/ai-pricing.service';
     { provide: KNOWLEDGE_CONTEXT_SOURCE, useClass: KbRelevantContextSource },
     VerzAiPipelineService,
     AiCompletionService,
+    AiMeteredProviderService,
     ToolRegistryService,
     ToolCallingService,
     AiCreditsService,
     AiPricingService,
   ],
-  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService],
+  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, AiMeteredProviderService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService],
 })
 export class AiCoreModule {}

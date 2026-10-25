@@ -55,6 +55,8 @@ export interface AiSuggestionResult {
 
 export type AiUnavailableReason = 'AI_DISABLED' | 'TRIAL_NOT_APPROVED' | 'NO_CREDITS' | 'OUTSIDE_SCHEDULE';
 
+export type ProviderCallWrapper = <T>(providerCall: () => Promise<T>) => Promise<T>;
+
 @Injectable()
 export class AiResponderService {
   private readonly logger = new Logger(AiResponderService.name);
@@ -159,6 +161,7 @@ export class AiResponderService {
     conversationId: string,
     customerMessage: string,
     contactName?: string,
+    providerCallWrapper?: ProviderCallWrapper,
   ): Promise<AiSuggestionResult> {
     if (detectInjection(customerMessage)) {
       const businessName = (await this.prisma.tenantSettings.findUnique({
@@ -271,7 +274,7 @@ export class AiResponderService {
     ];
 
     try {
-      const res = await axios.post(
+      const providerCall = () => axios.post(
         DEEPSEEK_API_URL,
         {
           model: DEEPSEEK_MODEL,
@@ -284,6 +287,7 @@ export class AiResponderService {
           timeout: 20_000,
         },
       );
+      const res = await (providerCallWrapper ? providerCallWrapper(providerCall) : providerCall());
 
       const raw = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim() ?? '';
 

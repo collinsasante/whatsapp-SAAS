@@ -4,6 +4,7 @@ import { ProviderRegistryService } from '../providers/provider-registry.service'
 import { AiProviderError, ChatMessage } from '../providers/ai-provider.interface';
 import { AiExecutionsService } from '../executions/ai-executions.service';
 import { DEFAULT_MODEL_KEY, estimateCostUsd } from '../models/model-catalog';
+import { AiMeteredProviderService } from './ai-metered-provider.service';
 
 export interface AiCompletionRequest {
   tenantId: string;
@@ -37,20 +38,24 @@ export class AiCompletionService {
   constructor(
     private registry: ProviderRegistryService,
     private executions: AiExecutionsService,
+    private meteredProvider: AiMeteredProviderService,
   ) {}
 
   async complete(req: AiCompletionRequest): Promise<AiCompletionResult> {
     const modelKey = req.modelKey ?? DEFAULT_MODEL_KEY;
     const startedAt = Date.now();
     const provider = this.registry.forModel(modelKey);
+    let reservationId: string | undefined;
 
     try {
-      const result = await provider.complete({
+      const completion = await this.meteredProvider.complete(provider, req.tenantId, req.taskType, {
         modelKey,
         messages: req.messages,
         maxTokens: req.maxTokens,
         jsonMode: req.jsonMode,
       });
+      const result = completion.result;
+      reservationId = completion.reservationId;
 
       await this.executions.record(
         { tenantId: req.tenantId, conversationId: req.conversationId, taskType: req.taskType },
@@ -64,6 +69,7 @@ export class AiCompletionService {
           estCostUsd: estimateCostUsd(modelKey, result.usage.inputTokens, result.usage.outputTokens),
           safetyFlags: {},
           stageTimings: {},
+          ...(reservationId && { reservationIds: [reservationId] }),
         },
       ).catch((err) => this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`));
 
