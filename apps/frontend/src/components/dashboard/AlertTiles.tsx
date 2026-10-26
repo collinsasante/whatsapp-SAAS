@@ -6,9 +6,9 @@ import type { AttentionItem, AttentionKind, DashboardAttention } from '@/lib/das
 
 interface Accent { box: string; chipBg: string; chip: string; count: string; link: string }
 
-const RED: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-red-50', chip: 'text-red-600', count: 'text-red-600', link: 'text-gray-900' };
-const ORANGE: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-orange-50', chip: 'text-orange-600', count: 'text-orange-600', link: 'text-gray-900' };
-const AMBER: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-amber-50', chip: 'text-amber-600', count: 'text-amber-600', link: 'text-gray-900' };
+const RED: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-red-50', chip: 'text-red-600', count: 'text-gray-900', link: 'text-gray-900' };
+const ORANGE: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-orange-50', chip: 'text-orange-600', count: 'text-gray-900', link: 'text-gray-900' };
+const AMBER: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-amber-50', chip: 'text-amber-600', count: 'text-gray-900', link: 'text-gray-900' };
 const CALM: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-gray-50', chip: 'text-gray-400', count: 'text-gray-900', link: 'text-gray-900' };
 
 /** The four things an owner should always be able to see at a glance. Other kinds are listed below them when present. */
