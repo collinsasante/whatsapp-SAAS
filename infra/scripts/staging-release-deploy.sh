@@ -321,7 +321,7 @@ BACKEND_IMAGE="verzchat-staging/backend:$REVISION"
 EXPECTED_MIGRATIONS=$(migration_manifest_hash "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma")
 EXPECTED_SCHEMA=$(sha256sum "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma/schema.prisma" | awk '{print $1}')
 IMAGE_METADATA=$(docker run --rm --entrypoint sh "$BACKEND_IMAGE" -c \
-  'set -e; test -s /app/node_modules/@prisma/client/package.json; node -e "if(typeof require(\"@prisma/client\").PrismaClient!==\"function\")process.exit(1)"; cd /app/prisma; find migrations -type f -name migration.sql | sort | while IFS= read -r file; do printf "%s " "$file"; sha256sum "$file" | awk "{print \\$1}"; done | sha256sum | awk "{print \\$1}"; sha256sum schema.prisma | awk "{print \\$1}"')
+  'set -e; test -s /app/node_modules/@prisma/client/package.json; node -e "if(typeof require(\"@prisma/client\").PrismaClient!==\"function\")process.exit(1)"; cd /app/prisma; find migrations -type f -name migration.sql | sort | while IFS= read -r file; do printf "%s " "$file"; sha256sum "$file" | awk "{print \$1}"; done | sha256sum | awk "{print \$1}"; sha256sum schema.prisma | awk "{print \$1}"')
 IMAGE_MIGRATIONS=$(printf '%s\n' "$IMAGE_METADATA" | sed -n '1p')
 IMAGE_SCHEMA=$(printf '%s\n' "$IMAGE_METADATA" | sed -n '2p')
 [[ "$EXPECTED_MIGRATIONS" == "$IMAGE_MIGRATIONS" && "$EXPECTED_SCHEMA" == "$IMAGE_SCHEMA" ]] ||
