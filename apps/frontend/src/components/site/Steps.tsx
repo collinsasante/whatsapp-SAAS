@@ -1,4 +1,5 @@
 import { Ticks } from './mock-parts';
+import { reveal } from './reveal';
 import styles from './Steps.module.css';
 
 // A real sequence, so the markers are the ticks a message earns on its way: sent, delivered, read.
@@ -24,12 +25,12 @@ export default function Steps() {
   return (
     <section id="how" className={styles.section} aria-labelledby="steps-title">
       <div className="wrap">
-        <h2 id="steps-title" className="h2">
+        <h2 id="steps-title" className="h2" {...reveal()}>
           From first connection to a working inbox
         </h2>
         <ol className={styles.steps}>
-          {STEPS.map((s) => (
-            <li key={s.title} className={styles.step}>
+          {STEPS.map((s, i) => (
+            <li key={s.title} className={styles.step} {...reveal(i)}>
               <span className={styles.mark}>
                 <Ticks state={s.state} />
               </span>

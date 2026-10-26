@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { reveal } from './reveal';
 import styles from './Trust.module.css';
 
 const FACTS = [
@@ -21,7 +22,7 @@ export default function Trust() {
   return (
     <section className={styles.section} aria-labelledby="trust-title">
       <div className={`wrap ${styles.grid}`}>
-        <div>
+        <div {...reveal()}>
           <h2 id="trust-title" className="h2">
             What we can show you today
           </h2>
@@ -31,7 +32,7 @@ export default function Trust() {
           </p>
         </div>
 
-        <div className={styles.right}>
+        <div className={styles.right} {...reveal(1)}>
           <ul className={styles.facts}>
             {FACTS.map((f) => (
               <li key={f.text}>{f.text}</li>

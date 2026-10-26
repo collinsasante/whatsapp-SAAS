@@ -1,3 +1,4 @@
+import { reveal } from './reveal';
 import styles from './Problems.module.css';
 
 const ROWS = [
@@ -31,12 +32,12 @@ export default function Problems() {
   return (
     <section className={styles.section} aria-labelledby="problems-title">
       <div className="wrap">
-        <h2 id="problems-title" className={`h2 ${styles.title}`}>
+        <h2 id="problems-title" className={`h2 ${styles.title}`} {...reveal()}>
           Where customer chats usually go wrong
         </h2>
         <ul className={styles.rows}>
-          {ROWS.map((r) => (
-            <li key={r.problem} className={styles.row}>
+          {ROWS.map((r, i) => (
+            <li key={r.problem} className={styles.row} {...reveal(i)}>
               <h3 className={styles.problem}>{r.problem}</h3>
               <div className={styles.answer}>
                 <p>{r.answer}</p>

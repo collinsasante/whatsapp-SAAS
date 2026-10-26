@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { PLANS, PLAN_ROWS } from './data';
+import { reveal } from './reveal';
 import styles from './Pricing.module.css';
 
 const CTA = { free: 'Start free', starter: 'Choose Starter', pro: 'Start the 7-day trial' } as const;
@@ -8,7 +9,7 @@ export default function Pricing() {
   return (
     <section id="pricing" className={styles.section} aria-labelledby="pricing-title">
       <div className="wrap">
-        <h2 id="pricing-title" className="h2">
+        <h2 id="pricing-title" className="h2" {...reveal()}>
           Pricing
         </h2>
         <p className={`lede ${styles.lede}`}>
@@ -16,7 +17,7 @@ export default function Pricing() {
           Ghana cedis through Paystack, and the amount is shown at checkout.
         </p>
 
-        <div className={styles.scroll} tabIndex={0} role="region" aria-label="Plan comparison, scrolls sideways on small screens">
+        <div {...reveal(1)} className={styles.scroll} tabIndex={0} role="region" aria-label="Plan comparison, scrolls sideways on small screens">
           <table className={styles.table}>
             <caption className={styles.srOnly}>What each plan includes</caption>
             <thead>

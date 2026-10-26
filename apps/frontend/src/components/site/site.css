@@ -179,7 +179,10 @@
   text-decoration: none;
   border: 2px solid transparent;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+:where(.site) .btn:active {
+  transform: translateY(1px);
 }
 :where(.site) .btn-solid {
   background: var(--green-700);
@@ -210,6 +213,20 @@
 :where(.site) .btn-line-light:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: #fff;
+}
+
+/*
+ * Scroll reveal. Elements marked data-reveal (see reveal.ts) are hidden only after the page script has run and has
+ * already shown everything on screen, so the page is complete without JavaScript and nothing flashes on load.
+ * ScrollReveal adds the root class and removes it on cleanup; reduced-motion visitors never get it.
+ */
+.reveal-ready .site [data-reveal]:not(.is-in) {
+  opacity: 0;
+  transform: translateY(18px);
+}
+.reveal-ready .site [data-reveal] {
+  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--reveal-delay, 0ms);
 }
 
 @media (prefers-reduced-motion: reduce) {

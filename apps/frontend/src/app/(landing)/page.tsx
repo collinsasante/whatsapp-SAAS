@@ -6,6 +6,7 @@ import Hero from '@/components/site/Hero';
 import Inside from '@/components/site/Inside';
 import OwnerSection from '@/components/site/Owner';
 import Pricing from '@/components/site/Pricing';
+import ScrollReveal from '@/components/site/ScrollReveal';
 import Problems from '@/components/site/Problems';
 import SiteFooter from '@/components/site/SiteFooter';
 import SiteNav from '@/components/site/SiteNav';
@@ -75,6 +76,7 @@ export default function LandingPage() {
       <a href="#main" className="skip">
         Skip to content
       </a>
+      <ScrollReveal />
       <SiteNav />
       <main id="main">
         <Hero />
