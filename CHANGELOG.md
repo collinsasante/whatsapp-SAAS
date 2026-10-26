@@ -71,6 +71,7 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
 - Dashboard: the Requesting card shows how many waiting customers are inside and past the reply deadline as a bar, and the longest wait as a gauge against the deadline, instead of listing customer names. The WhatsApp and Business cards now line up at equal height.
+- Commerce and Tasks pages rebuilt. Products, Orders, Revenue and Tasks now share one layout: a compact summary, filters and search, a table that pages, and a side panel for details and actions. Revenue shows gross sales, refunds, platform fee and what you keep for any period, compared with the period before it, with a day-by-day chart, sales by product and a transaction list. Orders gain status tabs, a date range and a detail view with fulfilment actions. Tasks gain views (To do, Mine, In progress, Done), an "Up next" suggestion and urgency ordering. See docs/commerce-and-tasks.md for what the figures mean and what is not supported yet.
 
 ## [2.5.0] - 2026-10-23
 
