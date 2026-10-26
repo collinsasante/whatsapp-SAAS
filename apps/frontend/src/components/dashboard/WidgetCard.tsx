@@ -12,8 +12,8 @@ import { CardHeader } from '@/components/ui/Card';
  */
 export default function WidgetCard<T>({ id, title, description, aside, widget, skeletonClassName = 'h-40', className, children }: {
   id: string;
-  title: string;
-  description?: string;
+  title: React.ReactNode;
+  description?: React.ReactNode;
   aside?: React.ReactNode;
   widget: Widget<T>;
   skeletonClassName?: string;
