@@ -8,6 +8,8 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 ## [Unreleased]
 
 ### Fixed
+- Analytics, and any page that jumps to a section: clicking a section tab or focusing a hidden control could slide the whole app up so the sidebar logo and top bar disappeared. The page now scrolls only its own content and the app frame can no longer be scrolled out of place.
+- Inbox: a text message that was delivered but kept showing the sending clock now corrects itself by reloading the conversation after about 40 seconds. Messages to Messenger and Instagram now give up on Meta after 20 seconds instead of waiting indefinitely, so a stalled send shows as failed rather than sending forever.
 - Messenger and Instagram: a reply sent from outside VerzChat (the Page inbox, Meta Business Suite, or the Messenger or Instagram app on another phone) now appears in the conversation. These replies reach us as "echoes" and were being thrown away, so the thread looked unanswered and the history had gaps. They are stored once, in the customer's latest conversation, without reopening a resolved one, alerting the team, or changing who owns it.
 - Messenger and Instagram: if a customer message or reply could not be stored (for example the database was briefly down), the webhook used to answer "OK" anyway, so Meta never resent it and the message was lost. It now answers with an error so Meta resends, and storing is safe to repeat. A malformed event is skipped instead of being retried forever, and one account failing no longer stops another account in the same delivery.
 - Verz AI replies: the reply is now stored with the channel's message id (so delivered and read ticks work on it), and a reply the channel refuses is shown as failed instead of delivered. The fallback message sent when the AI cannot answer is also recorded in the conversation; before, the customer received it and the team never saw it.
@@ -68,6 +70,7 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - A message that failed to send no longer counts as the first reply to a customer, so median first-reply times in Analytics and the Dashboard are no longer too fast for workspaces with failed sends.
 - Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
+- Dashboard: the Requesting card shows how many waiting customers are inside and past the reply deadline as a bar, and the longest wait as a gauge against the deadline, instead of listing customer names. The WhatsApp and Business cards now line up at equal height.
 
 ## [2.5.0] - 2026-10-23
 

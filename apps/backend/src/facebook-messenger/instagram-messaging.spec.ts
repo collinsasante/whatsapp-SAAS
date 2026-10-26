@@ -25,7 +25,7 @@ describe('FacebookMessengerService: Instagram sending', () => {
     const [url, body, config] = post.mock.calls[0];
     expect(url).toBe('https://graph.facebook.com/v19.0/me/messages');
     expect(body).toEqual({ recipient: { id: 'IGSID-9' }, message: { text: 'hello' } });
-    expect(config).toEqual({ params: { access_token: TOKEN } });
+    expect(config).toEqual({ params: { access_token: TOKEN }, timeout: 20_000 });
     expect(JSON.stringify(body)).not.toContain(TOKEN);
   });
 

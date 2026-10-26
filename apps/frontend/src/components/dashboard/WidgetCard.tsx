@@ -23,10 +23,10 @@ export default function WidgetCard<T>({ id, title, description, aside, widget, s
   const headingId = `${id}-heading`;
   const { data, loading, error, reload } = widget;
   return (
-    <section id={id} aria-labelledby={headingId} aria-busy={loading} className={cn('bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24', className)}>
+    <section id={id} aria-labelledby={headingId} aria-busy={loading} className={cn('flex flex-col bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24', className)}>
       <CardHeader id={headingId} title={title} description={description} aside={aside} />
       {data ? (
-        <div className={cn('transition-opacity', loading && 'opacity-60')}>
+        <div className={cn('flex-1 transition-opacity', loading && 'opacity-60')}>
           {children(data)}
           {error && (
             <p role="alert" className="mt-3 text-sm text-red-700">

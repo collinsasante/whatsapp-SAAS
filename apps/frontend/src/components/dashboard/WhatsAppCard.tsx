@@ -62,14 +62,14 @@ function NumberBlock({ n }: { n: WhatsAppNumberStatus }) {
 /** Health of each WhatsApp Business number as Meta reports it, with the time of the check. */
 export default function WhatsAppCard({ data, refreshing, onRefresh }: { data: DashboardWhatsAppStatus; refreshing: boolean; onRefresh: () => void }) {
   return (
-    <div>
+    <div className="flex h-full flex-col">
       {!data.connected && data.qrSessions.length === 0 ? (
         <EmptyState title="No WhatsApp number is connected" href="/channels" hrefLabel="Connect WhatsApp">
           Connect a WhatsApp Business number to see its quality rating and messaging limit from Meta.
         </EmptyState>
       ) : (
         <>
-          {data.connected && <ul className="divide-y divide-gray-100">{data.numbers.map((n) => <NumberBlock key={n.id} n={n} />)}</ul>}
+          {data.connected && <ul className="mb-3 divide-y divide-gray-100">{data.numbers.map((n) => <NumberBlock key={n.id} n={n} />)}</ul>}
           {data.qrSessions.length > 0 && (
             <div className={data.connected ? 'mt-3 pt-3 border-t border-gray-100' : ''}>
               <p className="text-sm font-medium text-gray-900">Phones linked by QR code</p>
@@ -84,7 +84,7 @@ export default function WhatsAppCard({ data, refreshing, onRefresh }: { data: Da
               </ul>
             </div>
           )}
-          <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-gray-100">
+          <div className="flex flex-wrap items-center justify-between gap-2 mt-auto pt-3 border-t border-gray-100">
             <p className="text-xs text-gray-500">{data.connected ? `Checked with Meta at ${time(data.checkedAt)}` : `Checked at ${time(data.checkedAt)}`}</p>
             <Button variant="secondary" size="sm" onClick={onRefresh} disabled={refreshing} aria-label="Check with Meta again">
               <RefreshCw size={13} aria-hidden="true" className={refreshing ? 'animate-spin' : undefined} />Check again
