@@ -1,18 +1,14 @@
 'use client';
 import Link from 'next/link';
-import { ChevronRight } from 'lucide-react';
+import { CheckCircle2, Clock3, MessageSquare, UserPlus, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { compare, formatDuration, formatMoney, formatNumber } from '@/lib/analytics/format';
 import { DASHBOARD_METRICS } from '@/lib/dashboard/metrics';
 import { analyticsHref, pointsDelta, periodWord } from '@/lib/dashboard/format';
-import type { DashboardRange, DashboardRequests, DashboardSummary, PeriodSummary } from '@/lib/dashboard/types';
+import type { DashboardRange, DashboardSummary, PeriodSummary } from '@/lib/dashboard/types';
 import type { MetricDefinition } from '@/lib/analytics/metrics';
 import type { Delta } from '@/lib/analytics/format';
 import { DeltaView, InfoTip } from '@/components/analytics/ui';
-import { CardHeader } from '@/components/ui/Card';
-import Skeleton from '@/components/ui/Skeleton';
-import RequestsCard from '@/components/dashboard/RequestsCard';
-import type { Widget } from '@/lib/dashboard/useWidget';
 
 interface Card {
   key: string;
@@ -102,84 +98,49 @@ export function buildCards(data: DashboardSummary, range: DashboardRange): Card[
   return cards;
 }
 
-export default function KpiCards({ data, range, requests }: {
-  data: DashboardSummary;
-  range: DashboardRange;
-  requests: Widget<DashboardRequests>;
-}) {
+const TOP: Array<{ key: string; Icon: LucideIcon; tint: string }> = [
+  { key: 'conversations', Icon: MessageSquare, tint: 'bg-teal-50 text-teal-700' },
+  { key: 'newCustomers', Icon: UserPlus, tint: 'bg-blue-50 text-blue-600' },
+  { key: 'firstReply', Icon: Clock3, tint: 'bg-purple-50 text-purple-600' },
+  { key: 'resolution', Icon: CheckCircle2, tint: 'bg-teal-50 text-teal-700' },
+];
+
+/** The four headline numbers. Messages and the revenue or leads figure follow as one quiet line so nothing the dashboard showed before is lost. */
+export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
   const cards = buildCards(data, range);
-  const finalCard = cards[cards.length - 1];
+  const byKey = new Map(cards.map((c) => [c.key, c]));
+  const messages = byKey.get('messages');
+  const outcome = byKey.get('outcomes');
   return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24" aria-label="Key numbers">
-      {cards.slice(0, -1).map((card) => (
-        <li key={card.key} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
-            <span>{card.definition.label}</span>
-            <InfoTip definition={card.definition} />
-          </div>
-          <p className="text-3xl font-semibold text-gray-900 tabular-nums mt-1.5">{card.value}</p>
-          <div className="mt-1 min-h-[1.25rem]">
-            {card.delta && card.delta.verdict !== 'unknown'
-              ? <span className="inline-flex items-center gap-1.5"><DeltaView delta={card.delta} /><span className="text-xs text-gray-500">vs {periodWord(range)}</span></span>
-              : <span className="text-xs text-gray-500">{card.delta?.label ?? 'No comparison'}</span>}
-          </div>
-          <p className="text-sm text-gray-600 mt-2 flex-1">{card.explanation}</p>
-          <Link
-            href={card.href}
-            className={cn('inline-flex items-center gap-0.5 mt-3 text-sm font-medium text-teal-700 hover:underline w-fit',
-              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded')}
-          >
-            {card.linkLabel}<ChevronRight size={14} aria-hidden="true" />
-          </Link>
-        </li>
-      ))}
-      {finalCard && (
-        <li className="sm:col-span-2 xl:col-span-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col sm:col-span-2 xl:col-span-2">
-              <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
-                <span>{finalCard.definition.label}</span>
-                <InfoTip definition={finalCard.definition} />
+    <section aria-label="Key numbers">
+      <ul className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+        {TOP.map(({ key, Icon, tint }) => {
+          const card = byKey.get(key);
+          if (!card) return null;
+          return (
+            <li key={key} className="flex min-w-0 flex-col rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-600">
+                <span aria-hidden="true" className={cn('inline-flex h-7 w-7 items-center justify-center rounded-lg', tint)}><Icon size={15} /></span>
+                <span>{card.definition.label}</span>
+                <InfoTip definition={card.definition} />
               </div>
-              <p className="text-3xl font-semibold text-gray-900 tabular-nums mt-1.5">{finalCard.value}</p>
-              <div className="mt-1 min-h-[1.25rem]">
-                {finalCard.delta && finalCard.delta.verdict !== 'unknown'
-                  ? <span className="inline-flex items-center gap-1.5"><DeltaView delta={finalCard.delta} /><span className="text-xs text-gray-500">vs {periodWord(range)}</span></span>
-                  : <span className="text-xs text-gray-500">{finalCard.delta?.label ?? 'No comparison'}</span>}
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-gray-900 sm:text-3xl">{card.value}</p>
+              <div className="mt-0.5 min-h-[1.25rem]">
+                {card.delta && card.delta.verdict !== 'unknown'
+                  ? <span className="inline-flex items-center gap-1.5"><DeltaView delta={card.delta} /><span className="text-xs text-gray-500">vs {periodWord(range)}</span></span>
+                  : <span className="text-xs text-gray-500">{card.delta?.label ?? 'No comparison'}</span>}
               </div>
-              <p className="text-sm text-gray-600 mt-2 flex-1">{finalCard.explanation}</p>
-              <Link
-                href={finalCard.href}
-                className={cn('inline-flex items-center gap-0.5 mt-3 text-sm font-medium text-teal-700 hover:underline w-fit',
-                  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded')}
-              >
-                {finalCard.linkLabel}<ChevronRight size={14} aria-hidden="true" />
-              </Link>
-            </div>
-            <section id="requests" aria-labelledby="requests-heading" className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col">
-              <CardHeader id="requests-heading" title="Requesting" description="Customers waiting for a person" />
-              {requests.data ? (
-                <div className={cn('flex-1', requests.loading && 'opacity-60')}>
-                  <RequestsCard data={requests.data} />
-                  {requests.error && (
-                    <p role="alert" className="mt-3 text-sm text-red-700">
-                      Could not refresh this section. {requests.error}{' '}
-                      <button onClick={requests.reload} className="font-medium underline hover:no-underline">Try again</button>
-                    </p>
-                  )}
-                </div>
-              ) : requests.error ? (
-                <div role="alert" className="flex flex-col items-start gap-2 rounded-lg bg-red-50 border border-red-100 p-4">
-                  <p className="text-sm text-gray-600">{requests.error}</p>
-                  <button onClick={requests.reload} className="text-sm font-medium underline hover:no-underline">Try again</button>
-                </div>
-              ) : (
-                <Skeleton className="h-40" />
-              )}
-            </section>
-          </div>
-        </li>
+              <p className="mt-1.5 text-xs text-gray-600 sm:text-sm">{card.explanation}</p>
+            </li>
+          );
+        })}
+      </ul>
+      {(messages || outcome) && (
+        <p className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
+          {messages && <span>{messages.explanation.replace('Received from customers. ', `${messages.value} received from customers. `)} <Link href={messages.href} className="font-medium text-teal-700 hover:underline">Open the inbox</Link></span>}
+          {outcome && <span>{outcome.definition.label}: <span className="font-medium text-gray-900 tabular-nums">{outcome.value}</span>. {outcome.explanation} <Link href={outcome.href} className="font-medium text-teal-700 hover:underline">{outcome.linkLabel}</Link></span>}
+        </p>
       )}
-    </ul>
+    </section>
   );
 }

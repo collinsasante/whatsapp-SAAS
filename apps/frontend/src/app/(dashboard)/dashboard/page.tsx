@@ -19,7 +19,8 @@ import Header from '@/components/dashboard/Header';
 import WidgetCard from '@/components/dashboard/WidgetCard';
 import KpiCards from '@/components/dashboard/KpiCards';
 import TrendCard from '@/components/dashboard/TrendCard';
-import AttentionCard from '@/components/dashboard/AttentionCard';
+import AlertTiles from '@/components/dashboard/AlertTiles';
+import RequestsCard from '@/components/dashboard/RequestsCard';
 import BusinessCard from '@/components/dashboard/BusinessCard';
 import WhatsAppCard from '@/components/dashboard/WhatsAppCard';
 
@@ -105,32 +106,39 @@ export default function DashboardPage() {
       {enabled && (
         <>
           {summary.data ? (
-            <KpiCards data={summary.data} range={range} requests={requests} />
+            <KpiCards data={summary.data} range={range} />
           ) : summary.error ? (
             <WidgetCard id="kpis" title="Key numbers" widget={summary}>{() => null}</WidgetCard>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 bg-white border border-gray-200 rounded-xl p-4 sm:p-5 scroll-mt-24" aria-busy="true" aria-label="Loading key numbers">
-              {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-40" />)}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-busy="true" aria-label="Loading key numbers">
+              {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-36" />)}
             </div>
           )}
 
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
-            <WidgetCard id="trend" title="Conversation trend" widget={trend} className="lg:col-span-2" skeletonClassName="h-80">
-              {(data) => <TrendCard data={data} />}
-            </WidgetCard>
-            <WidgetCard id="attention" title="Needs attention" description="Things waiting on you right now" widget={attention} skeletonClassName="h-80">
-              {(data) => <AttentionCard data={data} />}
-            </WidgetCard>
-          </div>
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_21rem]">
+            <div className="min-w-0 space-y-5">
+              <WidgetCard id="attention" title="Needs attention" description="Things waiting on you right now" widget={attention} skeletonClassName="h-32">
+                {(data) => <AlertTiles data={data} />}
+              </WidgetCard>
 
-          {/* Workspace state: the WhatsApp account and the business sit side by side at equal height so their edges line up. */}
-          <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-            <WidgetCard id="whatsapp" title="WhatsApp account status" description="As reported by Meta" widget={whatsapp}>
-              {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
-            </WidgetCard>
-            <WidgetCard id="business" title="Business and account" description="Your business details and plan" widget={business}>
-              {(data) => <BusinessCard data={data} />}
-            </WidgetCard>
+              <div className="grid items-start gap-5 lg:grid-cols-5">
+                <WidgetCard id="trend" title="Conversation performance" widget={trend} className="lg:col-span-3" skeletonClassName="h-80">
+                  {(data) => <TrendCard data={data} />}
+                </WidgetCard>
+                <WidgetCard id="whatsapp" title="WhatsApp account status" description="Meta numbers and QR-connected phones" widget={whatsapp} className="lg:col-span-2">
+                  {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
+                </WidgetCard>
+              </div>
+            </div>
+
+            <div className="grid min-w-0 items-start gap-5 md:grid-cols-2 xl:grid-cols-1">
+              <WidgetCard id="business" title="Business and subscription" description="Your details, plan and usage" widget={business}>
+                {(data) => <BusinessCard data={data} />}
+              </WidgetCard>
+              <WidgetCard id="requests" title="Requesting" description="Customers waiting for a person" widget={requests}>
+                {(data) => <RequestsCard data={data} />}
+              </WidgetCard>
+            </div>
           </div>
         </>
       )}

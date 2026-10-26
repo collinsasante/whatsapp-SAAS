@@ -34,7 +34,7 @@ export default function Header({ firstName, meta, range, loading, onPreset, onCu
         description={
           <>
             {meta?.workspaceName ? <span className="font-medium text-gray-800">{meta.workspaceName}</span> : null}
-            {meta ? <span>{meta.workspaceName ? ', ' : ''}{formatRange(meta.from, meta.to)}{meta.timezone ? ` (${meta.timezone})` : ''}</span> : <span>Loading your workspace</span>}
+            {meta ? <span>{meta.workspaceName ? ' business overview, ' : 'Business overview, '}{formatRange(meta.from, meta.to)}{meta.timezone ? ` (${meta.timezone})` : ''}</span> : <span>Loading your workspace</span>}
           </>
         }
         actions={fresh && (

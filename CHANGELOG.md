@@ -71,6 +71,7 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
 - Dashboard: the Requesting card shows how many waiting customers are inside and past the reply deadline as a bar, and the longest wait as a gauge against the deadline, instead of listing customer names. The WhatsApp and Business cards now line up at equal height.
+- Dashboard layout reworked: four headline numbers in one row, four alert tiles (past the reply deadline, waiting for a reply, no owner, failed to send) with a link to the matching inbox view, the conversation trend with opened, resolved and customer-message totals beside the WhatsApp account status, and the business profile, subscription and requests in a right-hand column. Failed campaigns and channel problems still appear under the alerts. The WhatsApp card now separates what Meta reports from what VerzChat recorded for QR-connected phones, and says plainly when a verification has expired or a display name was declined.
 
 ## [2.5.0] - 2026-10-23
 
