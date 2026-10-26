@@ -110,11 +110,51 @@ describe('FacebookMessengerService.fetchContactName', () => {
     expect(prisma.channel.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'ch-ig', tenantId: 't1', type: 'INSTAGRAM' } }));
   });
 
+  it('falls back to the conversation list when the profile is refused, and finds the person by id', async () => {
+    const get = jest.spyOn(axios, 'get')
+      .mockRejectedValueOnce(new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { data: { error: { message: 'Unsupported get request' } } } as never))
+      .mockResolvedValueOnce({ data: { data: [{ participants: { data: [{ id: 'PAGE', name: 'Our Page' }, { id: 'PSID-1', name: 'Ama Mensah' }] } }] } });
+    const { service } = buildBoth();
+    await expect(service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1')).resolves.toEqual({ name: 'Ama Mensah' });
+    expect(get.mock.calls[1][0]).toBe('https://graph.facebook.com/v19.0/me/conversations');
+    expect(get.mock.calls[1][1]).toMatchObject({ params: { fields: 'participants', user_id: 'PSID-1', access_token: TOKEN } });
+    expect((get.mock.calls[1][1] as { params: Record<string, unknown> }).params).not.toHaveProperty('platform');
+  });
+
+  it('Instagram fallback asks for the instagram platform and uses @username when there is no name', async () => {
+    const get = jest.spyOn(axios, 'get')
+      .mockRejectedValueOnce(new Error('profile down'))
+      .mockResolvedValueOnce({ data: { data: [{ participants: { data: [{ id: 'IGSID-1', username: 'glam_pack' }] } }] } });
+    const { service } = buildBoth();
+    await expect(service.fetchContactName('t1', 'ch-ig', 'INSTAGRAM', 'IGSID-1')).resolves.toEqual({ name: '@glam_pack' });
+    expect(get.mock.calls[1][1]).toMatchObject({ params: { platform: 'instagram', user_id: 'IGSID-1' } });
+  });
+
+  it('never picks someone else: a conversation without that person gives no name, with both reasons logged', async () => {
+    jest.spyOn(axios, 'get')
+      .mockRejectedValueOnce(new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { data: { error: { message: 'profile refused' } } } as never))
+      .mockResolvedValueOnce({ data: { data: [{ participants: { data: [{ id: 'SOMEONE-ELSE', name: 'Wrong Person' }] } }] } });
+    const { service } = buildBoth();
+    const r = await service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1');
+    expect(r.name).toBeNull();
+    expect(r.reason).toBe('profile: profile refused | conversations: the person was not listed');
+    expect(JSON.stringify(r)).not.toContain('Wrong Person');
+  });
+
+  it('does not call the conversation list when the profile already gave a name', async () => {
+    const get = jest.spyOn(axios, 'get').mockResolvedValue({ data: { name: 'Ama Mensah' } });
+    const { service } = buildBoth();
+    await service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1');
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
   it('never throws: returns the reason when Meta refuses, and no token in it', async () => {
     jest.spyOn(axios, 'get').mockRejectedValue(new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, { data: { error: { message: '(#10) Application does not have permission' } } } as never));
     const { service } = buildBoth();
     const r = await service.fetchContactName('t1', 'ch1', 'MESSENGER', 'PSID-1');
     expect(r.name).toBeNull();
+    expect(r.reason).toContain('profile:');
+    expect(r.reason).toContain('conversations:');
     expect(r.reason).toContain('permission');
     expect(JSON.stringify(r)).not.toContain(TOKEN);
   });

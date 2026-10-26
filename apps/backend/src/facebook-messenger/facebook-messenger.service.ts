@@ -139,20 +139,47 @@ export class FacebookMessengerService {
   async fetchContactName(
     tenantId: string, channelId: string, platform: 'MESSENGER' | 'INSTAGRAM', externalId: string,
   ): Promise<{ name: string | null; reason?: string }> {
+    let token: string;
     try {
-      const token = platform === 'INSTAGRAM'
+      token = platform === 'INSTAGRAM'
         ? (await this.resolveInstagramCredentials(tenantId, channelId)).accessToken
         : (await this.resolveCredentials(tenantId, channelId)).pageAccessToken;
+    } catch (error) {
+      return { name: null, reason: error instanceof Error ? error.message : String(error) };
+    }
+
+    // Two routes, because Meta gates them differently: the profile of a person who wrote to the Page needs the
+    // "Business Asset User Profile Access" feature; the Page's own conversation list, which names its participants,
+    // works with the messaging permission the app already has. Both reasons are returned so the log says which door
+    // is shut and why.
+    const reasons: string[] = [];
+    try {
       const res = await axios.get<{ name?: string; first_name?: string; last_name?: string; username?: string }>(
         `${GRAPH_API_BASE}/${encodeURIComponent(externalId)}`,
         { params: { fields: platform === 'INSTAGRAM' ? 'name,username' : 'name,first_name,last_name', access_token: token }, timeout: 8_000 },
       );
       const d = res.data;
       const name = d.name?.trim() || [d.first_name, d.last_name].filter(Boolean).join(' ').trim() || (d.username ? `@${d.username}` : '');
-      return name ? { name } : { name: null, reason: 'Meta returned no name for this person' };
+      if (name) return { name };
+      reasons.push('profile: Meta returned no name');
     } catch (error) {
-      return { name: null, reason: metaError(error) };
+      reasons.push(`profile: ${metaError(error)}`);
     }
+
+    try {
+      const res = await axios.get<{ data?: Array<{ participants?: { data?: Array<{ id?: string; name?: string; username?: string }> } }> }>(
+        `${GRAPH_API_BASE}/me/conversations`,
+        { params: { fields: 'participants', user_id: externalId, ...(platform === 'INSTAGRAM' ? { platform: 'instagram' } : {}), access_token: token }, timeout: 8_000 },
+      );
+      const people = (res.data.data ?? []).flatMap((c) => c.participants?.data ?? []);
+      const person = people.find((p) => p.id === externalId);
+      const name = person?.name?.trim() || (person?.username ? `@${person.username}` : '');
+      if (name) return { name };
+      reasons.push('conversations: the person was not listed');
+    } catch (error) {
+      reasons.push(`conversations: ${metaError(error)}`);
+    }
+    return { name: null, reason: reasons.join(' | ') };
   }
 
   // ─── Instagram (Messenger Platform for Instagram, Facebook Login) ─────────────

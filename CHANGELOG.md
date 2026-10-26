@@ -7,24 +7,35 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-### Fixed
-- Analytics, and any page that jumps to a section: clicking a section tab or focusing a hidden control could slide the whole app up so the sidebar logo and top bar disappeared. The page now scrolls only its own content and the app frame can no longer be scrolled out of place.
-- Inbox: a text message that was delivered but kept showing the sending clock now corrects itself by reloading the conversation after about 40 seconds. Messages to Messenger and Instagram now give up on Meta after 20 seconds instead of waiting indefinitely, so a stalled send shows as failed rather than sending forever.
-- Messenger and Instagram: a reply sent from outside VerzChat (the Page inbox, Meta Business Suite, or the Messenger or Instagram app on another phone) now appears in the conversation. These replies reach us as "echoes" and were being thrown away, so the thread looked unanswered and the history had gaps. They are stored once, in the customer's latest conversation, without reopening a resolved one, alerting the team, or changing who owns it.
-- Messenger and Instagram: if a customer message or reply could not be stored (for example the database was briefly down), the webhook used to answer "OK" anyway, so Meta never resent it and the message was lost. It now answers with an error so Meta resends, and storing is safe to repeat. A malformed event is skipped instead of being retried forever, and one account failing no longer stops another account in the same delivery.
-- Verz AI replies: the reply is now stored with the channel's message id (so delivered and read ticks work on it), and a reply the channel refuses is shown as failed instead of delivered. The fallback message sent when the AI cannot answer is also recorded in the conversation; before, the customer received it and the team never saw it.
-- Messenger Pages connected from now on are subscribed to echoes, delivery receipts and read receipts. A Page connected earlier must be reconnected once (Channels, disconnect and connect) and the Meta app must have `message_echoes` switched on; see the upgrade notes.
+Nothing yet.
 
-### Upgrade notes
-- **Meta app setup for replies sent outside VerzChat:** in the Meta app dashboard, Webhooks, Page, subscribe to `message_echoes` (and `message_deliveries` and `message_reads` if they are not already on). Then reconnect each Messenger Page in Channels once, because a Page keeps the field list it was subscribed with. Set `FACEBOOK_APP_ID` on the backend: it is how VerzChat tells its own sends from replies typed elsewhere.
+## [2.8.0] - 2026-10-26
 
 ### Added
-- Reply deadline is now a setting. In Manage, Reply Deadline, an admin chooses how many minutes (1 to 1,440) a customer may wait for a person, or turns the deadline off. It applies to new requests and to requests already waiting; requests already marked overdue stay overdue. The deadline used to be fixed at 15 minutes, which is still the default. This adds one column (`tenant_settings.reply_deadline_minutes`, default 15) and needs the database migration.
-- Dashboard: a Requesting card (customers waiting for a person, how many are past the deadline, who has waited longest, and the deadline in force), a WhatsApp account status card read from Meta for each connected number (quality rating, messaging limit, verification, display name, number status, with the time of the check and a Check again button), and a Business and account card (business details, what is missing, plan and billing status, team members, channels, AI credits).
+- **Reply deadline setting.** In Manage, Reply Deadline, an admin chooses how many minutes (1 to 1,440) a customer who asked for a person can wait. The dashboard's "requests past the reply deadline" alert and the inbox use it.
+- **Dashboard rebuilt for owners.** Four headline numbers (conversations, new customers, median first response, resolution rate), four alert tiles (past the reply deadline, waiting for a reply, no owner, failed to send) that open the matching inbox view, a conversation trend with a period picker and table view, the WhatsApp account status as Meta and VerzChat report it (quality, messaging limit, verification, display name, and QR-connected phones with a Check again action), and a Business and subscription card. Failed campaigns and channel problems appear under the alerts when present.
+- **Products, Orders, Revenue and Tasks pages rebuilt** on one layout: a compact summary, search and filters, a table that pages, and a side panel for details and actions. Revenue shows gross sales, refunded, platform fee and what you keep for any period against the period before, with a day-by-day chart, sales by product and a transaction list. Orders gain status tabs, a date range and a detail view with fulfilment actions. Tasks gain views, an "Up next" suggestion and urgency ordering. See docs/commerce-and-tasks.md for what each figure means and what the backend does not support yet.
+- Landing page entrance and scroll animations.
 
 ### Changed
-- Dashboard: removed the Team, Verz AI, Customers and sales, Recent activity and What to do next sections. Their endpoints under `/dashboard/command` are gone too (`team`, `ai`, `activity`, `recommendations`); nothing else used them.
-- The Needs attention list no longer repeats the waiting-requests count (the Requesting card shows it) and counts a request as past the deadline as soon as the deadline passes, instead of waiting up to a minute for the background check.
+- **Revenue "You keep" is calculated differently from the old Revenue page.** It is gross sales minus the money refunded minus the platform fee (after the fee returned on refunds). The old page subtracted the small fee reversal instead of the refunded amount, so its net was too high whenever there had been a refund.
+- **Verz AI credits are now reserved before an AI call and settled after it** (new `ai_credit_reservations` table), with idempotent settlement and expiry of unsettled reservations.
+- Releasing the staging environment now builds versioned images and rehearses the database restore first (infrastructure only; production deployment is unchanged).
+
+### Fixed
+- Messenger and Instagram: a reply sent from outside VerzChat (the Page inbox, Meta Business Suite, or the app on another phone) now appears in the conversation. If a message could not be stored the webhook now answers with an error so Meta resends it, instead of losing it.
+- Verz AI replies are stored with the channel's message id (so delivered and read ticks work on them), and a reply the channel refuses shows as failed instead of delivered.
+- A text message that was delivered but kept showing the sending clock now corrects itself after about 40 seconds; Messenger and Instagram sends give up on Meta after 20 seconds instead of waiting indefinitely.
+- Clicking an Analytics section tab, or focusing a hidden control, could slide the whole app up so the sidebar logo and top bar disappeared.
+- The app no longer stretches wider than a phone screen when a page has wide content.
+- The manage page says that an overdue request alerts everyone who has VerzChat open.
+
+### Upgrade notes
+- **Database migrations (3):** `20261024120000_reply_deadline_setting` adds one column with a default. `20261025190000_ai_credit_reservations` adds a new table and a column on `ai_credit_transactions`. `20261026120000_preserve_legacy_schema_values` copies values between legacy columns and is the only one that touches existing rows. Take a backup first; the production deploy does not rehearse a restore or provide a rollback.
+- **Messenger replies sent outside VerzChat** need `message_echoes` subscribed in the Meta app's webhook settings, `FACEBOOK_APP_ID` set on the backend, and each Page reconnected once in Channels.
+- No other new settings.
+
+## [2.7.0] - 2026-10-24
 
 ### Security
 - Suspending a workspace or a user now ends their access straight away. Before, only new sign-ins and incoming webhooks
@@ -53,11 +64,22 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - Analytics page rebuilt around three questions: what is happening, why, and what to do next. Admins get a single filtered view (date range, previous-period comparison, channel) with KPIs, trends, an insights list with evidence and next steps, customer and lead pipeline, conversation backlog and reply speed, a busiest-times heatmap, team workload, Verz AI performance, common conversation labels and order revenue. Agents see only their own conversations.
 - Analytics no longer counts the dashboard's own test chats as customer conversations.
 - Revenue now comes from Commerce orders (per currency, never mixed). The old page showed VerzChat's own subscription billing under "Revenue"; that is no longer shown there.
+- Every signed-in page now uses one page-title size, one status palette (green, amber, red, blue, purple) and shared buttons, cards and empty states. Status colours are readable in dark mode, the sidebar highlights only the page you are on, and icon-only controls have names and a visible keyboard focus. The legal pages and Book a demo use the same header and footer as the home page, so their links work from any page.
 - Rebuilt the marketing landing page with a new visual identity: an owner-first story (who answers a customer at 9 pm), an illustrative inbox, honest channel status, and a pricing table generated from the real plan limits. Removed the old landing components, the unverified partner claim in the social preview image, and the fake social proof.
 
 ### Added
 - Platform admin endpoints: `GET /platform-admin/attention`, `/growth` and `/users/:id`, and filters on tenants, users, audit log, payments and credit wallets. No database changes.
 - `GET /analytics/intelligence` (admin only): the aggregated data behind the new page. No database changes.
+
+### Fixed
+- A message that failed to send no longer counts as the first reply to a customer, so median first-reply times in Analytics and the Dashboard are no longer too fast for workspaces with failed sends.
+- Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
+- The Dashboard scrolls, and Analytics no longer scrolls into a blank page at the end.
+- Billing shows an error with a retry button instead of a blank page when its data fails to load.
+
+## [2.6.0] - 2026-10-23
+
+### Added
 - Messenger and Instagram now do what WhatsApp does in the inbox:
   - Media you send (images, video, audio, documents on Messenger) is uploaded to Meta directly, so it no longer fails
     when Meta cannot fetch the file from our server. Voice notes are converted so they play.
@@ -67,13 +89,17 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
   - Options Meta does not support (location, contact cards, and documents on Instagram) are hidden in those chats.
 
 ### Fixed
-- A message that failed to send no longer counts as the first reply to a customer, so median first-reply times in Analytics and the Dashboard are no longer too fast for workspaces with failed sends.
-- Dashboard `days` parameters on the legacy endpoints used by the mobile app are now bounded (1 to 90).
 - The contact details panel shows "Messenger user" / "Instagram user" instead of "Unknown".
-- Dashboard: the Requesting card shows how many waiting customers are inside and past the reply deadline as a bar, and the longest wait as a gauge against the deadline, instead of listing customer names. The WhatsApp and Business cards now line up at equal height.
-- Commerce and Tasks pages rebuilt. Products, Orders, Revenue and Tasks now share one layout: a compact summary, filters and search, a table that pages, and a side panel for details and actions. Revenue shows gross sales, refunds, platform fee and what you keep for any period, compared with the period before it, with a day-by-day chart, sales by product and a transaction list. Orders gain status tabs, a date range and a detail view with fulfilment actions. Tasks gain views (To do, Mine, In progress, Done), an "Up next" suggestion and urgency ordering. See docs/commerce-and-tasks.md for what the figures mean and what is not supported yet.
-- Dashboard layout reworked: four headline numbers in one row, four alert tiles (past the reply deadline, waiting for a reply, no owner, failed to send) with a link to the matching inbox view, the conversation trend with opened, resolved and customer-message totals beside the WhatsApp account status, and the business profile, subscription and requests in a right-hand column. Failed campaigns and channel problems still appear under the alerts. The WhatsApp card now separates what Meta reports from what VerzChat recorded for QR-connected phones, and says plainly when a verification has expired or a display name was declined.
-- Dashboard restyled to a new design: the greeting uses the workspace name, with the last-updated time and refresh at the top right; the four numbers have large round icons and a change arrow against the previous period; the alert tiles are tinted by kind with an icon, count and link, and a View all link; the conversation trend has its own period picker and a View table button with Opened, Resolved and Customer messages totals beneath; the WhatsApp status card sits beside it with a Connected status, a quality and verification grid, and the QR phones with Check again; and Business and subscription is one tall card on the right with plan, usage and Edit business details and Manage plan buttons. The Requesting card is no longer on the dashboard; requests past the reply deadline still show as the first alert tile, and the deadline is still set in Manage.
+- Messenger and Instagram contacts are now named from the Page's conversation list when Meta refuses the direct
+  profile lookup (it needs a permission the app may not have yet). The log line says which route failed and why.
+
+### Upgrade notes
+- **Meta setup for ticks:** delivered and read ticks need `message_deliveries` and `message_reads` (and, for Instagram,
+  `messaging_seen`) subscribed in the Meta app's webhook settings.
+- **Names:** Messenger and Instagram contacts are named from Meta when they next write in. If Meta refuses, the server
+  log says why.
+- **Customers outside your own team** can use Messenger and Instagram only after Meta's App Review (Advanced access).
+- No new settings and no migration.
 
 ## [2.5.0] - 2026-10-23
 
