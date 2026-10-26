@@ -89,7 +89,15 @@ export class LeadsService {
 
     // Verz AI Credits: a coarse pre-call gate, same as every other AI entry point --
     // skip the real LLM call entirely rather than run up spend the tenant can't pay for.
-    const hasCredits = await this.aiCredits.hasSufficientBalance(tenantId).catch(() => true);
+    let hasCredits: boolean;
+    try {
+      hasCredits = await this.aiCredits.hasSufficientBalance(tenantId);
+    } catch (error) {
+      this.logger.warn(
+        `Skipping lead score for tenant ${tenantId} because AI credit balance could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return existing;
+    }
     if (!hasCredits) return existing;
 
     const conversationText = history.reverse().map((m) => `${m.direction === 'INBOUND' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n');

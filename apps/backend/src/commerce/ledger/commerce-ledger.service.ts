@@ -8,6 +8,7 @@ import { WebhookEventService } from '../../common/monitoring/webhook-event.servi
 import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
+import { getTenantDateRangeBoundaries } from '../../common/utils/timezone.util';
 
 const DEFAULT_COMMERCE_FEE_SETTING_KEY = 'default_commerce_fee_pct';
 const DEFAULT_COMMERCE_FEE_CACHE_TTL_MS = 60_000;
@@ -310,22 +311,35 @@ export class CommerceLedgerService {
     });
   }
 
-  async getLedger(tenantId: string, opts: { page?: number; limit?: number } = {}) {
+  async getLedger(tenantId: string, opts: { page?: number; limit?: number; from?: string; to?: string; currency?: string } = {}) {
     const page = opts.page ?? 1;
     const limit = opts.limit ?? 50;
     // Excludes eval-harness synthetic orders from the tenant's real revenue
     // numbers -- orderId is required here, so this relation filter can't
     // accidentally drop entries with no order the way a nullable relation would.
     const realOrderOnly = { order: { isEvalOrder: false } };
+    // Optional date window (YYYY-MM-DD, in the workspace timezone) so the list matches the Revenue page's period.
+    let createdAt: { gte: Date; lt: Date } | undefined;
+    if (opts.from || opts.to) {
+      if (!opts.from || !opts.to) throw new BadRequestException('Give both "from" and "to", or neither.');
+      const settings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { timezone: true } });
+      const { start, end } = getTenantDateRangeBoundaries(opts.from, opts.to, settings?.timezone ?? 'Africa/Accra');
+      createdAt = { gte: start, lt: end };
+    }
+    if (opts.currency !== undefined && !/^[A-Za-z]{3}$/.test(opts.currency)) throw new BadRequestException('"currency" must be a 3-letter code such as GHS.');
+    const where = { tenantId, ...realOrderOnly, ...(createdAt ? { createdAt } : {}), ...(opts.currency ? { currency: opts.currency.toUpperCase() } : {}) };
     const [entries, total, summary] = await Promise.all([
       this.prisma.commerceLedgerEntry.findMany({
-        where: { tenantId, ...realOrderOnly },
-        orderBy: { createdAt: 'desc' },
+        where,
+        // Newest first; entries made at the same instant keep a stable order, a sale before its fee.
+        orderBy: [{ createdAt: 'desc' }, { type: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * limit,
         take: limit,
+        // The order's reference, customer and state, so a row can be read without opening the order.
+        include: { order: { select: { id: true, status: true, customerName: true } } },
       }),
-      this.prisma.commerceLedgerEntry.count({ where: { tenantId, ...realOrderOnly } }),
-      this.prisma.commerceLedgerEntry.groupBy({ by: ['type'], where: { tenantId, ...realOrderOnly }, _sum: { amountMajorUnits: true } }),
+      this.prisma.commerceLedgerEntry.count({ where }),
+      this.prisma.commerceLedgerEntry.groupBy({ by: ['type'], where, _sum: { amountMajorUnits: true } }),
     ]);
     return {
       entries,

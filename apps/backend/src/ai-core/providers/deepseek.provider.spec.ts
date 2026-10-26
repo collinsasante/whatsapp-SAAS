@@ -35,6 +35,7 @@ describe('DeepSeekProvider', () => {
     expect(result.content).toBe('{"response":"hi","confidence":90}');
     expect(result.finishReason).toBe('stop');
     expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 40 });
+    expect(result.attemptsUsed).toBe(1);
     expect(result.provider).toBe('deepseek');
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
@@ -77,7 +78,7 @@ describe('DeepSeekProvider', () => {
     mockedAxios.post.mockRejectedValue({ response: { status: 429 } });
 
     await expect(provider.complete({ modelKey: 'deepseek-v4-flash', messages: [] })).rejects.toMatchObject({
-      code: 'rate_limited', retryable: true,
+      code: 'rate_limited', retryable: true, uncertainOutcome: false,
     });
     expect(mockedAxios.post).toHaveBeenCalledTimes(2);
   });
@@ -90,7 +91,20 @@ describe('DeepSeekProvider', () => {
     const result = await provider.complete({ modelKey: 'deepseek-v4-flash', messages: [] });
 
     expect(result.content).toBe('ok');
+    expect(result.attemptsUsed).toBe(2);
     expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks a final definitive error as uncertain if an earlier retryable attempt may have been processed', async () => {
+    mockedAxios.post
+      .mockRejectedValueOnce({ response: { status: 500 } })
+      .mockRejectedValueOnce({ response: { status: 401 } });
+
+    await expect(provider.complete({ modelKey: 'deepseek-v4-flash', messages: [] })).rejects.toMatchObject({
+      code: 'auth',
+      retryable: false,
+      uncertainOutcome: true,
+    });
   });
 
   it('classifies HTTP 401 as non-retryable auth and does not retry', async () => {

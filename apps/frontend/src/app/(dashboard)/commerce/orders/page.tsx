@@ -1,346 +1,187 @@
 'use client';
-
-import { useCallback, useEffect, useState } from 'react';
-import { ReceiptText, X, Loader2, BadgeCheck, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { RefreshCw } from 'lucide-react';
 import { commerceOrdersApi } from '@/lib/api';
+import { useWidget } from '@/lib/dashboard/useWidget';
+import { useAuthStore } from '@/store/auth.store';
+import { getPermissions } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
-import toast from 'react-hot-toast';
+import PageHeader from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
+import StatStrip from '@/components/ui/StatStrip';
+import StatusBadge from '@/components/ui/StatusBadge';
+import EmptyState from '@/components/ui/EmptyState';
+import Skeleton from '@/components/ui/Skeleton';
+import Pagination from '@/components/ui/Pagination';
+import Tabs from '@/components/ui/Tabs';
+import { inputClasses, SearchInput, SelectInput } from '@/components/ui/fields';
+import OrderPanel from '@/components/commerce/OrderPanel';
+import { formatDate, formatMoney, ORDER_STATUS, orderRef } from '@/lib/commerce/format';
+import type { Order, OrderStatus } from '@/lib/commerce/types';
 
-interface OrderItem {
-  id: string;
-  productNameSnapshot: string;
-  variantLabelSnapshot: string | null;
-  quantity: number;
-  unitPriceMajorUnitsSnapshot: number;
-  lineTotalMajorUnits: number;
+const PAGE_SIZE = 20;
+type Sort = 'newest' | 'oldest' | 'totalDesc' | 'totalAsc';
+const SORTS: Array<{ value: Sort; label: string }> = [
+  { value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' },
+  { value: 'totalDesc', label: 'Total, high to low' }, { value: 'totalAsc', label: 'Total, low to high' },
+];
+const STATUS_ORDER = Object.keys(ORDER_STATUS) as OrderStatus[];
+
+const localDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA');
+
+function itemSummary(o: Order): string {
+  if (o.items.length === 0) return 'No items';
+  const units = o.items.reduce((n, i) => n + i.quantity, 0);
+  const first = o.items[0].productNameSnapshot;
+  return o.items.length === 1 ? `${first}${units > 1 ? ` x${units}` : ''}` : `${first} and ${o.items.length - 1} more`;
 }
 
-interface OrderEvent {
-  id: string;
-  type: string;
-  createdAt: string;
-}
+export default function OrdersPage() {
+  const role = useAuthStore((s) => s.user?.role);
+  const canManage = getPermissions(role).showCommerce;
+  const [tab, setTab] = useState<'ALL' | OrderStatus>('ALL');
+  const [query, setQuery] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [sort, setSort] = useState<Sort>('newest');
+  const [page, setPage] = useState(1);
+  // The Revenue page links here with ?order=<id> to open that order straight away.
+  const [openId, setOpenId] = useState<string | null>(useSearchParams()?.get('order') ?? null);
 
-interface LedgerEntry {
-  id: string;
-  type: string;
-  amountMajorUnits: number;
-  createdAt: string;
-}
+  const orders = useWidget<Order[]>('orders', async (signal) => (await commerceOrdersApi.list(undefined, signal)).data as Order[]);
+  const all = useMemo(() => orders.data ?? [], [orders.data]);
+  const rangeProblem = from && to && from > to ? 'The start date must be on or before the end date.' : null;
 
-interface Order {
-  id: string;
-  status: string;
-  customerPhone: string;
-  currency: string;
-  totalMajorUnits: number;
-  paystackReference: string | null;
-  paidAt: string | null;
-  createdAt: string;
-  items?: OrderItem[];
-  events?: OrderEvent[];
-  ledgerEntries?: LedgerEntry[];
-}
-
-function apiErr(e: unknown, fallback: string): string {
-  const err = e as { response?: { data?: { message?: string | string[] } }; message?: string };
-  const msg = err.response?.data?.message;
-  if (Array.isArray(msg)) return msg.join(', ');
-  return msg || err.message || fallback;
-}
-
-const STATUS_STYLE: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-600',
-  AWAITING_APPROVAL: 'bg-orange-50 text-orange-600',
-  PENDING_PAYMENT: 'bg-amber-50 text-amber-600',
-  PAID: 'bg-green-50 text-green-600',
-  FULFILLING: 'bg-blue-50 text-blue-600',
-  COMPLETED: 'bg-green-50 text-green-700',
-  CANCELLED: 'bg-gray-100 text-gray-500',
-  REFUNDED: 'bg-red-50 text-red-600',
-};
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap', STATUS_STYLE[status] ?? 'bg-gray-100 text-gray-600')}>
-      {status.replace(/_/g, ' ')}
-    </span>
-  );
-}
-
-export default function CommerceOrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selected, setSelected] = useState<Order | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-
-  const load = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const res = await commerceOrdersApi.list();
-      setOrders(res.data as Order[]);
-    } catch (e) {
-      toast.error(apiErr(e, 'Failed to load orders'));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const openOrder = async (id: string) => {
-    setLoadingDetail(true);
-    try {
-      const res = await commerceOrdersApi.get(id);
-      setSelected(res.data as Order);
-    } catch (e) {
-      toast.error(apiErr(e, 'Failed to load order'));
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
-
-  const verifyPayment = async () => {
-    if (!selected) return;
-    setVerifying(true);
-    try {
-      const res = await commerceOrdersApi.verifyPayment(selected.id);
-      const data = res.data as { verified: boolean; reason?: string };
-      if (data.verified) {
-        toast.success('Payment verified with Paystack, order is PAID');
-        await openOrder(selected.id);
-        await load();
-      } else {
-        toast.error(data.reason || 'Payment not confirmed by Paystack yet');
+  // Date range and search narrow the whole list first, so the tab counts always describe what a tab would show.
+  const inRange = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return all.filter((o) => {
+      if (!rangeProblem) {
+        const day = localDay(o.createdAt);
+        if (from && day < from) return false;
+        if (to && day > to) return false;
       }
-    } catch (e) {
-      toast.error(apiErr(e, 'Verification failed'));
-    } finally {
-      setVerifying(false);
-    }
-  };
+      if (!q) return true;
+      return orderRef(o.id).toLowerCase().includes(q) || (o.customerName ?? '').toLowerCase().includes(q)
+        || o.customerPhone.toLowerCase().includes(q) || (o.paystackReference ?? '').toLowerCase().includes(q)
+        || o.items.some((i) => i.productNameSnapshot.toLowerCase().includes(q));
+    });
+  }, [all, query, from, to, rangeProblem]);
 
-  const approveOrder = async () => {
-    if (!selected) return;
-    setApproving(true);
-    try {
-      await commerceOrdersApi.approve(selected.id);
-      toast.success('Order approved, payment link sent to the customer');
-      await openOrder(selected.id);
-      await load();
-    } catch (e) {
-      toast.error(apiErr(e, 'Failed to approve order'));
-    } finally {
-      setApproving(false);
-    }
-  };
+  const counts = useMemo(() => {
+    const byStatus = new Map<OrderStatus, number>();
+    for (const o of inRange) byStatus.set(o.status, (byStatus.get(o.status) ?? 0) + 1);
+    return byStatus;
+  }, [inRange]);
 
-  const rejectOrder = async () => {
-    if (!selected) return;
-    setRejecting(true);
-    try {
-      await commerceOrdersApi.reject(selected.id);
-      toast.success('Order rejected');
-      await openOrder(selected.id);
-      await load();
-    } catch (e) {
-      toast.error(apiErr(e, 'Failed to reject order'));
-    } finally {
-      setRejecting(false);
-    }
-  };
+  const shown = useMemo(() => {
+    const rows = tab === 'ALL' ? [...inRange] : inRange.filter((o) => o.status === tab);
+    const by: Record<Sort, (a: Order, b: Order) => number> = {
+      newest: (a, b) => b.createdAt.localeCompare(a.createdAt), oldest: (a, b) => a.createdAt.localeCompare(b.createdAt),
+      totalDesc: (a, b) => b.totalMajorUnits - a.totalMajorUnits, totalAsc: (a, b) => a.totalMajorUnits - b.totalMajorUnits,
+    };
+    return rows.sort(by[sort]);
+  }, [inRange, tab, sort]);
+
+  const needsYou = (counts.get('AWAITING_APPROVAL') ?? 0);
+  const waitingPayment = counts.get('PENDING_PAYMENT') ?? 0;
+  const toFulfil = (counts.get('PAID') ?? 0) + (counts.get('FULFILLING') ?? 0);
+
+  const tabs = [{ key: 'ALL', label: 'All', count: inRange.length }, ...STATUS_ORDER.map((s) => ({ key: s, label: ORDER_STATUS[s].label, count: counts.get(s) ?? 0 }))];
+  const rows = shown.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filtering = query.trim() !== '' || from !== '' || to !== '' || tab !== 'ALL';
+  const reset = () => { setQuery(''); setFrom(''); setTo(''); setTab('ALL'); setPage(1); };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 overflow-auto">
-      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
-              <ReceiptText size={18} className="text-amber-600" />
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Orders</h1>
-              <p className="text-xs text-gray-500">Every order the commerce AI has captured, click one for the full story</p>
+    <div className="h-full overflow-auto bg-gray-50">
+      <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+        <PageHeader
+          title="Orders"
+          description="What customers have ordered, what is waiting on you, and what is paid."
+          actions={<Button variant="secondary" onClick={orders.reload} disabled={orders.loading} aria-label="Refresh orders"><RefreshCw size={14} aria-hidden="true" className={cn(orders.loading && 'animate-spin')} />Refresh</Button>}
+        />
+
+        {orders.data && (
+          <StatStrip label="Order summary" stats={[
+            { label: 'Orders', value: inRange.length.toLocaleString(), hint: from || to || query ? 'Matching your filters' : 'All time' },
+            { label: 'Needs approval', value: needsYou.toLocaleString(), tone: needsYou > 0 ? 'warn' : 'default', hint: 'Small orders held for you', onSelect: () => { setTab('AWAITING_APPROVAL'); setPage(1); }, selected: tab === 'AWAITING_APPROVAL' },
+            { label: 'Awaiting payment', value: waitingPayment.toLocaleString(), hint: 'Payment link sent', onSelect: () => { setTab('PENDING_PAYMENT'); setPage(1); }, selected: tab === 'PENDING_PAYMENT' },
+            { label: 'To fulfil', value: toFulfil.toLocaleString(), hint: 'Paid and not yet completed', onSelect: () => { setTab('PAID'); setPage(1); }, selected: tab === 'PAID' || tab === 'FULFILLING' },
+          ]} />
+        )}
+
+        <section aria-label="Order list" className="rounded-xl border border-gray-200 bg-white">
+          <div className="px-3 pt-1"><Tabs tabs={tabs} active={tab} onChange={(k) => { setTab(k as 'ALL' | OrderStatus); setPage(1); }} label="Order status" idPrefix="order-tab" /></div>
+          <div className="flex flex-col gap-2 border-b border-gray-200 p-3 lg:flex-row lg:items-center">
+            <SearchInput label="Search orders" placeholder="Search by order, customer, phone or item" value={query} onChange={(v) => { setQuery(v); setPage(1); }} className="lg:flex-1" />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-sm text-gray-600">From
+                <input type="date" value={from} max={to || undefined} onChange={(e) => { setFrom(e.target.value); setPage(1); }} className={cn(inputClasses, 'w-auto')} />
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-gray-600">To
+                <input type="date" value={to} min={from || undefined} onChange={(e) => { setTo(e.target.value); setPage(1); }} className={cn(inputClasses, 'w-auto')} />
+              </label>
+              <SelectInput label="Sort by" value={sort} onChange={(v) => { setSort(v as Sort); setPage(1); }} options={SORTS} className="w-44" />
             </div>
           </div>
-          <button
-            onClick={load}
-            disabled={refreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors font-medium"
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} /> Refresh
-          </button>
-        </div>
-      </div>
+          {rangeProblem && <p role="alert" className="px-4 pt-3 text-sm text-red-700">{rangeProblem}</p>}
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="max-w-3xl mx-auto space-y-2">
-          {loading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 h-16 animate-pulse" />
-              ))}
-            </div>
-          ) : orders.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 text-sm">
-              No orders yet, try the Test Chat page and buy something as a customer.
-            </div>
-          ) : (
-            orders.map(o => (
-              <button
-                key={o.id}
-                onClick={() => openOrder(o.id)}
-                className="w-full bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between gap-3 hover:shadow-sm hover:border-gray-200 transition-all text-left"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <code className="text-xs text-gray-400 shrink-0">{o.id.slice(0, 8)}</code>
-                  <StatusBadge status={o.status} />
-                  <span className="text-xs text-gray-400 truncate">{o.customerPhone}</span>
+          <div role="tabpanel" aria-labelledby={`order-tab-${tab}`}>
+            {orders.loading && !orders.data ? (
+              <div className="space-y-2 p-4" aria-busy="true" aria-label="Loading orders">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div>
+            ) : orders.error && !orders.data ? (
+              <div role="alert" className="m-4 flex flex-col items-start gap-2 rounded-lg border border-red-100 bg-red-50 p-4">
+                <p className="text-sm font-medium text-gray-900">Orders could not be loaded</p>
+                <p className="text-sm text-gray-600">{orders.error}</p>
+                <Button size="sm" onClick={orders.reload}>Try again</Button>
+              </div>
+            ) : all.length === 0 ? (
+              <div className="p-4"><EmptyState compact={false} title="No orders yet">Orders appear here when a customer buys through a conversation. Add products first if you have not.</EmptyState></div>
+            ) : shown.length === 0 ? (
+              <div className="p-4">
+                <EmptyState compact={false} title="No orders match">Try a different search, status or date range.</EmptyState>
+                {filtering && <div className="mt-3 text-center"><Button variant="secondary" onClick={reset}>Clear filters</Button></div>}
+              </div>
+            ) : (
+              <>
+                {orders.error && <p role="alert" className="px-4 pt-3 text-sm text-red-700">Could not refresh the list. {orders.error} <button onClick={orders.reload} className="font-medium underline">Try again</button></p>}
+                <div className={cn('overflow-x-auto', orders.loading && 'opacity-60')}>
+                  <table className="w-full text-sm">
+                    <caption className="sr-only">Orders, {shown.length} shown</caption>
+                    <thead className="bg-gray-50 text-left text-xs text-gray-500">
+                      <tr>
+                        <th scope="col" className="px-4 py-2 font-medium">Order</th>
+                        <th scope="col" className="px-4 py-2 font-medium">Customer</th>
+                        <th scope="col" className="hidden px-4 py-2 font-medium lg:table-cell">Items</th>
+                        <th scope="col" className="hidden px-4 py-2 font-medium sm:table-cell">Date</th>
+                        <th scope="col" className="px-4 py-2 text-right font-medium">Total</th>
+                        <th scope="col" className="px-4 py-2 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {rows.map((o) => (
+                        <tr key={o.id} className="hover:bg-gray-50">
+                          <td className="whitespace-nowrap px-4 py-2.5">
+                            <button type="button" onClick={() => setOpenId(o.id)} className="font-medium text-teal-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded">{orderRef(o.id)}</button>
+                          </td>
+                          <td className="px-4 py-2.5"><span className="block max-w-[14rem] truncate text-gray-900">{o.customerName ?? o.customerPhone}</span>{o.customerName && <span className="block text-xs text-gray-500">{o.customerPhone}</span>}</td>
+                          <td className="hidden px-4 py-2.5 text-gray-600 lg:table-cell"><span className="block max-w-[16rem] truncate">{itemSummary(o)}</span></td>
+                          <td className="hidden whitespace-nowrap px-4 py-2.5 text-gray-600 sm:table-cell">{formatDate(o.createdAt)}</td>
+                          <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-gray-900">{formatMoney(o.totalMajorUnits, o.currency)}</td>
+                          <td className="px-4 py-2.5"><StatusBadge tone={ORDER_STATUS[o.status].tone}>{ORDER_STATUS[o.status].label}</StatusBadge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-sm font-semibold text-gray-800">{o.currency} {o.totalMajorUnits}</span>
-                  <span className="text-xs text-gray-400">{new Date(o.createdAt).toLocaleDateString()}</span>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-
-      {(selected || loadingDetail) && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSelected(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">Order {selected ? selected.id.slice(0, 8) : ''}</h3>
-                {selected && <StatusBadge status={selected.status} />}
-              </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-5 overflow-y-auto">
-              {loadingDetail && !selected ? (
-                <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
-              ) : selected ? (
-                <>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <div className="text-[11px] text-gray-400">Customer</div>
-                      <div className="text-gray-700">{selected.customerPhone}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-gray-400">Created</div>
-                      <div className="text-gray-700">{new Date(selected.createdAt).toLocaleString()}</div>
-                    </div>
-                    {selected.paystackReference && (
-                      <div className="col-span-2">
-                        <div className="text-[11px] text-gray-400">Paystack reference</div>
-                        <code className="text-xs text-gray-600">{selected.paystackReference}</code>
-                      </div>
-                    )}
-                    {selected.paidAt && (
-                      <div className="col-span-2">
-                        <div className="text-[11px] text-gray-400">Paid at</div>
-                        <div className="text-gray-700">{new Date(selected.paidAt).toLocaleString()}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {selected.items && selected.items.length > 0 && (
-                    <div>
-                      <div className="text-xs font-semibold text-gray-500 mb-2">Items</div>
-                      <div className="space-y-1.5">
-                        {selected.items.map(item => (
-                          <div key={item.id} className="flex items-center justify-between text-sm">
-                            <span className="text-gray-700">
-                              {item.quantity}× {item.productNameSnapshot}
-                              {item.variantLabelSnapshot ? ` (${item.variantLabelSnapshot})` : ''}
-                              <span className="text-gray-400"> @ {selected.currency} {item.unitPriceMajorUnitsSnapshot}</span>
-                            </span>
-                            <span className="text-gray-600">{selected.currency} {item.lineTotalMajorUnits}</span>
-                          </div>
-                        ))}
-                        <div className="flex items-center justify-between text-sm font-semibold border-t border-gray-100 pt-2">
-                          <span className="text-gray-800">Total</span>
-                          <span className="text-gray-900">{selected.currency} {selected.totalMajorUnits}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {selected.ledgerEntries && selected.ledgerEntries.length > 0 && (
-                    <div>
-                      <div className="text-xs font-semibold text-gray-500 mb-2">Ledger</div>
-                      <div className="space-y-1">
-                        {selected.ledgerEntries.map(entry => (
-                          <div key={entry.id} className="flex items-center justify-between text-xs">
-                            <span className="text-gray-500">{entry.type.replace(/_/g, ' ')}</span>
-                            <span className={cn('font-medium', entry.amountMajorUnits < 0 ? 'text-red-600' : 'text-gray-700')}>
-                              {selected.currency} {entry.amountMajorUnits}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {selected.events && selected.events.length > 0 && (
-                    <div>
-                      <div className="text-xs font-semibold text-gray-500 mb-2">Timeline</div>
-                      <div className="space-y-1">
-                        {selected.events.map(ev => (
-                          <div key={ev.id} className="flex items-center justify-between text-xs">
-                            <span className="text-gray-600">{ev.type.replace(/_/g, ' ')}</span>
-                            <span className="text-gray-400">{new Date(ev.createdAt).toLocaleString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : null}
-            </div>
-            {selected && selected.status === 'PENDING_PAYMENT' && selected.paystackReference && (
-              <div className="px-6 py-4 border-t border-gray-100 shrink-0">
-                <button
-                  onClick={verifyPayment}
-                  disabled={verifying}
-                  className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
-                >
-                  {verifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
-                  Verify payment with Paystack
-                </button>
-              </div>
-            )}
-            {selected && selected.status === 'AWAITING_APPROVAL' && (
-              <div className="px-6 py-4 border-t border-gray-100 shrink-0 flex gap-2">
-                <button
-                  onClick={approveOrder}
-                  disabled={approving || rejecting}
-                  className="flex items-center justify-center gap-1.5 flex-1 px-4 py-2 bg-teal-600 text-white text-sm rounded-lg hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
-                >
-                  {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Approve
-                </button>
-                <button
-                  onClick={rejectOrder}
-                  disabled={approving || rejecting}
-                  className="flex items-center justify-center gap-1.5 flex-1 px-4 py-2 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors font-medium"
-                >
-                  {rejecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
-                  Reject
-                </button>
-              </div>
+                <Pagination page={page} pageSize={PAGE_SIZE} total={shown.length} onChange={setPage} noun="orders" />
+              </>
             )}
           </div>
-        </div>
-      )}
+        </section>
+      </div>
+      <OrderPanel orderId={openId} canManage={canManage} onClose={() => setOpenId(null)} onChanged={orders.reload} />
     </div>
   );
 }

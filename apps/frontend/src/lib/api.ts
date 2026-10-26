@@ -323,7 +323,7 @@ export const tenantApi = {
 };
 
 export const usersApi = {
-  list: () => api.get('/users'),
+  list: (signal?: AbortSignal) => api.get('/users', { signal }),
   create: (data: Record<string, unknown>) => api.post('/users', data),
   update: (id: string, data: Record<string, unknown>) => api.patch(`/users/${id}`, data),
   deactivate: (id: string) => api.delete(`/users/${id}`),
@@ -335,10 +335,11 @@ export const dashboardApi = {
   summary: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/summary', { params, signal }),
   trend: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/trend', { params, signal }),
   attention: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/attention', { params, signal }),
-  team: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/team', { params, signal }),
-  ai: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/ai', { params, signal }),
-  activity: (signal?: AbortSignal) => api.get('/dashboard/command/activity', { signal }),
-  recommendations: (params: DashboardQuery, signal?: AbortSignal) => api.get('/dashboard/command/recommendations', { params, signal }),
+  requests: (signal?: AbortSignal) => api.get('/dashboard/command/requests', { signal }),
+  business: (signal?: AbortSignal) => api.get('/dashboard/command/business', { signal }),
+  /** `refresh` asks Meta again instead of using the answer cached for the last minute. */
+  whatsappStatus: (refresh: boolean, signal?: AbortSignal) =>
+    api.get('/dashboard/command/whatsapp-status', { params: refresh ? { refresh: 'true' } : undefined, signal }),
 };
 
 export const analyticsApi = {
@@ -532,6 +533,8 @@ export const manageSettingsApi = {
   updateWelcome: (data: { welcomeEnabled?: boolean; welcomeMessage?: string }) =>
     api.patch('/manage/settings/welcome', data),
   updateOffHours: (data: Record<string, unknown>) => api.patch('/manage/settings/off-hours', data),
+  /** `minutes` 1 to 1440, or null to turn the reply deadline off. */
+  updateReplyDeadline: (minutes: number | null) => api.patch('/manage/settings/reply-deadline', { minutes }),
   updateOptInOut: (data: Record<string, unknown>) => api.patch('/manage/settings/opt-in-out', data),
   updateWidget: (data: Record<string, unknown>) => api.patch('/manage/settings/widget', data),
   updateAi: (data: { aiEnabled?: boolean; aiAlwaysOn?: boolean; aiPersonality?: string; aiMode?: string; aiPilotGroup?: boolean }) =>
@@ -586,7 +589,7 @@ export const knowledgeBaseApi = {
 };
 
 export const commerceProductsApi = {
-  list: () => api.get('/commerce/products'),
+  list: (signal?: AbortSignal) => api.get('/commerce/products', { signal }),
   get: (id: string) => api.get(`/commerce/products/${id}`),
   create: (data: {
     name: string;
@@ -602,8 +605,8 @@ export const commerceProductsApi = {
 };
 
 export const commerceOrdersApi = {
-  list: (status?: string) => api.get('/commerce/orders', { params: { status } }),
-  get: (id: string) => api.get(`/commerce/orders/${id}`),
+  list: (status?: string, signal?: AbortSignal) => api.get('/commerce/orders', { params: { status }, signal }),
+  get: (id: string, signal?: AbortSignal) => api.get(`/commerce/orders/${id}`, { signal }),
   verifyPayment: (id: string) => api.post(`/commerce/orders/${id}/verify-payment`),
   updateFulfillment: (id: string, status: string) => api.patch(`/commerce/orders/${id}/fulfillment`, { status }),
   cancel: (id: string, reason?: string) => api.patch(`/commerce/orders/${id}/cancel`, { reason }),
@@ -612,7 +615,8 @@ export const commerceOrdersApi = {
 };
 
 export const commerceLedgerApi = {
-  get: (page?: number, limit?: number) => api.get('/commerce/ledger', { params: { page, limit } }),
+  get: (params: { page?: number; limit?: number; from?: string; to?: string; currency?: string } = {}, signal?: AbortSignal) => api.get('/commerce/ledger', { params, signal }),
+  summary: (params: { preset?: string; from?: string; to?: string }, signal?: AbortSignal) => api.get('/commerce/ledger/summary', { params, signal }),
 };
 
 export const leadsApi = {
@@ -621,7 +625,7 @@ export const leadsApi = {
 };
 
 export const internalTasksApi = {
-  list: (params?: { status?: string; department?: string; assigneeId?: string }) => api.get('/internal-tasks', { params }),
+  list: (params?: { status?: string; department?: string; assigneeId?: string; limit?: number }, signal?: AbortSignal) => api.get('/internal-tasks', { params, signal }),
   get: (id: string) => api.get(`/internal-tasks/${id}`),
   updateStatus: (id: string, status: string) => api.patch(`/internal-tasks/${id}/status`, { status }),
   assign: (id: string, assigneeId: string) => api.patch(`/internal-tasks/${id}/assign`, { assigneeId }),

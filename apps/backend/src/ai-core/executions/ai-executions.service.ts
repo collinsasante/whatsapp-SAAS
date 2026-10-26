@@ -33,8 +33,8 @@ export class AiExecutionsService {
   ) {}
 
   /**
-   * The single central point every real AI call converges on -- also where
-   * Verz AI Credits get charged, right when real token usage is known. A
+   * The single central point every real AI call converges on -- provider-call
+   * reservations are linked here after usage has been settled. A
    * non-SUCCESS trace (PROVIDER_ERROR/BLOCKED/EMPTY) naturally has null
    * inputTokens/outputTokens (DeepSeekProvider only ever returns usage on a
    * fully successful response), so treating them as 0 below means failed
@@ -66,13 +66,19 @@ export class AiExecutionsService {
 
     if (CREDIT_METERED_TASK_TYPES.includes(input.taskType)) {
       try {
-        const creditsOwed = await this.pricing.getCreditsForUsage(
-          trace.provider ?? 'unknown',
-          trace.modelKey ?? 'unknown',
-          trace.inputTokens ?? 0,
-          trace.outputTokens ?? 0,
-        );
-        await this.credits.settleForExecution(input.tenantId, execution.id, creditsOwed, `${input.taskType} AI usage`);
+        if (trace.reservationIds?.length) {
+          await this.credits.linkReservationsToExecution(input.tenantId, execution.id, trace.reservationIds);
+        } else if (trace.status !== 'SUCCESS') {
+          await this.credits.settleForExecution(input.tenantId, execution.id, 0, `${input.taskType} AI usage`);
+        } else {
+          const creditsOwed = await this.pricing.getCreditsForUsage(
+            trace.provider ?? 'unknown',
+            trace.modelKey ?? 'unknown',
+            trace.inputTokens ?? 0,
+            trace.outputTokens ?? 0,
+          );
+          await this.credits.settleForExecution(input.tenantId, execution.id, creditsOwed, `${input.taskType} AI usage`);
+        }
       } catch (err) {
         // Credit settlement must never be why a customer doesn't get a reply --
         // the AI call and its response already happened by this point.

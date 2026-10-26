@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Download, RefreshCw } from 'lucide-react';
+import { CalendarDays, Download, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import type { ChannelFilter, RangePreset } from '@/lib/analytics/types';
@@ -40,6 +40,10 @@ interface Props {
   /** Longest custom range accepted; defaults to the analytics limit. */
   maxDays?: number;
   refreshLabel?: string;
+  /** Hides the refresh button when the page shows its own. */
+  hideRefresh?: boolean;
+  /** Adds a calendar icon to the Custom option. */
+  customIcon?: boolean;
   customFrom: string;
   customTo: string;
   channel: ChannelFilter;
@@ -77,7 +81,7 @@ export default function Toolbar(p: Props) {
             className={cn('px-3 py-1.5 text-sm font-medium rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600',
               p.preset === 'custom' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-600 hover:text-gray-900')}
           >
-            Custom
+            <span className="inline-flex items-center gap-1.5">Custom{p.customIcon && <CalendarDays size={14} aria-hidden="true" />}</span>
           </button>
         </div>
 
@@ -94,12 +98,12 @@ export default function Toolbar(p: Props) {
         )}
 
         <div className="flex items-center gap-1 ml-auto">
-          <button
+          {!p.hideRefresh && <button
             onClick={p.onRefresh} disabled={p.loading} aria-label={p.refreshLabel ?? 'Refresh analytics'}
             className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"
           >
             <RefreshCw size={16} aria-hidden="true" className={p.loading ? 'animate-spin' : undefined} />
-          </button>
+          </button>}
           {p.onExport && (
             <Button variant="secondary" onClick={p.onExport}><Download size={14} aria-hidden="true" />Export CSV</Button>
           )}

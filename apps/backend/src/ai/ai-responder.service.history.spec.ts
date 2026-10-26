@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AiResponderService } from './ai-responder.service';
+import { AiResponderService, ProviderCallWrapper } from './ai-responder.service';
 
 jest.mock('axios');
 
@@ -26,6 +26,19 @@ describe('AiResponderService.generateSuggestion -- history scoping', () => {
     const { prisma, service } = build({ id: 'c1', contactId: 'contact-1' });
     await service.generateSuggestion('t1', 'c1', 'hello');
     expect(prisma.conversation.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'c1', tenantId: 't1' } }));
+  });
+
+  it('runs the provider request through an optional reservation wrapper', async () => {
+    const { service } = build({ id: 'c1', contactId: 'contact-1' });
+    let wrapperCalled = false;
+    const wrapper: ProviderCallWrapper = async <T>(providerCall: () => Promise<T>) => {
+      wrapperCalled = true;
+      return providerCall();
+    };
+
+    await service.generateSuggestion('t1', 'c1', 'hello', undefined, wrapper);
+
+    expect(wrapperCalled).toBe(true);
   });
 
   it('scopes history to tenant + contact and keeps the 200 limit', async () => {

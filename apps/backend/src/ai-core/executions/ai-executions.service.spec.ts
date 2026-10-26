@@ -16,7 +16,10 @@ function buildPrismaMock() {
 function buildDeps() {
   return {
     prisma: buildPrismaMock(),
-    credits: { settleForExecution: jest.fn().mockResolvedValue({ settled: true, transaction: { id: 'txn-1' } }) },
+    credits: {
+      settleForExecution: jest.fn().mockResolvedValue({ settled: true, transaction: { id: 'txn-1' } }),
+      linkReservationsToExecution: jest.fn().mockResolvedValue(undefined),
+    },
     pricing: { getCreditsForUsage: jest.fn().mockResolvedValue(42) },
     aiLearningTrigger: { maybeEnqueue: jest.fn().mockResolvedValue(undefined) },
   };
@@ -76,6 +79,26 @@ describe('AiExecutionsService', () => {
       expect(deps.credits.settleForExecution).toHaveBeenCalledWith('t1', execution.id, 42, 'RESPONDER AI usage');
     });
 
+    it('links provider reservations to the execution without charging usage a second time', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const trace = {
+        ...newTrace(),
+        status: 'SUCCESS' as const,
+        provider: 'deepseek',
+        modelKey: 'm1',
+        inputTokens: 100,
+        outputTokens: 50,
+        reservationIds: ['reservation-1', 'reservation-2'],
+      };
+
+      const execution = await service.record({ tenantId: 't1', taskType: 'RESPONDER' }, trace);
+
+      expect(deps.credits.linkReservationsToExecution).toHaveBeenCalledWith('t1', execution.id, trace.reservationIds);
+      expect(deps.pricing.getCreditsForUsage).not.toHaveBeenCalled();
+      expect(deps.credits.settleForExecution).not.toHaveBeenCalled();
+    });
+
     it('settles credits for a LEAD_SCORE trace too', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
@@ -99,14 +122,15 @@ describe('AiExecutionsService', () => {
       expect(deps.pricing.getCreditsForUsage).not.toHaveBeenCalled();
     });
 
-    it('passes 0 tokens through for a failed trace, naturally charging nothing', async () => {
+    it('records a zero-credit settlement for a failed trace without a provider reservation', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
       const trace = { ...newTrace(), status: 'PROVIDER_ERROR' as const, provider: 'deepseek', modelKey: 'm1' }; // no inputTokens/outputTokens
 
       await service.record({ tenantId: 't1', taskType: 'RESPONDER' }, trace);
 
-      expect(deps.pricing.getCreditsForUsage).toHaveBeenCalledWith('deepseek', 'm1', 0, 0);
+      expect(deps.credits.settleForExecution).toHaveBeenCalledWith('t1', 'exec-1', 0, 'RESPONDER AI usage');
+      expect(deps.pricing.getCreditsForUsage).not.toHaveBeenCalled();
     });
 
     it('still returns the execution row even if credit settlement throws -- tracing must never block a reply', async () => {

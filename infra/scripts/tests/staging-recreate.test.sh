@@ -36,6 +36,5 @@ stg "" sk_live_zzz; expect "refuses a live payment key" "ABORT: PAYSTACK_SECRET_
 stg; expect "refuses an unset setting and names it" "ABORT: .*REDIS_PASSWORD" "$(FAKE_MISSING=REDIS_PASSWORD run check)"
 stg; expect "refuses a non-staging database" "ABORT: .*not a staging database" "$(FAKE_DB=waplatform run check)"
 stg; out=$(run check); expect "passes with separate secrets" "all checks passed" "$out"; expect "check mode changes nothing" "check only: nothing was changed" "$out"
-stg; out=$(run apply backend); expect "apply recreates and reports" "Recreated" "$out"
-stg; run apply backend >/dev/null; expect "snapshot is owner-only" "^(600|-rw-------)" "$(stat -c %a "$T"/snap/* 2>/dev/null || stat -f %Lp "$T"/snap/*)"
+stg; out=$(run apply backend); expect "refuses unversioned apply" "apply is disabled; use staging-release-deploy.sh" "$out"
 echo "---"; echo "passed: $PASS  failed: $FAIL"; [ "$FAIL" -eq 0 ]

@@ -2,7 +2,7 @@
  * Response shapes for the owner dashboard (GET /dashboard/command/*). Each widget has its own endpoint so one slow
  * or failing query never blanks the page. A field is `null` when it cannot be computed, which is different from 0.
  */
-import type { Coverage, ChannelRow, AgentRow, Insight, HealthArea } from '../analytics/analytics-intelligence.types';
+import type { Coverage, ChannelRow } from '../analytics/analytics-intelligence.types';
 
 export interface DashboardMeta {
   workspaceName: string;
@@ -52,7 +52,7 @@ export interface DashboardTrend {
 }
 
 export type AttentionKind =
-  | 'requests' | 'unassigned' | 'awaiting_reply' | 'sla_breached' | 'failed_deliveries' | 'failed_campaigns' | 'channel_problems';
+  | 'unassigned' | 'awaiting_reply' | 'sla_breached' | 'failed_deliveries' | 'failed_campaigns' | 'channel_problems';
 
 export interface AttentionConversation {
   conversationId: string;
@@ -80,51 +80,75 @@ export interface DashboardAttention {
   notChecked: Array<{ kind: AttentionKind; reason: string }>;
 }
 
-export interface DashboardTeam {
+export interface DashboardRequests {
   meta: DashboardMeta;
-  agents: AgentRow[];
-  workload: { open: number; unassigned: number };
+  /** Conversations waiting for a person right now (status Requesting). Not bound to the date range. */
+  requesting: number;
+  /** Of those, how many are past the reply deadline. */
+  overdue: number;
+  oldestWaitingSeconds: number | null;
+  /** Minutes allowed before a request is overdue; null when the deadline is turned off. */
+  deadlineMinutes: number | null;
+  samples: Array<{ conversationId: string; contactName: string | null; waitingSeconds: number; overdue: boolean }>;
 }
 
-export interface AiPeriod {
-  engagedConversations: number;
-  autoReplies: number;
-  suggestions: number;
-  suggestionsSent: number;
-  handedToPerson: number;
-  /** Resolved in the period, with an AI auto-reply and no outbound message from a person. */
-  resolvedWithoutPerson: number;
-  averageConfidence: number | null;
-}
-
-export interface DashboardAi {
+export interface DashboardBusiness {
   meta: DashboardMeta;
-  coverage: Coverage;
-  enabled: boolean;
-  mode: 'SUGGESTION' | 'AUTO_REPLY' | null;
-  credits: { balance: number; usedCurrent: number | null; usedPrevious: number | null };
-  current: AiPeriod;
-  previous: AiPeriod;
+  business: {
+    name: string;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    website: string | null;
+    description: string | null;
+    category: string | null;
+    logoUrl: string | null;
+  };
+  /** Business details nobody has filled in yet, so the card can say so instead of showing blanks. */
+  missing: Array<'phone' | 'email' | 'address' | 'website' | 'description'>;
+  account: {
+    plan: string;
+    subscriptionStatus: string | null;
+    billingCycle: string | null;
+    trialEndsAt: string | null;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    createdAt: string;
+    timezone: string;
+    members: number;
+    channels: number;
+    aiCreditsBalance: number;
+    billingEmail: string | null;
+  };
 }
 
-export type ActivityKind = 'requested' | 'intervened' | 'resolved' | 'reopened' | 'assigned' | 'unassigned' | 'transferred' | 'sla_breached';
+export type MetaCheckError = 'TOKEN_INVALID' | 'META_ERROR' | 'UNREACHABLE';
 
-export interface ActivityEntry {
+export interface WhatsAppNumberStatus {
   id: string;
-  kind: ActivityKind;
-  at: string;
-  conversationId: string;
-  contactName: string | null;
-  actorName: string | null;
+  label: string;
+  isDefault: boolean;
+  /** Read from Meta just now (or within the last minute); null when Meta could not be reached. */
+  live: {
+    displayPhone: string | null;
+    verifiedName: string | null;
+    quality: 'GREEN' | 'YELLOW' | 'RED' | 'UNKNOWN';
+    messagingLimit: string | null;
+    numberStatus: string | null;
+    nameStatus: string | null;
+    verification: string | null;
+  } | null;
+  error: { kind: MetaCheckError; message: string } | null;
+  /** The last values VerzChat stored from Meta, shown only when the live check failed. */
+  lastKnown: { quality: string | null; messagingLimit: string | null; syncedAt: string | null } | null;
+  lastError: string | null;
 }
 
-export interface DashboardActivity {
+export interface DashboardWhatsAppStatus {
   meta: DashboardMeta;
-  entries: ActivityEntry[];
-}
-
-export interface DashboardRecommendations {
-  meta: DashboardMeta;
-  insights: Insight[];
-  health: HealthArea[];
+  checkedAt: string;
+  connected: boolean;
+  numbers: WhatsAppNumberStatus[];
+  /** Phones linked by QR code. These are not Meta's official API; the state is what VerzChat last recorded. */
+  qrSessions: Array<{ id: string; phoneNumber: string | null; status: string; lastSeenAt: string | null; lastError: string | null }>;
 }

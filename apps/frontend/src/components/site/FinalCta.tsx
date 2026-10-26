@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { reveal } from './reveal';
 import styles from './FinalCta.module.css';
 
 export default function FinalCta() {
@@ -9,7 +10,7 @@ export default function FinalCta() {
         <path d="M14 66l38 38L118 18" />
         <path d="M84 98l6 6L186 18" />
       </svg>
-      <div className={`wrap ${styles.inner}`}>
+      <div className={`wrap ${styles.inner}`} {...reveal()}>
         <h2 id="cta-title" className="h2">
           Put your first channel in the inbox today
         </h2>

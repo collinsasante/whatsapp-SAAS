@@ -74,6 +74,9 @@ interface Props {
   onMobileBack?: () => void;
 }
 
+/** A request is abandoned after 30s (see lib/api.ts), so a bubble still sending after this long is no longer in flight. */
+const STALE_SENDING_MS = 40_000;
+
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   [MessageStatus.QUEUED]: <Clock size={11} className="text-white/60" />,
   [MessageStatus.SENT]: <Check size={11} className="text-white/80" />,
@@ -177,7 +180,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const isOnline = useNetworkStatus();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
-  const { setQueuedCounts } = useOfflineStore();
+  const { setQueuedCounts, queuedMessages } = useOfflineStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   // Files pasted into the composer wait here (with a preview) until the agent presses Send.
@@ -471,6 +474,23 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, [conversation.id, setMessages, updateConversation, setActivityLogs]);
 
   useEffect(() => { void loadMessages(); }, [loadMessages]);
+
+  // A text bubble still showing the sending clock long after the 30s request limit is not in flight any more: the
+  // server has already decided its fate (it may well have been delivered). Reload the thread so the bubble shows
+  // what the server holds instead of staying on the clock. Messages waiting in the offline queue are left alone.
+  useEffect(() => {
+    if (!isOnline || queuedMessages > 0) return;
+    const timer = setInterval(() => {
+      const stale = (useInboxStore.getState().messages[conversation.id] ?? []).some((m) =>
+        m.id.startsWith('temp-') && m.status === MessageStatus.QUEUED && m.type === 'TEXT'
+        && Date.now() - parseInt(m.id.slice(5), 10) > STALE_SENDING_MS);
+      if (!stale) return;
+      messagesApi.list(conversation.id, { limit: 100 })
+        .then((res) => setMessages(conversation.id, (res.data as { data: Message[] }).data))
+        .catch((err: unknown) => console.warn('[verz:send] could not reload the thread to settle a sending bubble', getApiError(err, 'unknown error')));
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [isOnline, queuedMessages, conversation.id, setMessages]);
 
   // Client-side search — compute matching message IDs whenever query or messages change
   useEffect(() => {

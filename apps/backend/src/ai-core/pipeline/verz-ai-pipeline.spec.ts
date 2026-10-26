@@ -66,13 +66,23 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
   const promptBuild = new PromptBuildStage(promptsService);
   // ctx.tools is never set in these fixtures, so ToolCallingService is never actually
   // invoked -- a stub satisfies the constructor without needing a real implementation.
-  const generation = new GenerationStage(registry, {} as never, conversationState as never);
+  const generation = new GenerationStage(registry, {} as never, conversationState as never, {
+    complete: jest.fn(async (selectedProvider: MockProvider, _tenantId: string, _taskType: string, request: Parameters<MockProvider['complete']>[0]) => ({
+      result: await selectedProvider.complete(request),
+      reservationId: 'reservation-1',
+    })),
+  } as never);
   const policy = new PolicyStage();
   const escalation = new EscalationStage();
   // Credit settlement isn't under test here (record()'s own spec covers it) and
   // is defensively try/caught inside record(), so stubs are safe -- a real
   // credits/pricing call would just throw and get logged, never fail the test.
-  const executions = new AiExecutionsService(prisma as never, {} as never, {} as never, { maybeEnqueue: jest.fn().mockResolvedValue(undefined) } as never);
+  const executions = new AiExecutionsService(
+    prisma as never,
+    { linkReservationsToExecution: jest.fn().mockResolvedValue(undefined), settleForExecution: jest.fn().mockResolvedValue(undefined) } as never,
+    { getCreditsForUsage: jest.fn().mockResolvedValue(0) } as never,
+    { maybeEnqueue: jest.fn().mockResolvedValue(undefined) } as never,
+  );
 
   return new VerzAiPipelineService(prisma as never, executions, guard, contextAssembly, promptBuild, generation, policy, escalation);
 }

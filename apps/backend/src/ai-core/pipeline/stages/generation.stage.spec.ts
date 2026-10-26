@@ -28,14 +28,16 @@ describe('GenerationStage', () => {
         usage: { inputTokens: 10, outputTokens: 5 }, provider: 'deepseek', model: DEFAULT_MODEL_KEY, latencyMs: 5,
       }) }) };
       const toolCalling = { complete: jest.fn() };
+      const meteredProvider = { complete: jest.fn(async (selectedProvider: { complete: (request: unknown) => Promise<unknown> }, _tenantId: string, _taskType: string, request: unknown) => ({ result: await selectedProvider.complete(request), reservationId: 'reservation-1' })) };
       const conversationState = { mergeState: jest.fn().mockResolvedValue(undefined) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any);
+      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any, meteredProvider as any);
       const ctx = buildCtx();
 
       await stage.execute(ctx);
 
       expect(ctx.result).toEqual({ response: 'Delivery is GHS 30.', confidence: 90, blocked: false });
+      expect(ctx.trace.reservationIds).toEqual(['reservation-1']);
       expect(toolCalling.complete).not.toHaveBeenCalled();
     });
   });
@@ -47,8 +49,9 @@ describe('GenerationStage', () => {
     it('delegates to ToolCallingService and uses its plain-text result as the response', async () => {
       const registry = { forModel: jest.fn() };
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We have that in stock.', toolTrace: [], failed: false, hitMaxIterations: false }) };
+      const meteredProvider = { complete: jest.fn() };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any);
+      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any, meteredProvider as any);
       const ctx = buildCtx({ tools: ['search_products'], toolContext });
 
       await stage.execute(ctx);
@@ -63,8 +66,9 @@ describe('GenerationStage', () => {
 
     it('produces a PROVIDER_ERROR trace and a real fallback + escalation when the tool-calling call fails, instead of empty silence', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: '', toolTrace: [], failed: true, hitMaxIterations: false }) };
+      const meteredProvider = { complete: jest.fn() };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any);
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, meteredProvider as any);
       const ctx = buildCtx({ tools: ['search_products'], toolContext });
 
       await stage.execute(ctx);
@@ -82,8 +86,9 @@ describe('GenerationStage', () => {
         usage: { inputTokens: 1, outputTokens: 1 }, provider: 'deepseek', model: DEFAULT_MODEL_KEY, latencyMs: 1,
       }) }) };
       const toolCalling = { complete: jest.fn() };
+      const meteredProvider = { complete: jest.fn(async (selectedProvider: { complete: (request: unknown) => Promise<unknown> }, _tenantId: string, _taskType: string, request: unknown) => ({ result: await selectedProvider.complete(request), reservationId: 'reservation-1' })) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any);
+      const stage = new GenerationStage(registry as any, toolCalling as any, conversationState as any, meteredProvider as any);
       const ctx = buildCtx({ tools: ['search_products'] }); // no toolContext
 
       await stage.execute(ctx);

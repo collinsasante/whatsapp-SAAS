@@ -53,3 +53,44 @@
 .title span {
   display: block;
 }
+
+/* Entrance: the headline phrases, then the supporting text, buttons and the inbox slab, each a little after the last. */
+@keyframes heroIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.title span,
+.copy .lede,
+.actions,
+.fine,
+.slab {
+  animation: heroIn 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.title span:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.title span:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.title span:nth-child(4) {
+  animation-delay: 0.24s;
+}
+.copy .lede {
+  animation-delay: 0.32s;
+}
+.actions {
+  animation-delay: 0.4s;
+}
+.fine {
+  animation-delay: 0.48s;
+}
+.slab {
+  animation-delay: 0.2s;
+}

@@ -9,6 +9,32 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 Nothing yet.
 
+## [2.8.0] - 2026-10-26
+
+### Added
+- **Reply deadline setting.** In Manage, Reply Deadline, an admin chooses how many minutes (1 to 1,440) a customer who asked for a person can wait. The dashboard's "requests past the reply deadline" alert and the inbox use it.
+- **Dashboard rebuilt for owners.** Four headline numbers (conversations, new customers, median first response, resolution rate), four alert tiles (past the reply deadline, waiting for a reply, no owner, failed to send) that open the matching inbox view, a conversation trend with a period picker and table view, the WhatsApp account status as Meta and VerzChat report it (quality, messaging limit, verification, display name, and QR-connected phones with a Check again action), and a Business and subscription card. Failed campaigns and channel problems appear under the alerts when present.
+- **Products, Orders, Revenue and Tasks pages rebuilt** on one layout: a compact summary, search and filters, a table that pages, and a side panel for details and actions. Revenue shows gross sales, refunded, platform fee and what you keep for any period against the period before, with a day-by-day chart, sales by product and a transaction list. Orders gain status tabs, a date range and a detail view with fulfilment actions. Tasks gain views, an "Up next" suggestion and urgency ordering. See docs/commerce-and-tasks.md for what each figure means and what the backend does not support yet.
+- Landing page entrance and scroll animations.
+
+### Changed
+- **Revenue "You keep" is calculated differently from the old Revenue page.** It is gross sales minus the money refunded minus the platform fee (after the fee returned on refunds). The old page subtracted the small fee reversal instead of the refunded amount, so its net was too high whenever there had been a refund.
+- **Verz AI credits are now reserved before an AI call and settled after it** (new `ai_credit_reservations` table), with idempotent settlement and expiry of unsettled reservations.
+- Releasing the staging environment now builds versioned images and rehearses the database restore first (infrastructure only; production deployment is unchanged).
+
+### Fixed
+- Messenger and Instagram: a reply sent from outside VerzChat (the Page inbox, Meta Business Suite, or the app on another phone) now appears in the conversation. If a message could not be stored the webhook now answers with an error so Meta resends it, instead of losing it.
+- Verz AI replies are stored with the channel's message id (so delivered and read ticks work on them), and a reply the channel refuses shows as failed instead of delivered.
+- A text message that was delivered but kept showing the sending clock now corrects itself after about 40 seconds; Messenger and Instagram sends give up on Meta after 20 seconds instead of waiting indefinitely.
+- Clicking an Analytics section tab, or focusing a hidden control, could slide the whole app up so the sidebar logo and top bar disappeared.
+- The app no longer stretches wider than a phone screen when a page has wide content.
+- The manage page says that an overdue request alerts everyone who has VerzChat open.
+
+### Upgrade notes
+- **Database migrations (3):** `20261024120000_reply_deadline_setting` adds one column with a default. `20261025190000_ai_credit_reservations` adds a new table and a column on `ai_credit_transactions`. `20261026120000_preserve_legacy_schema_values` copies values between legacy columns and is the only one that touches existing rows. Take a backup first; the production deploy does not rehearse a restore or provide a rollback.
+- **Messenger replies sent outside VerzChat** need `message_echoes` subscribed in the Meta app's webhook settings, `FACEBOOK_APP_ID` set on the backend, and each Page reconnected once in Channels.
+- No other new settings.
+
 ## [2.7.0] - 2026-10-24
 
 ### Security

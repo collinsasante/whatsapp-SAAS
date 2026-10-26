@@ -7,6 +7,7 @@ import { deriveStateFromToolTrace } from '../../tools/state-derivation.util';
 import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../prompts/escalation-messages.util';
+import { AiMeteredProviderService } from '../../completion/ai-metered-provider.service';
 
 interface ParsedGeneration {
   response?: string;
@@ -22,6 +23,7 @@ export class GenerationStage implements PipelineStage {
     private registry: ProviderRegistryService,
     private toolCalling: ToolCallingService,
     private conversationState: ConversationStateService,
+    private meteredProvider: AiMeteredProviderService,
   ) {}
 
   async execute(ctx: PipelineContext): Promise<void> {
@@ -110,15 +112,17 @@ export class GenerationStage implements PipelineStage {
     const catalogEntry = getModelCatalogEntry(ctx.modelKey);
 
     try {
-      const completion = await provider.complete({
+      const meteredCompletion = await this.meteredProvider.complete(provider, ctx.input.tenantId, ctx.input.taskType, {
         modelKey: ctx.modelKey,
         messages,
         maxTokens: ctx.maxResponseTokens,
         jsonMode: catalogEntry.capabilities.includes('jsonMode'),
       });
+      const completion = meteredCompletion.result;
 
       ctx.trace.provider = completion.provider;
       ctx.trace.modelKey = ctx.modelKey;
+      if (meteredCompletion.reservationId) ctx.trace.reservationIds = [meteredCompletion.reservationId];
       ctx.trace.inputTokens = completion.usage.inputTokens;
       ctx.trace.outputTokens = completion.usage.outputTokens;
       ctx.trace.estCostUsd = estimateCostUsd(ctx.modelKey, completion.usage.inputTokens, completion.usage.outputTokens);

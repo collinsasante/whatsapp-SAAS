@@ -1,6 +1,5 @@
 'use client';
-import Link from 'next/link';
-import { ChevronRight } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, MessageSquare, UserPlus, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { compare, formatDuration, formatMoney, formatNumber } from '@/lib/analytics/format';
 import { DASHBOARD_METRICS } from '@/lib/dashboard/metrics';
@@ -8,7 +7,7 @@ import { analyticsHref, pointsDelta, periodWord } from '@/lib/dashboard/format';
 import type { DashboardRange, DashboardSummary, PeriodSummary } from '@/lib/dashboard/types';
 import type { MetricDefinition } from '@/lib/analytics/metrics';
 import type { Delta } from '@/lib/analytics/format';
-import { DeltaView, InfoTip } from '@/components/analytics/ui';
+import { InfoTip } from '@/components/analytics/ui';
 
 interface Card {
   key: string;
@@ -98,32 +97,57 @@ export function buildCards(data: DashboardSummary, range: DashboardRange): Card[
   return cards;
 }
 
-export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
-  const cards = buildCards(data, range);
+const TOP: Array<{ key: string; Icon: LucideIcon; tint: string }> = [
+  { key: 'conversations', Icon: MessageSquare, tint: 'bg-teal-50 text-teal-700' },
+  { key: 'newCustomers', Icon: UserPlus, tint: 'bg-blue-50 text-blue-600' },
+  { key: 'firstReply', Icon: Clock3, tint: 'bg-purple-50 text-purple-600' },
+  { key: 'resolution', Icon: CheckCircle2, tint: 'bg-teal-50 text-teal-700' },
+];
+
+/** "up 150%" -> "150%", "down 5 points" -> "5 points". The arrow carries the direction. */
+function amount(label: string): string {
+  return label.replace(/^(up|down) /, '');
+}
+
+function Change({ delta, range }: { delta: Delta | null; range: DashboardRange }) {
+  if (!delta || delta.verdict === 'unknown') {
+    return <p className="mt-1 text-xs text-gray-500">{delta?.label ?? 'No comparison'}</p>;
+  }
+  const moved = delta.ratio != null && delta.ratio !== 0;
+  const Icon = !moved ? null : delta.ratio! > 0 ? ArrowUpRight : ArrowDownRight;
+  const tone = delta.verdict === 'better' ? 'text-teal-700' : delta.verdict === 'worse' ? 'text-red-700' : 'text-gray-600';
   return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" aria-label="Key numbers">
-      {cards.map((card) => (
-        <li key={card.key} className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 flex flex-col">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-gray-600">
-            <span>{card.definition.label}</span>
-            <InfoTip definition={card.definition} />
-          </div>
-          <p className="text-3xl font-semibold text-gray-900 tabular-nums mt-1.5">{card.value}</p>
-          <div className="mt-1 min-h-[1.25rem]">
-            {card.delta && card.delta.verdict !== 'unknown'
-              ? <span className="inline-flex items-center gap-1.5"><DeltaView delta={card.delta} /><span className="text-xs text-gray-500">vs {periodWord(range)}</span></span>
-              : <span className="text-xs text-gray-500">{card.delta?.label ?? 'No comparison'}</span>}
-          </div>
-          <p className="text-sm text-gray-600 mt-2 flex-1">{card.explanation}</p>
-          <Link
-            href={card.href}
-            className={cn('inline-flex items-center gap-0.5 mt-3 text-sm font-medium text-teal-700 hover:underline w-fit',
-              'focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded')}
-          >
-            {card.linkLabel}<ChevronRight size={14} aria-hidden="true" />
-          </Link>
-        </li>
-      ))}
+    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs">
+      <span className={cn('inline-flex items-center gap-0.5 font-semibold', tone)}>
+        {Icon ? <Icon size={13} aria-hidden="true" /> : <span aria-hidden="true">&mdash;</span>}
+        {moved ? amount(delta.label) : delta.label}
+      </span>
+      <span className="text-gray-500">vs {periodWord(range).replace(/^the /, '')}</span>
+      {delta.verdict !== 'same' && <span className="sr-only">, {delta.verdict}</span>}
+    </p>
+  );
+}
+
+/** The four headline numbers. */
+export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
+  const byKey = new Map(buildCards(data, range).map((c) => [c.key, c]));
+  return (
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4" aria-label="Key numbers">
+      {TOP.map(({ key, Icon, tint }) => {
+        const card = byKey.get(key);
+        if (!card) return null;
+        return (
+          <li key={key} className="flex min-w-0 gap-4 rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+            <span aria-hidden="true" className={cn('inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12', tint)}><Icon size={22} /></span>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700"><span>{card.definition.label}</span><InfoTip definition={card.definition} /></p>
+              <p className="mt-0.5 text-3xl font-semibold tabular-nums text-gray-900">{card.value}</p>
+              <Change delta={card.delta} range={range} />
+              <p className="mt-2 text-xs text-gray-500">{card.explanation}</p>
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }

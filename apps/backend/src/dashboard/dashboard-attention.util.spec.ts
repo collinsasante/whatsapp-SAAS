@@ -2,7 +2,6 @@ import { buildAttentionItems, AttentionInput } from './dashboard-attention.util'
 
 const empty: AttentionInput = {
   backlog: { open: 0, unassigned: 0, slaBreached: 0, awaitingReply: 0, awaitingReplyOverHour: 0, oldestWaitingSeconds: null, waiting: [] },
-  requested: 0,
   slaBreachedRequested: null,
   failedDeliveries: { count: 0, samples: [] },
   failedCampaigns: { count: 0, names: [] },
@@ -18,7 +17,6 @@ describe('buildAttentionItems', () => {
   it('links every item to the view that lists exactly those records', () => {
     const items = buildAttentionItems({
       ...empty,
-      requested: 2,
       slaBreachedRequested: 1,
       backlog: { ...empty.backlog, open: 9, unassigned: 4, awaitingReply: 3, awaitingReplyOverHour: 1, oldestWaitingSeconds: 5400,
         waiting: [{ conversationId: 'c1', contactName: 'Ama', channel: 'WHATSAPP', waitingSeconds: 5400, assignedTo: null }] },
@@ -27,7 +25,6 @@ describe('buildAttentionItems', () => {
       channelProblems: { count: 1, names: ['Page A'] },
     });
     const byKind = Object.fromEntries(items.map((i) => [i.kind, i]));
-    expect(byKind.requests.href).toBe('/inbox?status=REQUESTED');
     expect(byKind.sla_breached.href).toBe('/inbox?status=REQUESTED');
     expect(byKind.unassigned.href).toBe('/inbox?status=ACTIVE&assignee=unassigned');
     expect(byKind.awaiting_reply.href).toBe('/inbox?status=UNREPLIED');
@@ -53,13 +50,13 @@ describe('buildAttentionItems', () => {
 
   it('puts the most severe items first', () => {
     const items = buildAttentionItems({
-      ...empty, requested: 1, channelProblems: { count: 1, names: ['Page A'] },
+      ...empty, failedCampaigns: { count: 1, names: ['Promo'] }, channelProblems: { count: 1, names: ['Page A'] },
     });
-    expect(items.map((i) => i.kind)).toEqual(['channel_problems', 'requests']);
+    expect(items.map((i) => i.kind)).toEqual(['channel_problems', 'failed_campaigns']);
   });
 
   it('uses singular wording for one record', () => {
-    const [item] = buildAttentionItems({ ...empty, requested: 1 });
-    expect(item.title).toBe('1 customer waiting for a person');
+    const [item] = buildAttentionItems({ ...empty, slaBreachedRequested: 1 });
+    expect(item.title).toBe('1 request past the reply deadline');
   });
 });

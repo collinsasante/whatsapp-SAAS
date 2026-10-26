@@ -140,8 +140,22 @@ export default function AnalyticsPage() {
   const agentRange = useMemo(() => rangeForPreset(preset, customFrom, customTo), [preset, customFrom, customTo]);
   const refresh = () => setRefreshKey((k) => k + 1);
 
+  // A plain #anchor jump scrolls every scrollable ancestor, which slid the whole app (sidebar logo included) up
+  // out of view. Scroll only this page's own container; the href stays as the fallback.
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const sectionNavRef = useRef<HTMLElement>(null);
+  const jumpToSection = (event: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    const box = scrollBoxRef.current;
+    const target = document.getElementById(id);
+    if (!box || !target) return;
+    event.preventDefault();
+    const top = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - (sectionNavRef.current?.offsetHeight ?? 0) - 8;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    box.scrollTo({ top: Math.max(top, 0), behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
+
   return (
-    <div className="h-full overflow-auto overscroll-contain bg-gray-50" aria-busy={loading}>
+    <div ref={scrollBoxRef} className="h-full overflow-auto overscroll-contain bg-gray-50" aria-busy={loading}>
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 pt-5 pb-4">
         <div className="max-w-7xl mx-auto">
           <PageHeader
@@ -172,11 +186,11 @@ export default function AnalyticsPage() {
       </header>
 
       {isAdmin && (
-        <nav aria-label="Sections of this page" className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200">
+        <nav ref={sectionNavRef} aria-label="Sections of this page" className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200">
           <ul className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
             {NAV.map((n) => (
               <li key={n.id}>
-                <a href={`#${n.id}`} className="block px-3 py-2.5 text-sm text-gray-600 hover:text-teal-700 whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded">
+                <a href={`#${n.id}`} onClick={(e) => jumpToSection(e, n.id)} className="block px-3 py-2.5 text-sm text-gray-600 hover:text-teal-700 whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded">
                   {n.label}
                 </a>
               </li>

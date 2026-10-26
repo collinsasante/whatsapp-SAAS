@@ -38,7 +38,16 @@ function buildDeps() {
     activityLogService: {},
     aiResponderService: {
       findOrCreateVerzAgent: jest.fn().mockResolvedValue({ id: 'agent-1', name: 'Verz', avatarUrl: null }),
-      generateSuggestion: jest.fn().mockResolvedValue({ response: 'Hi there', confidence: 80, blocked: false }),
+      generateSuggestion: jest.fn().mockImplementation(async (
+        _tenantId: string,
+        _conversationId: string,
+        _customerMessage: string,
+        _contactName: string | undefined,
+        providerCallWrapper?: (providerCall: () => Promise<unknown>) => Promise<unknown>,
+      ) => {
+        if (providerCallWrapper) await providerCallWrapper(() => Promise.resolve({ data: {} }));
+        return { response: 'Hi there', confidence: 80, blocked: false };
+      }),
       shouldRespond: jest.fn().mockResolvedValue(true),
       getMode: jest.fn().mockResolvedValue(null),
     },
@@ -55,6 +64,9 @@ function buildDeps() {
     aiCreditsService: {
       hasSufficientBalance: jest.fn().mockResolvedValue(true),
       chargeFlat: jest.fn().mockResolvedValue({ settled: true, transaction: null }),
+      reserveFixedCredits: jest.fn().mockResolvedValue({ id: 'reservation-1' }),
+      settleReservation: jest.fn().mockResolvedValue({ settled: true, transaction: { id: 'txn-1' } }),
+      releaseReservation: jest.fn().mockResolvedValue(undefined),
     },
     conversationState: { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) },
     facebookMessengerService: { sendTextMessage: jest.fn().mockResolvedValue('mid-1'), sendMediaMessage: jest.fn().mockResolvedValue('mid-2') },
@@ -112,18 +124,25 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
-      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane');
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function));
       expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: null });
     });
 
-    it('charges a flat estimated credit amount for the legacy responder, since it has no real token tracking', async () => {
+    it('reserves the legacy flat estimate before the provider call and settles it after success', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
-      expect(deps.aiCreditsService.chargeFlat).toHaveBeenCalledWith('t1', expect.any(Number), 'Legacy AI responder usage');
+      expect(deps.aiCreditsService.reserveFixedCredits).toHaveBeenCalledWith('t1', expect.any(Number));
+      expect(deps.aiCreditsService.settleReservation).toHaveBeenCalledWith(
+        'reservation-1',
+        expect.any(Number),
+        'Legacy AI responder usage',
+        { estimated: true, reason: 'legacy path, no token tracking' },
+      );
+      expect(deps.aiCreditsService.chargeFlat).not.toHaveBeenCalled();
     });
 
     it('does not charge the legacy flat amount when the legacy responder produced no response', async () => {
@@ -135,6 +154,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
       expect(deps.aiCreditsService.chargeFlat).not.toHaveBeenCalled();
+      expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled();
     });
 
     it('does not charge a flat amount for the commerce or v2 pipeline paths -- those settle centrally via AiExecutionsService', async () => {
@@ -249,6 +269,41 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', '+233555000111', 'We have that in stock.', undefined, undefined);
       expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, commerce: true } }) }));
       expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+    });
+
+    describe('delivery of the AI reply is recorded truthfully', () => {
+      const created = (deps: ReturnType<typeof buildDeps>) => deps.prisma.message.create.mock.calls.map((c: [{ data: Record<string, unknown> }]) => c[0].data);
+
+      it("stores the channel's message id with the reply, so delivered and read ticks can find it", async () => {
+        const deps = buildDeps();
+        deps.whatsappService.sendTextMessage.mockResolvedValue('wamid.AI-1');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+        expect(created(deps)[0]).toMatchObject({ direction: 'OUTBOUND', status: 'SENT', whatsappMessageId: 'wamid.AI-1', content: 'Hi there' });
+      });
+
+      it('on Messenger, replies to the customer on the conversation\'s own Page and stores the Page message id', async () => {
+        const deps = buildDeps();
+        const psid = { ...contact, phone: null, externalId: 'PSID-9', externalIdType: 'MESSENGER_PSID' };
+        const messenger = { ...conversation, channel: { id: 'chan-page-1', type: 'FACEBOOK_MESSENGER' } };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', messenger, psid, 'hi', false, null);
+        expect(deps.facebookMessengerService.sendTextMessage).toHaveBeenCalledWith('t1', 'chan-page-1', 'PSID-9', 'Hi there', undefined);
+        expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(created(deps)[0]).toMatchObject({ status: 'SENT', whatsappMessageId: 'mid-1' });
+      });
+
+      it('a reply the channel refuses is stored as FAILED with no message id, not as delivered, and still appears in the inbox', async () => {
+        const deps = buildDeps();
+        deps.whatsappService.sendTextMessage.mockRejectedValue(new Error('(#131047) Re-engagement message'));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+        const row = created(deps)[0];
+        expect(row).toMatchObject({ status: 'FAILED', failureReason: 'The channel did not accept this message.' });
+        expect(row['whatsappMessageId']).toBeUndefined();
+        expect(JSON.stringify(row)).not.toContain('131047'); // the provider's wording is logged, not stored
+        expect(deps.realtimeService.emitNewMessage).toHaveBeenCalled();
+      });
     });
 
     it('omits the commerce marker when not commerce-enabled', async () => {

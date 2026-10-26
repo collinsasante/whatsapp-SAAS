@@ -42,6 +42,7 @@ export interface ChatCompletionResult {
   toolCalls: ChatToolCall[];
   finishReason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'other';
   usage: { inputTokens: number; outputTokens: number };
+  attemptsUsed?: number;
   provider: string;
   model: string;
   latencyMs: number;
@@ -62,6 +63,7 @@ export class AiProviderError extends Error {
     message: string,
     readonly retryable: boolean,
     readonly cause?: unknown,
+    readonly uncertainOutcome = retryable && code !== 'rate_limited',
   ) {
     super(message);
     this.name = 'AiProviderError';
@@ -70,5 +72,6 @@ export class AiProviderError extends Error {
 
 export interface AiProvider {
   readonly key: string; // 'deepseek'
+  readonly maxAttempts?: number;
   complete(req: ChatCompletionRequest): Promise<ChatCompletionResult>;
 }

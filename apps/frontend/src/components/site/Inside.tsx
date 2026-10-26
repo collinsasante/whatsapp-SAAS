@@ -1,3 +1,4 @@
+import { reveal } from './reveal';
 import styles from './Inside.module.css';
 
 // One sentence each, and each one is something the workspace does today.
@@ -18,7 +19,7 @@ export default function Inside() {
   return (
     <section className={styles.section} aria-labelledby="inside-title">
       <div className={`wrap ${styles.grid}`}>
-        <div className={styles.head}>
+        <div className={styles.head} {...reveal()}>
           <h2 id="inside-title" className="h2">
             The rest of the workspace, in one place
           </h2>
@@ -29,8 +30,8 @@ export default function Inside() {
         </div>
 
         <dl className={styles.list}>
-          {MODULES.map((m) => (
-            <div key={m.name} className={styles.item}>
+          {MODULES.map((m, i) => (
+            <div key={m.name} className={styles.item} {...reveal(i)}>
               <dt>{m.name}</dt>
               <dd>{m.text}</dd>
             </div>
