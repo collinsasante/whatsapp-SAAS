@@ -1,182 +1,175 @@
 'use client';
-
-import { useCallback, useEffect, useState } from 'react';
-import { Wallet, TrendingUp, Percent, RotateCcw, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { commerceLedgerApi } from '@/lib/api';
+import { useWidget } from '@/lib/dashboard/useWidget';
 import { cn } from '@/lib/utils';
-import toast from 'react-hot-toast';
+import { formatRange } from '@/lib/analytics/format';
+import PageHeader from '@/components/ui/PageHeader';
+import { Button } from '@/components/ui/Button';
+import StatStrip, { type Stat } from '@/components/ui/StatStrip';
+import EmptyState from '@/components/ui/EmptyState';
+import Skeleton from '@/components/ui/Skeleton';
+import Pagination from '@/components/ui/Pagination';
+import Tabs from '@/components/ui/Tabs';
+import Toolbar, { customRangeProblem } from '@/components/analytics/Toolbar';
+import RevenueChart from '@/components/commerce/RevenueChart';
+import TransactionsTable from '@/components/commerce/TransactionsTable';
+import { changeSince, csvEscape, formatMoney } from '@/lib/commerce/format';
+import type { CurrencyRevenue, LedgerPage, RevenueSummary } from '@/lib/commerce/types';
+import type { RangePreset } from '@/lib/analytics/types';
 
-interface LedgerEntry {
-  id: string;
-  orderId: string;
-  type: 'GMV' | 'TAKE_RATE' | 'REFUND_ADJUSTMENT';
-  amountMajorUnits: number;
-  currency: string;
-  createdAt: string;
+const PAGE_SIZE = 15;
+
+function ChangeNote({ current, previous, noun }: { current: number; previous: number; noun: string }) {
+  const change = changeSince(current, previous);
+  if (!change) return <>{previous === 0 && current === 0 ? `No ${noun} in either period` : `No ${noun} in the previous period to compare with`}</>;
+  if (change.direction === 'flat') return <>Same as the previous period</>;
+  return <>{change.direction === 'up' ? 'Up' : 'Down'} {change.percent}% on the previous period</>;
 }
 
-interface LedgerResponse {
-  entries: LedgerEntry[];
-  total: number;
-  page: number;
-  limit: number;
-  totals: Partial<Record<LedgerEntry['type'], number>>;
+function statsFor(c: CurrencyRevenue): Stat[] {
+  const { current: now, previous: before } = c;
+  const money = (v: number) => formatMoney(v, c.currency);
+  return [
+    { label: 'Gross sales', value: money(now.gross), hint: <><ChangeNote current={now.gross} previous={before.gross} noun="sales" /><span className="block">{now.paidOrders.toLocaleString()} paid {now.paidOrders === 1 ? 'order' : 'orders'}</span></> },
+    { label: 'Refunded', value: money(now.refunded), tone: now.refunded > 0 ? 'warn' : 'default', hint: now.refunds === 0 ? 'No refunds in this period' : `${now.refunds} ${now.refunds === 1 ? 'refund' : 'refunds'}` },
+    { label: 'Platform fee', value: money(now.platformFee), hint: now.feeReturned > 0 ? `${money(now.feeCharged)} charged, ${money(now.feeReturned)} returned on refunds` : 'Charged on each sale' },
+    { label: 'You keep', value: money(now.net), hint: <ChangeNote current={now.net} previous={before.net} noun="earnings" /> },
+  ];
 }
 
-function apiErr(e: unknown, fallback: string): string {
-  const err = e as { response?: { data?: { message?: string | string[] } }; message?: string };
-  const msg = err.response?.data?.message;
-  if (Array.isArray(msg)) return msg.join(', ');
-  return msg || err.message || fallback;
-}
-
-const TYPE_STYLE: Record<LedgerEntry['type'], string> = {
-  GMV: 'bg-green-50 text-green-600',
-  TAKE_RATE: 'bg-purple-50 text-purple-600',
-  REFUND_ADJUSTMENT: 'bg-red-50 text-red-600',
-};
-
-const TYPE_LABEL: Record<LedgerEntry['type'], string> = {
-  GMV: 'Sale',
-  TAKE_RATE: 'Platform fee',
-  REFUND_ADJUSTMENT: 'Refund',
-};
-
-export default function CommerceRevenuePage() {
-  const [data, setData] = useState<LedgerResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+export default function RevenuePage() {
+  const [preset, setPreset] = useState<RangePreset>('30d');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const [currency, setCurrency] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const limit = 20;
 
-  const load = useCallback(async (p: number) => {
-    setRefreshing(true);
-    try {
-      const res = await commerceLedgerApi.get(p, limit);
-      setData(res.data as LedgerResponse);
-    } catch (e) {
-      toast.error(apiErr(e, 'Failed to load revenue'));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const customProblem = preset === 'custom' ? customRangeProblem(customFrom, customTo) : null;
+  const rangeKey = preset === 'custom' ? `custom:${customFrom}:${customTo}` : preset;
+  const summary = useWidget<RevenueSummary>(
+    `revenue:${rangeKey}`,
+    async (signal) => (await commerceLedgerApi.summary(preset === 'custom' ? { preset, from: customFrom, to: customTo } : { preset }, signal)).data as RevenueSummary,
+    { enabled: !customProblem, refreshKey: refresh },
+  );
+  const meta = summary.data?.meta;
+  const chosen = summary.data?.currencies.find((c) => c.currency === currency) ?? summary.data?.currencies[0];
 
-  useEffect(() => { void load(page); }, [load, page]);
+  const ledger = useWidget<LedgerPage | null>(
+    `ledger:${meta?.from}:${meta?.to}:${chosen?.currency}:${page}`,
+    async (signal) => (await commerceLedgerApi.get({ page, limit: PAGE_SIZE, from: meta!.from, to: meta!.to, currency: chosen!.currency }, signal)).data as LedgerPage,
+    { enabled: meta != null && chosen != null, refreshKey: refresh },
+  );
 
-  const currency = data?.entries[0]?.currency ?? '';
-  const gross = data?.totals.GMV ?? 0;
-  const fee = Math.abs(data?.totals.TAKE_RATE ?? 0);
-  const refunds = Math.abs(data?.totals.REFUND_ADJUSTMENT ?? 0);
-  const net = gross - fee - refunds;
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / limit)) : 1;
+  const topSales = useMemo(() => Math.max(0, ...(chosen?.products.top.map((p) => p.sales) ?? [])), [chosen]);
+
+  const exportCsv = () => {
+    if (!summary.data || !chosen) return;
+    const header = ['Date', `Gross sales (${chosen.currency})`, `Refunded (${chosen.currency})`, `Platform fee (${chosen.currency})`, `You keep (${chosen.currency})`];
+    const lines = [header, ...chosen.series.map((p) => [p.date, p.gross.toFixed(2), p.refunded.toFixed(2), p.platformFee.toFixed(2), p.net.toFixed(2)])];
+    const url = URL.createObjectURL(new Blob([lines.map((l) => l.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `revenue-${meta!.from}-to-${meta!.to}-${chosen.currency}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  };
+
+  const reload = () => { setRefresh((n) => n + 1); };
+  const pickCurrency = (c: string) => { setCurrency(c); setPage(1); };
+  const changeRange = (next: RangePreset, from = customFrom, to = customTo) => { setPreset(next); setCustomFrom(from); setCustomTo(to); setPage(1); setCurrency(null); };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 overflow-auto">
-      <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-green-50 rounded-xl flex items-center justify-center">
-              <Wallet size={18} className="text-green-600" />
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Revenue</h1>
-              <p className="text-xs text-gray-500">What you&apos;ve sold, what the platform took, and what you actually keep</p>
-            </div>
+    <div className="h-full overflow-auto bg-gray-50">
+      <div className="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
+        <header className="flex flex-col gap-4">
+          <PageHeader
+            title="Revenue"
+            description={meta ? <>{formatRange(meta.from, meta.to)}, compared with {formatRange(meta.previousFrom, meta.previousTo)} ({meta.timezone})</> : 'What you sold, what was refunded, and what you keep.'}
+          />
+          <Toolbar
+            preset={preset} customFrom={customFrom} customTo={customTo} channel="ALL" showChannel={false}
+            loading={summary.loading} refreshLabel="Refresh revenue"
+            onPreset={(p) => changeRange(p)} onCustom={(f, t) => changeRange('custom', f, t)} onChannel={() => undefined} onRefresh={reload}
+            onExport={chosen ? exportCsv : undefined}
+          />
+        </header>
+
+        {customProblem ? (
+          <p role="alert" className="text-sm text-red-700">{customProblem} Pick a different range to see your revenue.</p>
+        ) : summary.loading && !summary.data ? (
+          <div className="space-y-4" aria-busy="true" aria-label="Loading revenue"><Skeleton className="h-24" /><Skeleton className="h-80" /></div>
+        ) : summary.error && !summary.data ? (
+          <div role="alert" className="flex flex-col items-start gap-2 rounded-lg border border-red-100 bg-red-50 p-4">
+            <p className="text-sm font-medium text-gray-900">Revenue could not be loaded</p>
+            <p className="text-sm text-gray-600">{summary.error}</p>
+            <Button size="sm" onClick={summary.reload}>Try again</Button>
           </div>
-          <button
-            onClick={() => load(page)}
-            disabled={refreshing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors font-medium"
-          >
-            <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} /> Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {loading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 h-20 animate-pulse" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-white rounded-xl border border-gray-100 p-4">
-                <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-1"><TrendingUp size={12} /> Gross sales</div>
-                <div className="text-lg font-bold text-gray-900">{currency} {gross.toFixed(2)}</div>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-100 p-4">
-                <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-1"><Percent size={12} /> Platform fee</div>
-                <div className="text-lg font-bold text-purple-600">-{currency} {fee.toFixed(2)}</div>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-100 p-4">
-                <div className="flex items-center gap-1.5 text-[11px] text-gray-400 mb-1"><RotateCcw size={12} /> Refunds</div>
-                <div className="text-lg font-bold text-red-600">-{currency} {refunds.toFixed(2)}</div>
-              </div>
-              <div className="bg-green-600 rounded-xl p-4">
-                <div className="flex items-center gap-1.5 text-[11px] text-green-100 mb-1"><Wallet size={12} /> Net revenue</div>
-                <div className="text-lg font-bold text-white">{currency} {net.toFixed(2)}</div>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="text-xs font-semibold text-gray-500 mb-2">Transactions</div>
-            {loading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 h-14 animate-pulse" />
-                ))}
-              </div>
-            ) : !data || data.entries.length === 0 ? (
-              <div className="text-center py-16 text-gray-400 text-sm">
-                No revenue yet, a paid order will show up here once a customer completes checkout.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {data.entries.map((entry) => (
-                  <div key={entry.id} className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap', TYPE_STYLE[entry.type])}>
-                        {TYPE_LABEL[entry.type]}
-                      </span>
-                      <code className="text-xs text-gray-400 truncate">order {entry.orderId.slice(0, 8)}</code>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className={cn('text-sm font-semibold', entry.amountMajorUnits < 0 ? 'text-red-600' : 'text-gray-800')}>
-                        {entry.amountMajorUnits < 0 ? '-' : ''}{entry.currency} {Math.abs(entry.amountMajorUnits).toFixed(2)}
-                      </span>
-                      <span className="text-xs text-gray-400">{new Date(entry.createdAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+        ) : !chosen ? (
+          <EmptyState compact={false} title="No revenue in this period">
+            A sale shows up here once a customer pays for an order. Try a longer period, or check Orders for payments that are still pending.
+          </EmptyState>
+        ) : (
+          <div className={cn('space-y-5', summary.loading && 'opacity-60 transition-opacity')}>
+            {summary.error && <p role="alert" className="text-sm text-red-700">Could not refresh. {summary.error} <button onClick={summary.reload} className="font-medium underline">Try again</button></p>}
+            {summary.data!.currencies.length > 1 && (
+              <Tabs label="Currency" idPrefix="currency" active={chosen.currency} onChange={pickCurrency}
+                tabs={summary.data!.currencies.map((c) => ({ key: c.currency, label: c.currency }))} />
             )}
 
-            {data && data.total > limit && (
-              <div className="flex items-center justify-between mt-4">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors font-medium"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" /> Previous
-                </button>
-                <span className="text-xs text-gray-400">Page {page} of {totalPages}</span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page >= totalPages}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 transition-colors font-medium"
-                >
-                  Next <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+            <StatStrip label={`Revenue summary in ${chosen.currency}`} stats={statsFor(chosen)} />
+            <p className="text-xs text-gray-500">
+              You keep = gross sales - refunded - platform fee. Gross sales include orders that were refunded later; the refund is shown separately. Currencies are never added together.
+            </p>
+
+            <section aria-labelledby="rev-trend" className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+              <h2 id="rev-trend" className="mb-3 text-base font-semibold text-gray-900">Day by day</h2>
+              <RevenueChart series={chosen.series} currency={chosen.currency} />
+            </section>
+
+            <section aria-labelledby="rev-products" className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+              <h2 id="rev-products" className="text-base font-semibold text-gray-900">Sales by product</h2>
+              <p className="mt-0.5 text-sm text-gray-500">Before refunds, for orders paid in this period.</p>
+              {chosen.products.top.length === 0 ? (
+                <p className="mt-3 text-sm text-gray-500">No products were sold in this period.</p>
+              ) : (
+                <ul className="mt-2 divide-y divide-gray-100">
+                  {chosen.products.top.map((p) => (
+                    <li key={p.productName} className="grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-3 py-2 sm:grid-cols-[minmax(0,12rem)_1fr_auto]">
+                      <span className="truncate text-sm text-gray-700" title={p.productName}>{p.productName}</span>
+                      <span className="h-2 overflow-hidden rounded-full bg-gray-100" aria-hidden="true">
+                        <span className="block h-full rounded-full bg-teal-600" style={{ width: `${topSales > 0 ? Math.max(2, Math.round((p.sales / topSales) * 100)) : 0}%` }} />
+                      </span>
+                      <span className="whitespace-nowrap text-right text-sm font-medium tabular-nums text-gray-900">
+                        {formatMoney(p.sales, chosen.currency)}
+                        <span className="block text-xs font-normal text-gray-500">{p.quantity.toLocaleString()} sold</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {chosen.products.otherProducts > 0 && <p className="mt-2 text-xs text-gray-500">And {chosen.products.otherProducts} more {chosen.products.otherProducts === 1 ? 'product' : 'products'} with smaller sales.</p>}
+            </section>
+
+            <section aria-labelledby="rev-tx" className="rounded-xl border border-gray-200 bg-white">
+              <h2 id="rev-tx" className="px-4 pt-4 pb-2 text-base font-semibold text-gray-900 sm:px-5">Transactions</h2>
+              {ledger.loading && !ledger.data ? (
+                <div className="space-y-2 p-4"><Skeleton className="h-10" /><Skeleton className="h-10" /><Skeleton className="h-10" /></div>
+              ) : ledger.error && !ledger.data ? (
+                <div role="alert" className="m-4 flex flex-col items-start gap-2 rounded-lg border border-red-100 bg-red-50 p-4">
+                  <p className="text-sm text-gray-700">The transactions could not be loaded. {ledger.error}</p>
+                  <Button size="sm" onClick={ledger.reload}>Try again</Button>
+                </div>
+              ) : !ledger.data || ledger.data.entries.length === 0 ? (
+                <p className="px-5 pb-5 text-sm text-gray-500">No transactions in this period.</p>
+              ) : (
+                <>
+                  <TransactionsTable rows={ledger.data.entries} busy={ledger.loading} />
+                  <Pagination page={page} pageSize={PAGE_SIZE} total={ledger.data.total} onChange={setPage} noun="transactions" />
+                </>
+              )}
+            </section>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
