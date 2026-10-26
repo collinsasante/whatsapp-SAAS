@@ -60,8 +60,17 @@ export default function TrendCard({ data }: { data: DashboardTrend }) {
   const channelMax = Math.max(0, ...data.channels.map((c) => c.conversations));
   const unit = granularity === 'hour' ? 'hour' : 'day';
 
+  const sum = (key: 'opened' | 'resolved' | 'inbound') => points.reduce((n, p) => n + p[key], 0);
   return (
     <div>
+      <dl className="mb-3 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200" aria-label="Totals for this period">
+        {([['Opened', sum('opened')], ['Resolved', sum('resolved')], ['Customer messages', sum('inbound')]] as const).map(([label, value]) => (
+          <div key={label} className="bg-white px-3 py-2">
+            <dt className="text-xs text-gray-500">{label}</dt>
+            <dd className="text-lg font-semibold tabular-nums text-gray-900">{formatNumber(value)}</dd>
+          </div>
+        ))}
+      </dl>
       <div role="tablist" aria-label="Measure shown in the chart" className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-0.5 w-fit max-w-full mb-3">
         {VIEWS.map((v) => (
           <button
@@ -92,12 +101,8 @@ export default function TrendCard({ data }: { data: DashboardTrend }) {
         </>
       ) : (
         <>
-          <p className="text-sm text-gray-600 mb-2">
-            {info.blurb}, by {unit}. {defs.map((d, i) => (
-              <span key={d.key}>{i > 0 ? ', ' : ''}<span className="font-medium text-gray-900 tabular-nums">{formatNumber(total(d.key))}</span> {d.name.toLowerCase()}</span>
-            ))} in total.
-          </p>
-          <div className="h-64 sm:h-72" role="img" aria-label={`${info.label} by ${unit}: ${defs.map((d) => `${formatNumber(total(d.key))} ${d.name.toLowerCase()}`).join(', ')}.`}>
+          <p className="text-sm text-gray-600 mb-2">{info.blurb}, by {unit}.</p>
+          <div className="h-56 sm:h-60" role="img" aria-label={`${info.label} by ${unit}: ${defs.map((d) => `${formatNumber(total(d.key))} ${d.name.toLowerCase()}`).join(', ')}.`}>
             <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 600, height: 260 }}>
               {view === 'customers' ? (
                 <BarChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>

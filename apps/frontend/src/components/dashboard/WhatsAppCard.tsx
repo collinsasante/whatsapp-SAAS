@@ -20,9 +20,22 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
+/** What Meta says needs fixing, written as one calm line. Healthy values produce nothing. */
+function issuesOf(live: NonNullable<WhatsAppNumberStatus['live']>): string[] {
+  const out: string[] = [];
+  const verification = (live.verification ?? '').toUpperCase();
+  if (verification === 'EXPIRED') out.push('Verification has expired. Verify the number again in Meta Business Manager.');
+  else if (verification === 'NOT_VERIFIED') out.push('The number is not verified yet.');
+  const name = (live.nameStatus ?? '').toUpperCase();
+  if (name === 'DECLINED') out.push('Meta declined the display name. Submit a new one for review.');
+  else if (name === 'EXPIRED') out.push('The display name approval has expired.');
+  return out;
+}
+
 function NumberBlock({ n }: { n: WhatsAppNumberStatus }) {
   const live = n.live;
   const q = qualityText(live?.quality);
+  const issues = live ? issuesOf(live) : [];
   return (
     <li className="py-3 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -54,6 +67,11 @@ function NumberBlock({ n }: { n: WhatsAppNumberStatus }) {
           {n.error?.kind === 'TOKEN_INVALID' && <Link href="/channels" className="font-medium text-teal-700 hover:underline">Reconnect in Channels</Link>}
         </div>
       )}
+      {issues.length > 0 && (
+        <ul className="mt-2 space-y-1" aria-label="Things to fix">
+          {issues.map((t) => <li key={t} className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800"><AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />{t}</li>)}
+        </ul>
+      )}
       {n.lastError && <p className="text-xs text-gray-500 mt-1.5">{n.lastError}</p>}
     </li>
   );
@@ -69,15 +87,21 @@ export default function WhatsAppCard({ data, refreshing, onRefresh }: { data: Da
         </EmptyState>
       ) : (
         <>
-          {data.connected && <ul className="mb-3 divide-y divide-gray-100">{data.numbers.map((n) => <NumberBlock key={n.id} n={n} />)}</ul>}
+          {data.connected && (
+            <section aria-labelledby="wa-meta">
+              <h3 id="wa-meta" className="text-sm font-semibold text-gray-900">Meta WhatsApp account</h3>
+              <p className="mb-1 text-xs text-gray-500">Reported by Meta</p>
+              <ul className="mb-3 divide-y divide-gray-100">{data.numbers.map((n) => <NumberBlock key={n.id} n={n} />)}</ul>
+            </section>
+          )}
           {data.qrSessions.length > 0 && (
             <div className={data.connected ? 'mt-3 pt-3 border-t border-gray-100' : ''}>
-              <p className="text-sm font-medium text-gray-900">Phones linked by QR code</p>
-              <p className="text-xs text-gray-500 mb-1">Not Meta&apos;s official API, so Meta does not report on them. This is the connection state VerzChat last recorded.</p>
+              <h3 className="text-sm font-semibold text-gray-900">QR-connected phones</h3>
+              <p className="text-xs text-gray-500 mb-1">Not Meta&apos;s official API, so Meta does not report on them. This is the state VerzChat last recorded.</p>
               <ul className="text-sm space-y-1">
                 {data.qrSessions.map((s) => (
                   <li key={s.id} className="flex items-center justify-between gap-2">
-                    <span className="text-gray-800">{s.phoneNumber ?? 'Phone not linked yet'}</span>
+                    <span className="min-w-0 text-gray-800">{s.phoneNumber ?? 'Phone not linked yet'}{s.lastSeenAt && <span className="block text-xs text-gray-500">Last seen {new Date(s.lastSeenAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>}</span>
                     <StatusBadge tone={s.status === 'CONNECTED' ? 'success' : s.status === 'ERROR' || s.status === 'LOGGED_OUT' ? 'danger' : 'warning'}>{titleCase(s.status)}</StatusBadge>
                   </li>
                 ))}

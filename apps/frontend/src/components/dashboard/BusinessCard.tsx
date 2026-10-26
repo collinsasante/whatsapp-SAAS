@@ -31,11 +31,11 @@ function Row({ icon: Icon, label, value, href }: { icon: React.ElementType; labe
   );
 }
 
-function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+function Line({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div>
-      <dt className="text-xs text-gray-500">{label}</dt>
-      <dd className="text-sm font-medium text-gray-900">{value}</dd>
+    <div className="flex items-baseline justify-between gap-4 py-1.5">
+      <dt className="text-sm text-gray-600">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-sm font-medium text-gray-900">{children}</dd>
     </div>
   );
 }
@@ -47,36 +47,36 @@ export default function BusinessCard({ data }: { data: DashboardBusiness }) {
   const renewLabel = a.subscriptionStatus === 'TRIAL' ? 'Trial ends' : a.cancelAtPeriodEnd ? 'Ends on' : 'Renews on';
   return (
     <div>
-      <p className="text-base font-semibold text-gray-900">{b.name || 'Your business'}</p>
-      {b.category && <p className="text-sm text-gray-500">{b.category}</p>}
-      {b.description && <p className="text-sm text-gray-600 mt-1 line-clamp-3">{b.description}</p>}
-      <ul className="mt-3 space-y-1.5">
-        <Row icon={Phone} label="Phone" value={b.phone} href={b.phone ? `tel:${b.phone.replace(/\s+/g, '')}` : undefined} />
-        <Row icon={Mail} label="Email" value={b.email} href={b.email ? `mailto:${b.email}` : undefined} />
-        <Row icon={Globe} label="Website" value={b.website} href={b.website ? (/^https?:\/\//i.test(b.website) ? b.website : `https://${b.website}`) : undefined} />
-        <Row icon={MapPin} label="Address" value={b.address} />
-      </ul>
-      {missing.length > 0 && (
-        <p className="text-sm text-gray-600 mt-2">
-          {missing.length} {missing.length === 1 ? 'detail is' : 'details are'} missing.{' '}
-          <Link href="/settings" className="font-medium text-teal-700 hover:underline">Add business details</Link>
+      <section aria-labelledby="biz-profile">
+        <h3 id="biz-profile" className="text-sm font-semibold text-gray-900">Business profile</h3>
+        <p className="mt-1 text-base font-semibold text-gray-900">{b.name || 'Your business'}</p>
+        {b.category && <p className="text-sm text-gray-500">{b.category}</p>}
+        <ul className="mt-2 space-y-1.5">
+          <Row icon={Phone} label="Phone" value={b.phone} href={b.phone ? `tel:${b.phone.replace(/\s+/g, '')}` : undefined} />
+          <Row icon={Mail} label="Email" value={b.email} href={b.email ? `mailto:${b.email}` : undefined} />
+          <Row icon={Globe} label="Website" value={b.website} href={b.website ? (/^https?:\/\//i.test(b.website) ? b.website : `https://${b.website}`) : undefined} />
+          <Row icon={MapPin} label="Address" value={b.address} />
+        </ul>
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          {missing.length > 0 && <StatusBadge tone="warning">{missing.length} {missing.length === 1 ? 'detail' : 'details'} missing</StatusBadge>}
+          <Link href="/settings" className="font-medium text-teal-700 hover:underline">Edit business details</Link>
         </p>
-      )}
+      </section>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4 pt-4 border-t border-gray-100">
-        <Fact label="Plan" value={<span className="inline-flex flex-wrap items-center gap-1.5">{a.plan.charAt(0).toUpperCase() + a.plan.slice(1)}{status && <StatusBadge tone={status.tone}>{status.label}</StatusBadge>}</span>} />
-        <Fact label={renewLabel} value={renews ?? 'Not set'} />
-        <Fact label="Team members" value={formatNumber(a.members)} />
-        <Fact label="Connected channels" value={formatNumber(a.channels)} />
-        <Fact label="AI credits left" value={formatNumber(a.aiCreditsBalance)} />
-        <Fact label="Workspace created" value={day(a.createdAt) ?? 'Unknown'} />
-        <Fact label="Time zone" value={a.timezone} />
-        {a.billingEmail && <Fact label="Billing email" value={<span className="break-all">{a.billingEmail}</span>} />}
-      </dl>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-sm">
-        <Link href="/settings" className="font-medium text-teal-700 hover:underline">Edit business details</Link>
-        <Link href="/billing" className="font-medium text-teal-700 hover:underline">Manage plan</Link>
-      </div>
+      <section aria-labelledby="biz-plan" className="mt-4 border-t border-gray-100 pt-4">
+        <h3 id="biz-plan" className="text-sm font-semibold text-gray-900">Subscription and usage</h3>
+        <dl className="mt-1 divide-y divide-gray-100">
+          <Line label="Plan"><span className="inline-flex flex-wrap items-center justify-end gap-1.5">{a.plan.charAt(0).toUpperCase() + a.plan.slice(1)}{status && <StatusBadge tone={status.tone}>{status.label}</StatusBadge>}</span></Line>
+          <Line label={renewLabel}>{renews ?? 'Not set'}</Line>
+          <Line label="Team members">{formatNumber(a.members)}</Line>
+          <Line label="Connected channels">{formatNumber(a.channels)}</Line>
+          <Line label="AI credits left">{formatNumber(a.aiCreditsBalance)}</Line>
+          <Line label="Workspace created">{day(a.createdAt) ?? 'Unknown'}</Line>
+          <Line label="Time zone">{a.timezone}</Line>
+          {a.billingEmail && <Line label="Billing email"><span className="break-all">{a.billingEmail}</span></Line>}
+        </dl>
+        <Link href="/billing" className="mt-3 inline-flex text-sm font-medium text-teal-700 hover:underline">Manage plan</Link>
+      </section>
     </div>
   );
 }
