@@ -56,7 +56,7 @@ export default function AlertTiles({ data }: { data: DashboardAttention }) {
   const allClear = data.items.length === 0 && data.notChecked.length === 0;
   return (
     <div>
-      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Alerts">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4" aria-label="Alerts">
         {TILES.map((t) => <Tile key={t.kind} tile={t} item={byKind.get(t.kind)} notChecked={reasons.get(t.kind)} />)}
       </ul>
       {allClear && <p className="mt-3 flex items-center gap-1.5 text-sm text-gray-600"><CheckCircle2 size={15} className="text-teal-700" aria-hidden="true" />Nothing needs your attention right now.</p>}
