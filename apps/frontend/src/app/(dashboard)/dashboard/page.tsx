@@ -1,5 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { AlertCircle, ArrowRight, Table2 } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { dashboardApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
@@ -10,7 +12,7 @@ import {
   DASHBOARD_MAX_DAYS, DEFAULT_PRESET, PRESET_KEYS, rangeKey, rangeQuery,
 } from '@/lib/dashboard/format';
 import type {
-  DashboardAttention, DashboardBusiness, DashboardPreset, DashboardRange, DashboardRequests, DashboardSummary,
+  DashboardAttention, DashboardBusiness, DashboardPreset, DashboardRange, DashboardSummary,
   DashboardTrend, DashboardWhatsAppStatus,
 } from '@/lib/dashboard/types';
 import { customRangeProblem } from '@/components/analytics/Toolbar';
@@ -20,9 +22,11 @@ import WidgetCard from '@/components/dashboard/WidgetCard';
 import KpiCards from '@/components/dashboard/KpiCards';
 import TrendCard from '@/components/dashboard/TrendCard';
 import AlertTiles from '@/components/dashboard/AlertTiles';
-import RequestsCard from '@/components/dashboard/RequestsCard';
 import BusinessCard from '@/components/dashboard/BusinessCard';
-import WhatsAppCard from '@/components/dashboard/WhatsAppCard';
+import WhatsAppCard, { whatsappHeadline } from '@/components/dashboard/WhatsAppCard';
+import StatusBadge from '@/components/ui/StatusBadge';
+import { Button } from '@/components/ui/Button';
+import { SelectInput } from '@/components/ui/fields';
 
 /** How often the page refreshes itself while it is open and visible. */
 const AUTO_REFRESH_MS = 5 * 60_000;
@@ -52,6 +56,7 @@ export default function DashboardPage() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [router, pathname, searchParams]);
 
+  const [showTrendTable, setShowTrendTable] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const refresh = useCallback(() => setRefreshKey((n) => n + 1), []);
   useEffect(() => {
@@ -68,7 +73,6 @@ export default function DashboardPage() {
   // These three describe the workspace as it is now, so they do not depend on the date range.
   const [metaChecks, setMetaChecks] = useState(0);
   const workspaceOpts = { enabled, refreshKey: refreshKey + metaChecks };
-  const requests = useWidget<DashboardRequests>('workspace', (s) => dashboardApi.requests(s).then((r) => r.data), workspaceOpts);
   const business = useWidget<DashboardBusiness>('workspace', (s) => dashboardApi.business(s).then((r) => r.data), workspaceOpts);
   const whatsapp = useWidget<DashboardWhatsAppStatus>('workspace', (s) => dashboardApi.whatsappStatus(metaChecks > 0, s).then((r) => r.data), workspaceOpts);
 
@@ -115,30 +119,52 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <div className="min-w-0 space-y-5">
-              <WidgetCard id="attention" title="Needs attention" description="Things waiting on you right now" widget={attention} skeletonClassName="h-32">
+              <WidgetCard
+                id="attention"
+                title={<span className="flex items-center gap-2.5"><span aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600"><AlertCircle size={18} /></span>Needs attention</span>}
+                description="Things waiting on you right now"
+                aside={<Link href="/inbox" className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-teal-700 hover:underline">View all<ArrowRight size={14} aria-hidden="true" /></Link>}
+                widget={attention} skeletonClassName="h-32"
+              >
                 {(data) => <AlertTiles data={data} />}
               </WidgetCard>
 
-              <div className="grid items-start gap-5 lg:grid-cols-5">
-                <WidgetCard id="trend" title="Conversation performance" widget={trend} className="lg:col-span-3" skeletonClassName="h-80">
-                  {(data) => <TrendCard data={data} />}
+              <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                <WidgetCard
+                  id="trend" title="Conversation trend" widget={trend} skeletonClassName="h-80"
+                  aside={
+                    <div className="flex items-center gap-2">
+                      {preset !== 'custom' && (
+                        <SelectInput
+                          label="Period" value={preset} className="w-28 py-1.5"
+                          onChange={(v) => setParams({ range: v === DEFAULT_PRESET ? null : v, from: null, to: null })}
+                          options={[{ value: 'today', label: 'Today' }, { value: '7d', label: '7 days' }, { value: '30d', label: '30 days' }]}
+                        />
+                      )}
+                      <Button variant="secondary" size="sm" onClick={() => setShowTrendTable((v) => !v)} aria-pressed={showTrendTable}>
+                        <Table2 size={14} aria-hidden="true" />{showTrendTable ? 'View chart' : 'View table'}
+                      </Button>
+                    </div>
+                  }
+                >
+                  {(data) => <TrendCard data={data} showTable={showTrendTable} />}
                 </WidgetCard>
-                <WidgetCard id="whatsapp" title="WhatsApp account status" description="Meta numbers and QR-connected phones" widget={whatsapp} className="lg:col-span-2">
+
+                <WidgetCard
+                  id="whatsapp" title="WhatsApp account status" widget={whatsapp}
+                  description={<span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="text-sm font-bold text-blue-600">&infin;</span>As reported by Meta</span>}
+                  aside={whatsapp.data && whatsappHeadline(whatsapp.data) ? <StatusBadge tone={whatsappHeadline(whatsapp.data)!.tone}>{whatsappHeadline(whatsapp.data)!.label}</StatusBadge> : undefined}
+                >
                   {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
                 </WidgetCard>
               </div>
             </div>
 
-            <div className="grid min-w-0 items-start gap-5 md:grid-cols-2 xl:grid-cols-1">
-              <WidgetCard id="business" title="Business and subscription" description="Your details, plan and usage" widget={business}>
-                {(data) => <BusinessCard data={data} />}
-              </WidgetCard>
-              <WidgetCard id="requests" title="Requesting" description="Customers waiting for a person" widget={requests}>
-                {(data) => <RequestsCard data={data} />}
-              </WidgetCard>
-            </div>
+            <WidgetCard id="business" title="Business and subscription" description="Your business details and plan" widget={business}>
+              {(data) => <BusinessCard data={data} />}
+            </WidgetCard>
           </div>
         </>
       )}

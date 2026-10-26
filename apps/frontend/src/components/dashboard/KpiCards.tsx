@@ -1,6 +1,5 @@
 'use client';
-import Link from 'next/link';
-import { CheckCircle2, Clock3, MessageSquare, UserPlus, type LucideIcon } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, MessageSquare, UserPlus, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { compare, formatDuration, formatMoney, formatNumber } from '@/lib/analytics/format';
 import { DASHBOARD_METRICS } from '@/lib/dashboard/metrics';
@@ -8,7 +7,7 @@ import { analyticsHref, pointsDelta, periodWord } from '@/lib/dashboard/format';
 import type { DashboardRange, DashboardSummary, PeriodSummary } from '@/lib/dashboard/types';
 import type { MetricDefinition } from '@/lib/analytics/metrics';
 import type { Delta } from '@/lib/analytics/format';
-import { DeltaView, InfoTip } from '@/components/analytics/ui';
+import { InfoTip } from '@/components/analytics/ui';
 
 interface Card {
   key: string;
@@ -105,42 +104,50 @@ const TOP: Array<{ key: string; Icon: LucideIcon; tint: string }> = [
   { key: 'resolution', Icon: CheckCircle2, tint: 'bg-teal-50 text-teal-700' },
 ];
 
-/** The four headline numbers. Messages and the revenue or leads figure follow as one quiet line so nothing the dashboard showed before is lost. */
-export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
-  const cards = buildCards(data, range);
-  const byKey = new Map(cards.map((c) => [c.key, c]));
-  const messages = byKey.get('messages');
-  const outcome = byKey.get('outcomes');
+/** "up 150%" -> "150%", "down 5 points" -> "5 points". The arrow carries the direction. */
+function amount(label: string): string {
+  return label.replace(/^(up|down) /, '');
+}
+
+function Change({ delta, range }: { delta: Delta | null; range: DashboardRange }) {
+  if (!delta || delta.verdict === 'unknown') {
+    return <p className="mt-1 text-xs text-gray-500">{delta?.label ?? 'No comparison'}</p>;
+  }
+  const moved = delta.ratio != null && delta.ratio !== 0;
+  const Icon = !moved ? null : delta.ratio! > 0 ? ArrowUpRight : ArrowDownRight;
+  const tone = delta.verdict === 'better' ? 'text-teal-700' : delta.verdict === 'worse' ? 'text-red-700' : 'text-gray-600';
   return (
-    <section aria-label="Key numbers">
-      <ul className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
-        {TOP.map(({ key, Icon, tint }) => {
-          const card = byKey.get(key);
-          if (!card) return null;
-          return (
-            <li key={key} className="flex min-w-0 flex-col rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-600">
-                <span aria-hidden="true" className={cn('inline-flex h-7 w-7 items-center justify-center rounded-lg', tint)}><Icon size={15} /></span>
-                <span>{card.definition.label}</span>
-                <InfoTip definition={card.definition} />
-              </div>
-              <p className="mt-2 text-2xl font-semibold tabular-nums text-gray-900 sm:text-3xl">{card.value}</p>
-              <div className="mt-0.5 min-h-[1.25rem]">
-                {card.delta && card.delta.verdict !== 'unknown'
-                  ? <span className="inline-flex items-center gap-1.5"><DeltaView delta={card.delta} /><span className="text-xs text-gray-500">vs {periodWord(range)}</span></span>
-                  : <span className="text-xs text-gray-500">{card.delta?.label ?? 'No comparison'}</span>}
-              </div>
-              <p className="mt-1.5 text-xs text-gray-600 sm:text-sm">{card.explanation}</p>
-            </li>
-          );
-        })}
-      </ul>
-      {(messages || outcome) && (
-        <p className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
-          {messages && <span>{messages.explanation.replace('Received from customers. ', `${messages.value} received from customers. `)} <Link href={messages.href} className="font-medium text-teal-700 hover:underline">Open the inbox</Link></span>}
-          {outcome && <span>{outcome.definition.label}: <span className="font-medium text-gray-900 tabular-nums">{outcome.value}</span>. {outcome.explanation} <Link href={outcome.href} className="font-medium text-teal-700 hover:underline">{outcome.linkLabel}</Link></span>}
-        </p>
-      )}
-    </section>
+    <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs">
+      <span className={cn('inline-flex items-center gap-0.5 font-semibold', tone)}>
+        {Icon ? <Icon size={13} aria-hidden="true" /> : <span aria-hidden="true">&mdash;</span>}
+        {moved ? amount(delta.label) : delta.label}
+      </span>
+      <span className="text-gray-500">vs {periodWord(range).replace(/^the /, '')}</span>
+      {delta.verdict !== 'same' && <span className="sr-only">, {delta.verdict}</span>}
+    </p>
+  );
+}
+
+/** The four headline numbers. */
+export default function KpiCards({ data, range }: { data: DashboardSummary; range: DashboardRange }) {
+  const byKey = new Map(buildCards(data, range).map((c) => [c.key, c]));
+  return (
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4" aria-label="Key numbers">
+      {TOP.map(({ key, Icon, tint }) => {
+        const card = byKey.get(key);
+        if (!card) return null;
+        return (
+          <li key={key} className="flex min-w-0 gap-4 rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+            <span aria-hidden="true" className={cn('inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-12 sm:w-12', tint)}><Icon size={22} /></span>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-medium text-gray-700"><span>{card.definition.label}</span><InfoTip definition={card.definition} /></p>
+              <p className="mt-0.5 text-3xl font-semibold tabular-nums text-gray-900">{card.value}</p>
+              <Change delta={card.delta} range={range} />
+              <p className="mt-2 text-xs text-gray-500">{card.explanation}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
