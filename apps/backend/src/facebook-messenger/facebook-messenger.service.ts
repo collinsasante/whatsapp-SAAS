@@ -5,6 +5,8 @@ import { CredentialsEncryptionService } from '../common/crypto/credentials-encry
 import { ChannelType } from '@prisma/client';
 
 const GRAPH_API_BASE = 'https://graph.facebook.com/v19.0';
+// Shorter than the browser's 30s request limit, so a stalled Meta call becomes a clear failure instead of an endless wait.
+const GRAPH_SEND_TIMEOUT_MS = 20_000;
 // Instagram's documented text limit. Meta rejects longer text, so say so up front instead of failing mid-send.
 const INSTAGRAM_MAX_TEXT_CHARS = 1000;
 const INSTAGRAM_MEDIA_TYPES = new Set(['image', 'video', 'audio']);
@@ -107,12 +109,12 @@ export class FacebookMessengerService {
       ...extra,
     });
     try {
-      const res = await axios.post<{ message_id: string }>(`${GRAPH_API_BASE}/me/messages`, body(true), { params: { access_token: accessToken } });
+      const res = await axios.post<{ message_id: string }>(`${GRAPH_API_BASE}/me/messages`, body(true), { params: { access_token: accessToken }, timeout: GRAPH_SEND_TIMEOUT_MS });
       return res.data.message_id;
     } catch (error) {
       if (!replyToMid) throw error;
       this.logger.warn(`Meta rejected the reply link (${metaError(error)}); sending without it`);
-      const res = await axios.post<{ message_id: string }>(`${GRAPH_API_BASE}/me/messages`, body(false), { params: { access_token: accessToken } });
+      const res = await axios.post<{ message_id: string }>(`${GRAPH_API_BASE}/me/messages`, body(false), { params: { access_token: accessToken }, timeout: GRAPH_SEND_TIMEOUT_MS });
       return res.data.message_id;
     }
   }
