@@ -6,7 +6,6 @@ RUN npm install -g pnpm@9.1.0
 FROM base AS deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY patches ./patches
-COPY packages/tsconfig/package.json ./packages/tsconfig/
 COPY apps/worker/package.json ./apps/worker/
 COPY apps/backend/package.json ./apps/backend/
 COPY packages/shared-types/package.json ./packages/shared-types/
