@@ -131,7 +131,7 @@ describe('FacebookMessengerService.fetchContactName', () => {
 describe('MessengerWebhookController: Instagram events', () => {
   function build(channels: object[] = [{ id: 'ch-ig', tenantId: 't1', externalId: 'ig-1' }]) {
     const prisma = { channel: { findMany: jest.fn().mockResolvedValue(channels) } };
-    const messages = { handleInboundMessenger: jest.fn().mockResolvedValue({}), handleMetaReceipt: jest.fn().mockResolvedValue(undefined) };
+    const messages = { handleMessengerEcho: jest.fn().mockResolvedValue({ status: 'stored' }), handleInboundMessenger: jest.fn().mockResolvedValue({}), handleMetaReceipt: jest.fn().mockResolvedValue(undefined) };
     const events = { recordReceived: jest.fn().mockResolvedValue('ev1'), markOutcome: jest.fn().mockResolvedValue(undefined) };
     const controller = new MessengerWebhookController(prisma as never, messages as never, events as never);
     return { controller, prisma, messages, events };
@@ -155,10 +155,11 @@ describe('MessengerWebhookController: Instagram events', () => {
     expect(events.recordReceived).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'instagram_messaging', tenantId: 't1' }));
   });
 
-  it("ignores the account's own echoed messages", async () => {
+  it("never treats the account's own echoed messages as inbound; they go to the echo handler", async () => {
     const { controller, messages } = build();
     await receive(controller, igEntry([event({ mid: 'm2', text: 'ours', is_echo: true })]));
     expect(messages.handleInboundMessenger).not.toHaveBeenCalled();
+    expect(messages.handleMessengerEcho).toHaveBeenCalledTimes(1);
   });
 
   it('does nothing for an Instagram account that is not connected or is disconnected', async () => {

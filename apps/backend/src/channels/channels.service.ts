@@ -7,6 +7,13 @@ import { AuditService } from '../audit/audit.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
 
+/**
+ * Webhook fields a Messenger Page is subscribed to. message_echoes carries replies a person sent outside VerzChat
+ * (Page inbox, Business Suite, the app on another device); without it those replies never reach the inbox.
+ * message_deliveries and message_reads drive the delivered and read ticks.
+ */
+export const MESSENGER_PAGE_FIELDS = ['messages', 'messaging_postbacks', 'message_echoes', 'message_deliveries', 'message_reads'];
+
 const GRAPH_API_BASE = 'https://graph.facebook.com/v19.0';
 const GRAPH_HOST_PREFIX = 'https://graph.facebook.com/';
 // Meta returns accounts in batches and names the next batch in paging.next. 100 per request, at most 20 requests
@@ -709,7 +716,7 @@ export class ChannelsService {
     const connected: Array<{ channelId: string; pageId: string; pageName: string }> = [];
     for (const page of selected) {
       const subscribeRes = await fetch(
-        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
+        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=${MESSENGER_PAGE_FIELDS.join(',')}&access_token=${page.access_token}`,
         { method: 'POST' },
       );
       const subscribeData = await subscribeRes.json() as { success?: boolean; error?: { message: string } };
@@ -723,13 +730,13 @@ export class ChannelsService {
         where: { tenantId_pageId: { tenantId, pageId: page.id } },
         update: {
           channelId: channel.id, pageName: page.name, pageAccessToken: this.encryption.encrypt(page.access_token),
-          subscribedFields: ['messages', 'messaging_postbacks'], webhookVerified: true, isActive: true,
+          subscribedFields: MESSENGER_PAGE_FIELDS, webhookVerified: true, isActive: true,
           connectedByUserId: userId, lastError: null, lastErrorAt: null,
         },
         create: {
           tenantId, channelId: channel.id, pageId: page.id, pageName: page.name,
           pageAccessToken: this.encryption.encrypt(page.access_token),
-          subscribedFields: ['messages', 'messaging_postbacks'], webhookVerified: true,
+          subscribedFields: MESSENGER_PAGE_FIELDS, webhookVerified: true,
           connectedByUserId: userId,
         },
       });

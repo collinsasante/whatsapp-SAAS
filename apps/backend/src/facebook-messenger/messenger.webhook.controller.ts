@@ -12,6 +12,7 @@ import {
   Logger,
   RawBodyRequest,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
@@ -37,7 +38,9 @@ export interface MessengerMessagingEvent {
     mid: string;
     text?: string;
     attachments?: MessengerAttachment[];
-    is_echo?: boolean; // messages the Page itself sent, echoed back -- must not be treated as inbound
+    // Messages the Page itself sent, echoed back. Never inbound; a reply a person sent outside VerzChat is stored as outbound.
+    is_echo?: boolean;
+    app_id?: number | string | null; // the app that sent an echoed message; absent for a person typing in the Page inbox
   };
   delivery?: { mids?: string[]; watermark?: number };
   // Messenger sends a time watermark; Instagram ("messaging_seen") sends the id of the last message seen.
@@ -147,6 +150,7 @@ export class MessengerWebhookController {
       return { status: 'ok' };
     }
 
+    let failed: unknown;
     for (const channel of channels) {
       const entry = (body.entry ?? []).find((e) => e.id === channel.externalId);
       if (!entry) continue;
@@ -162,27 +166,52 @@ export class MessengerWebhookController {
         await this.webhookEventService.markOutcome(eventId, 'PROCESSED');
       } catch (error) {
         await this.webhookEventService.markOutcome(eventId, 'FAILED', error instanceof Error ? error.message : String(error));
-        throw error;
+        // One account's failure must not stop the others in the same delivery, so it is rethrown after the loop.
+        failed = error;
       }
     }
+    if (failed) throw failed;
 
     return { status: 'ok' };
   }
 
+  /**
+   * Processes one account's events. A message that cannot be stored is reported to the caller instead of swallowed,
+   * so the webhook answers with an error and Meta delivers it again. Retrying is safe: every message is stored once,
+   * keyed on Meta's message id.
+   */
   private async processEntryForChannel(tenantId: string, channelId: string, entry: MessengerWebhookEntry, platform: Platform) {
+    const label = platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger';
+    const failures: string[] = [];
     for (const event of entry.messaging ?? []) {
+      // A malformed event can never succeed, so it is skipped rather than failed: failing would make Meta resend it forever.
+      if (!event?.sender?.id) {
+        this.logger.warn(`[tenant:${tenantId}] Skipped a ${label} event with no sender id`);
+        continue;
+      }
       if (event.message && !event.message.is_echo) {
         try {
           await this.messagesService.handleInboundMessenger(tenantId, channelId, event.sender.id, event.message, platform);
         } catch (error) {
           const errMessage = error instanceof Error ? error.message : String(error);
-          this.logger.error(`[tenant:${tenantId}] Failed to process inbound ${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'} message ${event.message.mid}: ${errMessage}`);
+          failures.push(errMessage);
+          this.logger.error(`[tenant:${tenantId}] Failed to process inbound ${label} message ${event.message.mid}: ${errMessage}`);
           void notify({
             source: 'backend',
             tenantId,
-            message: `Failed to process inbound ${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'} message: ${errMessage}`,
+            message: `Failed to process inbound ${label} message: ${errMessage}`,
             stack: error instanceof Error ? error.stack : undefined,
           }).catch(() => {});
+        }
+      }
+      // A reply sent from somewhere other than VerzChat (Page inbox, Business Suite, the app on another device).
+      if (event.message?.is_echo) {
+        try {
+          await this.messagesService.handleMessengerEcho(tenantId, channelId, event.recipient?.id, event.message, event.timestamp, platform);
+        } catch (error) {
+          const errMessage = error instanceof Error ? error.message : String(error);
+          failures.push(errMessage);
+          this.logger.error(`[tenant:${tenantId}] Failed to store an ${label} reply sent outside VerzChat (${event.message.mid}): ${errMessage}`);
         }
       }
       // Delivered and read receipts become the same message ticks WhatsApp has. A failure here must never fail the
@@ -192,10 +221,13 @@ export class MessengerWebhookController {
         try {
           await this.messagesService.handleMetaReceipt(tenantId, channelId, event.sender.id, platform, status, receipt);
         } catch (error) {
-          this.logger.warn(`[tenant:${tenantId}] Failed to apply a ${status} receipt from ${platform === 'INSTAGRAM' ? 'Instagram' : 'Messenger'}: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.warn(`[tenant:${tenantId}] Failed to apply a ${status} receipt from ${label}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       // Postbacks stay logging-only via the WebhookEventService record above.
+    }
+    if (failures.length > 0) {
+      throw new InternalServerErrorException(`${failures.length} ${label} event(s) could not be stored; Meta will retry`);
     }
   }
 }
