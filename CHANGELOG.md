@@ -9,6 +9,11 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 Nothing yet.
 
+## [2.8.1] - 2026-10-26
+
+### Changed
+- Dashboard: the four Needs attention tiles are white with the standard grey border, the same grid spacing as the key number cards, and near-black counts, labels and links. The icon on each tile keeps its colour as the cue for urgency.
+
 ## [2.8.0] - 2026-10-26
 
 ### Added

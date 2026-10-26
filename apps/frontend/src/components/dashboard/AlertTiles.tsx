@@ -4,12 +4,12 @@ import { AlertOctagon, AlertTriangle, CheckCircle2, ChevronRight, Clock3, Info, 
 import { cn } from '@/lib/utils';
 import type { AttentionItem, AttentionKind, DashboardAttention } from '@/lib/dashboard/types';
 
-interface Accent { box: string; chip: string; count: string; link: string }
+interface Accent { box: string; chipBg: string; chip: string; count: string; link: string }
 
-const RED: Accent = { box: 'border-red-200 bg-red-50', chip: 'text-red-600', count: 'text-red-600', link: 'text-red-700' };
-const ORANGE: Accent = { box: 'border-orange-200 bg-orange-50', chip: 'text-orange-600', count: 'text-orange-600', link: 'text-orange-700' };
-const AMBER: Accent = { box: 'border-amber-200 bg-amber-50', chip: 'text-amber-600', count: 'text-amber-600', link: 'text-amber-700' };
-const CALM: Accent = { box: 'border-gray-200 bg-white', chip: 'text-gray-400', count: 'text-gray-900', link: 'text-gray-500' };
+const RED: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-red-50', chip: 'text-red-600', count: 'text-gray-900', link: 'text-gray-900' };
+const ORANGE: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-orange-50', chip: 'text-orange-600', count: 'text-gray-900', link: 'text-gray-900' };
+const AMBER: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-amber-50', chip: 'text-amber-600', count: 'text-gray-900', link: 'text-gray-900' };
+const CALM: Accent = { box: 'border-gray-200 bg-white', chipBg: 'bg-gray-50', chip: 'text-gray-400', count: 'text-gray-900', link: 'text-gray-900' };
 
 /** The four things an owner should always be able to see at a glance. Other kinds are listed below them when present. */
 const TILES: Array<{ kind: AttentionKind; Icon: LucideIcon; accent: Accent; label: string; explain: string | null; calm: string; action: string; href: string }> = [
@@ -26,10 +26,10 @@ function Tile({ tile, item, notChecked }: { tile: (typeof TILES)[number]; item: 
   return (
     <li className={cn('flex min-w-0 flex-col rounded-xl border p-4', a.box)}>
       <div className="flex items-center gap-3">
-        <span aria-hidden="true" className={cn('inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white', a.chip)}><tile.Icon size={18} /></span>
+        <span aria-hidden="true" className={cn('inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', a.chipBg, a.chip)}><tile.Icon size={18} /></span>
         {notChecked ? <span className="text-sm font-medium text-gray-700">{tile.label}</span> : <span className={cn('text-3xl font-semibold tabular-nums leading-none', a.count)}>{count.toLocaleString()}</span>}
       </div>
-      {!notChecked && <p className={cn('mt-2 text-sm font-medium', item ? a.count : 'text-gray-700')}>{tile.label}</p>}
+      {!notChecked && <p className="mt-2 text-sm font-medium text-gray-900">{tile.label}</p>}
       <p className="mt-1.5 flex-1 text-xs text-gray-600">{notChecked ?? (item ? tile.explain ?? item.detail : tile.calm)}</p>
       <Link
         href={notChecked ? '/manage?tab=replydeadline' : href}
@@ -56,7 +56,7 @@ export default function AlertTiles({ data }: { data: DashboardAttention }) {
   const allClear = data.items.length === 0 && data.notChecked.length === 0;
   return (
     <div>
-      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Alerts">
+      <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4" aria-label="Alerts">
         {TILES.map((t) => <Tile key={t.kind} tile={t} item={byKind.get(t.kind)} notChecked={reasons.get(t.kind)} />)}
       </ul>
       {allClear && <p className="mt-3 flex items-center gap-1.5 text-sm text-gray-600"><CheckCircle2 size={15} className="text-teal-700" aria-hidden="true" />Nothing needs your attention right now.</p>}
