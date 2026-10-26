@@ -940,7 +940,8 @@ function ReplyDeadlineSection({ settings, reload }: { settings: ManageSettings; 
         <h2 className="text-lg font-semibold text-gray-900">Reply Deadline</h2>
         <p className="text-sm text-gray-500 mt-1">
           How long a customer may wait for a person after asking for one. When it passes, the request is counted as
-          overdue on your dashboard and in your Analytics response targets.
+          overdue on your dashboard and in your Analytics response targets, and everyone who has VerzChat open is
+          alerted.
         </p>
       </div>
 
