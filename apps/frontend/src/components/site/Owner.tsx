@@ -1,4 +1,5 @@
 import { Owner, Ticks } from './mock-parts';
+import { reveal } from './reveal';
 import styles from './Owner.module.css';
 
 /**
@@ -9,7 +10,7 @@ export default function OwnerSection() {
   return (
     <section id="owner" className={`${styles.section} on-dark`} aria-labelledby="owner-title">
       <div className="wrap">
-        <h2 id="owner-title" className={`h2 ${styles.title}`}>
+        <h2 id="owner-title" className={`h2 ${styles.title}`} {...reveal()}>
           Every conversation has one owner, and you can see who
         </h2>
         <p className={`lede ${styles.lede}`}>
@@ -17,7 +18,7 @@ export default function OwnerSection() {
           chat, and the hand-off in each direction is one click.
         </p>
 
-        <ol className={styles.flow}>
+        <ol className={styles.flow} {...reveal(1)}>
           <li className={styles.state}>
             <Owner kind="ai">Verz AI answers</Owner>
             <div className={styles.thread} aria-hidden="true">
