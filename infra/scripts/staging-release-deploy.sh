@@ -61,6 +61,9 @@ ENV_FILE="$ROOT/infra/.env.staging"
 BACKUP_ROOT=/root/staging-release-backups
 CANDIDATE_ROOT=/root/staging-release-candidates
 PROJECT=verzchat-staging
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/staging-migration-gate.sh
+source "$SCRIPT_DIR/lib/staging-migration-gate.sh"
 SERVICES=(backend worker realtime whatsapp-web frontend)
 
 if [[ "$MODE" == "--help" || "$MODE" == "-h" ]]; then
@@ -70,8 +73,10 @@ Usage:
   infra/scripts/staging-release-deploy.sh rollback <rollback-image-tag>
 
 Deployment requires a clean, exact local commit, CONFIRM_STAGING_RELEASE set
-to that commit, and a successful isolated backup-restore rehearsal. Rollback
-restores code images only; it never restores or changes the database.
+to that commit, and a successful isolated backup-restore rehearsal. Optional
+STAGING_ALLOWED_EXTRA_MIGRATIONS=<id> excuses one known, additive migration that
+staging has applied but the candidate lacks (see docs/staging-release.md).
+Rollback restores code images only; it never restores or changes the database.
 USAGE
   exit 0
 fi
@@ -102,19 +107,15 @@ require_env() {
 }
 
 verify_migration_checksums() {
-  local migration_dir=$1 remote_file=$2 migration_file migration_name local_checksum remote_checksum
+  local migration_dir=$1 remote_file=$2
   docker exec wa_staging_postgres psql -X -At -F '|' -U "$DB_USER" -d "$DB_NAME" \
     -c 'SELECT migration_name, checksum FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name' \
     > "$remote_file" || fail "cannot read applied migration history"
-
-  while IFS='|' read -r migration_name remote_checksum; do
-    [[ -n "$migration_name" ]] || continue
-    migration_file="$migration_dir/$migration_name/migration.sql"
-    [[ -s "$migration_file" ]] || fail "database has applied migration $migration_name which is absent from the candidate"
-    local_checksum=$(sha256sum "$migration_file" | awk '{print $1}')
-    [[ "$local_checksum" == "$remote_checksum" ]] ||
-      fail "candidate changes already-applied migration $migration_name; do not migrate until a forward-only compatibility plan is approved"
-  done < "$remote_file"
+  check_applied_migrations "$migration_dir" "$remote_file" || fail "$MIGRATION_GATE_ERROR"
+  if ((${#ALLOWED_EXTRA_APPLIED[@]})); then
+    echo "NOTICE: permitting applied migration(s) absent from the candidate (STAGING_ALLOWED_EXTRA_MIGRATIONS): ${ALLOWED_EXTRA_APPLIED[*]}"
+    printf '%s\n' "${ALLOWED_EXTRA_APPLIED[@]}" > "$BACKUP_DIR/allowed-extra-migrations.txt"
+  fi
 }
 
 migration_manifest_hash() {
@@ -287,6 +288,7 @@ CURRENT_STEP="candidate identity and approval gates"
 git -C "$ROOT" cat-file -e "$REVISION^{commit}" 2>/dev/null || fail "candidate commit does not exist locally"
 [[ "${CONFIRM_STAGING_RELEASE:-}" == "$REVISION" ]] || fail "set CONFIRM_STAGING_RELEASE to the exact approved commit SHA"
 
+validate_allowed_extra_migrations || fail "$MIGRATION_GATE_ERROR"
 for key in POSTGRES_PASSWORD REDIS_PASSWORD JWT_SECRET JWT_REFRESH_SECRET MINIO_ACCESS_KEY MINIO_SECRET_KEY; do
   require_env "$key"
 done
