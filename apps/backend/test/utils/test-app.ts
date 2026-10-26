@@ -9,7 +9,8 @@ import { JwtPayload } from '@whatsapp-platform/shared-types';
 export async function createTestingApp(opts: { validation?: boolean; configure?: (builder: TestingModuleBuilder) => TestingModuleBuilder } = {}): Promise<INestApplication> {
   const builder = Test.createTestingModule({ imports: [AppModule] });
   const moduleRef = await (opts.configure ? opts.configure(builder) : builder).compile();
-  const app = moduleRef.createNestApplication();
+  // rawBody matches src/main.ts: webhook signatures are computed over the exact bytes Meta sent.
+  const app = moduleRef.createNestApplication({ rawBody: true });
   if (opts.validation) {
     app.useGlobalPipes(new ValidationPipe({
       whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true },

@@ -271,6 +271,41 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
     });
 
+    describe('delivery of the AI reply is recorded truthfully', () => {
+      const created = (deps: ReturnType<typeof buildDeps>) => deps.prisma.message.create.mock.calls.map((c: [{ data: Record<string, unknown> }]) => c[0].data);
+
+      it("stores the channel's message id with the reply, so delivered and read ticks can find it", async () => {
+        const deps = buildDeps();
+        deps.whatsappService.sendTextMessage.mockResolvedValue('wamid.AI-1');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+        expect(created(deps)[0]).toMatchObject({ direction: 'OUTBOUND', status: 'SENT', whatsappMessageId: 'wamid.AI-1', content: 'Hi there' });
+      });
+
+      it('on Messenger, replies to the customer on the conversation\'s own Page and stores the Page message id', async () => {
+        const deps = buildDeps();
+        const psid = { ...contact, phone: null, externalId: 'PSID-9', externalIdType: 'MESSENGER_PSID' };
+        const messenger = { ...conversation, channel: { id: 'chan-page-1', type: 'FACEBOOK_MESSENGER' } };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', messenger, psid, 'hi', false, null);
+        expect(deps.facebookMessengerService.sendTextMessage).toHaveBeenCalledWith('t1', 'chan-page-1', 'PSID-9', 'Hi there', undefined);
+        expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(created(deps)[0]).toMatchObject({ status: 'SENT', whatsappMessageId: 'mid-1' });
+      });
+
+      it('a reply the channel refuses is stored as FAILED with no message id, not as delivered, and still appears in the inbox', async () => {
+        const deps = buildDeps();
+        deps.whatsappService.sendTextMessage.mockRejectedValue(new Error('(#131047) Re-engagement message'));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+        const row = created(deps)[0];
+        expect(row).toMatchObject({ status: 'FAILED', failureReason: 'The channel did not accept this message.' });
+        expect(row['whatsappMessageId']).toBeUndefined();
+        expect(JSON.stringify(row)).not.toContain('131047'); // the provider's wording is logged, not stored
+        expect(deps.realtimeService.emitNewMessage).toHaveBeenCalled();
+      });
+    });
+
     it('omits the commerce marker when not commerce-enabled', async () => {
       const deps = buildDeps();
       const service = buildService(deps);

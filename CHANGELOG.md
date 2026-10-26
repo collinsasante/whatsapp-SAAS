@@ -7,6 +7,15 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Fixed
+- Messenger and Instagram: a reply sent from outside VerzChat (the Page inbox, Meta Business Suite, or the Messenger or Instagram app on another phone) now appears in the conversation. These replies reach us as "echoes" and were being thrown away, so the thread looked unanswered and the history had gaps. They are stored once, in the customer's latest conversation, without reopening a resolved one, alerting the team, or changing who owns it.
+- Messenger and Instagram: if a customer message or reply could not be stored (for example the database was briefly down), the webhook used to answer "OK" anyway, so Meta never resent it and the message was lost. It now answers with an error so Meta resends, and storing is safe to repeat. A malformed event is skipped instead of being retried forever, and one account failing no longer stops another account in the same delivery.
+- Verz AI replies: the reply is now stored with the channel's message id (so delivered and read ticks work on it), and a reply the channel refuses is shown as failed instead of delivered. The fallback message sent when the AI cannot answer is also recorded in the conversation; before, the customer received it and the team never saw it.
+- Messenger Pages connected from now on are subscribed to echoes, delivery receipts and read receipts. A Page connected earlier must be reconnected once (Channels, disconnect and connect) and the Meta app must have `message_echoes` switched on; see the upgrade notes.
+
+### Upgrade notes
+- **Meta app setup for replies sent outside VerzChat:** in the Meta app dashboard, Webhooks, Page, subscribe to `message_echoes` (and `message_deliveries` and `message_reads` if they are not already on). Then reconnect each Messenger Page in Channels once, because a Page keeps the field list it was subscribed with. Set `FACEBOOK_APP_ID` on the backend: it is how VerzChat tells its own sends from replies typed elsewhere.
+
 ### Added
 - Reply deadline is now a setting. In Manage, Reply Deadline, an admin chooses how many minutes (1 to 1,440) a customer may wait for a person, or turns the deadline off. It applies to new requests and to requests already waiting; requests already marked overdue stay overdue. The deadline used to be fixed at 15 minutes, which is still the default. This adds one column (`tenant_settings.reply_deadline_minutes`, default 15) and needs the database migration.
 - Dashboard: a Requesting card (customers waiting for a person, how many are past the deadline, who has waited longest, and the deadline in force), a WhatsApp account status card read from Meta for each connected number (quality rating, messaging limit, verification, display name, number status, with the time of the check and a Check again button), and a Business and account card (business details, what is missing, plan and billing status, team members, channels, AI credits).
