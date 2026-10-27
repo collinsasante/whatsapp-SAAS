@@ -1,3 +1,4 @@
+import { HISTORY_FETCH_BUFFER } from '../../ai-core/context/history-select.util';
 import { CommerceAiService } from './commerce-ai.service';
 
 function buildPrismaMock() {
@@ -54,7 +55,7 @@ describe('CommerceAiService', () => {
 
       await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'how long does delivery take?');
 
-      expect(deps.knowledgeBase.getRelevant).toHaveBeenCalledWith('t1', 'how long does delivery take?');
+      expect(deps.knowledgeBase.getRelevant).toHaveBeenCalledWith('t1', 'how long does delivery take?', expect.any(Array));
       const sentSystemPrompt = deps.toolCalling.complete.mock.calls[0][0].systemPrompt;
       expect(sentSystemPrompt).toContain('Delivery Policy');
       expect(sentSystemPrompt).toContain('We deliver within 3 days.');
@@ -224,8 +225,8 @@ describe('CommerceAiService', () => {
 
       expect(deps.prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: { tenantId: 't1', conversationId: 'conv1', type: 'TEXT', content: { not: null } },
-        take: 12,
-        orderBy: { createdAt: 'desc' },
+        take: 12 + HISTORY_FETCH_BUFFER,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }));
     });
 
@@ -238,7 +239,7 @@ describe('CommerceAiService', () => {
 
       const call = deps.prisma.message.findMany.mock.calls[0][0];
       expect(call.where).not.toHaveProperty('conversation');
-      expect(call.take).toBe(12);
+      expect(call.take).toBe(12 + HISTORY_FETCH_BUFFER);
     });
 
     it('is tenant-scoped: another tenant\'s conversation id yields a query that can only match tenant t1 rows', async () => {

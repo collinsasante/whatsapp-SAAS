@@ -10,7 +10,7 @@ import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.servic
  * article count/chars, see knowledge-base.service.ts).
  */
 export interface KnowledgeContextSource {
-  getContext(tenantId: string, query: string): Promise<string>;
+  getContext(tenantId: string, query: string, previousCustomerMessages?: string[]): Promise<string>;
 }
 
 /** DI token -- interfaces don't exist at runtime, so this is what makes the
@@ -21,8 +21,8 @@ export const KNOWLEDGE_CONTEXT_SOURCE = Symbol('KNOWLEDGE_CONTEXT_SOURCE');
 export class KbRelevantContextSource implements KnowledgeContextSource {
   constructor(private knowledgeBase: KnowledgeBaseService) {}
 
-  async getContext(tenantId: string, query: string): Promise<string> {
-    const articles = await this.knowledgeBase.getRelevant(tenantId, query);
+  async getContext(tenantId: string, query: string, previousCustomerMessages: string[] = []): Promise<string> {
+    const articles = await this.knowledgeBase.getRelevant(tenantId, query, previousCustomerMessages);
     if (articles.length === 0) return '';
     return '\n\nKNOWLEDGE BASE:\n' + articles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n');
   }

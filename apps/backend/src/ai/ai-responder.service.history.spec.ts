@@ -1,3 +1,4 @@
+import { HISTORY_FETCH_BUFFER } from '../ai-core/context/history-select.util';
 import axios from 'axios';
 import { AiResponderService, ProviderCallWrapper } from './ai-responder.service';
 
@@ -41,12 +42,12 @@ describe('AiResponderService.generateSuggestion -- history scoping', () => {
     expect(wrapperCalled).toBe(true);
   });
 
-  it('scopes history to tenant + contact and keeps the 200 limit', async () => {
+  it('scopes history to tenant + contact and keeps the 200-message window', async () => {
     const { prisma, service } = build({ id: 'c1', contactId: 'contact-1' });
     await service.generateSuggestion('t1', 'c1', 'hello');
     expect(prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: 't1', conversation: { tenantId: 't1', contactId: 'contact-1' } }),
-      take: 200,
+      take: 200 + HISTORY_FETCH_BUFFER,
     }));
   });
 

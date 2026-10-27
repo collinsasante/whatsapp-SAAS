@@ -28,6 +28,9 @@ export interface PipelineInput {
   agentId: string;
   conversationId: string;
   customerMessage: string;
+  /** The stored inbound message being answered. Conversation history is built around it by id (see
+   * context/history-select.util.ts) instead of assuming the newest stored row is the current message. */
+  currentMessageId?: string;
   contactName?: string;
   taskType: AiTaskType;
   /** Verz-AI unification, Phase E: required alongside tool-calling -- every tool

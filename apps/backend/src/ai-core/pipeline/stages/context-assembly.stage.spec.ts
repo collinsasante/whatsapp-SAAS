@@ -1,3 +1,4 @@
+import { HISTORY_FETCH_BUFFER } from '../../../ai-core/context/history-select.util';
 import { ContextAssemblyStage } from './context-assembly.stage';
 import { newTrace, PipelineContext } from '../pipeline.types';
 import { KnowledgeContextSource } from '../knowledge-context.source';
@@ -97,7 +98,7 @@ describe('ContextAssemblyStage', () => {
 
     await stage.execute(ctx);
 
-    expect(knowledgeSource.getContext).toHaveBeenCalledWith('t1', 'I selected option 1: Delivery info');
+    expect(knowledgeSource.getContext).toHaveBeenCalledWith('t1', 'I selected option 1: Delivery info', expect.any(Array));
     expect(ctx.knowledgeContext).toContain('We ship in 2 days.');
   });
 
@@ -119,8 +120,8 @@ describe('ContextAssemblyStage', () => {
 
     expect(prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: 't1', conversationId: 'c1', type: 'TEXT', content: { not: null } },
-      take: 12,
-      orderBy: { createdAt: 'desc' },
+      take: 12 + HISTORY_FETCH_BUFFER,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }));
   });
 
@@ -133,7 +134,7 @@ describe('ContextAssemblyStage', () => {
 
     const call = prisma.message.findMany.mock.calls[0][0];
     expect(call.where).not.toHaveProperty('conversation');
-    expect(call.take).toBe(12);
+    expect(call.take).toBe(12 + HISTORY_FETCH_BUFFER);
   });
 
   it('is tenant-scoped: the query can only match rows of the calling tenant', async () => {

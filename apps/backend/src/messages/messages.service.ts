@@ -33,7 +33,8 @@ import type { OutboundFile } from '../facebook-messenger/facebook-messenger.serv
 import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
-import { HANDOFF_FAILED_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { HANDOFF_FAILED_TEXT, HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { detectHumanRequest } from '../ai-core/pipeline/escalation-detector.util';
 import { isAgentAway } from './ai-takeover.util';
 
 /**
@@ -1562,7 +1563,7 @@ export class MessagesService {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode, excludeMessageId));
         }
       } else if (aiMode === 'SUGGESTION') {
         // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
@@ -1575,13 +1576,13 @@ export class MessagesService {
           // a second inbound message arriving before this one finishes doesn't launch
           // a second, racing AI generation for the same conversation.
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled, takeoverEnabled, !!aiMode));
+            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled, takeoverEnabled, !!aiMode, excludeMessageId));
         }
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode, excludeMessageId));
         }
       }
     }
@@ -1637,6 +1638,7 @@ export class MessagesService {
     tenantId: string, conversationId: string, contactId: string, customerPhone: string,
     customerMessage: string, contactName: string | undefined, readOnlyTools: boolean,
     channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER',
+    currentMessageId?: string,
   ) {
     return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
       this.verzAiPipeline.run({
@@ -1644,6 +1646,7 @@ export class MessagesService {
         agentId: agent.id,
         conversationId,
         customerMessage,
+        currentMessageId,
         contactName,
         taskType: 'RESPONDER',
         // Verz-AI unification, Phase E: turns GenerationStage's tool-calling
@@ -1673,12 +1676,12 @@ export class MessagesService {
     customerPhone: string,
     content: string,
     contactName: string | undefined,
-    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER' },
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string },
   ): Promise<UnifiedAiResult> {
     if (opts.commerceEnabled) {
       const r = await this.commerceAiService.handleMessage(
         tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
-        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType },
+        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType, currentMessageId: opts.currentMessageId },
       );
       // Second hardening pass, Section 4: r.shouldEscalate was never mapped through
       // here before -- Commerce's own escalation branches called
@@ -1691,7 +1694,15 @@ export class MessagesService {
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType, opts.currentMessageId);
+
+    // An explicit request for a person never needs the model: hand off for real (messages.service acts on
+    // shouldEscalate in both AUTO_REPLY and SUGGESTION mode) and skip a paid call whose reply would be replaced anyway.
+    // v2 and Commerce make the same detection in their own paths. The legacy responder had none, so a customer who
+    // asked for a human got a knowledge-base answer instead.
+    if (detectHumanRequest(content)) {
+      return { response: HUMAN_HANDOFF_REPLY, confidence: null, blocked: false, executionId: null, shouldEscalate: true };
+    }
 
     const legacy = await this.aiResponderService.generateSuggestion(
       tenantId,
@@ -1699,6 +1710,7 @@ export class MessagesService {
       content,
       contactName,
       (providerCall) => this.runLegacyAiProviderCall(tenantId, providerCall),
+      opts.currentMessageId,
     );
     // The legacy responder still uses a fixed estimate, but its provider request is
     // wrapped in the same durable hold so concurrent calls cannot spend held credits.
@@ -1760,6 +1772,7 @@ export class MessagesService {
     commerceEnabled: boolean,
     takeoverEnabled: boolean,
     aiEnabledForTenant: boolean,
+    currentMessageId?: string,
   ) {
     // Re-check ownership right before the paid provider call below -- this
     // closure may have sat behind runExclusiveForConversation's per-conversation
@@ -1782,7 +1795,7 @@ export class MessagesService {
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
       tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type) },
+      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type), currentMessageId },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1850,6 +1863,7 @@ export class MessagesService {
     assignedTo: { id: string; isAiAgent?: boolean } | null | undefined,
     takeoverEnabled: boolean,
     aiEnabledForTenant: boolean,
+    currentMessageId?: string,
   ) {
     // Re-check ownership right before the paid provider call below -- this
     // closure may have sat behind runExclusiveForConversation's per-conversation
@@ -1868,7 +1882,7 @@ export class MessagesService {
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
         tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type) },
+        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type), currentMessageId },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
         return null;

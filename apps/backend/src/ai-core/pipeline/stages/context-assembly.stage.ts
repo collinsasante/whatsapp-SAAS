@@ -4,6 +4,7 @@ import { ConversationStateService } from '../../../conversations/conversation-st
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { KNOWLEDGE_CONTEXT_SOURCE, KnowledgeContextSource } from '../knowledge-context.source';
 import { buildConversationHistoryWhere } from '../../context/history-scope.util';
+import { loadHistory } from '../../context/history-loader.util';
 
 const HISTORY_WINDOW = 12;
 
@@ -46,14 +47,7 @@ export class ContextAssemblyStage implements PipelineStage {
         select: { businessName: true, businessAddress: true, businessPhone: true, offHoursSchedule: true, timezone: true },
       }),
       // A blank conversation id => empty history, never an unscoped query.
-      historyWhere
-        ? this.prisma.message.findMany({
-            where: historyWhere,
-            orderBy: { createdAt: 'desc' },
-            take: HISTORY_WINDOW,
-            select: { direction: true, content: true },
-          })
-        : Promise.resolve([] as { direction: string; content: string | null }[]),
+      loadHistory(this.prisma, historyWhere, HISTORY_WINDOW, ctx.input.currentMessageId),
       this.prisma.conversation.findFirst({
         where: { id: ctx.input.conversationId, tenantId: ctx.input.tenantId },
         select: { adSourceId: true, adHeadline: true, adImageUrl: true },
@@ -68,10 +62,10 @@ export class ContextAssemblyStage implements PipelineStage {
 
     // Menu state: if the last outbound message was a numbered list and the customer
     // replied with a bare digit, expand it to the full option text so the LLM has context.
-    const lastOutbound = history.find((m) => m.direction === 'OUTBOUND');
+    const lastOutbound = history.lastOutbound;
     const bare = ctx.customerMessage.trim();
-    if (/^[123]$/.test(bare) && lastOutbound?.content) {
-      const optLine = lastOutbound.content
+    if (/^[123]$/.test(bare) && lastOutbound) {
+      const optLine = lastOutbound
         .split('\n')
         .find((l) => new RegExp(`^${bare}[.)\\s]`).test(l.trim()));
       if (optLine) {
@@ -79,17 +73,12 @@ export class ContextAssemblyStage implements PipelineStage {
       }
     }
 
-    // The current customer message is already persisted as the newest row in `history`
-    // (the caller writes it before invoking the pipeline) -- drop it here since
-    // GenerationStage re-appends it explicitly as the final user turn (with the
-    // menu-expanded text and optional contactName prefix), matching the legacy
-    // responder's `historyMessages.slice(0, -1)` + explicit final message.
-    ctx.historyMessages = history
-      .reverse()
-      .map((m) => ({ role: m.direction === 'INBOUND' ? ('user' as const) : ('assistant' as const), content: m.content! }))
-      .slice(0, -1);
+    // The history was selected around the stored inbound message (by id), so it never contains the message being
+    // answered; GenerationStage appends that one explicitly as the final user turn (with the menu-expanded text and
+    // optional contactName prefix).
+    ctx.historyMessages = history.turns;
 
-    ctx.knowledgeContext = await this.knowledgeContext.getContext(ctx.input.tenantId, ctx.customerMessage);
+    ctx.knowledgeContext = await this.knowledgeContext.getContext(ctx.input.tenantId, ctx.customerMessage, history.customerMessages);
 
     ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
   }
