@@ -110,3 +110,124 @@ describe('parseStructuredReply: prose that quotes "response"', () => {
     expect(parseStructuredReply('{"confidence": 80, oops')).toEqual({ ok: false, reason: 'malformed' });
   });
 });
+
+describe('F1: structured reply objects after a sentence of preamble', () => {
+  it('recovers the complete reply and drops the preamble and the JSON', () => {
+    expect(parseStructuredReply('Sure! {"response":"Hi","confidence":85}')).toEqual({ ok: true, response: 'Hi', confidence: 85, recovered: false });
+  });
+  it('rejects a complete reply object followed by prose: the trailing text could change the intended answer', () => {
+    expect(parseStructuredReply('Here you go: {"response":"Hi there","confidence":70} Hope that helps!')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseStructuredReply('{"response":"Hi"} trailing')).toEqual({ ok: false, reason: 'malformed' });
+  });
+  it('still recovers a reply object that only lacks its closing brace or has a cut-off confidence', () => {
+    expect(parseStructuredReply('Sure! {"response":"Hi","confidence":8')).toMatchObject({ ok: true, response: 'Hi', recovered: true });
+    expect(parseStructuredReply('{"response":"Hi",')).toMatchObject({ ok: true, response: 'Hi', recovered: true });
+  });
+  it('rejects a truncated object after a preamble without exposing it', () => {
+    expect(parseStructuredReply('Sure! {"response":"Hello! Our shea butter comes in two sizes, 250g for GH')).toEqual({ ok: false, reason: 'truncated' });
+  });
+  it('rejects a preamble followed by an object that is not a reply', () => {
+    expect(parseStructuredReply('Sure! {"confidence": 80, oops')).toEqual({ ok: false, reason: 'malformed' });
+  });
+  it('keeps ordinary prose that quotes "response" or mentions JSON-looking text without a reply object', () => {
+    expect(parseStructuredReply('We will send a "response" within 24 hours.').ok).toBe(true);
+    expect(parseStructuredReply('Our form has a "confidence" box: tick it if you are sure.').ok).toBe(true);
+  });
+  it('checkCustomerText (v2 tool-calling and Commerce replies) refuses a reply object anywhere in the text', () => {
+    expect(checkCustomerText('Sure! {"response":"Hi"}')).toEqual({ safe: false, reason: 'malformed' });
+    expect(checkCustomerText('Sure! {"response":"Hello… GH')).toEqual({ safe: false, reason: 'malformed' });
+    expect(checkCustomerText('We will send a "response" within 24 hours.')).toEqual({ safe: true });
+  });
+});
+
+describe('F2: error-looking words at the start of a normal apology', () => {
+  it.each([
+    'Exception: we can deliver on Sunday',
+    'Error on our side, sorry! Your refund is on its way.',
+    'Fatal mistake on our part, sorry',
+    'Error: we charged you twice. A refund is on its way.',
+    'Exception made for you: delivery is free today.',
+    'Fatal error in our stock count, sorry. We will confirm availability shortly.',
+  ])('passes "%s"', (text) => {
+    expect(checkCustomerText(text)).toEqual({ safe: true });
+  });
+  it.each([
+    'Error: connect ETIMEDOUT 10.0.0.1:443',
+    'Error: Request failed with status code 429',
+    'Error: 503 Service Unavailable',
+    'Exception: socket hang up',
+    'TypeError: Cannot read properties of undefined',
+    'AxiosError: timeout of 30000ms exceeded',
+    'FATAL ERROR: heap out of memory',
+    'Fatal error: invalid_api_key',
+    'Traceback (most recent call last):\n  File "x.py", line 1',
+    '401 Unauthorized',
+  ])('rejects technical error "%s"', (text) => {
+    expect(checkCustomerText(text).safe).toBe(false);
+  });
+});
+
+describe('F-A: generic JSON objects after a preamble never reach a customer', () => {
+  it.each([
+    'Sure {"error":{"message":"x"},"response":"leak"}',
+    'Sure! {"error":{"message":"Rate limit reached"}}',
+    'Here: {"status": "ok"}',
+    'Result {"data":[1,2]}',
+  ])('checkCustomerText rejects "%s"', (text) => {
+    expect(checkCustomerText(text)).toEqual({ safe: false, reason: 'malformed' });
+    expect(parseStructuredReply(text).ok).toBe(false);
+  });
+  it('keeps ordinary prose that mentions "response" or "confidence", or uses braces without a JSON key', () => {
+    for (const text of ['Our response time is 24 hours.', 'We said "response" and "confidence" are required fields.', 'Use {name} as the placeholder.']) {
+      expect(checkCustomerText(text)).toEqual({ safe: true });
+    }
+  });
+});
+
+describe('F-B: ambiguous or unsafe structured recovery', () => {
+  it.each([
+    ['nested in another object', 'Sure {"foo":{"response":"nested"}}'],
+    ['inside an array after a preamble', 'Sure! [{"response":"hi"}]'],
+    ['an example followed by the real answer', 'Example format: {"response":"your text here"} -- here is the real answer: we open at 8am.'],
+    ['two reply objects', 'Sure! {"response":"first"} {"response":"second"}'],
+    ['two reply objects, the second truncated', 'Sure! {"response":"first"} then {"response":"sec'],
+    ['an object after an earlier brace', 'Use {name} then {"response":"Hi"}'],
+  ])('refuses %s', (_label, text) => {
+    expect(parseStructuredReply(text)).toEqual({ ok: false, reason: 'malformed' });
+  });
+  it('still recovers a single reply object after ordinary preamble', () => {
+    expect(parseStructuredReply('Sure! {"response":"We open at 8am.","confidence":90}')).toEqual({ ok: true, response: 'We open at 8am.', confidence: 90, recovered: false });
+    expect(parseStructuredReply('Sure! {"confidence":90,"response":"Hi"}')).toMatchObject({ ok: true, response: 'Hi', confidence: 90 });
+  });
+  it('keeps rejecting arrays, and keeps accepting prose that quotes "response"', () => {
+    expect(parseStructuredReply('[{"response":"hi"}]')).toEqual({ ok: false, reason: 'malformed' });
+    expect(parseStructuredReply('Please send a "response" within 24 hours.').ok).toBe(true);
+  });
+});
+
+describe('F-C: generic technical failures', () => {
+  it.each([
+    'Error: Internal Server Error',
+    'Error: Something went wrong. Please try again later.',
+    'Exception: Service Unavailable',
+    'HTTP 500 Internal Server Error',
+    'HTTP/1.1 502 Bad Gateway',
+    'The server returned: 429 Too Many Requests',
+    'The API responded with 503 Service Unavailable',
+    'Exception in thread "main" java.lang.NullPointerException',
+    'java.lang.IllegalStateException: boom',
+    '\tat com.example.Service.run(Service.java:42)',
+  ])('rejects "%s"', (text) => {
+    expect(checkCustomerText(text).safe).toBe(false);
+  });
+  it.each([
+    'Our website showed "Internal Server Error" earlier, sorry about that. Please try your order again.',
+    'Something went wrong with your delivery, sorry! We are fixing it now.',
+    'Error: we shipped the wrong size. A replacement is on its way.',
+    'The server at our shop returned your parcel to the depot, so we will redeliver on Monday.',
+    'HTTP is not something we use, but you can order on WhatsApp.',
+    'Exception made for you: delivery is free today.',
+  ])('accepts the business reply "%s"', (text) => {
+    expect(checkCustomerText(text)).toEqual({ safe: true });
+  });
+});

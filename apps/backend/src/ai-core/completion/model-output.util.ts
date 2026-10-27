@@ -23,9 +23,30 @@ export type ParsedReply =
 /** WhatsApp rejects text messages above 4096 characters. */
 const MAX_REPLY_CHARS = 4096;
 
-/** A whole reply that is only an HTTP/provider error line, e.g. "Unauthorized", "429 Too Many Requests: rate limit exceeded". */
-const ERROR_ONLY_REPLY =
-  /^\s*(?:(?:error|exception|fatal)\b[:\s]|traceback\b|(?:\d{3}\s+)?(?:internal server error|bad gateway|service unavailable|gateway time-?out|unauthorized|forbidden|too many requests)\.?\s*$)/i;
+/** A whole reply that is only an HTTP status line, e.g. "Unauthorized", "429 Too Many Requests". */
+const HTTP_ERROR_LINE =
+  /^\s*(?:\d{3}\s+)?(?:internal server error|bad gateway|service unavailable|gateway time-?out|unauthorized|forbidden|too many requests)\.?\s*$/i;
+
+/**
+ * Technical error output: "Error: connect ETIMEDOUT ...", "TypeError: ...", "Traceback (most recent call last)", "FATAL ...".
+ * A bare "Error"/"Exception" at the start of a customer-facing apology ("Error on our side, sorry!", "Exception: we can
+ * deliver on Sunday") is NOT enough; the text after the colon must look technical (an error code, status, snake_case code).
+ */
+const TECHNICAL_ERROR_LINE = new RegExp(
+  [
+    String.raw`^\s*(?:error|exception|fatal(?:\s+error)?)\s*:\s*(?:\w*(?:ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE)\w*|\d{3}\b|[a-z]+(?:_[a-z]+)+\b|https?:|request failed|status code|connect\b|cannot\s|failed to\b|unexpected token|socket hang up|(?:read\s+)?timed?\s*out|undefined|null)`,
+    String.raw`^\s*(?:error|exception|fatal(?:\s+error)?)\s*:\s*(?:internal server error|bad gateway|service unavailable|gateway time-?out|unauthorized|forbidden|too many requests|bad request|network error|fetch failed|something went wrong(?:\.\s*please try again(?: later)?)?)\.?\s*$`,
+    String.raw`^\s*http(?:/\d(?:\.\d)?)?\s+\d{3}\b`,
+    String.raw`^\s*(?:the\s+)?(?:server|api|service|request)\s+(?:returned|responded(?:\s+with)?|failed\s+with)\s*:?\s*\d{3}\b\s*[-:]?\s*(?:internal server error|bad gateway|service unavailable|gateway time-?out|unauthorized|forbidden|too many requests|not found|bad request)`,
+    String.raw`^\s*exception in thread\s+"`,
+    String.raw`^\s*(?:[\w$]+\.){2,}[\w$]*(?:exception|error)\b`,
+    String.raw`\bat\s+(?:[\w$]+\.){2,}[\w$<>]+\([^)]*\)`,
+    String.raw`^\s*traceback \(most recent call last\)`,
+  ].join('|'),
+  'i',
+);
+/** Case-sensitive on purpose: "TypeError: ..." / "AxiosError: ..." / "FATAL ..." as emitted by runtimes. */
+const RUNTIME_ERROR_NAME = /^\s*(?:[A-Z]\w*(?:Error|Exception)\s*:|FATAL\b)/;
 
 /** Provider error codes. Matched as snake_case codes, or as a short reply that is nothing but the phrase, never inside prose. */
 const PROVIDER_ERROR_CODE =
@@ -34,7 +55,9 @@ const PROVIDER_ERROR_PHRASE =
   /^\s*(?:you exceeded your current quota|rate limit(?:ed| exceeded| reached)?|this model's maximum context length[^\n]*|incorrect api key provided[^\n]*|the model [\w.-]+ does not exist[^\n]*|your request was rejected as a result of our safety system[^\n]*)\.?\s*$/i;
 
 const INTERNAL_ERROR_PATTERNS: readonly RegExp[] = [
-  ERROR_ONLY_REPLY,
+  HTTP_ERROR_LINE,
+  TECHNICAL_ERROR_LINE,
+  RUNTIME_ERROR_NAME,
   PROVIDER_ERROR_CODE,
   PROVIDER_ERROR_PHRASE,
   /\bat\s+[\w$.<>]+\s+\([^)]*:\d+:\d+\)/,
@@ -44,6 +67,20 @@ const INTERNAL_ERROR_PATTERNS: readonly RegExp[] = [
   /\bbearer\s+[A-Za-z0-9._-]{16,}/i,
   /\bsk-[A-Za-z0-9]{16,}/,
 ];
+
+/** The opening of a structured reply object anywhere in the text: {"response": or {"confidence": (never a bare quoted word). */
+const STRUCTURED_REPLY_START = /\{\s*"(?:response|confidence)"\s*:/g;
+
+/** Any JSON-object opener (`{"key":`). Customer-facing prose never contains one, whatever the first key is. */
+const JSON_OBJECT_OPENER = /\{\s*"[\w-]+"\s*:/;
+
+/**
+ * The only shape a broken-JSON reply may have to be recovered: a "response" string that is closed, optionally with a
+ * "confidence" number, and at most a missing closing brace or a cut-off confidence. Any other trailing text is refused
+ * because it could change the intended answer.
+ */
+const RECOVERABLE_REPLY =
+  /^\{\s*(?:"confidence"\s*:\s*-?\d+(?:\.\d+)?\s*,\s*)?"response"\s*:\s*"(?:\\.|[^"\\])*"\s*(?:,\s*(?:"confidence"\s*(?::\s*-?\d*(?:\.\d*)?)?)?)?\s*\}?\s*$/;
 
 /** True for text that is JSON or looks like the start of it: an object or array with quoted keys. */
 function looksLikeJson(text: string): boolean {
@@ -55,7 +92,7 @@ export function checkCustomerText(text: string | null | undefined): TextCheck {
   const t = (text ?? '').trim();
   if (!t) return { safe: false, reason: 'empty' };
   if (t.length > MAX_REPLY_CHARS) return { safe: false, reason: 'too_long' };
-  if (looksLikeJson(t)) return { safe: false, reason: 'malformed' };
+  if (looksLikeJson(t) || JSON_OBJECT_OPENER.test(t)) return { safe: false, reason: 'malformed' };
   if (INTERNAL_ERROR_PATTERNS.some((p) => p.test(t))) return { safe: false, reason: 'internal_error' };
   return { safe: true };
 }
@@ -92,21 +129,38 @@ export function parseStructuredReply(raw: string | null | undefined): ParsedRepl
     return check.safe ? { ok: true, response: response.trim(), confidence, recovered } : fail(check.reason);
   };
 
-  // Structured parsing only for output that starts as a JSON object (a leading code fence was stripped above).
-  // Prose that merely quotes the word "response" is an ordinary reply.
+  // Structured parsing for output that starts as a JSON object (a leading code fence was stripped above), or where ONE
+  // reply object follows ordinary non-JSON preamble ("Sure! {"response":"Hi"}"). Prose that merely quotes the word
+  // "response" has no `{"response":` and is an ordinary reply. Ambiguous output is refused rather than guessed at:
+  // several reply objects (one may be an example), an object nested in other JSON, or one inside an array.
+  // A JSON array is never a reply, so text that starts with `[` falls through to the output check and is rejected.
+  let objectAt = -1;
   if (text.startsWith('{')) {
+    objectAt = 0;
+  } else if (!text.startsWith('[')) {
+    const openers = [...text.matchAll(STRUCTURED_REPLY_START)];
+    if (openers.length > 1) return fail('malformed');
+    if (openers.length === 1) {
+      objectAt = openers[0].index ?? 0;
+      if (/[{[]/.test(text.slice(0, objectAt))) return fail('malformed');
+    }
+  }
+  if (objectAt >= 0) {
+    const candidate = text.slice(objectAt);
     try {
-      const parsed = JSON.parse(text) as { response?: unknown; confidence?: unknown };
+      const parsed = JSON.parse(candidate) as { response?: unknown; confidence?: unknown };
       if (parsed && typeof parsed === 'object' && typeof parsed.response === 'string') {
         return accept(parsed.response, clampConfidence(parsed.confidence), false);
       }
       // Valid JSON that is not a reply: an error body such as {"error":{"message":"..."}}.
       return fail('internal_error');
     } catch {
-      const recovered = recoverResponse(text);
-      if (recovered) return accept(recovered.response, recovered.confidence, true);
-      // An unclosed "response" string is a cut-off reply; anything else is not a reply at all.
-      return fail(/"response"\s*:\s*"/.test(text) ? 'truncated' : 'malformed');
+      const closed = recoverResponse(candidate);
+      if (closed && RECOVERABLE_REPLY.test(candidate.trim())) return accept(closed.response, closed.confidence, true);
+      // A closed "response" string with other text around it is refused as ambiguous; an unclosed one is a cut-off
+      // reply; anything else is not a reply at all. The reason is for the log only.
+      if (closed) return fail('malformed');
+      return fail(/"response"\s*:\s*"/.test(candidate) ? 'truncated' : 'malformed');
     }
   }
 
