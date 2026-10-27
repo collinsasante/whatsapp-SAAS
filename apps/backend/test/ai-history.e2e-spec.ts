@@ -102,6 +102,39 @@ describe('Verz AI conversation context against PostgreSQL (Phase 1)', () => {
     }
   });
 
+  it('non-TEXT inbound rows: captions, taps and locations become turns in order; notes, audio, documents and attachment data never do; other tenants and conversations stay out', async () => {
+    const { tenant } = await createTenantWithUser({ role: UserRole.ADMIN });
+    const other = await createTenantWithUser({ role: UserRole.ADMIN });
+    const { contact, conversation } = await seedConversation(tenant.id);
+    const second = await seedConversation(tenant.id, '+233200000002');
+    const foreign = await seedConversation(other.tenant.id, '+233200000003');
+    const row = (t: string, c: string, ct: string, direction: 'INBOUND' | 'OUTBOUND', type: string, data: Record<string, unknown>, ms: number, id?: string) =>
+      testPrisma.message.create({ data: { ...(id ? { id } : {}), tenantId: t, conversationId: c, contactId: ct, direction, type: type as never, status: 'DELIVERED', createdAt: at(ms), ...data } as never });
+
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'IMAGE', { content: null, mediaCaption: 'do you have this one?', mediaUrl: 'https://private.example/a.jpg', mediaType: 'image/jpeg' }, 0);
+    await row(tenant.id, conversation.id, contact.id, 'OUTBOUND', 'TEXT', { content: 'Yes, we do.' }, 1);
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'IMAGE', { content: null, mediaCaption: null, mediaUrl: 'https://private.example/b.jpg' }, 2);
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'AUDIO', { content: null, mediaUrl: 'https://private.example/v.ogg', mediaType: 'audio/ogg' }, 3);
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'DOCUMENT', { content: null, mediaCaption: 'passport-scan.pdf', mediaUrl: 'https://private.example/d.pdf' }, 4);
+    await row(tenant.id, conversation.id, contact.id, 'OUTBOUND', 'NOTE', { content: 'INTERNAL: customer is difficult' }, 5);
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'INTERACTIVE', { content: 'Delivery' }, 6);
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'LOCATION', { content: 'Osu, Accra' }, 7);
+    await row(tenant.id, second.conversation.id, second.contact.id, 'INBOUND', 'IMAGE', { content: null, mediaCaption: 'SECOND CONVERSATION' }, 8);
+    await row(foreign.conversation.tenantId, foreign.conversation.id, foreign.contact.id, 'INBOUND', 'IMAGE', { content: null, mediaCaption: 'OTHER TENANT' }, 9);
+    const currentId = '99999999-0000-4000-8000-000000000000';
+    await row(tenant.id, conversation.id, contact.id, 'INBOUND', 'TEXT', { content: 'how much?' }, 10, currentId);
+
+    const h = await loadHistory(prisma, buildConversationHistoryWhere(tenant.id, conversation.id), 12, currentId);
+    expect(texts(h.turns)).toEqual(['do you have this one?', 'Yes, we do.', 'Delivery', 'Osu, Accra']);
+    expect(h.turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user', 'user']);
+    const all = JSON.stringify(h);
+    for (const leak of ['private.example', 'image/jpeg', 'passport-scan', 'INTERNAL', 'SECOND CONVERSATION', 'OTHER TENANT']) expect(all).not.toContain(leak);
+
+    // Contact scope (legacy responder) takes the same rows from the same contact only.
+    const legacy = await loadHistory(prisma, buildHistoryWhere(tenant.id, { id: conversation.id, contactId: contact.id }), 12, currentId);
+    expect(texts(legacy.turns)).toEqual(texts(h.turns));
+  });
+
   it('v2 ContextAssemblyStage builds the same history from real rows and hands the knowledge source the customer\'s earlier messages', async () => {
     const { tenant } = await createTenantWithUser({ role: UserRole.ADMIN });
     const { contact, conversation } = await seedConversation(tenant.id);

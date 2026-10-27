@@ -1,3 +1,4 @@
+import { HISTORY_ROW_FILTER } from '../../ai-core/context/history-scope.util';
 import { HISTORY_FETCH_BUFFER } from '../../ai-core/context/history-select.util';
 import { CommerceAiService } from './commerce-ai.service';
 
@@ -224,7 +225,7 @@ describe('CommerceAiService', () => {
       await buildService(deps).handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi');
 
       expect(deps.prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { tenantId: 't1', conversationId: 'conv1', type: 'TEXT', content: { not: null } },
+        where: { tenantId: 't1', conversationId: 'conv1', ...HISTORY_ROW_FILTER },
         take: 12 + HISTORY_FETCH_BUFFER,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }));

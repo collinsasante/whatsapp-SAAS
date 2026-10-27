@@ -8,8 +8,8 @@ export interface HistoryReader {
       where: Prisma.MessageWhereInput;
       orderBy: Array<{ createdAt: 'desc' } | { id: 'desc' }>;
       take: number;
-      select: { id: true; direction: true; content: true; createdAt: true };
-    }): Promise<Array<{ id: string; direction: string; content: string | null; createdAt: Date }>>;
+      select: { id: true; direction: true; content: true; mediaCaption: true; createdAt: true };
+    }): Promise<Array<{ id: string; direction: string; content: string | null; mediaCaption?: string | null; createdAt: Date }>>;
   };
 }
 
@@ -30,7 +30,9 @@ export async function loadHistory(
     // The id breaks ties between rows stored in the same millisecond, so the order is always the same.
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: windowSize + HISTORY_FETCH_BUFFER,
-    select: { id: true, direction: true, content: true, createdAt: true },
+    select: { id: true, direction: true, content: true, mediaCaption: true, createdAt: true },
   });
-  return selectHistory(rows, currentMessageId, windowSize);
+  // The where clause admits a caption-only row (no body) only for inbound IMAGE/VIDEO, so the caption is the customer's own text.
+  const withText = rows.map(({ id, direction, content, mediaCaption, createdAt }) => ({ id, direction, content: content ?? mediaCaption ?? null, createdAt }));
+  return selectHistory(withText, currentMessageId, windowSize);
 }

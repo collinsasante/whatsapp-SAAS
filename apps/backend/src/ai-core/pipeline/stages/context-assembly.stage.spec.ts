@@ -1,3 +1,4 @@
+import { HISTORY_ROW_FILTER } from '../../context/history-scope.util';
 import { HISTORY_FETCH_BUFFER } from '../../../ai-core/context/history-select.util';
 import { ContextAssemblyStage } from './context-assembly.stage';
 import { newTrace, PipelineContext } from '../pipeline.types';
@@ -119,7 +120,7 @@ describe('ContextAssemblyStage', () => {
     await stage.execute(buildCtx('hi'));
 
     expect(prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: 't1', conversationId: 'c1', type: 'TEXT', content: { not: null } },
+      where: { tenantId: 't1', conversationId: 'c1', ...HISTORY_ROW_FILTER },
       take: 12 + HISTORY_FETCH_BUFFER,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }));
