@@ -1,6 +1,22 @@
 import { Prisma } from '@prisma/client';
 
 /**
+ * Which stored rows may become conversation turns. Only text the customer actually wrote, or that the business sent as text:
+ *  - TEXT rows, both directions;
+ *  - INBOUND INTERACTIVE (the title of a list/button the customer tapped) and INBOUND LOCATION (name/address they shared);
+ *  - INBOUND IMAGE/VIDEO that have no body but carry the customer's caption (the caption is read from mediaCaption).
+ * Never included: NOTE (internal agent notes), TEMPLATE, CONTACTS, STICKER, AUDIO, DOCUMENT (its mediaCaption is a file
+ * name), nor any URL, MIME type or other attachment metadata. Nothing is transcribed or described on the customer's behalf.
+ */
+export const HISTORY_ROW_FILTER: Prisma.MessageWhereInput = {
+  OR: [
+    { type: 'TEXT', content: { not: null } },
+    { direction: 'INBOUND', type: { in: ['INTERACTIVE', 'LOCATION'] }, content: { not: null } },
+    { direction: 'INBOUND', type: { in: ['IMAGE', 'VIDEO'] }, content: null, mediaCaption: { not: null } },
+  ],
+};
+
+/**
  * Builds the `where` for the AI's conversation-history fetch. Two scopes, both always
  * tenant-scoped:
  *  - buildHistoryWhere: contact scope (all of a contact's conversations with the tenant),
@@ -22,7 +38,7 @@ export function buildHistoryWhere(
 ): Prisma.MessageWhereInput | null {
   if (!tenantId || !conversation || !conversation.id) return null;
 
-  const base: Prisma.MessageWhereInput = { tenantId, type: 'TEXT', content: { not: null } };
+  const base: Prisma.MessageWhereInput = { tenantId, ...HISTORY_ROW_FILTER };
   const contactId = conversation.contactId;
   if (typeof contactId === 'string' && contactId.trim().length > 0) {
     return { ...base, conversation: { tenantId, contactId } };
@@ -37,5 +53,5 @@ export function buildHistoryWhere(
  */
 export function buildConversationHistoryWhere(tenantId: string, conversationId: string | null | undefined): Prisma.MessageWhereInput | null {
   if (!tenantId || !conversationId) return null;
-  return { tenantId, conversationId, type: 'TEXT', content: { not: null } };
+  return { tenantId, conversationId, ...HISTORY_ROW_FILTER };
 }

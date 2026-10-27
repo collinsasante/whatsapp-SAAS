@@ -1,3 +1,4 @@
+import { HUMAN_HANDOFF_REPLY } from '../ai-core/prompts/escalation-messages.util';
 import { MessagesService } from './messages.service';
 
 /**
@@ -124,7 +125,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
-      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function));
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), undefined);
       expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: null });
     });
 
@@ -453,6 +454,106 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null)).resolves.toBeUndefined();
       expect(deps.realtimeService.emitNewMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Phase 1: customer asks for a person (real detector, real handlers)', () => {
+    const PHRASES = ['I need to talk to someone', 'abeg make I talk to somebody', 'can someone call me', 'I wan talk to person', 'let me speak to your boss'];
+
+    it.each(PHRASES)('legacy AUTO_REPLY: "%s" starts a real handoff without calling the model, and tells the customer so', async (message) => {
+      const deps = buildDeps();
+      deps.conversationsService.requestWithRetry.mockResolvedValue(true);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, message, false, null, false, true, 'msg-1');
+
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.stringMatching(/requested a human/));
+      expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled(); // no paid provider call
+      expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled(); // and no credit hold
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, HUMAN_HANDOFF_REPLY, undefined, undefined);
+    });
+
+    it('legacy AUTO_REPLY: when the handoff itself fails, the customer is told the truth, not that someone is coming', async () => {
+      const deps = buildDeps();
+      deps.conversationsService.requestWithRetry.mockResolvedValue(false);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'I need to talk to someone', false, null, false, true, 'msg-1');
+
+      const sent = deps.whatsappService.sendTextMessage.mock.calls[0][2];
+      expect(sent).not.toBe(HUMAN_HANDOFF_REPLY);
+      expect(sent).toMatch(/trouble connecting|kept this conversation open/i);
+    });
+
+    it('legacy SUGGESTION mode: the handoff is requested and nothing is sent to the customer', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiSuggestion('t1', conversation, contact, 'I need to talk to someone', false, false, true, 'msg-1');
+
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+      expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled();
+      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('an ordinary question still goes to the legacy responder and starts no handoff', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'You can call me Kwame', false, null, false, true, 'msg-1');
+
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalled();
+      expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+    });
+
+    it('human-ownership recheck still wins: a conversation a person has taken over gets no AI handoff reply', async () => {
+      const deps = buildDeps();
+      deps.prisma.conversation.findFirst.mockResolvedValue({ assignedTo: { id: 'human-1', isAiAgent: false, lastSeenAt: new Date() } });
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'I need to talk to someone', false, null, false, true, 'msg-1');
+
+      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+      expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Phase 1: the stored inbound message id reaches every generator', () => {
+    it('legacy: generateSuggestion receives it', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null, false, true, 'msg-42');
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), 'msg-42');
+    });
+
+    it('v2: the pipeline input carries it', async () => {
+      const deps = buildDeps();
+      deps.featureFlagsService.isEnabledCached.mockResolvedValue(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null, false, true, 'msg-42');
+      expect(deps.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ currentMessageId: 'msg-42' }));
+    });
+
+    it('commerce: handleMessage receives it', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null, false, true, 'msg-42');
+      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith(
+        't1', 'conv1', 'contact1', contact.phone, 'hi', 'Jane', undefined, expect.objectContaining({ currentMessageId: 'msg-42' }),
+      );
+    });
+
+    it('SUGGESTION mode passes it too', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiSuggestion('t1', conversation, contact, 'hi', false, false, true, 'msg-42');
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), 'msg-42');
     });
   });
 

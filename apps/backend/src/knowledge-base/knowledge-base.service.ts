@@ -103,9 +103,9 @@ export class KnowledgeBaseService {
   }
 
   /** Bounded, relevance-filtered subset of getActive() for use in LLM prompts -- see selectRelevantArticles() for the full rationale. */
-  async getRelevant(tenantId: string, query: string): Promise<{ title: string; content: string }[]> {
+  async getRelevant(tenantId: string, query: string, previousCustomerMessages: string[] = []): Promise<{ title: string; content: string }[]> {
     const all = await this.getActive(tenantId);
-    return selectRelevantArticles(all, query, { maxArticles: KB_RELEVANCE_MAX_ARTICLES, maxChars: KB_RELEVANCE_MAX_CHARS });
+    return selectRelevantArticles(all, query, { maxArticles: KB_RELEVANCE_MAX_ARTICLES, maxChars: KB_RELEVANCE_MAX_CHARS }, previousCustomerMessages);
   }
 
   async uploadFile(tenantId: string, file: Express.Multer.File): Promise<{ created: number }> {

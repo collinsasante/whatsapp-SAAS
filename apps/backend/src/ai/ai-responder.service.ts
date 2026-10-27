@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
 import { buildHistoryWhere } from '../ai-core/context/history-scope.util';
+import { detectInjection } from '../ai-core/guards/injection-patterns';
+import { loadHistory } from '../ai-core/context/history-loader.util';
+import { parseStructuredReply } from '../ai-core/completion/model-output.util';
 
 interface OffHoursDay { enabled?: boolean; start?: string; end?: string }
 
@@ -29,23 +32,7 @@ function isOffHours(schedule: Record<string, OffHoursDay>, timezone: string): bo
   return currentMinutes < (startH * 60 + startM) || currentMinutes >= (endH * 60 + endM);
 }
 
-// Prompt-injection patterns to detect and block
-const INJECTION_PATTERNS = [
-  /ignore\s+(previous|all|prior)\s+instructions?/i,
-  /act\s+as\s+(an?\s+)?(admin|administrator|root|superuser|system)/i,
-  /reveal\s+(your|the)\s+(system\s+)?prompt/i,
-  /you\s+are\s+now\s+(a|an)\s+/i,
-  /forget\s+(everything|all)\s+(you|your)/i,
-  /bypass\s+(safety|security|filter)/i,
-  /export\s+(all\s+)?(the\s+)?(data|database|customers?|records?)/i,
-  /give\s+me\s+(all\s+)?(the\s+)?(customer|user|phone|email)/i,
-  /jailbreak/i,
-  /dan\s+mode/i,
-];
-
-function detectInjection(message: string): boolean {
-  return INJECTION_PATTERNS.some(p => p.test(message));
-}
+// Prompt-injection detection is shared with the v2 pipeline and Commerce AI (ai-core/guards/injection-patterns.ts).
 
 export interface AiSuggestionResult {
   response: string;
@@ -54,6 +41,8 @@ export interface AiSuggestionResult {
 }
 
 export type AiUnavailableReason = 'AI_DISABLED' | 'TRIAL_NOT_APPROVED' | 'NO_CREDITS' | 'OUTSIDE_SCHEDULE';
+
+const LEGACY_HISTORY_WINDOW = 200;
 
 export type ProviderCallWrapper = <T>(providerCall: () => Promise<T>) => Promise<T>;
 
@@ -162,6 +151,8 @@ export class AiResponderService {
     customerMessage: string,
     contactName?: string,
     providerCallWrapper?: ProviderCallWrapper,
+    /** The stored inbound message being answered. History is built around it (see history-select.util.ts). */
+    currentMessageId?: string,
   ): Promise<AiSuggestionResult> {
     if (detectInjection(customerMessage)) {
       const businessName = (await this.prisma.tenantSettings.findUnique({
@@ -191,14 +182,7 @@ export class AiResponderService {
         select: { businessName: true, aiPersonality: true },
       }),
       // No verified conversation => empty history, never an unscoped query.
-      historyWhere
-        ? this.prisma.message.findMany({
-            where: historyWhere,
-            orderBy: { createdAt: 'desc' },
-            take: 200,
-            select: { direction: true, content: true },
-          })
-        : Promise.resolve([] as { direction: string; content: string | null }[]),
+      loadHistory(this.prisma, historyWhere, LEGACY_HISTORY_WINDOW, currentMessageId),
     ]);
 
     const businessName = settings?.businessName ?? 'our business';
@@ -206,10 +190,10 @@ export class AiResponderService {
 
     // Menu state: if the last outbound message was a numbered list and the customer
     // replied with a bare digit, expand it to the full option text so the LLM has context.
-    const lastOutbound = history.find(m => m.direction === 'OUTBOUND');
+    const lastOutbound = history.lastOutbound;
     const bare = customerMessage.trim();
-    if (/^[123]$/.test(bare) && lastOutbound?.content) {
-      const optLine = lastOutbound.content
+    if (/^[123]$/.test(bare) && lastOutbound) {
+      const optLine = lastOutbound
         .split('\n')
         .find(l => new RegExp(`^${bare}[.)\\s]`).test(l.trim()));
       if (optLine) {
@@ -221,7 +205,7 @@ export class AiResponderService {
     // final customerMessage so the retrieval query reflects what's actually being
     // asked. See getRelevant()'s doc comment for why this isn't full vector
     // retrieval yet and why it's still a real fix over "send everything".
-    const articles = await this.knowledgeBaseService.getRelevant(tenantId, customerMessage);
+    const articles = await this.knowledgeBaseService.getRelevant(tenantId, customerMessage, history.customerMessages);
 
     let kbContext = '';
     if (articles.length > 0) {
@@ -258,18 +242,13 @@ export class AiResponderService {
       kbContext,
     ].join('\n');
 
-    const historyMessages = history.reverse().map(m => ({
-      role: m.direction === 'INBOUND' ? 'user' : 'assistant',
-      content: m.content!,
-    }));
-
     const userContent = contactName
       ? `Customer name: ${contactName}\nMessage: ${customerMessage}`
       : customerMessage;
 
     const chatMessages = [
       { role: 'system', content: systemPrompt },
-      ...historyMessages.slice(0, -1),
+      ...history.turns,
       { role: 'user', content: userContent },
     ];
 
@@ -291,24 +270,25 @@ export class AiResponderService {
 
       const raw = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim() ?? '';
 
-      try {
-        const parsed = JSON.parse(raw) as { response?: string; confidence?: number };
-        const response = (parsed.response ?? '').trim();
-        let confidence = typeof parsed.confidence === 'number'
-          ? Math.min(100, Math.max(0, Math.round(parsed.confidence)))
-          : null;
-
-        // Fallback responses are knowledge gaps — cap confidence so they correctly
-        // surface as low-confidence and trigger human review.
-        const FALLBACK_SIGNALS = ['team will follow up', 'team member will assist', 'great question'];
-        if (confidence !== null && FALLBACK_SIGNALS.some(s => response.toLowerCase().includes(s))) {
-          confidence = Math.min(confidence, 40);
-        }
-
-        return { response, confidence, blocked: false };
-      } catch {
-        return { response: raw, confidence: null, blocked: false };
+      // Never send what the model returned unless it is a clean reply: cut-off or malformed JSON, provider error
+      // text and the like are dropped here. An empty response is what the caller already treats as "the AI could not
+      // answer" (a real handoff and the standard fallback text), so no new behaviour is invented.
+      const parsed = parseStructuredReply(raw);
+      if (!parsed.ok) {
+        this.logger.warn(`AI responder output rejected (${parsed.reason}) for conversation ${conversationId}; nothing sent to the customer`);
+        return { response: '', confidence: null, blocked: false };
       }
+      const { response } = parsed;
+      let { confidence } = parsed;
+
+      // Fallback responses are knowledge gaps -- cap confidence so they correctly
+      // surface as low-confidence and trigger human review.
+      const FALLBACK_SIGNALS = ['team will follow up', 'team member will assist', 'great question'];
+      if (confidence !== null && FALLBACK_SIGNALS.some(sig => response.toLowerCase().includes(sig))) {
+        confidence = Math.min(confidence, 40);
+      }
+
+      return { response, confidence, blocked: false };
     } catch (err) {
       this.logger.error('AI responder error', err);
       return { response: '', confidence: null, blocked: false };

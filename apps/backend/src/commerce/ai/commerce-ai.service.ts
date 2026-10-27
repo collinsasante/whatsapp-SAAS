@@ -8,7 +8,6 @@ import { detectInjection } from '../../ai-core/guards/injection-patterns';
 import { ToolCallingService, ToolCallTrace } from '../../ai-core/tools/tool-calling.service';
 import { ToolSideEffect } from '../../ai-core/tools/tool-registry.types';
 import { deriveStateFromToolTrace } from '../../ai-core/tools/state-derivation.util';
-import { ChatMessage } from '../../ai-core/providers/ai-provider.interface';
 import { buildIdentityAndSafetyBlock } from '../../ai-core/prompts/shared-identity-block';
 import { SHARED_STYLE_RULES } from '../../ai-core/prompts/shared-style-rules';
 import { formatBusinessInfoBlock } from '../../ai-core/prompts/business-info.util';
@@ -16,6 +15,8 @@ import { formatStateBlock } from '../../ai-core/prompts/conversation-state.util'
 import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { DEEPSEEK_MODEL } from '../../common/deepseek';
 import { buildConversationHistoryWhere } from '../../ai-core/context/history-scope.util';
+import { loadHistory } from '../../ai-core/context/history-loader.util';
+import { checkCustomerText } from '../../ai-core/completion/model-output.util';
 
 /**
  * Managed Commerce's AI sales assistant. Verz-AI unification, Phase A: this
@@ -109,7 +110,7 @@ export class CommerceAiService {
     customerMessage: string,
     contactName?: string,
     evalContext?: { dryRunPayment: boolean },
-    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER' },
+    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string },
   ): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
       return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
@@ -140,26 +141,19 @@ export class CommerceAiService {
     ]);
     const businessName = settings?.businessName ?? 'our shop';
 
+    // Current conversation only (the original behavior), now also tenant-scoped; a blank conversation id yields
+    // empty history rather than an unscoped query. Built around the stored inbound message by id, so it never
+    // contains the message being answered and never shows later, not yet answered, fragments.
+    const history = await loadHistory(this.prisma, buildConversationHistoryWhere(tenantId, conversationId), 12, opts?.currentMessageId);
+
     // Non-product questions (hours, delivery policy, returns, etc.) live in the
     // general knowledge base, not the product catalogue -- without this the
     // commerce agent has no way to answer anything outside of search_products.
-    const kbArticles = await this.knowledgeBase.getRelevant(tenantId, customerMessage).catch(() => []);
+    const kbArticles = await this.knowledgeBase.getRelevant(tenantId, customerMessage, history.customerMessages).catch(() => []);
     const knowledgeContext = kbArticles.length === 0
       ? ''
       : '\n\nKNOWLEDGE BASE (for policies, hours, and other non-product questions -- product info still comes from the tools):\n' +
         kbArticles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n');
-
-    // Current conversation only (the original behavior), now also tenant-scoped; a blank
-    // conversation id yields empty history rather than an unscoped query.
-    const historyWhere = buildConversationHistoryWhere(tenantId, conversationId);
-    const history = historyWhere
-      ? await this.prisma.message.findMany({
-          where: historyWhere,
-          orderBy: { createdAt: 'desc' },
-          take: 12,
-          select: { direction: true, content: true },
-        })
-      : [];
 
     const commerceRules = [
       `You are the AI sales assistant for ${businessName} on WhatsApp. You help customers browse products, build an order, and check out.`,
@@ -189,11 +183,6 @@ export class CommerceAiService {
       buildIdentityAndSafetyBlock(businessName),
     ].join('\n') + knowledgeContext;
 
-    const historyMessages: ChatMessage[] = history.reverse().map((m) => ({
-      role: m.direction === 'INBOUND' ? 'user' : 'assistant',
-      content: m.content!,
-    }));
-
     const userContent = contactName ? `Customer name: ${contactName}\nMessage: ${customerMessage}` : customerMessage;
 
     const result = await this.toolCalling.complete({
@@ -206,10 +195,9 @@ export class CommerceAiService {
       taskType: evalContext ? 'TEST' : 'RESPONDER',
       conversationId,
       systemPrompt,
-      // The last history entry is this same customerMessage, already persisted before
-      // this call runs -- dropped here since userMessage below carries the properly
-      // contactName-prefixed version instead, matching the pre-unification behavior.
-      historyMessages: historyMessages.slice(0, -1),
+      // The history excludes this customerMessage (selected by id); userMessage below carries the properly
+      // contactName-prefixed version.
+      historyMessages: history.turns,
       userMessage: userContent,
       toolNames: opts?.readOnlyTools ? READ_ONLY_COMMERCE_TOOL_NAMES : COMMERCE_TOOL_NAMES,
       toolContext: { tenantId, conversationId, contactId, customerPhone, dryRunPayment: evalContext?.dryRunPayment },
@@ -255,6 +243,13 @@ export class CommerceAiService {
     }
 
     const content = result.content.trim();
+    const textCheck = checkCustomerText(content);
+    if (content && !textCheck.safe) {
+      // Machine output (raw JSON, a provider error body, a stack trace) is never shown to a customer: same recovery
+      // as a failed provider call -- the standard fallback text and a real handoff.
+      this.logger.warn(`Commerce AI output rejected (${textCheck.reason}) for conversation ${conversationId}; nothing sent to the customer`);
+      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace };
+    }
     if (!content) {
       this.logger.warn(`Commerce AI: empty content and no tool calls for conversation ${conversationId}`);
     }
