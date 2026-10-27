@@ -25,8 +25,8 @@ describe('buildRetrievalQuery', () => {
   });
 
   it('turns "where" and "what time" into the topics they ask about', () => {
-    expect([...buildRetrievalQuery('where are you?').terms.keys()]).toEqual(expect.arrayContaining(['location', 'address']));
-    expect([...buildRetrievalQuery('what time do you close').terms.keys()]).toEqual(expect.arrayContaining(['open', 'hour']));
+    expect([...buildRetrievalQuery('where are you?').hintTerms.keys()]).toEqual(expect.arrayContaining(['location', 'address']));
+    expect([...buildRetrievalQuery('what time do you close').hintTerms.keys()]).toEqual(expect.arrayContaining(['open', 'hour']));
   });
 
   it('expands synonyms at a lower weight than the customer\'s own words', () => {
@@ -81,5 +81,34 @@ describe('scoreArticles', () => {
     ];
     const scores = scoreArticles(shared, buildRetrievalQuery('shea in accra'));
     expect(scores[0]).toBeGreaterThan(scores[1]);
+  });
+});
+
+describe('intent hints do not outrank what the customer named', () => {
+  const kb = [
+    { title: 'Shop location', content: 'Visit our shop at Osu, Accra. Our address is 12 Oxford Street.' },
+    { title: 'Delivery', content: 'We deliver every order within Accra in 1-2 days. Orders placed before noon arrive the same day.' },
+    { title: 'Opening hours', content: 'We open Monday to Saturday from 8am and close at 6pm.' },
+  ];
+  const rank = (q: string) => scoreArticles(kb, buildRetrievalQuery(q));
+
+  it('"Where is my order?" ranks delivery above the shop location', () => {
+    const s = rank('Where is my order?');
+    expect(s[1]).toBeGreaterThan(s[0]);
+  });
+  it('"When will it arrive?" ranks delivery above the shop location and opening hours', () => {
+    const s = rank('When will it arrive?');
+    expect(s[1]).toBeGreaterThan(s[0]);
+    expect(s[1]).toBeGreaterThan(s[2]);
+  });
+  it('a hint still finds its topic when the message names nothing else', () => {
+    const s = rank('where are you?');
+    expect(s[0]).toBeGreaterThan(s[1]);
+  });
+  it('keeps hint terms out of the main query when the customer named something', () => {
+    const q = buildRetrievalQuery('where is my order');
+    expect(q.terms.get('order')).toBe(1);
+    expect(q.terms.has('location')).toBe(false);
+    expect(q.hintTerms.has('location')).toBe(true);
   });
 });

@@ -27,7 +27,7 @@ describe('parseStructuredReply', () => {
     ['whitespace', '   \n ', 'empty'],
     ['provider error body', '{"error":{"message":"Rate limit reached"}}', 'internal_error'],
     ['broken JSON with no reply', '{"conf', 'malformed'],
-    ['JSON array', '[{"response":"hi"}]', 'internal_error'],
+    ['JSON array', '[{"response":"hi"}]', 'malformed'],
     ['HTML page', '<html><body>502 Bad Gateway</body></html>', 'internal_error'],
     ['stack trace', 'TypeError: x is undefined\n    at run (/app/dist/ai.js:10:5)', 'internal_error'],
     ['error text', 'Error: insufficient_quota', 'internal_error'],
@@ -60,5 +60,53 @@ describe('checkCustomerText', () => {
   });
   it.each(['', '   ', '{"response":"hi"}', 'Internal Server Error', 'invalid_api_key', 'Bearer abcdefghijklmnopqrstuvwxyz'])('rejects "%s"', (text) => {
     expect(checkCustomerText(text).safe).toBe(false);
+  });
+});
+
+describe('checkCustomerText: ordinary prose is not mistaken for a provider error', () => {
+  it.each([
+    'Sorry, that item is forbidden to ship by air.',
+    'You are unauthorized to collect it, so please bring the buyer ID.',
+    'Our rate limit for free delivery is one parcel per day.',
+    'We do not allow a content filter on custom prints, but we can add a matte finish.',
+    'Error-free packaging is our promise.',
+  ])('passes "%s"', (text) => {
+    expect(checkCustomerText(text)).toEqual({ safe: true });
+  });
+
+  it.each([
+    'Unauthorized',
+    '401 Unauthorized',
+    'Forbidden.',
+    '429 Too Many Requests',
+    'Error: connect ETIMEDOUT 10.0.0.1:443',
+    'You exceeded your current quota',
+    'Rate limit exceeded',
+    'rate_limit_exceeded',
+    'The model gpt-x does not exist',
+    '{"error":{"message":"bad","code":"insufficient_quota"}}',
+  ])('rejects genuine provider error "%s"', (text) => {
+    expect(checkCustomerText(text).safe).toBe(false);
+  });
+});
+
+describe('parseStructuredReply: prose that quotes "response"', () => {
+  it('keeps ordinary text that mentions "response"', () => {
+    const text = 'We will send a "response" within 24 hours.';
+    expect(parseStructuredReply(text)).toEqual({ ok: true, response: text, confidence: null, recovered: false });
+  });
+  it('keeps prose that contains JSON-like text after a sentence', () => {
+    const r = parseStructuredReply('Use the word "response" : it is a keyword in our form.');
+    expect(r.ok).toBe(true);
+  });
+  it('still parses a fenced JSON reply', () => {
+    expect(parseStructuredReply('```json\n{"response":"Hi!","confidence":80}\n```')).toMatchObject({ ok: true, response: 'Hi!', confidence: 80 });
+  });
+  it('still rejects truncated structured output without exposing it', () => {
+    const r = parseStructuredReply('{"response":"Hello! Our shea butter comes in two sizes, 250g for GH');
+    expect(r).toEqual({ ok: false, reason: 'truncated' });
+  });
+  it('still rejects malformed structured output', () => {
+    expect(parseStructuredReply('{"confidence": 80, oops')).toEqual({ ok: false, reason: 'malformed' });
   });
 });

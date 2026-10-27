@@ -87,6 +87,11 @@ function intentTerms(text: string): string[] {
 export interface RetrievalQuery {
   /** Term -> weight. Empty means "nothing to look up" (a greeting, thanks, an acknowledgement). */
   terms: Map<string, number>;
+  /**
+   * Terms implied by a question word ("where" -> location, "when" -> hours). Used only when no article matches
+   * anything the customer actually said, so a generic question word can never outrank a real content match.
+   */
+  hintTerms: Map<string, number>;
 }
 
 const OWN_WORDS = 1;
@@ -100,8 +105,10 @@ export function buildRetrievalQuery(current: string, previousCustomerMessages: s
   const put = (term: string, weight: number) => {
     if (weight > (terms.get(term) ?? 0)) terms.set(term, weight);
   };
-  const own = [...new Set([...contentTerms(current), ...intentTerms(current)])];
-  for (const t of own) put(t, OWN_WORDS);
+  const named = [...new Set(contentTerms(current))];
+  const hinted = [...new Set(intentTerms(current))].filter((t) => !named.includes(t));
+  for (const t of named) put(t, OWN_WORDS);
+  const own = [...named, ...hinted];
 
   // A thin message ("and the 500g?", "how much for delivery?") keeps its subject from what the customer said just
   // before. A greeting or "ok" has no terms at all and is NOT given context: it asks for nothing.
@@ -118,7 +125,13 @@ export function buildRetrievalQuery(current: string, previousCustomerMessages: s
   for (const [term, weight] of [...terms]) {
     for (const syn of SYNONYMS.get(term) ?? []) put(syn, weight * SYNONYM_WEIGHT);
   }
-  return { terms };
+
+  const hintTerms = new Map<string, number>();
+  for (const t of hinted) hintTerms.set(t, OWN_WORDS);
+  for (const [term, weight] of [...hintTerms]) {
+    for (const syn of SYNONYMS.get(term) ?? []) if (!hintTerms.has(syn)) hintTerms.set(syn, weight * SYNONYM_WEIGHT);
+  }
+  return { terms, hintTerms };
 }
 
 export interface RankableArticle {
@@ -130,18 +143,24 @@ const TITLE_FACTOR = 2.5;
 
 /** Relevance score per article, in the same order as `articles`. A score of 0 means no query term appears. */
 export function scoreArticles(articles: RankableArticle[], query: RetrievalQuery): number[] {
+  const scores = scoreTerms(articles, query.terms);
+  if (scores.some((x) => x > 0) || query.hintTerms.size === 0) return scores;
+  return scoreTerms(articles, query.hintTerms);
+}
+
+function scoreTerms(articles: RankableArticle[], terms: Map<string, number>): number[] {
   const docs = articles.map((a) => ({
     title: new Set(contentTerms(a.title)),
     body: new Set(contentTerms(a.content)),
   }));
   const df = new Map<string, number>();
-  for (const term of query.terms.keys()) {
+  for (const term of terms.keys()) {
     df.set(term, docs.filter((d) => d.title.has(term) || d.body.has(term)).length);
   }
   const n = Math.max(articles.length, 1);
   return docs.map((d) => {
     let score = 0;
-    for (const [term, weight] of query.terms) {
+    for (const [term, weight] of terms) {
       const inTitle = d.title.has(term);
       if (!inTitle && !d.body.has(term)) continue;
       const idf = Math.log(1 + n / (1 + (df.get(term) ?? 0)));

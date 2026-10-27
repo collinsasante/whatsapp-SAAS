@@ -58,11 +58,11 @@ export function selectRelevantArticles<T extends ScorableArticle>(
   previousCustomerMessages: string[] = [],
 ): T[] {
   if (all.length === 0) return [];
-  const { terms } = buildRetrievalQuery(query, previousCustomerMessages);
-  if (terms.size === 0) return [];
+  const retrieval = buildRetrievalQuery(query, previousCustomerMessages);
+  if (retrieval.terms.size === 0 && retrieval.hintTerms.size === 0) return [];
   if (all.length <= opts.maxArticles) return capByCharBudget(all, opts.maxChars);
 
-  const scores = scoreArticles(all, { terms });
+  const scores = scoreArticles(all, retrieval);
   const ranked = all
     .map((article, index) => ({ article, index, score: scores[index] }))
     .filter((r) => r.score > 0)

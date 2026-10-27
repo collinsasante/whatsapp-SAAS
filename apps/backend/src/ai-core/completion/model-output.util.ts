@@ -23,9 +23,20 @@ export type ParsedReply =
 /** WhatsApp rejects text messages above 4096 characters. */
 const MAX_REPLY_CHARS = 4096;
 
+/** A whole reply that is only an HTTP/provider error line, e.g. "Unauthorized", "429 Too Many Requests: rate limit exceeded". */
+const ERROR_ONLY_REPLY =
+  /^\s*(?:(?:error|exception|fatal)\b[:\s]|traceback\b|(?:\d{3}\s+)?(?:internal server error|bad gateway|service unavailable|gateway time-?out|unauthorized|forbidden|too many requests)\.?\s*$)/i;
+
+/** Provider error codes. Matched as snake_case codes, or as a short reply that is nothing but the phrase, never inside prose. */
+const PROVIDER_ERROR_CODE =
+  /\b(?:insufficient_quota|rate_limit_exceeded|rate_limit_error|context_length_exceeded|invalid_api_key|model_not_found|overloaded_error|content_filter)\b/i;
+const PROVIDER_ERROR_PHRASE =
+  /^\s*(?:you exceeded your current quota|rate limit(?:ed| exceeded| reached)?|this model's maximum context length[^\n]*|incorrect api key provided[^\n]*|the model [\w.-]+ does not exist[^\n]*|your request was rejected as a result of our safety system[^\n]*)\.?\s*$/i;
+
 const INTERNAL_ERROR_PATTERNS: readonly RegExp[] = [
-  /^\s*(?:error|exception|traceback|fatal|internal server error|bad gateway|service unavailable|gateway time-?out|unauthorized|forbidden)\b/i,
-  /\b(?:insufficient[_ ]quota|rate[_ ]limit(?:ed| exceeded)?|context[_ ]length(?:[_ ]exceeded)?|maximum context length|invalid[_ ]api[_ ]key|incorrect api key|model[_ ]not[_ ]found|overloaded_error|content[_ ]filter(?:ed)?)\b/i,
+  ERROR_ONLY_REPLY,
+  PROVIDER_ERROR_CODE,
+  PROVIDER_ERROR_PHRASE,
   /\bat\s+[\w$.<>]+\s+\([^)]*:\d+:\d+\)/,
   /<\s*(?:!doctype|html|body|head)\b/i,
   /\[object Object\]/,
@@ -81,7 +92,9 @@ export function parseStructuredReply(raw: string | null | undefined): ParsedRepl
     return check.safe ? { ok: true, response: response.trim(), confidence, recovered } : fail(check.reason);
   };
 
-  if (text.startsWith('{') || text.includes('"response"')) {
+  // Structured parsing only for output that starts as a JSON object (a leading code fence was stripped above).
+  // Prose that merely quotes the word "response" is an ordinary reply.
+  if (text.startsWith('{')) {
     try {
       const parsed = JSON.parse(text) as { response?: unknown; confidence?: unknown };
       if (parsed && typeof parsed === 'object' && typeof parsed.response === 'string') {
