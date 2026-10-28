@@ -1,4 +1,4 @@
-import { AiLearningTriggerService, AI_LEARNING_FLAG_KEY } from './ai-learning-trigger.service';
+import { AiLearningTriggerService, AI_LEARNING_FLAG_KEY, evalJobId } from './ai-learning-trigger.service';
 
 function build() {
   const featureFlags = { isEnabledCached: jest.fn() };
@@ -26,6 +26,29 @@ describe('AiLearningTriggerService', () => {
 
     expect(queue.add).toHaveBeenCalledTimes(1);
     expect(queue.add).toHaveBeenCalledWith('evaluate', { aiExecutionId: 'exec-1', tenantId: 'pakkmax-id' }, expect.any(Object));
+  });
+
+  it('enqueues with a stable job id derived from the execution id (idempotent enqueue)', async () => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: '0b9f5b9e-1c2d-4e5f-8a6b-7c8d9e0f1a2b', taskType: 'RESPONDER', conversationId: 'conv-1' });
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: '0b9f5b9e-1c2d-4e5f-8a6b-7c8d9e0f1a2b', taskType: 'RESPONDER', conversationId: 'conv-1' });
+
+    const ids = queue.add.mock.calls.map((c: unknown[]) => (c[2] as { jobId: string }).jobId);
+    expect(ids).toEqual(['ai-interaction-eval-0b9f5b9e-1c2d-4e5f-8a6b-7c8d9e0f1a2b', 'ai-interaction-eval-0b9f5b9e-1c2d-4e5f-8a6b-7c8d9e0f1a2b']);
+    // Different executions never share an id; the retry/backoff options are unchanged.
+    expect(evalJobId('a')).not.toBe(evalJobId('b'));
+    expect(queue.add.mock.calls[0][2]).toMatchObject({ attempts: 3, backoff: { type: 'exponential', delay: 5_000 } });
+  });
+
+  it('the job id is accepted by BullMQ: not an integer and without a colon', () => {
+    // These are the two rules BullMQ 5 enforces on custom ids (Job.validateOptions).
+    for (const id of ['exec-1', '0b9f5b9e-1c2d-4e5f-8a6b-7c8d9e0f1a2b', '12345']) {
+      const jobId = evalJobId(id);
+      expect(`${parseInt(jobId, 10)}`).not.toBe(jobId);
+      expect(jobId.includes(':')).toBe(false);
+    }
   });
 
   it('never enqueues non-RESPONDER task types even when the flag is on', async () => {

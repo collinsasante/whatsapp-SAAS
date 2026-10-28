@@ -47,6 +47,23 @@ Return ONLY valid JSON, no markdown, in exactly this shape:
 Valid failureCategories values (use ONLY these, omit the field or use [] if none apply):
 ${Array.from(VALID_CATEGORIES).join(', ')}`;
 
+/**
+ * The judge call failed in a way that is worth trying again later (provider overloaded, network trouble). Thrown, not returned,
+ * so the caller can tell it apart from a permanent failure (`evaluate` resolving to null), which must NOT be retried because
+ * every retry is a paid call that would fail the same way.
+ */
+export class TransientJudgeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TransientJudgeError';
+  }
+}
+
+/** Explicitly retryable: server-side failures only. 4xx (400/401/402/408/429 ...) are permanent for this caller. */
+const RETRYABLE_HTTP_STATUS: ReadonlySet<number> = new Set([500, 502, 503, 504]);
+/** Explicitly retryable: the request did not get an answer at all. A timeout can still have been billed; the retry count is bounded by the queue. */
+const RETRYABLE_NETWORK_CODES: ReadonlySet<string> = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE']);
+
 @Injectable()
 export class AiInteractionEvaluatorService {
   private readonly logger = new Logger(AiInteractionEvaluatorService.name);
@@ -96,28 +113,42 @@ export class AiInteractionEvaluatorService {
     };
   }
 
+  /**
+   * ONE provider call per invocation: retrying is the queue's job (bounded attempts with backoff), so the total number of paid
+   * calls per execution is the queue's attempt count and nothing multiplies it. Resolves to the raw content, or null for a
+   * permanent failure (no key, a 4xx answer, an unknown error, empty content). Throws TransientJudgeError only for failures
+   * that are explicitly retryable.
+   */
   private async callJudge(userContent: string): Promise<string | null> {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await axios.post(
-          DEEPSEEK_API_URL,
-          {
-            model: DEEPSEEK_MODEL,
-            max_tokens: 500,
-            messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userContent }],
-            response_format: { type: 'json_object' },
-          },
-          { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 20_000 },
-        );
-        const content = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim();
-        if (content) return content;
-      } catch (err) {
-        this.logger.warn(`Evaluator judge call failed (attempt ${attempt + 1}): ${String(err)}`);
-      }
+    let res: { data?: { choices?: Array<{ message?: { content?: unknown } }> } };
+    try {
+      res = await axios.post(
+        DEEPSEEK_API_URL,
+        {
+          model: DEEPSEEK_MODEL,
+          max_tokens: 500,
+          messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userContent }],
+          response_format: { type: 'json_object' },
+        },
+        { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 20_000 },
+      );
+    } catch (err) {
+      const status = (err as { response?: { status?: unknown } } | null)?.response?.status;
+      const code = (err as { code?: unknown } | null)?.code;
+      if (typeof status === 'number' && RETRYABLE_HTTP_STATUS.has(status)) throw new TransientJudgeError(`judge provider answered HTTP ${status}`);
+      if (typeof status !== 'number' && typeof code === 'string' && RETRYABLE_NETWORK_CODES.has(code)) throw new TransientJudgeError(`judge request failed (${code})`);
+      // Logged without the error object: it can carry the request configuration, including the Authorization header.
+      this.logger.warn(`Evaluator judge call failed permanently (${typeof status === 'number' ? `HTTP ${status}` : typeof code === 'string' ? code : 'unclassified error'}); not retrying`);
+      return null;
     }
-    return null;
+    const content = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim();
+    if (!content) {
+      this.logger.warn('Evaluator judge returned no content; not retrying');
+      return null;
+    }
+    return content;
   }
 
   /** Never trust raw model output -- validates shape, clamps scores into

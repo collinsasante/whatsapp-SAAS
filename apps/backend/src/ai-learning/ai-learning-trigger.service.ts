@@ -17,6 +17,8 @@ export const AI_LEARNING_FLAG_KEY = 'ai_learning_system';
  * "how did Verz do in front of a customer" (spec section 5/71). */
 const EVALUABLE_TASK_TYPES: AiTaskType[] = ['RESPONDER'];
 
+export const evalJobId = (aiExecutionId: string): string => `ai-interaction-eval-${aiExecutionId}`;
+
 @Injectable()
 export class AiLearningTriggerService {
   private readonly logger = new Logger(AiLearningTriggerService.name);
@@ -47,7 +49,10 @@ export class AiLearningTriggerService {
         // a few lines after record() returns in messages.service.ts, i.e.
         // strictly before this job would ever actually run -- backoff is a
         // safety margin against processor start-up races, not a requirement.
-        { attempts: 3, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: 500, removeOnFail: 500 },
+        // A stable id makes enqueueing idempotent: BullMQ ignores an add whose id already exists (queued, running, or still within
+        // the retained completed/failed window), so a duplicate trigger cannot create a second paid evaluation. Retries and stall
+        // recovery reuse the same job, so they are unaffected. Not an integer and no ':' (both rejected by BullMQ).
+        { jobId: evalJobId(input.aiExecutionId), attempts: 3, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: 500, removeOnFail: 500 },
       );
     } catch (err) {
       this.logger.warn(`Failed to enqueue AI interaction evaluation for execution ${input.aiExecutionId}: ${String(err)}`);

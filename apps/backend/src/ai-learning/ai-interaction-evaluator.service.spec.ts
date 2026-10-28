@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AiInteractionEvaluatorService } from './ai-interaction-evaluator.service';
+import { AiInteractionEvaluatorService, TransientJudgeError } from './ai-interaction-evaluator.service';
 import { ResolvedInteractionContext } from './interaction-context.resolver';
 
 jest.mock('axios');
@@ -106,12 +106,61 @@ describe('AiInteractionEvaluatorService', () => {
     expect(result?.falseSuccessClaim).toBe(true);
   });
 
-  it('retries once on a network failure before giving up', async () => {
-    mockedAxios.post.mockRejectedValueOnce(new Error('timeout'));
-    mockedAxios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: JSON.stringify({ dimensions: { accuracy: 5 }, confidence: 0.9 }) } }] } });
+  describe('retry policy: one provider call per evaluation; only explicitly transient failures are retryable', () => {
+    const httpError = (status: number) => Object.assign(new Error(`status ${status}`), { response: { status } });
+    const netError = (code: string) => Object.assign(new Error(code), { code });
 
-    const result = await service.evaluate(buildContext());
-    expect(result).not.toBeNull();
-    expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    it.each([400, 401, 402, 403, 404, 408, 422, 429])('treats HTTP %i as permanent: null, one call, no retry', async (status) => {
+      mockedAxios.post.mockRejectedValue(httpError(status));
+      await expect(service.evaluate(buildContext())).resolves.toBeNull();
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([500, 502, 503, 504])('treats HTTP %i as transient: throws TransientJudgeError after exactly one call', async (status) => {
+      mockedAxios.post.mockRejectedValue(httpError(status));
+      await expect(service.evaluate(buildContext())).rejects.toBeInstanceOf(TransientJudgeError);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE'])('treats a %s network failure as transient', async (code) => {
+      mockedAxios.post.mockRejectedValue(netError(code));
+      await expect(service.evaluate(buildContext())).rejects.toBeInstanceOf(TransientJudgeError);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['an unclassified error', new Error('timeout')], ['an unknown code', netError('EWHATEVER')], ['501 Not Implemented', httpError(501)], ['a non-error value', 'boom']])(
+      'treats %s as permanent (not on the explicit retry list)', async (_l, err) => {
+        mockedAxios.post.mockRejectedValue(err);
+        await expect(service.evaluate(buildContext())).resolves.toBeNull();
+        expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+      });
+
+    it.each([['empty content', ''], ['whitespace content', '   '], ['malformed JSON', 'not json'], ['no usable dimensions', '{"dimensions":{}}']])('does not retry %s', async (_l, content) => {
+      mockedAxios.post.mockResolvedValue({ data: { choices: [{ message: { content } }] } });
+      await expect(service.evaluate(buildContext())).resolves.toBeNull();
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a response with no choices at all', async () => {
+      mockedAxios.post.mockResolvedValue({ data: {} });
+      await expect(service.evaluate(buildContext())).resolves.toBeNull();
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('never logs the request configuration (it carries the Authorization header) when a call fails', async () => {
+      const warn = jest.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+      mockedAxios.post.mockRejectedValue(Object.assign(new Error('401'), { response: { status: 401 }, config: { headers: { Authorization: 'Bearer test-key' } } }));
+      await service.evaluate(buildContext());
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).not.toContain('test-key');
+      expect(warn.mock.calls[0][0]).toContain('HTTP 401');
+    });
+
+    it('the request is the unchanged one-shot shape', async () => {
+      mockJudgeResponse({ dimensions: { accuracy: 5 }, confidence: 0.9 });
+      await service.evaluate(buildContext());
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+      expect(mockedAxios.post.mock.calls[0][1]).toMatchObject({ model: 'deepseek-v4-flash', max_tokens: 500, response_format: { type: 'json_object' } });
+    });
   });
 });
