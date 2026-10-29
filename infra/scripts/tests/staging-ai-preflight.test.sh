@@ -35,6 +35,10 @@ esac
 SHIM
 cat > "$T/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
+if [ -n "${FAKE_FLAKY_FILE:-}" ]; then
+  n=$(cat "$FAKE_FLAKY_FILE" 2>/dev/null || echo 0)
+  if [ "$n" -lt "${FAKE_FLAKY_FAILS:-0}" ]; then echo $((n+1)) > "$FAKE_FLAKY_FILE"; echo 502; exit 0; fi
+fi
 case "$*" in *test-chat/usage*) echo "${FAKE_USAGE_CODE:-401}";; *) echo "${FAKE_HEALTH_CODE:-200}";; esac
 SHIM
 cat > "$T/bin/ss" <<'SHIM'
@@ -49,7 +53,7 @@ chmod +x "$T/bin/"*
 PASS=0; FAIL=0
 stg()  { printf 'POSTGRES_PASSWORD=a\nREDIS_PASSWORD=b\nJWT_SECRET=stg-jwt\nJWT_REFRESH_SECRET=stg-refresh\nMINIO_ACCESS_KEY=k\nMINIO_SECRET_KEY=s\nDEEPSEEK_API_KEY=%s\n' "${1:-staging-model-key}" > "$T/repo/infra/.env.staging"; }
 prod() { printf 'JWT_SECRET=prod-jwt\nJWT_REFRESH_SECRET=prod-refresh\nDEEPSEEK_API_KEY=%s\n' "${1:-production-model-key}" > "$T/repo/infra/.env"; }
-run() { (cd "$T/repo" && PATH="$T/bin:$PATH" bash "$HERE/staging-ai-preflight.sh" "$@" 2>&1; echo "exit=$?"); }
+run() { (cd "$T/repo" && PREFLIGHT_HTTP_RETRIES=${PREFLIGHT_HTTP_RETRIES:-1} PREFLIGHT_HTTP_SLEEP=0 PATH="$T/bin:$PATH" bash "$HERE/staging-ai-preflight.sh" "$@" 2>&1; echo "exit=$?"); }
 expect() { if printf '%s' "$3" | grep -qE "$2"; then PASS=$((PASS+1)); echo "ok    $1"; else FAIL=$((FAIL+1)); echo "FAIL  $1"; fi; }
 expect_not() { if printf '%s' "$3" | grep -qE "$2"; then FAIL=$((FAIL+1)); echo "FAIL  $1"; else PASS=$((PASS+1)); echo "ok    $1"; fi; }
 
@@ -75,6 +79,9 @@ out=$(FAKE_MINIO_USER=minioadmin FAKE_BACKEND_KEY=stagingkey run); expect "fails
 out=$(FAKE_PORTS="9000/tcp -> 0.0.0.0:9002" run); expect "fails when staging MinIO publishes a host port" "FAIL  staging MinIO publishes host ports" "$out"
 out=$(FAKE_LISTEN=1 run); expect "fails when something listens on 9002" "FAIL  something listens on 9002" "$out"
 out=$(FAKE_HEALTH_CODE=502 run); expect "fails when the ingress is unhealthy" "FAIL  ingress health returned 502" "$out"
+rm -f "$T/flaky"; out=$(FAKE_FLAKY_FILE="$T/flaky" FAKE_FLAKY_FAILS=3 PREFLIGHT_HTTP_RETRIES=10 run); expect "waits out a service that is still starting (502 a few times, then 200/401)" "PASS  ingress health 200" "$out"; expect "...and the usage check passes after the same wait" "PASS  AI usage endpoint refuses" "$out"
+rm -f "$T/flaky"; out=$(FAKE_FLAKY_FILE="$T/flaky" FAKE_FLAKY_FAILS=99 PREFLIGHT_HTTP_RETRIES=3 run); expect "gives up after the bounded retries and reports the 502" "FAIL  ingress health returned 502" "$out"
+out=$(FAKE_HEALTH_CODE=404 PREFLIGHT_HTTP_RETRIES=5 run); expect "does not retry a real answer such as 404" "FAIL  ingress health returned 404" "$out"
 out=$(FAKE_USAGE_CODE=200 run); expect "fails when the usage endpoint answers without a token" "FAIL  AI usage endpoint returned 200" "$out"
 out=$(FAKE_RESTARTS=9 run); expect "fails on a crash-looping service" "FAIL  wa_staging_backend has restarted 9 times" "$out"
 out=$(FAKE_LOGS="Nest can't resolve dependencies" run); expect "fails on a dependency-injection error in the log" "FAIL  .*dependency-injection errors" "$out"

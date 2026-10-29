@@ -42,8 +42,18 @@ for s in postgres redis; do
   h=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "wa_staging_$s")
   [ "$h" = healthy ] && pass "wa_staging_$s healthy" || bad "wa_staging_$s health is $h"
 done
-code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://127.0.0.1:8080/api/v1/health); [ "$code" = 200 ] && pass "ingress health 200" || bad "ingress health returned $code"
-code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://127.0.0.1:8080/api/v1/ai/test-chat/usage); [ "$code" = 401 ] && pass "AI usage endpoint refuses an unauthenticated caller (401)" || bad "AI usage endpoint returned $code without a token (expected 401)"
+# A service that was just recreated can answer 502 (or nothing) for a short while. Retry only on that, a bounded number of times, so a
+# real failure is still reported and a slow start is not.
+http_code() {
+  local url=$1 tries=${PREFLIGHT_HTTP_RETRIES:-30} code=000
+  while :; do
+    code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$url")
+    case "$code" in 000|502|503|504) tries=$((tries-1)); [ "$tries" -gt 0 ] || break; sleep "${PREFLIGHT_HTTP_SLEEP:-2}";; *) break;; esac
+  done
+  echo "$code"
+}
+code=$(http_code http://127.0.0.1:8080/api/v1/health); [ "$code" = 200 ] && pass "ingress health 200" || bad "ingress health returned $code"
+code=$(http_code http://127.0.0.1:8080/api/v1/ai/test-chat/usage); [ "$code" = 401 ] && pass "AI usage endpoint refuses an unauthenticated caller (401)" || bad "AI usage endpoint returned $code without a token (expected 401)"
 n=$(docker logs --since 30m wa_staging_backend 2>&1 | grep -ciE "can't resolve|UnknownDependencies"); [ "$n" = 0 ] && pass "no dependency-injection errors in the last 30 minutes" || bad "$n dependency-injection errors in the backend log"
 n=$(docker logs --since 30m wa_staging_backend 2>&1 | grep -c "MinIO init failed"); [ "$n" = 0 ] && pass "no MinIO init failure in the last 30 minutes of the backend log" || warn "the backend logged a MinIO init failure in the last 30 minutes (check the round trip below)"
 
