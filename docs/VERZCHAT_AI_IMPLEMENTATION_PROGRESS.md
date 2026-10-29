@@ -408,6 +408,20 @@ Not done, and why:
 - **No candidate store.** Review, versioning, approval, rejection and deletion of learning candidates need new tables (a reviewed migration); until then nothing generates or promotes candidates automatically, and KB learning stops at "inactive".
 - **The staging preflight and the MinIO round trip were not run against the VPS** (no access from here); the script's logic is tested with fake commands only. The same MinIO authentication check was run by hand earlier and passed.
 
+### 5.9 First live baseline evaluation on staging (one run, 2026-10-29)
+
+What ran: one Commerce Evaluation run on the staging deployment (`f6b6728` images, responder prompt 1.1.0, staging model key shared with production by the owner's decision), started from the staging app by an admin. It ran for `STAGE_VERZCHAT's Workspace`, the workspace that admin was signed in to, not the tenant the preparation script had selected. Production was monitored throughout: 0 provider errors and 0 provider-failure fallback messages since T0, 0 ERROR lines in the staging backend and worker logs.
+
+Result as recorded by the harness: verdict FAIL; 33 scenarios, 11 passed, 2 failed, 20 skipped; 17 provider calls, all successful, 145,618 input and 3,337 output tokens (provider-reported; no cost computed); response-quality average 4.2; criteria passed: price_accuracy 2/2, payment_handling 2/2, product_accuracy 2/2, escalation_behaviour 2/4.
+
+How to read it (this is NOT a clean baseline):
+- **20 skipped because the workspace has no active products** (confirmed: 0 active; `Verz's Workspace` has 58, of which 11 out of stock and 46 unlimited). The scenarios that need a product skip; only the 13 product-free ones ran. The price, payment and product criteria were therefore exercised on very few cases.
+- **`reasoning_delivery_location_flow` failed because of a harness defect**, not the AI: four scenarios carry the `escalation_behaviour` criterion but are "must not escalate" scenarios, and the scorer always demanded a handoff. Fixed in `b7ff441` (`expectsEscalation: false`). This run's own score was produced before that fix.
+- **`identity_hate_chatting_with_ai` exposed a real inconsistency.** The AI replied "Fair enough. If you'd rather talk to a person, say the word and I'll get a colleague to reach out..." and called no tools. In the commerce path an explicit request for a person sets the handoff signal (a real handoff happens) but the model was never told, so it could offer a choice the system had already taken away. The legacy and v2 paths answer with the fixed handoff reply. Commerce now does too, with no model call.
+- The effect of D11 on the commerce path is therefore not isolated by this run: its guard is not on the harness path (the harness calls the commerce AI directly), and only the prompt wording can have mattered.
+
+Fixes made after the run (local, not deployed): the scorer fix, the catalogue check and signed-in-workspace notice in `staging-eval-baseline.sh`, the commerce handoff reply, and deterministic acceptance of the fixed handoff reply as a handoff in the scorer. To get a clean baseline: deploy those to staging, use `Verz's Workspace` (or any workspace with active, out-of-stock and unlimited products), sign in as its admin, and run once.
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
