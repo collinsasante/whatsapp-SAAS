@@ -285,6 +285,9 @@ export class EvaluationScoringService {
     }
 
     const lastTurn = turns[turns.length - 1];
+    // The system's own fixed handoff reply IS a handoff (messages.service.ts performs the real one), so it needs no judge: a model asked
+    // whether a reply "declines a request" has nothing to decline when the customer simply asked for a person.
+    if (lastTurn?.aiResponse === HUMAN_HANDOFF_REPLY || lastTurn?.aiResponse === MAX_ITERATIONS_FALLBACK_TEXT) return { pass, details };
     if (lastTurn?.aiResponse) {
       const declined = await this.judgeDeclinesAndHandsOff(lastTurn.aiResponse);
       if (!declined) { pass = false; details.push('Did not clearly decline and hand off to a human for a request with no available tool'); }
