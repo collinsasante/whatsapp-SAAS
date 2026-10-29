@@ -1,19 +1,32 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { QueueName, AiEvalRunJob } from '@whatsapp-platform/shared-types';
 import { EvaluationCaseStatus, EvaluationRunStatus, EvaluationVerdict } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { COMMERCE_EVAL_SCENARIOS } from './scenarios/commerce-eval-scenarios';
+import { SimulationLimitsService } from '../../ai-core/simulation/simulation-limits.service';
 
 @Injectable()
 export class EvaluationRunService {
   constructor(
     private prisma: PrismaService,
     @InjectQueue(QueueName.AI_EVAL_RUN) private evalQueue: Queue<AiEvalRunJob>,
+    private limits: SimulationLimitsService,
   ) {}
 
+  /**
+   * A run is ~15-20 scripted conversations against the real model, so it is the most expensive simulated action. It is limited to a
+   * per-tenant daily number of runs (taken atomically) and to one active run at a time. The active-run check is best effort (two
+   * simultaneous requests can both pass it); the atomic daily budget is what bounds the total.
+   */
   async createRun(tenantId: string, userId: string) {
+    const active = await this.prisma.evaluationRun.findFirst({
+      where: { tenantId, status: { in: [EvaluationRunStatus.QUEUED, EvaluationRunStatus.RUNNING] } },
+      select: { id: true },
+    });
+    if (active) throw new ConflictException({ statusCode: 409, code: 'EVALUATION_RUN_IN_PROGRESS', message: 'An evaluation run is already queued or running for this workspace. Wait for it to finish.' });
+    await this.limits.reserveEvalRun(tenantId);
     const run = await this.prisma.evaluationRun.create({
       data: { tenantId, triggeredByUserId: userId, status: EvaluationRunStatus.QUEUED, scenarioCount: COMMERCE_EVAL_SCENARIOS.length },
     });

@@ -5,6 +5,9 @@ import { AiExecutionsService } from '../src/ai-core/executions/ai-executions.ser
 import { AiInteractionEvalProcessor } from '../src/ai-learning/ai-interaction-eval.processor';
 import { AiLearningTriggerService } from '../src/ai-learning/ai-learning-trigger.service';
 import { InteractionContextResolver } from '../src/ai-learning/interaction-context.resolver';
+import { AiTestChatService } from '../src/ai-core/test-chat/ai-test-chat.service';
+import { MemorySimulationStore } from '../src/ai-core/simulation/simulation-store';
+import { SimulationLimitsService } from '../src/ai-core/simulation/simulation-limits.service';
 import { AiLogsService } from '../src/ai-logs/ai-logs.service';
 import { MessagesService } from '../src/messages/messages.service';
 import type { PrismaService } from '../src/prisma/prisma.service';
@@ -194,5 +197,50 @@ suite('AI Test Chat simulation against a real PostgreSQL (disposable database on
     const exec = await prisma.aiExecution.findFirstOrThrow({ where: { conversationId: seeded.conversation.id } });
     expect(exec.taskType).toBe('RESPONDER');
     expect(exec.safetyFlags).toEqual({});
+  });
+
+  describe('usage accounting (the admin usage report, read from the stored executions)', () => {
+    const usageService = () => new AiTestChatService(prisma as unknown as PrismaService, {} as never, {} as never, new SimulationLimitsService({ get: () => undefined } as never, new MemorySimulationStore()));
+
+    it("reports today's SIMULATED runs for this tenant only, with the provider's own token counts and a catalog-rate cost estimate", async () => {
+      const a = await seed(simulatedPhoneFor('user-7'));
+      const b = await seed(simulatedPhoneFor('user-7'));
+      const { service } = build();
+      await reply(service, a);
+      await reply(service, a);
+
+      const u = await usageService().getUsage(a.tenant.id, 'user-7');
+      expect(u.providerUsageToday).toMatchObject({ calls: 2, succeeded: 2, inputTokens: 240, outputTokens: 60, callsWithoutTokenCounts: 0, costEstimateComplete: true });
+      expect(u.providerUsageToday.estimatedCostUsd).toBeGreaterThan(0);
+      expect(u.providerUsageToday.costBasis).toMatch(/not verified/i);
+
+      const other = await usageService().getUsage(b.tenant.id, 'user-7');
+      expect(other.providerUsageToday).toMatchObject({ calls: 0, inputTokens: 0, outputTokens: 0 });
+    });
+
+    it('does not count a real customer run, or a simulated run from a previous day', async () => {
+      const seeded = await seed(simulatedPhoneFor('user-8'));
+      const { service } = build();
+      await reply(service, seeded);
+      // a real RESPONDER execution in the same tenant, and an old simulated one
+      await prisma.aiExecution.create({ data: { tenantId: seeded.tenant.id, conversationId: seeded.conversation.id, taskType: 'RESPONDER', provider: 'deepseek', modelKey: 'deepseek-v4-flash', status: 'SUCCESS', inputTokens: 999, outputTokens: 999 } });
+      await prisma.aiExecution.create({ data: { tenantId: seeded.tenant.id, conversationId: seeded.conversation.id, taskType: 'TEST', provider: 'deepseek', modelKey: 'deepseek-v4-flash', status: 'SUCCESS', inputTokens: 888, outputTokens: 888, safetyFlags: { simulated: true }, createdAt: new Date(Date.now() - 36 * 3_600_000) } });
+      const u = await usageService().getUsage(seeded.tenant.id, 'user-8');
+      expect(u.providerUsageToday).toMatchObject({ calls: 1, inputTokens: 120, outputTokens: 30 });
+    });
+
+    it('a failed call is counted but has no invented tokens, and the cost is marked incomplete', async () => {
+      const seeded = await seed(simulatedPhoneFor('user-9'));
+      await prisma.aiExecution.create({ data: { tenantId: seeded.tenant.id, conversationId: seeded.conversation.id, taskType: 'TEST', provider: 'deepseek', modelKey: 'deepseek-v4-flash', status: 'PROVIDER_ERROR', errorCode: 'http_401', safetyFlags: { simulated: true } } });
+      const u = await usageService().getUsage(seeded.tenant.id, 'user-9');
+      expect(u.providerUsageToday).toMatchObject({ calls: 1, succeeded: 0, inputTokens: 0, outputTokens: 0, callsWithoutTokenCounts: 1, costEstimateComplete: false, estimatedCostUsd: 0 });
+    });
+
+    it('uses a cost the recorder stored (a Decimal column) in preference to recomputing it', async () => {
+      const seeded = await seed(simulatedPhoneFor('user-10'));
+      await prisma.aiExecution.create({ data: { tenantId: seeded.tenant.id, conversationId: seeded.conversation.id, taskType: 'TEST', provider: 'deepseek', modelKey: 'deepseek-v4-flash', status: 'SUCCESS', inputTokens: 10, outputTokens: 10, estCostUsd: 0.123456, safetyFlags: { simulated: true } } });
+      const u = await usageService().getUsage(seeded.tenant.id, 'user-10');
+      expect(u.providerUsageToday.estimatedCostUsd).toBeCloseTo(0.123456, 6);
+    });
   });
 });

@@ -96,6 +96,65 @@ describe('AiLearningTriggerService', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
+  describe('the paid judge on a SIMULATED reply draws on the tenant\'s daily simulated-evaluation budget', () => {
+    const withLimits = (reserve: jest.Mock) => {
+      const featureFlags = { isEnabledCached: jest.fn().mockResolvedValue(true) };
+      const queue = { add: jest.fn().mockResolvedValue(undefined) };
+      const service = new AiLearningTriggerService(featureFlags as never, queue as never, { reserveEvaluation: reserve } as never);
+      return { service, featureFlags, queue, reserve };
+    };
+    const simulated = { tenantId: 'pakkmax-id', aiExecutionId: 'exec-1', taskType: 'TEST', conversationId: 'conv-1', status: 'SUCCESS', simulated: true };
+
+    it('grades the reply and takes one unit when the budget allows', async () => {
+      const { service, queue, reserve } = withLimits(jest.fn().mockResolvedValue(true));
+      await service.maybeEnqueue(simulated);
+      expect(reserve).toHaveBeenCalledWith('pakkmax-id');
+      expect(queue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips only the grading, not the reply, when the budget is spent or unavailable', async () => {
+      const { service, queue } = withLimits(jest.fn().mockResolvedValue(false));
+      await expect(service.maybeEnqueue(simulated)).resolves.toBeUndefined();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('takes no unit when the tenant flag is off (a disabled tenant is not charged)', async () => {
+      const { service, featureFlags, reserve, queue } = withLimits(jest.fn().mockResolvedValue(true));
+      featureFlags.isEnabledCached.mockResolvedValue(false);
+      await service.maybeEnqueue(simulated);
+      expect(reserve).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('takes no unit for a non-evaluable run', async () => {
+      const { service, reserve } = withLimits(jest.fn().mockResolvedValue(true));
+      await service.maybeEnqueue({ ...simulated, status: 'PROVIDER_ERROR' });
+      await service.maybeEnqueue({ ...simulated, taskType: 'SUMMARIZE' });
+      expect(reserve).not.toHaveBeenCalled();
+    });
+
+    it('a REAL customer reply is never counted against the simulated budget', async () => {
+      const { service, reserve, queue } = withLimits(jest.fn().mockResolvedValue(false));
+      await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-2', taskType: 'RESPONDER', conversationId: 'conv-1', status: 'SUCCESS' });
+      await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-3', taskType: 'RESPONDER', conversationId: 'conv-1', status: 'SUCCESS', simulated: false });
+      expect(reserve).not.toHaveBeenCalled();
+      expect(queue.add).toHaveBeenCalledTimes(2);
+    });
+
+    it('without the limits service (older wiring) behaves as before', async () => {
+      const featureFlags = { isEnabledCached: jest.fn().mockResolvedValue(true) };
+      const queue = { add: jest.fn().mockResolvedValue(undefined) };
+      await new AiLearningTriggerService(featureFlags as never, queue as never).maybeEnqueue(simulated);
+      expect(queue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('never throws if the budget check itself throws', async () => {
+      const { service, queue } = withLimits(jest.fn().mockRejectedValue(new Error('boom')));
+      await expect(service.maybeEnqueue(simulated)).resolves.toBeUndefined();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+  });
+
   it('never enqueues non-RESPONDER task types even when the flag is on', async () => {
     const { service, featureFlags, queue } = build();
     featureFlags.isEnabledCached.mockResolvedValue(true);

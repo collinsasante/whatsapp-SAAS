@@ -35,6 +35,18 @@ interface ChatEntry {
   createdAt: string;
 }
 
+interface UsageInfo {
+  limits: { dailyRequests: number; userPerMinute: number; maxInputChars: number; maxConversationTurns: number };
+  used: { requestsToday: number };
+  resetsAt: string;
+}
+
+/** One id per send, kept across retries of that send. Matches the server's accepted shape (8-64 letters, digits, - or _). */
+function newRequestId(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  return c && 'randomUUID' in c ? c.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 function apiErr(e: unknown, fallback: string): string {
   const err = e as { response?: { data?: { message?: string | string[] } }; message?: string };
   const msg = err.response?.data?.message;
@@ -59,6 +71,7 @@ export default function AiTestChatPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,7 +90,17 @@ export default function AiTestChatPage() {
     }
   }, []);
 
-  useEffect(() => { void loadState(); }, [loadState]);
+  // The allowance line is informational: if it cannot be loaded the chat still works (the server enforces the limits either way).
+  const loadUsage = useCallback(async () => {
+    try {
+      const res = await aiTestChatApi.usage();
+      setUsage(res.data as UsageInfo);
+    } catch {
+      setUsage(null);
+    }
+  }, []);
+
+  useEffect(() => { void loadState(); void loadUsage(); }, [loadState, loadUsage]);
 
   const send = async () => {
     const text = input.trim();
@@ -87,13 +110,15 @@ export default function AiTestChatPage() {
     const now = new Date().toISOString();
     setEntries((prev) => [...prev, { id: `local-${Date.now()}`, direction: 'INBOUND', content: text, kind: 'message', createdAt: now }]);
     try {
-      const res = await aiTestChatApi.send(text);
+      const res = await aiTestChatApi.send(text, newRequestId());
       const data = res.data as {
         mode: 'SUGGESTION' | 'SIMULATED' | 'TIMEOUT' | 'ERROR';
         suggestion: RawSuggestion | null;
         message: RawMessage | null;
         note?: string;
+        replayed?: boolean;
       };
+      if (data.replayed) toast('That message was already processed, so this is the earlier reply (nothing new was used).');
       if (data.mode === 'SIMULATED' && (data.message || data.suggestion)) {
         // Generated and stored, never sent. Prefer the stored message; fall back to the logged text if the message is missing.
         const m = data.message;
@@ -112,6 +137,7 @@ export default function AiTestChatPage() {
       toast.error(apiErr(e, 'Message failed'));
     } finally {
       setSending(false);
+      void loadUsage();
     }
   };
 
@@ -120,6 +146,7 @@ export default function AiTestChatPage() {
       await aiTestChatApi.reset();
       setEntries([]);
       toast.success('New conversation started');
+      void loadUsage();
     } catch (e) {
       toast.error(apiErr(e, 'Failed to reset'));
     }
@@ -138,6 +165,11 @@ export default function AiTestChatPage() {
               <p className="text-xs text-gray-500">
                 Chat as a customer with Verz AI through the real message pipeline. Nothing here is ever sent to WhatsApp, Messenger or Instagram: in Suggestion mode replies are drafts, and in Auto-Reply mode they are generated and shown as simulated replies.
               </p>
+              {usage && (
+                <p className={cn('text-xs mt-1', usage.used.requestsToday >= usage.limits.dailyRequests ? 'text-red-600' : usage.used.requestsToday >= usage.limits.dailyRequests * 0.9 ? 'text-amber-600' : 'text-gray-400')}>
+                  {usage.used.requestsToday} of {usage.limits.dailyRequests} test messages used today. The allowance resets at 00:00 UTC. Messages can be up to {usage.limits.maxInputChars} characters, and a conversation up to {usage.limits.maxConversationTurns} messages.
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -208,6 +240,7 @@ export default function AiTestChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
             placeholder="Type as the customer..."
+            maxLength={usage?.limits.maxInputChars}
             disabled={sending}
             className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-50"
           />

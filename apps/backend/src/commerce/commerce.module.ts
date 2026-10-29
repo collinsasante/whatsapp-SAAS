@@ -20,6 +20,7 @@ import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { CommerceAiService } from './ai/commerce-ai.service';
 import { CommerceTestChatController } from './test-chat/commerce-test-chat.controller';
 import { CommerceTestChatService } from './test-chat/commerce-test-chat.service';
+import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.module';
 import { PublicCheckoutController } from './public-checkout/public-checkout.controller';
 import { PublicCheckoutService } from './public-checkout/public-checkout.service';
 
@@ -43,6 +44,7 @@ import { PublicCheckoutService } from './public-checkout/public-checkout.service
     // `undefined` depending on which file's require() chain runs first.
     forwardRef(() => ConversationsModule),
     InternalTasksModule,
+    SimulationLimitsModule,
     forwardRef(() => AiCoreModule),
   ],
   controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController, PublicCheckoutController],

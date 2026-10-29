@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CommerceAiService } from '../ai/commerce-ai.service';
+import { SimulationLimitsService } from '../../ai-core/simulation/simulation-limits.service';
 
 /**
  * Dashboard "test as a customer" chat: runs a typed message through the REAL
@@ -19,6 +20,7 @@ export class CommerceTestChatService {
   constructor(
     private prisma: PrismaService,
     private commerceAi: CommerceAiService,
+    private limits: SimulationLimitsService,
   ) {}
 
   /** One stable synthetic customer per admin user, so history/orders persist across page loads. */
@@ -89,11 +91,21 @@ export class CommerceTestChatService {
     return { conversationId: conversation.id, messages: [], order: null };
   }
 
-  async sendMessage(tenantId: string, userId: string, message: string) {
+  /**
+   * Subject to the same simulated-AI limits as the AI Test Chat (input size, per-user rate, per-tenant daily budget, and a repeat of
+   * an already-processed request id replays its stored result). Its billing is unchanged: the commerce AI call is metered exactly
+   * as before. Only the cost CEILING is new.
+   */
+  async sendMessage(tenantId: string, userId: string, message: string, requestId?: string) {
     await this.ensureCommerceEnabled(tenantId);
     const text = message.trim();
     if (!text) throw new BadRequestException('Message is required');
+    this.limits.assertInputSize(tenantId, text);
+    const { value, replayed } = await this.limits.execute({ tenantId, userId, kind: 'commerce-test-chat', requestId }, () => this.process(tenantId, userId, text));
+    return replayed ? { ...value, replayed: true } : value;
+  }
 
+  private async process(tenantId: string, userId: string, text: string) {
     const { contact, conversation } = await this.findOrCreateSession(tenantId, userId);
     const phone = this.phoneFor(userId);
 

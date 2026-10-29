@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { QueueName, AiInteractionEvalJob, AiTaskType } from '@whatsapp-platform/shared-types';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { SimulationLimitsService } from '../ai-core/simulation/simulation-limits.service';
 
 /** The one feature flag key that gates the entire AI Learning system --
  * created via the existing feature-flags admin API/UI, rolloutType
@@ -26,6 +27,7 @@ export class AiLearningTriggerService {
   constructor(
     private featureFlags: FeatureFlagsService,
     @InjectQueue(QueueName.AI_INTERACTION_EVAL) private queue: Queue<AiInteractionEvalJob>,
+    @Optional() private limits?: SimulationLimitsService,
   ) {}
 
   /**
@@ -48,6 +50,12 @@ export class AiLearningTriggerService {
     try {
       const enabled = await this.featureFlags.isEnabledCached(AI_LEARNING_FLAG_KEY, input.tenantId);
       if (!enabled) return;
+      // Grading a SIMULATED reply is a paid judge call that no customer is billed for, so it draws on the tenant's daily simulated-
+      // evaluation budget. A spent budget (or unreachable counters) skips only the grading; the reply and its execution are unaffected.
+      if (input.simulated === true && this.limits && !(await this.limits.reserveEvaluation(input.tenantId))) {
+        this.logger.warn(`Simulated evaluation skipped for execution ${input.aiExecutionId}: the tenant's daily simulated-evaluation budget is spent or unavailable`);
+        return;
+      }
       await this.queue.add(
         'evaluate',
         { aiExecutionId: input.aiExecutionId, tenantId: input.tenantId },

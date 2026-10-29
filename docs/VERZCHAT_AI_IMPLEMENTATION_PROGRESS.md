@@ -59,7 +59,7 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | D2 | Staging `DEEPSEEK_API_KEY` is rejected by the provider (HTTP 401 on every responder call) | Blocker for any AI test on staging | `BLOCKED`: needs a valid key from the owner |
 | D3 | The legacy responder never recorded an `AiExecution` (`executionId: null`), and Commerce AI discarded the id of the execution `ToolCallingService` did record. Neither reply could be linked to its interaction log, so neither could ever be evaluated, and legacy outages left no trace (no `ai_executions` rows after 2026-10-24 despite many 401s). Confirmed by reading the code. | High (evaluation was inert for legacy and Commerce workspaces) | `VERIFIED` fixed, see 5.2 |
 | D10 | AI Test Chat sent its synthetic customer message through the real `MessagesService.handleInbound`, so in auto-reply mode the AI reply went to the real channel sender with a fake phone number (Meta `131009`), was logged `AUTO_SENT`, and the page labelled it "Suggested, not sent" (the service reported `SUGGESTION` whenever any log existed). Confirmed by reading the code. | High | `VERIFIED` fixed, see 5.3 |
-| D12 | Simulated (Test Chat) turns are now unmetered, which also makes them free: a tenant user can generate unlimited real DeepSeek calls through the test chat. There is no cap. | Medium | `NOT_STARTED` (needs a product decision: a per-tenant daily limit for simulated turns) |
+| D12 | Simulated (Test Chat) turns are now unmetered, which also makes them free: a tenant user can generate unlimited real DeepSeek calls through the test chat. There is no cap. | Medium | `VERIFIED` fixed, see 5.4 (the numeric defaults are proposals and still need a product decision) |
 | D11 | Fixed wording remains in the legacy prompt (`"That's a great question! Our team will follow up with you shortly."`, `"Address the customer by name"`) and in the shared fallback texts. The Phase 2 hardcoded-response audit is not done. | Medium | `NOT_STARTED` |
 | D4 | `ai-learning` judge: no spend cap or usage accounting, no input redaction or length caps, no prompt-injection delimiting, `max_tokens: 500` under an unverified thinking default | Medium | `NOT_STARTED` (F1, F4, F5, F6 from the earlier review) |
 | D5 | Review-task uniqueness is serialization-enforced, not a DB constraint (`InternalTask` has none) | Low | accepted limitation, documented |
@@ -73,7 +73,7 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Audit the existing system | `IN_PROGRESS`: reply path, takeover, queues, models, frontend inventoried; knowledge ingestion, credits, retention not yet traced |
-| 1 | Reliable AI foundation (provider abstraction, validation, retries, instrumentation) | `IN_PROGRESS`: D1, D3 and D10 done; D4, D6, D12 open |
+| 1 | Reliable AI foundation (provider abstraction, validation, retries, instrumentation) | `IN_PROGRESS`: D1, D3, D10 and D12 done; D4, D6 open |
 | 2 | Correct and safe conversations, takeover | `IN_PROGRESS`: takeover rechecks exist and are tested; Test Chat is now an isolated simulation (5.3); no new takeover concurrency work yet |
 | 3 | Learning pipeline (candidates, verification, review, versions) | `NOT_STARTED` beyond the evaluation reliability work already on staging |
 | 4 | Measured outcome feedback loop | `NOT_STARTED` |
@@ -221,6 +221,78 @@ Limitations and follow-ups:
 - Existing `FAILED` messages from earlier Test Chat sessions remain; the retry worker now ignores them.
 - Deploying this needs the backend, worker and frontend images rebuilt (and `shared-utils` is built into them by the Docker build).
 
+### 5.4 D12: safe usage limits for simulated AI  (`IMPLEMENTED` + `VERIFIED` locally, uncommitted until reviewed)
+
+Problem: simulated turns call the real paid model but settle no customer credits, so before this change a tenant user could generate
+unlimited provider cost through the test tools.
+
+Audit (entry points that reach a paid model without a customer):
+
+| Entry point | Protection before | Protection now |
+|---|---|---|
+| `POST /ai/test-chat/message` (AI Test Chat) | HTTP throttle per IP, in memory | per-user/min + per-tenant/day atomic quota, input and history caps, idempotent request id |
+| Commerce Test Chat | metered as before | same quota and caps, same idempotency |
+| AI sandbox (`ai-logs`, behind `DevToolsGuard`) | dev-tools flag | same quota |
+| Commerce evaluation runs (about 15-20 scripted conversations each) | none | runs/day cap plus one active run per tenant |
+| AI Learning judge on a simulated reply | none | judge-gradings/day cap; when spent or the store is down the judge is skipped, not run |
+
+Design:
+- Counters live in Redis (already required by BullMQ; the connection is borrowed from the existing queue, no new dependency). A single
+  Lua script checks every counter and then increments all of them or none, so concurrent requests, on any replica, cannot overshoot.
+  Postgres counting was rejected: it is not atomic without holding row locks across a ~20 s provider call. The in-memory throttler is
+  per process and per IP, so it is kept only as the outer layer.
+- Fail closed: if Redis is unreachable the request is refused with 503 `SIMULATION_LIMITS_UNAVAILABLE`; a spent allowance returns
+  429 `SIMULATION_LIMIT_REACHED` with scope, limit, used and `retryAfterSeconds`. Neither path falls back to a real channel or to another
+  provider; the provider is never called.
+- Idempotency: an optional `clientMessageId` (8-64 chars `[A-Za-z0-9_-]`). The first request claims it; a completed result is stored
+  and replayed on retry (no provider call, no quota); an in-flight duplicate gets 409 `SIMULATION_REQUEST_IN_PROGRESS`; a request that
+  already ran and failed gets 409 `SIMULATION_REQUEST_ALREADY_PROCESSED` instead of re-spending. An id is released when a limit or
+  precheck refused the request before any provider call, so the user can retry it later.
+- Accounting: usage is read from stored `AiExecution` rows (`taskType TEST`, `safetyFlags.simulated`). Tokens are only what the provider
+  reported; cost is the stored estimate or the model-catalog rate, labelled as not provider-verified, and `costEstimateComplete` says
+  when any row lacked data. Nothing is invented. These rows stay outside customer-credit settlement (unchanged `TEST` rule).
+- Admin visibility: `GET /ai/test-chat/usage` (tenant-scoped from the authenticated user, never from a client value) returns the tenant's
+  limits, used counts and the estimate; no secrets, no other tenants. The Test Chat page shows a usage line.
+- Simulated recipients: the reserved fake-number predicate was widened to the Commerce Test Chat format (`+000TEST` plus 10 hex).
+
+Configuration (no database migration): built-in defaults, then `AI_SIM_*` env, then per-tenant `AI_SIM_TENANT_OVERRIDES` (JSON). Values
+are validated and clamped to hard ceilings; an invalid value is ignored with a warning naming the setting only; `0` switches a scope off.
+Documented in `infra/.env.example`.
+
+| Limit | Default | Ceiling | Rationale (proposal, not a production requirement) |
+|---|---|---|---|
+| `AI_SIM_DAILY_REQUESTS` (tenant/day) | 200 | 5000 | a QA team stepping through the bot by hand; about 200 short turns is a few cents of model cost |
+| `AI_SIM_USER_PER_MINUTE` | 5 | 60 | faster than a person types a realistic message, slower than a script |
+| `AI_SIM_MAX_INPUT_CHARS` | 1000 | 4000 | a long customer message; ceiling is the WhatsApp text maximum |
+| `AI_SIM_MAX_CONVERSATION_TURNS` | 40 | 200 | bounds the history sent to the model |
+| `AI_SIM_DAILY_EVALUATIONS` (judge) | 100 | 5000 | judge calls are the costlier unit per turn |
+| `AI_SIM_DAILY_EVAL_RUNS` | 3 | 50 | each run is a batch of scripted conversations |
+| `AI_SIM_IDEMPOTENCY_TTL_SECONDS` | 900 | 3600 | covers a client retry window |
+
+Product decisions still needed: the numeric defaults above; whether per-tenant limits should be editable in an admin UI (needs a
+migration) rather than env JSON; whether a platform admin needs a cross-tenant usage view; whether to verify catalog prices against the
+provider invoice before showing cost to tenants.
+
+Evidence (real results, local, no provider call, no network):
+- Unit: simulation directory 94 tests; test-chat 48; commerce, ai-logs, ai-learning and ai-core suites green.
+- Real Redis (disposable local container): `test/ai-simulation-limits.e2e-spec.ts` 16/16, exact counts under 8-connection contention,
+  atomicity, expiry, idempotent replay, fail-closed.
+- Real Postgres (disposable local container): `test/ai-test-chat-simulation.e2e-spec.ts` 11/11, including usage accounting and a real
+  customer remaining metered and sent.
+- Mutation: 16/16 mutants caught (including a non-atomic Lua script, visible only to the real-Redis spec).
+- Full backend suite: 160 suites passed, 1 skipped; 2376 tests passed, 12 skipped (opt-in suites), 0 failures. `tsc --noEmit` exit 0 for backend (src and test), worker, frontend, shared-utils; `git diff --check` exit 0.
+
+Limitations:
+- Fixed windows (calendar minute / UTC day): a burst straddling a boundary can use up to twice a limit across the edge.
+- Per-tenant overrides via env need a restart.
+- The eval-run "one active run" check is best effort (read then reserve); the runs/day cap is the hard bound.
+- A unit already taken is not refunded if the request fails before the provider call.
+- Redis is now a hard dependency of the test tools; an outage disables them (by design).
+- The frontend change is verified by `tsc` only (no runner, not viewed in a browser).
+- The full `AppModule` dependency-injection wiring was not confirmed: the check run was stopped before completing. Module wiring is covered
+  by the Nest unit/e2e specs only; confirm on a first staging start.
+- Deploying needs backend and frontend rebuilt and Redis reachable.
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
@@ -238,6 +310,8 @@ Full-suite result: 150 suites passed, 1 skipped; 2062 tests passed, 12 skipped; 
 Full-suite result after 5.2: 151 suites passed, 1 skipped; 2117 tests passed, 12 skipped; 0 failures (`env -u DATABASE_URL npx jest`). The skips are the existing opt-in live-provider and Postgres suites, not counted as passed. `tsc --noEmit` exit 0, `git diff --check` exit 0.
 
 Full-suite result after 5.3: 153 suites passed, 1 skipped; 2218 tests passed, 12 skipped; 0 failures (`env -u DATABASE_URL -u AI_LEARNING_PG_TESTS npx jest`). The skips are the existing opt-in suites, not counted as passed. `tsc --noEmit` exit 0 for backend (src and test projects), worker, frontend and shared-utils; `git diff --check` exit 0; no secret-shaped strings in the added lines.
+
+Full-suite result after 5.4: 160 suites passed, 1 skipped; 2376 tests passed, 12 skipped; 0 failures (`env -u DATABASE_URL -u AI_LEARNING_PG_TESTS -u AI_LIMITS_REDIS_TESTS npx jest`). Opt-in: real Redis 16/16, real Postgres 11/11.
 
 ## 7. Staging observations (Phase 9, partial)
 
@@ -261,7 +335,7 @@ Full-suite result after 5.3: 153 suites passed, 1 skipped; 2218 tests passed, 12
 
 1. Staging: deploy this branch (owner action: rebuild backend, worker and frontend) with a valid key and the `ai_learning_system` flag on
    one tenant, then confirm in the browser that Test Chat shows simulated replies and that a legacy reply produces an evaluation row.
-2. D12: decide a per-tenant cap on simulated turns (they are now free), and whether to badge/exclude the test conversation in the Inbox
+2. D12 follow-up: review the proposed defaults (5.4), decide how per-tenant limits should be stored (env JSON now; admin UI needs a migration), and whether to badge/exclude the test conversation in the Inbox
    and analytics. Decide the `Message.status` `SIMULATED` enum value (migration) vs the current marker.
 3. D4: judge input length caps, untrusted-content delimiting, and a per-tenant daily judge-call cap; usage accounting.
 4. Bring the `ai-eval` commits onto this branch (cherry-pick) and extend them with the naturalness rubric and the

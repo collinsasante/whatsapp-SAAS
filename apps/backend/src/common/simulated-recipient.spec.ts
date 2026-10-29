@@ -34,12 +34,13 @@ describe('simulated recipient (reserved number range)', () => {
   });
 
   describe('isSimulatedPhone', () => {
-    it.each(['+0003458935471', '0003458935471', '+000 345 893 5471', '000-345-893-5471', '(000)3458935471'])('accepts %s', (v) => expect(isSimulatedPhone(v)).toBe(true));
+    it.each(['+0003458935471', '0003458935471', '+000 345 893 5471', '000-345-893-5471', '(000)3458935471', '+000TEST0a1B2c3D4e', '000TEST0a1b2c3d4e'])('accepts %s', (v) => expect(isSimulatedPhone(v)).toBe(true));
 
     it.each([
       ['a real Ghana number', '+233555000111'], ['a real US number', '+14155552671'], ['a UK number', '+447911123456'],
       ['a number containing 000 later', '+233000123456'], ['+001 prefix', '+0013458935471'], ['+000 but too short', '+000123456'],
-      ['+000 but too long', '+00034589354711'], ['a Business-Scoped User ID', 'GH.1115168874544553'], ['an empty string', ''], ['letters', 'hello'],
+      ['+000 but too long', '+00034589354711'],
+      ['+000TEST with too few hex digits', '+000TEST0a1b2c3d4'], ['+000TEST with non-hex characters', '+000TEST0a1b2c3d4g'], ['+000 followed by letters', '+000abcdefghij'], ['+000TEST with trailing text', '+000TEST0a1b2c3d4e5'], ['a Business-Scoped User ID', 'GH.1115168874544553'], ['an empty string', ''], ['letters', 'hello'],
     ])('rejects %s', (_l, v) => expect(isSimulatedPhone(v)).toBe(false));
 
     it.each([[null], [undefined], [0], [3458935471], [{}], [['+0003458935471']], [{ jid: '0003458935471@s.whatsapp.net' }], [true]])('is false, never throws, for a non-string (%p)', (v) => {

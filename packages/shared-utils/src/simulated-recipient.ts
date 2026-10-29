@@ -10,7 +10,9 @@
  */
 export const SIMULATED_PHONE_PREFIX = '000';
 
-const SIMULATED_PHONE = /^000\d{10}$/;
+// AI Test Chat uses "+000" and 10 digits. The Commerce Test Chat's synthetic customer uses "+000TEST" and 10 hex characters (it never
+// goes through the inbound pipeline, but it is a real Contact row, so a campaign or automation could still try to message it).
+const SIMULATED_PHONE = /^000(?:\d{10}|TEST[0-9A-Fa-f]{10})$/;
 
 /** The synthetic number for a seed (for Test Chat, the user's id): stable per seed, always inside the reserved range. */
 export function simulatedPhoneFor(seed: string): string {
@@ -19,9 +21,11 @@ export function simulatedPhoneFor(seed: string): string {
   return `+${SIMULATED_PHONE_PREFIX}${hash.toString().padStart(10, '0').slice(0, 10)}`;
 }
 
-/** True only for a number in the reserved range, in any formatting ("+000…", "000…", with spaces or dashes). Never true for a non-string. */
+/** True only for a number in a reserved range, in any formatting ("+000…", "000…", with spaces or dashes). Never true for a non-string. */
 export function isSimulatedPhone(phone: unknown): boolean {
-  return typeof phone === 'string' && SIMULATED_PHONE.test(phone.replace(/\D/g, ''));
+  // Only formatting is stripped (spaces, dashes, parentheses, the plus); letters are kept, so a real number can never be
+  // turned into a reserved one by removing characters.
+  return typeof phone === 'string' && SIMULATED_PHONE.test(phone.replace(/[\s()\-+]/g, ''));
 }
 
 export class SimulatedRecipientError extends Error {

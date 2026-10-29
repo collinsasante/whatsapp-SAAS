@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
+import { SimulationLimitsService } from '../simulation/simulation-limits.service';
+import { estimateSimulatedUsage } from '../simulation/simulation-usage.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagesService } from '../../messages/messages.service';
 import { ConversationsService } from '../../conversations/conversations.service';
@@ -39,6 +41,7 @@ export class AiTestChatService {
     private prisma: PrismaService,
     private messagesService: MessagesService,
     private conversationsService: ConversationsService,
+    private limits: SimulationLimitsService,
   ) {}
 
   /**
@@ -123,12 +126,50 @@ export class AiTestChatService {
     return { conversationId: conversation.id, messages: [], suggestions: [] };
   }
 
-  async sendMessage(tenantId: string, userId: string, message: string) {
+  /**
+   * Today's simulated usage for this tenant: the counters against the limits, plus what the provider actually reported, read from the
+   * stored executions (tokens exactly as the provider sent them). The cost is an ESTIMATE from the model catalog's rates, only for
+   * calls whose tokens are known; anything else is counted as unknown, never guessed.
+   */
+  async getUsage(tenantId: string, userId: string) {
+    const usage = await this.limits.usage(tenantId, userId);
+    const since = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    const rows = await this.prisma.aiExecution.findMany({
+      where: { tenantId, taskType: 'TEST', createdAt: { gte: since }, safetyFlags: { path: ['simulated'], equals: true } },
+      select: { modelKey: true, status: true, inputTokens: true, outputTokens: true, estCostUsd: true },
+      take: 5000,
+    });
+    return { ...usage, providerUsageToday: estimateSimulatedUsage(rows.map((r) => ({ ...r, estCostUsd: r.estCostUsd === null ? null : Number(r.estCostUsd) }))) };
+  }
+
+  /**
+   * One simulated customer message. Order matters: cheap checks first (nothing spent), then the guarded run, which recognises a retry
+   * of an already-processed request id (replayed from the stored result, no quota, no provider call), checks the conversation has
+   * room, takes the per-user and per-tenant allowances atomically, and only then calls the AI.
+   */
+  async sendMessage(tenantId: string, userId: string, message: string, requestId?: string) {
     await this.ensureAiEnabled(tenantId);
     const text = message.trim();
     if (!text) throw new BadRequestException('Message is required');
+    this.limits.assertInputSize(tenantId, text);
 
-    const { contact, conversation } = await this.findOrCreateSession(tenantId, userId);
+    let session: Awaited<ReturnType<AiTestChatService['findOrCreateSession']>> | undefined;
+    const { value, replayed } = await this.limits.execute(
+      {
+        tenantId, userId, kind: 'test-chat', requestId,
+        precheck: async () => {
+          session = await this.findOrCreateSession(tenantId, userId);
+          const turns = await this.prisma.message.count({ where: { tenantId, conversationId: session.conversation.id, direction: 'INBOUND' } });
+          this.limits.assertConversationRoom(tenantId, turns);
+        },
+      },
+      () => this.process(tenantId, userId, text, session!),
+    );
+    return replayed ? { ...value, replayed: true } : value;
+  }
+
+  private async process(tenantId: string, userId: string, text: string, session: { contact: { name: string | null }; conversation: { id: string } }) {
+    const { contact, conversation } = session;
     const phone = this.phoneFor(userId);
     const sentAt = new Date();
 

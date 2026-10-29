@@ -10,6 +10,7 @@ import { AiInteractionEvaluatorService } from './ai-interaction-evaluator.servic
 import { AiInteractionEvalProcessor } from './ai-interaction-eval.processor';
 import { AiLearningService } from './ai-learning.service';
 import { AiLearningController } from './ai-learning.controller';
+import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.module';
 
 /**
  * AI Learning & Evaluation System. Deliberately standalone -- does not
@@ -24,6 +25,7 @@ import { AiLearningController } from './ai-learning.controller';
     PrismaModule,
     FeatureFlagsModule,
     InternalTasksModule,
+    SimulationLimitsModule,
     BullModule.registerQueue({ name: QueueName.AI_INTERACTION_EVAL }),
   ],
   controllers: [AiLearningController],

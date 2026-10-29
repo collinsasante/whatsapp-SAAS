@@ -667,6 +667,9 @@ export const aiLearningApi = {
 
 export const aiTestChatApi = {
   getState: () => api.get('/ai/test-chat'),
-  send: (message: string) => api.post('/ai/test-chat', { message }),
+  /** `clientMessageId` is generated once per send: a retry of the same send replays the stored result instead of calling the AI again. */
+  send: (message: string, clientMessageId?: string) => api.post('/ai/test-chat', { message, clientMessageId }),
   reset: () => api.post('/ai/test-chat/reset'),
+  /** This workspace's simulated-AI allowance and today's provider usage. */
+  usage: () => api.get('/ai/test-chat/usage'),
 };
