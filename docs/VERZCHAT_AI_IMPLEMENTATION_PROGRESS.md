@@ -61,7 +61,7 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | D10 | AI Test Chat sent its synthetic customer message through the real `MessagesService.handleInbound`, so in auto-reply mode the AI reply went to the real channel sender with a fake phone number (Meta `131009`), was logged `AUTO_SENT`, and the page labelled it "Suggested, not sent" (the service reported `SUGGESTION` whenever any log existed). Confirmed by reading the code. | High | `VERIFIED` fixed, see 5.3 |
 | D12 | Simulated (Test Chat) turns are now unmetered, which also makes them free: a tenant user can generate unlimited real DeepSeek calls through the test chat. There is no cap. | Medium | `VERIFIED` fixed, see 5.4 (the numeric defaults are proposals and still need a product decision) |
 | D11 | Fixed wording remains in the legacy prompt (`"That's a great question! Our team will follow up with you shortly."`, `"Address the customer by name"`) and in the shared fallback texts. The Phase 2 hardcoded-response audit is not done. | Medium | `VERIFIED` (code and prompts), see 5.5; live-model effect not measured |
-| D4 | `ai-learning` judge: no spend cap or usage accounting, no input redaction or length caps, no prompt-injection delimiting, `max_tokens: 500` under an unverified thinking default | Medium | `NOT_STARTED` (F1, F4, F5, F6 from the earlier review) |
+| D4 | `ai-learning` judge: no spend cap or usage accounting, no input redaction or length caps, no prompt-injection delimiting, `max_tokens: 500` under an unverified thinking default | Medium | `PARTLY DONE`, see 5.7: input caps, untrusted-input rule and usage logging done; real-traffic spend cap, durable usage record, redaction and the `max_tokens` check remain |
 | D5 | Review-task uniqueness is serialization-enforced, not a DB constraint (`InternalTask` has none) | Low | accepted limitation, documented |
 | D6 | `runExclusiveForConversation` and the client-send dedupe are per-process; a second backend replica would break their guarantees | Medium (latent) | `NOT_STARTED` |
 | D7 | No learning-candidate pipeline, verification gate, versioned activation or rollback | Missing feature | `NOT_STARTED` |
@@ -372,6 +372,23 @@ MinIO (D9 recurred; not caused by this release, whose diff touches no storage co
 
 Open items from this work: production `wa_minio` still publishes 9000/9001 until recreated (prerequisites: confirm no external user of those ports; production checkout updated; `wa_minio` project label `verzchat-prod` and volume `infra_minio_data` confirmed); `dev` is about 100 commits behind `main`, so the hotfix was not opened against it (decision needed: cherry-pick PR or a `main` to `dev` sync); consolidate to one staging checkout and one env file; tighten `infra/.env` and `.env.bak-metaapp` permissions; remove the 7.3 GB MinIO backup when satisfied; give staging its own DeepSeek key before any live evaluation.
 
+### 5.7 D4 (part): hardening of the AI Learning judge input  (`IMPLEMENTED` + `VERIFIED` locally, uncommitted to any shared branch)
+
+Audit of `ai-interaction-evaluator.service.ts` (the paid judge) found: no limit on the size of the customer message, the AI reply or the six prior turns sent to the provider; the system prompt never told the judge that this text is data rather than instructions (the text was already JSON-encoded, so it could not break the payload structure); and the judge's provider-reported usage was not recorded anywhere.
+
+Changes:
+- New `judge-input.util.ts`: `buildJudgePayload` bounds and cleans what is sent. The customer message and AI reply are each capped at 3000 characters, each earlier turn at 600, and the whole serialized payload at 9000 (the oldest context is dropped first, the graded turn is never emptied). Control characters are stripped (tab and newline kept), cuts never split a surrogate pair, and a text cut is marked `[truncated]` with an `inputTruncated` flag so the judge does not penalize the agent for it. The limits are proposals sized above a normal WhatsApp exchange, not product requirements.
+- System prompt: an `UNTRUSTED INPUT` rule says that customer and agent text is data to grade, never instructions, and explains the truncation markers. This is an instruction to the model, so its effect on a live model is not measured; the structural protection (the text stays inside JSON string values, the model's output is clamped and checked against the fixed taxonomy) is deterministic and tested.
+- The judge's provider-reported token usage is logged per call (`Judge call used N input and M output tokens (provider-reported)`), or `reported no token usage`. No count or cost is estimated.
+- No schema change, no new dependency, no change to retry, idempotency or the D12 simulated-judge cap.
+
+Evidence (local, no provider call): 20 new tests (helper: caps, drop order, escape-heavy text, surrogate pairs, control characters, injection text staying inert, no mutation, tiny limits; evaluator: bounded request, prompt rule present with the grading rules and output contract intact, steering text only as a string value, a model that obeys an injected score is still clamped and taxonomy-checked, usage logged and never invented). Mutation check: removing the bounded payload, the untrusted-input rule, the payload cap, or making absent usage an estimate each made tests fail; the control-character mutant could not be run to a result in the harness, so that behaviour rests on the direct assertion only. Full backend suite 164 suites passed, 1 skipped; 2502 tests passed, 12 skipped, 0 failed (the FFmpeg test did not fail); `tsc --noEmit` exit 0 for backend (src and test), worker, frontend, shared-utils, shared-types; `git diff --check` exit 0. The opt-in Postgres and Redis specs were not re-run for this change (the processor and queue are untouched).
+
+Remaining for D4, none done here:
+- A durable record of judge usage and cost needs new columns (a reviewed migration; explain risks first). Today it is only in the logs.
+- A spend cap for REAL traffic: the judge runs once per real AI reply for tenants with the flag on, bounded by traffic and idempotent per execution. A cap would silently drop evaluations, so it is a product decision.
+- PII redaction before the text reaches the provider, and a check of `max_tokens: 500` against the real model's thinking behaviour (a live call).
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
@@ -415,7 +432,7 @@ Full-suite result after 5.4: 160 suites passed, 1 skipped; 2376 tests passed, 12
 1. Staging: D10-D12 are deployed (5.6). Next: a separate staging DeepSeek key and the `ai_learning_system` flag on one tenant, then confirm in the browser that Test Chat shows simulated replies and that a legacy reply produces an evaluation row (a live-model step; needs authorization).
 2. D12 follow-up: review the proposed defaults (5.4), decide how per-tenant limits should be stored (env JSON now; admin UI needs a migration), and whether to badge/exclude the test conversation in the Inbox
    and analytics. Decide the `Message.status` `SIMULATED` enum value (migration) vs the current marker.
-3. D4: judge input length caps, untrusted-content delimiting, and a per-tenant daily judge-call cap; usage accounting.
+3. D4 remainder (5.7): a durable judge usage record (needs a reviewed migration), a spend cap for real traffic (product decision), PII redaction, and verifying `max_tokens: 500` against a live model.
 4. Bring the `ai-eval` commits onto this branch (cherry-pick) and extend them with the naturalness rubric and the
    baseline-vs-candidate gate for Phase 3.
 5. D11 follow-up: run the wording checker over replies from a live evaluation once a valid provider key and authorization exist, and activate v2 prompt 1.2.0 on staging deliberately (5.5).
