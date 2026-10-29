@@ -60,7 +60,7 @@ function buildDeps() {
     featureFlagsService: { isEnabledCached: jest.fn().mockResolvedValue(false) },
     aiAgentsService: { findOrCreateDefaultAgent: jest.fn().mockResolvedValue({ id: 'agent-2' }) },
     verzAiPipeline: { run: jest.fn().mockResolvedValue({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' }) },
-    aiExecutionsService: { linkInteractionLog: jest.fn().mockResolvedValue(null) },
+    aiExecutionsService: { linkInteractionLog: jest.fn().mockResolvedValue(null), record: jest.fn().mockResolvedValue({ id: 'exec-legacy' }) },
     leadsService: { scoreConversation: jest.fn().mockResolvedValue(null) },
     aiCreditsService: {
       hasSufficientBalance: jest.fn().mockResolvedValue(true),
@@ -118,7 +118,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(result).toEqual({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' });
     });
 
-    it('routes to the legacy responder when not commerce-enabled and verz_ai_v2 is off, forcing executionId null', async () => {
+    it('routes to the legacy responder when not commerce-enabled and verz_ai_v2 is off, and returns the execution it recorded (it used to force executionId null)', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
 
@@ -126,7 +126,7 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       const result = await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
       expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), undefined);
-      expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: null });
+      expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: 'exec-legacy' });
     });
 
     it('reserves the legacy flat estimate before the provider call and settles it after success', async () => {
@@ -543,6 +543,138 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
         await run(buildService(deps));
         expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
         expect(deps.prisma.message.findFirst.mock.calls.filter((c: unknown[]) => JSON.stringify(c[0]).includes('handoffRequested'))).toHaveLength(0);
+      });
+    });
+
+    describe('every AI response path leaves a traceable execution that can be linked to its interaction log', () => {
+      type Wrapper = <T>(call: () => Promise<T>) => Promise<T>;
+      const autoReply = (service: unknown, content = 'hi', commerce = false) =>
+        (service as { handleAiAutoReply: (...a: unknown[]) => Promise<void> }).handleAiAutoReply('t1', conversation, contact, content, commerce, null);
+      const answering = (deps: ReturnType<typeof buildDeps>, response: unknown, text = 'Hi there') =>
+        deps.aiResponderService.generateSuggestion.mockImplementation(async (_t: string, _c: string, _m: string, _n: unknown, wrapper?: Wrapper) => {
+          if (wrapper) await wrapper(() => Promise.resolve(response));
+          return { response: text, confidence: 80, blocked: false };
+        });
+
+      describe('legacy responder', () => {
+        it('records a SUCCESS execution with the provider\'s own tokens, unmetered, and links it to the interaction log', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 120, completion_tokens: 30 } } });
+          await autoReply(buildService(deps));
+
+          expect(deps.aiExecutionsService.record).toHaveBeenCalledTimes(1);
+          const [input, trace, opts] = deps.aiExecutionsService.record.mock.calls[0];
+          expect(input).toEqual({ tenantId: 't1', conversationId: 'conv1', taskType: 'RESPONDER' });
+          expect(trace).toMatchObject({ status: 'SUCCESS', provider: 'deepseek', inputTokens: 120, outputTokens: 30, confidence: 80 });
+          expect(typeof trace.latencyMs).toBe('number');
+          expect(trace.estCostUsd).toBeUndefined();
+          expect(opts).toEqual({ meterCredits: false });
+          expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-legacy', 'log-1');
+        });
+
+        it('does not charge credits a second time: the hold is settled once, and the record is made without metering', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 1, completion_tokens: 1 } } });
+          await autoReply(buildService(deps));
+          expect(deps.aiCreditsService.reserveFixedCredits).toHaveBeenCalledTimes(1);
+          expect(deps.aiCreditsService.settleReservation).toHaveBeenCalledTimes(1);
+          expect(deps.aiExecutionsService.record.mock.calls[0][2]).toEqual({ meterCredits: false });
+        });
+
+        it('has no token numbers when the provider sent no usage block (never zero, never estimated)', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: {} });
+          await autoReply(buildService(deps));
+          const trace = deps.aiExecutionsService.record.mock.calls[0][1];
+          expect(trace.status).toBe('SUCCESS');
+          expect(trace.inputTokens).toBeUndefined();
+          expect(trace.outputTokens).toBeUndefined();
+        });
+
+        it('records a provider failure as PROVIDER_ERROR with the HTTP status only, and the customer path is unchanged', async () => {
+          const deps = buildDeps();
+          const providerError = Object.assign(new Error('Request failed'), { response: { status: 401, data: { error: 'Authentication Fails' } }, config: { headers: { Authorization: 'Bearer sk-secret' } } });
+          deps.aiResponderService.generateSuggestion.mockImplementation(async (_t: string, _c: string, _m: string, _n: unknown, wrapper?: Wrapper) => {
+            try { await wrapper!(() => Promise.reject(providerError)); } catch { /* the real responder swallows it */ }
+            return { response: '', confidence: null, blocked: false };
+          });
+          await autoReply(buildService(deps));
+
+          const trace = deps.aiExecutionsService.record.mock.calls[0][1];
+          expect(trace).toMatchObject({ status: 'PROVIDER_ERROR', provider: 'deepseek', errorCode: 'http_401', errorMessage: 'Provider answered HTTP 401' });
+          expect(trace.inputTokens).toBeUndefined();
+          expect(JSON.stringify(trace)).not.toContain('sk-secret');
+          // unchanged behaviour: a real handoff and the standard apology
+          expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+          expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+        });
+
+        it('records an injection block as BLOCKED, without any provider detail', async () => {
+          const deps = buildDeps();
+          deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'I am here to help.', confidence: 100, blocked: true });
+          await autoReply(buildService(deps));
+          expect(deps.aiExecutionsService.record.mock.calls[0][1]).toMatchObject({ status: 'BLOCKED', safetyFlags: { injectionDetected: true } });
+          expect(deps.aiExecutionsService.record.mock.calls[0][1].provider).toBeUndefined();
+        });
+
+        it('records an answered call whose output was dropped as EMPTY (with the tokens it really used)', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 50, completion_tokens: 400 } } }, '');
+          await autoReply(buildService(deps));
+          expect(deps.aiExecutionsService.record.mock.calls[0][1]).toMatchObject({ status: 'EMPTY', errorCode: 'output_rejected', inputTokens: 50, outputTokens: 400 });
+        });
+
+        it('a failure to record never stops the reply, and nothing is linked', async () => {
+          const deps = buildDeps();
+          deps.aiExecutionsService.record.mockRejectedValue(new Error('db down'));
+          await expect(autoReply(buildService(deps))).resolves.toBeUndefined();
+          expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, 'Hi there', undefined, undefined);
+          expect(deps.aiExecutionsService.linkInteractionLog).not.toHaveBeenCalled();
+        });
+
+        it('a customer asking for a person makes no model call, so records no execution', async () => {
+          const deps = buildDeps();
+          await autoReply(buildService(deps), 'I want to talk to a person');
+          expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled();
+          expect(deps.aiExecutionsService.record).not.toHaveBeenCalled();
+        });
+
+        it('suggestion mode is traceable too: the SUGGESTED log is linked to the same kind of execution', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 10, completion_tokens: 5 } } });
+          await (buildService(deps) as unknown as { handleAiSuggestion: (...a: unknown[]) => Promise<void> }).handleAiSuggestion('t1', conversation, contact, 'hi', false);
+          expect(deps.aiExecutionsService.record).toHaveBeenCalledTimes(1);
+          expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SUGGESTED' }));
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-legacy', 'log-1');
+          expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('Commerce AI', () => {
+        it('links the execution ToolCallingService recorded, and MessagesService does not record a second one', async () => {
+          const deps = buildDeps();
+          deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'We have that in stock.', blocked: false, toolTrace: [], executionId: 'exec-commerce' });
+          await autoReply(buildService(deps), 'hi', true);
+          expect(deps.aiExecutionsService.record).not.toHaveBeenCalled();
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-commerce', 'log-1');
+        });
+
+        it('links nothing when no execution was recorded (as before)', async () => {
+          const deps = buildDeps();
+          await autoReply(buildService(deps), 'hi', true);
+          expect(deps.aiExecutionsService.linkInteractionLog).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('v2 pipeline (unchanged)', () => {
+        it('links the pipeline\'s execution and MessagesService does not record another', async () => {
+          const deps = buildDeps();
+          deps.featureFlagsService.isEnabledCached.mockImplementation(async (key: string) => key === 'verz_ai_v2');
+          await autoReply(buildService(deps));
+          expect(deps.aiExecutionsService.record).not.toHaveBeenCalled();
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-1', 'log-1');
+        });
       });
     });
 

@@ -51,6 +51,21 @@ describe('AiLearningTriggerService', () => {
     }
   });
 
+  it('enqueues a SUCCESS execution', async () => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-1', taskType: 'RESPONDER', conversationId: 'conv-1', status: 'SUCCESS' });
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['BLOCKED', 'EMPTY', 'PROVIDER_ERROR', 'POLICY_REJECTED'])('does not queue a %s execution: there is no reply to grade, only a job that would fail', async (status) => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-1', taskType: 'RESPONDER', conversationId: 'conv-1', status });
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(featureFlags.isEnabledCached).not.toHaveBeenCalled();
+  });
+
   it('never enqueues non-RESPONDER task types even when the flag is on', async () => {
     const { service, featureFlags, queue } = build();
     featureFlags.isEnabledCached.mockResolvedValue(true);

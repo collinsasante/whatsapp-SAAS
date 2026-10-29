@@ -85,6 +85,8 @@ export interface CommerceAiResult {
    * (e.g. to verify get_order_status was actually invoked before a payment claim).
    * messages.service.ts destructures only response/blocked, so this is additive. */
   toolTrace?: ToolCallTrace[];
+  /** The AiExecution ToolCallingService recorded for this turn, so MessagesService can link it to the interaction log. */
+  executionId?: string;
   /** Verz-AI unification, Phase G: side effects (e.g. send_product_image) a tool
    * call this turn triggered -- the caller is responsible for actually delivering
    * them (see MessagesService.deliverMedia). */
@@ -227,7 +229,7 @@ export class CommerceAiService {
       this.logger.warn(`Commerce AI provider call failed for conversation ${conversationId}`);
       return {
         response: PROVIDER_FAILURE_FALLBACK_TEXT,
-        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace,
+        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId,
       };
     }
 
@@ -238,7 +240,7 @@ export class CommerceAiService {
       // customer if it fails) now happens once, centrally, in messages.service.ts.
       return {
         response: MAX_ITERATIONS_FALLBACK_TEXT,
-        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace,
+        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId,
       };
     }
 
@@ -248,7 +250,7 @@ export class CommerceAiService {
       // Machine output (raw JSON, a provider error body, a stack trace) is never shown to a customer: same recovery
       // as a failed provider call -- the standard fallback text and a real handoff.
       this.logger.warn(`Commerce AI output rejected (${textCheck.reason}) for conversation ${conversationId}; nothing sent to the customer`);
-      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace };
+      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
     }
     if (!content) {
       this.logger.warn(`Commerce AI: empty content and no tool calls for conversation ${conversationId}`);
@@ -261,7 +263,7 @@ export class CommerceAiService {
       // (detected before generation, above) -- the model's own reply this turn may or
       // may not mention it, but the real handoff must happen regardless of what it said.
       shouldEscalate: explicitHumanRequest || undefined,
-      toolTrace: result.toolTrace,
+      toolTrace: result.toolTrace, executionId: result.executionId,
       mediaToSend: result.sideEffects,
     };
   }

@@ -34,6 +34,7 @@ import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
 import { HANDOFF_FAILED_TEXT, HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { buildLegacyTrace, describeProviderError, LegacyCallObservation, readProviderUsage } from './legacy-ai-execution.util';
 import { detectHumanRequest } from '../ai-core/pipeline/escalation-detector.util';
 import { isAgentAway } from './ai-takeover.util';
 
@@ -1718,7 +1719,7 @@ export class MessagesService {
       // results converge, so it's also the one place the real handoff (with a real
       // retry, and an honest customer-facing text if it fails) happens -- see
       // handleAiAutoReply/handleAiSuggestion below.
-      return { response: r.response, confidence: null, blocked: r.blocked, executionId: null, shouldEscalate: r.shouldEscalate, toolTrace: r.toolTrace, mediaToSend: r.mediaToSend };
+      return { response: r.response, confidence: null, blocked: r.blocked, executionId: r.executionId ?? null, shouldEscalate: r.shouldEscalate, toolTrace: r.toolTrace, mediaToSend: r.mediaToSend };
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
@@ -1732,17 +1733,44 @@ export class MessagesService {
       return { response: HUMAN_HANDOFF_REPLY, confidence: null, blocked: false, executionId: null, shouldEscalate: true };
     }
 
+    // What the provider actually did, observed from outside so the responder stays untouched.
+    const startedAt = Date.now();
+    const call: LegacyCallObservation = { invoked: false };
     const legacy = await this.aiResponderService.generateSuggestion(
       tenantId,
       conversationId,
       content,
       contactName,
-      (providerCall) => this.runLegacyAiProviderCall(tenantId, providerCall),
+      <T>(providerCall: () => Promise<T>) => this.runLegacyAiProviderCall(tenantId, async () => {
+        call.invoked = true;
+        try {
+          const response = await providerCall();
+          call.usage = readProviderUsage(response);
+          return response;
+        } catch (err) {
+          call.error = describeProviderError(err);
+          throw err;
+        }
+      }),
       opts.currentMessageId,
     );
     // The legacy responder still uses a fixed estimate, but its provider request is
     // wrapped in the same durable hold so concurrent calls cannot spend held credits.
-    return { ...legacy, executionId: null };
+    // It is recorded WITHOUT credit metering for exactly that reason: the hold above already charges it, and recording it
+    // as a normal RESPONDER execution would charge it a second time. The record makes the reply traceable and evaluable.
+    const executionId = await this.recordLegacyExecution(tenantId, conversationId, buildLegacyTrace({ legacy, call, latencyMs: Date.now() - startedAt }));
+    return { ...legacy, executionId };
+  }
+
+  /** Recording is traceability, never a reason for the customer not to get a reply: a failure is logged and the turn goes on. */
+  private async recordLegacyExecution(tenantId: string, conversationId: string, trace: Parameters<AiExecutionsService['record']>[1]): Promise<string | null> {
+    try {
+      const execution = await this.aiExecutionsService.record({ tenantId, conversationId, taskType: 'RESPONDER' }, trace, { meterCredits: false });
+      return execution?.id ?? null;
+    } catch (err) {
+      this.logger.warn(`Failed to record the legacy AI execution for conversation ${conversationId}: ${String(err)}`);
+      return null;
+    }
   }
 
   private async runLegacyAiProviderCall<T>(tenantId: string, providerCall: () => Promise<T>): Promise<T> {

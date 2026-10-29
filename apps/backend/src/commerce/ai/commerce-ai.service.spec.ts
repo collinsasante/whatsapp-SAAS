@@ -34,6 +34,36 @@ describe('CommerceAiService', () => {
     jest.clearAllMocks();
   });
 
+  describe('passes the id of the execution ToolCallingService recorded back to the caller', () => {
+    const ask = (deps: ReturnType<typeof buildDeps>) => buildService(deps).handleMessage('t1', 'c1', 'ct1', '+233555000111', 'do you have labels?', 'Jane');
+
+    it('on a normal answer', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'Yes, we have labels.', executionId: 'exec-1' }));
+      expect((await ask(deps)).executionId).toBe('exec-1');
+    });
+
+    it('on a provider failure (the escalation fallback)', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ failed: true, executionId: 'exec-2' }));
+      const r = await ask(deps);
+      expect(r.shouldEscalate).toBe(true);
+      expect(r.executionId).toBe('exec-2');
+    });
+
+    it('when the loop hit its iteration limit', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ hitMaxIterations: true, executionId: 'exec-3' }));
+      expect((await ask(deps)).executionId).toBe('exec-3');
+    });
+
+    it('is absent when nothing was recorded', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'Yes, we have labels.' }));
+      expect((await ask(deps)).executionId).toBeUndefined();
+    });
+  });
+
   describe('WhatsApp formatting', () => {
     it('sanitizes Markdown the model emits despite the no-Markdown instruction', async () => {
       const deps = buildDeps();

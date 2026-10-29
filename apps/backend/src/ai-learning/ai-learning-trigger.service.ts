@@ -35,8 +35,11 @@ export class AiLearningTriggerService {
    * blocks the customer response): a flag lookup + a queue.add() is the only
    * synchronous cost, the evaluation itself happens later in the processor.
    */
-  async maybeEnqueue(input: { tenantId: string; aiExecutionId: string; taskType: string; conversationId?: string | null }): Promise<void> {
+  async maybeEnqueue(input: { tenantId: string; aiExecutionId: string; taskType: string; conversationId?: string | null; status?: string }): Promise<void> {
     if (!EVALUABLE_TASK_TYPES.includes(input.taskType as AiTaskType)) return;
+    // Only an execution that produced an answer can be graded. A blocked, empty or failed one has no interaction log to evaluate,
+    // so queueing it would only create a job that retries and fails. (Callers that pass no status are unchanged.)
+    if (input.status !== undefined && input.status !== 'SUCCESS') return;
     if (!input.conversationId) return;
 
     try {
