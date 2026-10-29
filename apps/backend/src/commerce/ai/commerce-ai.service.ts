@@ -12,7 +12,7 @@ import { buildIdentityAndSafetyBlock } from '../../ai-core/prompts/shared-identi
 import { SHARED_STYLE_RULES } from '../../ai-core/prompts/shared-style-rules';
 import { formatBusinessInfoBlock } from '../../ai-core/prompts/business-info.util';
 import { formatStateBlock } from '../../ai-core/prompts/conversation-state.util';
-import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
+import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { DEEPSEEK_MODEL } from '../../common/deepseek';
 import { buildConversationHistoryWhere } from '../../ai-core/context/history-scope.util';
 import { loadHistory } from '../../ai-core/context/history-loader.util';
@@ -132,6 +132,14 @@ export class CommerceAiService {
     // decides the final customer-facing text based on whether it truly succeeded, so
     // this only ever sets the signal, never performs or narrates the action itself.
     const explicitHumanRequest = detectHumanRequest(customerMessage);
+    if (explicitHumanRequest) {
+      // The signal below makes messages.service.ts hand the conversation to a person for real, but the model is never told that, so a
+      // model-written reply could offer "if you'd rather talk to a person, say the word" to a customer who is ALREADY being handed over
+      // (seen in the first staging evaluation of "I hate chatting with AI"). The legacy responder and the v2 pipeline answer this with
+      // the fixed handoff line and no model call; commerce does the same, so what the customer reads matches what happens, the wording
+      // does not depend on a model, and no paid call is made for it. If the handoff itself fails, messages.service.ts swaps the text.
+      return { response: HUMAN_HANDOFF_REPLY, blocked: false, shouldEscalate: true, toolTrace: [] };
+    }
 
     const [settings, conversation, aiState] = await Promise.all([
       this.prisma.tenantSettings.findUnique({

@@ -168,7 +168,7 @@ export const SCENARIOS: Scenario[] = [
     'Can I speak to a human please',
   ].map((text, i) => scenario({ id: `human-${i + 1}`, category: 'human', title: `"${text}" starts a handoff`, generators: ['v2', 'commerce'], kb: SHOP_KB,
     stored: [IN('m1', text, 1)], current: 'm1', reply: 'Of course, I will get someone.',
-    expect: { escalate: true, responseBy: { v2: HUMAN_HANDOFF_REPLY, commerce: 'Of course, I will get someone.' } } })),
+    expect: { escalate: true, responseBy: { v2: HUMAN_HANDOFF_REPLY, commerce: HUMAN_HANDOFF_REPLY } } })),
   ...[
     'You can call me Kwame',
     'I need a person to deliver to my house',
