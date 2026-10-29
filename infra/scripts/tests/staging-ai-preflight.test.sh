@@ -71,10 +71,20 @@ out=$(FAKE_RUNNING=false run); expect "stops when a container is not running" "F
 stg same-key; prod same-key
 out=$(run); expect "fails when the model key is shared with production" "FAIL  DEEPSEEK_API_KEY is the SAME" "$out"; expect "and is NOT READY" "NOT READY" "$out"; expect_not "without printing the key" "same-key" "$out"
 stg; prod
-out=$(FAKE_RUNNING_MODEL_KEY=production-model-key run); expect "fails when the RUNNING backend still holds production's key although the file is fixed" "FAIL  the RUNNING backend still uses production's model key" "$out"; expect_not "...without printing it" "production-model-key" "$out"
-out=$(FAKE_WORKER_MODEL_KEY=production-model-key run); expect "fails when only the worker is stale" "FAIL  the RUNNING worker still uses production's model key" "$out"; expect "...and the backend is reported as fine" "PASS  the running backend uses the staging model key" "$out"
+out=$(FAKE_RUNNING_MODEL_KEY=production-model-key run); expect "fails when the RUNNING backend still holds production's key although the file is fixed" "FAIL  the RUNNING backend still uses production's model key while the settings file holds another" "$out"; expect_not "...without printing it" "production-model-key" "$out"
+out=$(FAKE_WORKER_MODEL_KEY=production-model-key run); expect "fails when only the worker is stale" "FAIL  the RUNNING worker still uses production's model key while the settings file holds another" "$out"; expect "...and the backend is reported as fine" "PASS  the running backend uses the staging model key" "$out"
 out=$(FAKE_RUNNING_MODEL_KEY=some-older-key run); expect "fails when a running container holds neither key" "FAIL  the RUNNING backend holds a different model key than the settings file" "$out"
 out=$(run); expect "passes when both running containers hold the staging key" "PASS  the running worker uses the staging model key" "$out"
+# --- an owner decision to share the key with production: recorded as a warning, never silent, and never hides a stale container
+stg same-key; prod same-key
+out=$(FAKE_RUNNING_MODEL_KEY=same-key run --allow-shared-model-key); expect "with the flag, the shared key is a WARNING that says it was accepted" "WARN  DEEPSEEK_API_KEY is the SAME in staging and production \(accepted by --allow-shared-model-key\)" "$out"
+expect "...the running containers are warned about too, not failed" "WARN  the running backend uses the model key shared with production" "$out"; expect "...and the preflight can be OK" "STAGING AI PREFLIGHT: OK" "$out"; expect_not "...never printing the key" "same-key" "$out"
+out=$(FAKE_RUNNING_MODEL_KEY=same-key run); expect "without the flag, the same situation fails and names the flag" "FAIL  DEEPSEEK_API_KEY is the SAME.*--allow-shared-model-key" "$out"
+stg new-staging-key; prod same-key
+out=$(FAKE_RUNNING_MODEL_KEY=same-key run --allow-shared-model-key); expect "the flag does not excuse a stale container: the file was changed but the running service still holds production's" "FAIL  the RUNNING backend still uses production's model key while the settings file holds another" "$out"
+stg same-key; prod same-key
+out=$(FAKE_RUNNING_MODEL_KEY=some-older-key run --allow-shared-model-key); expect "nor a container holding some other key" "FAIL  the RUNNING backend holds a different model key" "$out"
+stg; prod
 out=$(FAKE_MINIO_USER=minioadmin FAKE_BACKEND_KEY=stagingkey run); expect "fails when the backend and MinIO keys differ" "FAIL  the backend's MinIO key does NOT match" "$out"; expect "and flags the default login" "FAIL  MinIO is using the built-in default login" "$out"
 out=$(FAKE_PORTS="9000/tcp -> 0.0.0.0:9002" run); expect "fails when staging MinIO publishes a host port" "FAIL  staging MinIO publishes host ports" "$out"
 out=$(FAKE_LISTEN=1 run); expect "fails when something listens on 9002" "FAIL  something listens on 9002" "$out"

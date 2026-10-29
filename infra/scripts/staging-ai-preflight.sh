@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # STAGING ONLY. One command for the checks that must pass before AI testing on staging. Run as root on the staging host:
 #
-#   bash infra/scripts/staging-ai-preflight.sh [--no-minio-test]
+#   bash infra/scripts/staging-ai-preflight.sh [--no-minio-test] [--allow-shared-model-key]
 #
 # Read-only, except the MinIO round trip: it writes ONE uniquely named object (preflight/<uuid>.txt), reads it back, compares it,
 # and removes exactly that object. It never lists, overwrites or deletes anything else. Prints PASS / WARN / FAIL lines only: no
 # secret values, no fingerprints, no message content. Exit 0 only when nothing FAILED.
+#
+# --allow-shared-model-key records an owner decision to let staging use the SAME model key as production: the two shared-key checks
+# become WARNINGS that say so, never silence. Billing and the provider's rate limits are then shared, so staging model calls can use up
+# production's allowance. A running container must still hold exactly the key in the settings file.
 set -u
 FAILS=0; WARNS=0
 pass() { echo "PASS  $*"; }
@@ -14,7 +18,8 @@ bad()  { echo "FAIL  $*"; FAILS=$((FAILS+1)); }
 stop() { echo "FAIL  $*"; echo "STOP: this does not look like the staging host. Nothing else was checked."; exit 1; }
 
 RUN_MINIO=true
-for a in "$@"; do case "$a" in --no-minio-test) RUN_MINIO=false ;; *) echo "unknown argument: $a"; exit 2 ;; esac; done
+ALLOW_SHARED=false
+for a in "$@"; do case "$a" in --no-minio-test) RUN_MINIO=false ;; --allow-shared-model-key) ALLOW_SHARED=true ;; *) echo "unknown argument: $a"; exit 2 ;; esac; done
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "run this from the staging release checkout"; exit 2; }
 SFILE=${STAGING_ENV_FILE:-$ROOT/infra/.env.staging}
@@ -69,7 +74,9 @@ done
 val() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n1 | tr -d '\r"'"'"; }
 if [ -f "$PFILE" ]; then
   s=$(val "$SFILE" DEEPSEEK_API_KEY); p=$(val "$PFILE" DEEPSEEK_API_KEY)
-  if [ -n "$s" ] && [ "$s" = "$p" ]; then bad "DEEPSEEK_API_KEY is the SAME in staging and production: staging model calls would bill production. Give staging its own key before any live evaluation."
+  if [ -n "$s" ] && [ "$s" = "$p" ]; then
+    if [ "$ALLOW_SHARED" = true ]; then warn "DEEPSEEK_API_KEY is the SAME in staging and production (accepted by --allow-shared-model-key): staging model calls bill production and share its provider rate limit"
+    else bad "DEEPSEEK_API_KEY is the SAME in staging and production: staging model calls would bill production. Give staging its own key, or accept this on purpose with --allow-shared-model-key."; fi
   elif [ -n "$s" ]; then pass "DEEPSEEK_API_KEY differs from production's"; fi
   for k in JWT_SECRET JWT_REFRESH_SECRET; do
     s=$(val "$SFILE" "$k"); p=$(val "$PFILE" "$k")
@@ -84,8 +91,12 @@ sk=$(val "$SFILE" DEEPSEEK_API_KEY); pk=$(val "$PFILE" DEEPSEEK_API_KEY)
 for c in backend worker; do
   ck=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "wa_staging_$c" | sed -n 's/^DEEPSEEK_API_KEY=//p')
   if [ -z "$ck" ]; then warn "the running $c has no DEEPSEEK_API_KEY"
-  elif [ -n "$pk" ] && [ "$ck" = "$pk" ]; then bad "the RUNNING $c still uses production's model key: recreate it (backend and worker) after setting the staging key"
-  elif [ -n "$sk" ] && [ "$ck" != "$sk" ]; then bad "the RUNNING $c holds a different model key than the settings file: recreate it to apply the file"
+  elif [ -n "$sk" ] && [ "$ck" != "$sk" ]; then
+    if [ -n "$pk" ] && [ "$ck" = "$pk" ]; then bad "the RUNNING $c still uses production's model key while the settings file holds another: recreate it (backend and worker) to apply the file"
+    else bad "the RUNNING $c holds a different model key than the settings file: recreate it to apply the file"; fi
+  elif [ -n "$pk" ] && [ "$ck" = "$pk" ]; then
+    if [ "$ALLOW_SHARED" = true ]; then warn "the running $c uses the model key shared with production (accepted by --allow-shared-model-key)"
+    else bad "the RUNNING $c uses production's model key: give staging its own key, recreate backend and worker, or accept this on purpose with --allow-shared-model-key"; fi
   else pass "the running $c uses the staging model key from the settings file"; fi
 done
 unset sk pk ck
