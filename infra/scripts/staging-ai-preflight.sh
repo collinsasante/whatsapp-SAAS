@@ -69,6 +69,16 @@ if [ -f "$PFILE" ]; then
 else
   warn "production settings file not found at $PFILE, so the shared-secret comparison was skipped"
 fi
+# A settings file is only read when a container is CREATED, so also check the keys the RUNNING backend and worker actually hold.
+sk=$(val "$SFILE" DEEPSEEK_API_KEY); pk=$(val "$PFILE" DEEPSEEK_API_KEY)
+for c in backend worker; do
+  ck=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "wa_staging_$c" | sed -n 's/^DEEPSEEK_API_KEY=//p')
+  if [ -z "$ck" ]; then warn "the running $c has no DEEPSEEK_API_KEY"
+  elif [ -n "$pk" ] && [ "$ck" = "$pk" ]; then bad "the RUNNING $c still uses production's model key: recreate it (backend and worker) after setting the staging key"
+  elif [ -n "$sk" ] && [ "$ck" != "$sk" ]; then bad "the RUNNING $c holds a different model key than the settings file: recreate it to apply the file"
+  else pass "the running $c uses the staging model key from the settings file"; fi
+done
+unset sk pk ck
 ak=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' wa_staging_backend | sed -n 's/^MINIO_ACCESS_KEY=//p')
 mk=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' wa_staging_minio | sed -n 's/^MINIO_ROOT_USER=//p')
 [ -n "$ak" ] && [ "$ak" = "$mk" ] && pass "the backend's MinIO key matches MinIO's root user" || bad "the backend's MinIO key does NOT match MinIO's root user"

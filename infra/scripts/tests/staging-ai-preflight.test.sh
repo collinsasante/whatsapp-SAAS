@@ -15,7 +15,8 @@ case "$1" in
       *State.Running*) echo "${FAKE_RUNNING:-true}";;
       *RestartCount*) echo "${FAKE_RESTARTS:-0}";;
       *State.Health*) echo healthy;;
-      *wa_staging_backend*Config.Env*|*Config.Env*wa_staging_backend*) printf 'MINIO_ACCESS_KEY=%s\n' "${FAKE_BACKEND_KEY:-stagingkey}";;
+      *wa_staging_backend*Config.Env*|*Config.Env*wa_staging_backend*) printf 'MINIO_ACCESS_KEY=%s\nDEEPSEEK_API_KEY=%s\n' "${FAKE_BACKEND_KEY:-stagingkey}" "${FAKE_RUNNING_MODEL_KEY:-staging-model-key}";;
+      *wa_staging_worker*Config.Env*|*Config.Env*wa_staging_worker*) printf 'DEEPSEEK_API_KEY=%s\n' "${FAKE_WORKER_MODEL_KEY:-${FAKE_RUNNING_MODEL_KEY:-staging-model-key}}";;
       *wa_staging_minio*Config.Env*|*Config.Env*wa_staging_minio*) printf 'MINIO_ROOT_USER=%s\n' "${FAKE_MINIO_USER:-stagingkey}";;
       *) echo ok;;
     esac;;
@@ -66,6 +67,10 @@ out=$(FAKE_RUNNING=false run); expect "stops when a container is not running" "F
 stg same-key; prod same-key
 out=$(run); expect "fails when the model key is shared with production" "FAIL  DEEPSEEK_API_KEY is the SAME" "$out"; expect "and is NOT READY" "NOT READY" "$out"; expect_not "without printing the key" "same-key" "$out"
 stg; prod
+out=$(FAKE_RUNNING_MODEL_KEY=production-model-key run); expect "fails when the RUNNING backend still holds production's key although the file is fixed" "FAIL  the RUNNING backend still uses production's model key" "$out"; expect_not "...without printing it" "production-model-key" "$out"
+out=$(FAKE_WORKER_MODEL_KEY=production-model-key run); expect "fails when only the worker is stale" "FAIL  the RUNNING worker still uses production's model key" "$out"; expect "...and the backend is reported as fine" "PASS  the running backend uses the staging model key" "$out"
+out=$(FAKE_RUNNING_MODEL_KEY=some-older-key run); expect "fails when a running container holds neither key" "FAIL  the RUNNING backend holds a different model key than the settings file" "$out"
+out=$(run); expect "passes when both running containers hold the staging key" "PASS  the running worker uses the staging model key" "$out"
 out=$(FAKE_MINIO_USER=minioadmin FAKE_BACKEND_KEY=stagingkey run); expect "fails when the backend and MinIO keys differ" "FAIL  the backend's MinIO key does NOT match" "$out"; expect "and flags the default login" "FAIL  MinIO is using the built-in default login" "$out"
 out=$(FAKE_PORTS="9000/tcp -> 0.0.0.0:9002" run); expect "fails when staging MinIO publishes a host port" "FAIL  staging MinIO publishes host ports" "$out"
 out=$(FAKE_LISTEN=1 run); expect "fails when something listens on 9002" "FAIL  something listens on 9002" "$out"
