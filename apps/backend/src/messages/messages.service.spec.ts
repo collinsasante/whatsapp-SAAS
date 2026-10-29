@@ -1,4 +1,4 @@
-import { HUMAN_HANDOFF_REPLY } from '../ai-core/prompts/escalation-messages.util';
+import { HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
 import { MessagesService } from './messages.service';
 
 /**
@@ -444,6 +444,106 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
 
       const sentText = deps.whatsappService.sendTextMessage.mock.calls[0][2];
       expect(sentText).toMatch(/trouble connecting|kept this conversation open/i);
+    });
+
+    describe('a provider outage does not repeat the same apology on every customer message', () => {
+      // The legacy responder swallows a provider error into an empty response, so this is the outage path.
+      const outage = (deps: ReturnType<typeof buildDeps>) => deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: '', confidence: null, blocked: false });
+      const recentFallback = (deps: ReturnType<typeof buildDeps>) => deps.prisma.message.findFirst.mockResolvedValue({ id: 'earlier-fallback' });
+      const run = (service: unknown, commerce = false) => (service as { handleAiAutoReply: (...a: unknown[]) => Promise<void> }).handleAiAutoReply('t1', conversation, contact, 'hi again', commerce, null);
+
+      it('the first failure still apologises and hands off, and records that it did so', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        await run(buildService(deps));
+        expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+        expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, fallback: true, handoffRequested: true } }) }));
+      });
+
+      it('a repeat failure within the cooldown sends nothing and does not request another handoff', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        recentFallback(deps);
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(deps.prisma.message.create).not.toHaveBeenCalled();
+        expect(deps.aiLogsService.create).not.toHaveBeenCalled();
+      });
+
+      it('looks only for this tenant and conversation\'s own recent, outbound, flagged-and-handed-off fallback', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        const before = Date.now();
+        await run(buildService(deps));
+        const lookups = deps.prisma.message.findFirst.mock.calls.map((c: unknown[]) => c[0] as { where: Record<string, unknown> }).filter((a) => JSON.stringify(a).includes('handoffRequested'));
+        expect(lookups).toHaveLength(1);
+        const where = lookups[0].where as { tenantId: string; conversationId: string; direction: string; createdAt: { gte: Date }; AND: unknown[] };
+        expect(where).toMatchObject({ tenantId: 't1', conversationId: 'conv1', direction: 'OUTBOUND' });
+        expect(where.AND).toEqual([{ metadata: { path: ['fallback'], equals: true } }, { metadata: { path: ['handoffRequested'], equals: true } }]);
+        const windowMs = before - where.createdAt.gte.getTime();
+        expect(windowMs).toBeGreaterThanOrEqual(15 * 60_000 - 5_000);
+        expect(windowMs).toBeLessThanOrEqual(15 * 60_000 + 5_000);
+      });
+
+      it('a provider that has recovered answers normally even right after an apology (only a repeat failure is suppressed)', async () => {
+        const deps = buildDeps();
+        recentFallback(deps);
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, 'Hi there', undefined, undefined);
+        expect(deps.prisma.message.findFirst.mock.calls.filter((c: unknown[]) => JSON.stringify(c[0]).includes('handoffRequested'))).toHaveLength(0);
+        expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true } }) }));
+      });
+
+      it('if the earlier handoff failed, the apology records that, so a later failure is not silenced by it', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        deps.conversationsService.requestWithRetry.mockResolvedValue(false);
+        await run(buildService(deps));
+        expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, fallback: true, handoffRequested: false } }) }));
+      });
+
+      it('a failed lookup fails open: the apology is sent as before rather than leaving the customer in silence', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        deps.prisma.message.findFirst.mockRejectedValue(new Error('db down'));
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+      });
+
+      it('the same holds for the v2/commerce path, where the generator returns the fallback text with shouldEscalate', async () => {
+        const first = buildDeps();
+        first.commerceAiService.handleMessage.mockResolvedValue({ response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: [] });
+        await run(buildService(first), true);
+        expect(first.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+        expect(first.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, commerce: true, fallback: true, handoffRequested: true } }) }));
+
+        const repeat = buildDeps();
+        repeat.commerceAiService.handleMessage.mockResolvedValue({ response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: [] });
+        recentFallback(repeat);
+        await run(buildService(repeat), true);
+        expect(repeat.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(repeat.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+      });
+
+      it('a genuine escalation (customer asked for a person) is never suppressed by an earlier apology', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "Sure, I'll get someone to help.", confidence: 20, blocked: false, shouldEscalate: true });
+        recentFallback(deps);
+        await run(buildService(deps));
+        expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, "Sure, I'll get someone to help.", undefined, undefined);
+      });
+
+      it('human takeover still wins: a human-handled conversation gets no apology and no lookup', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        deps.prisma.conversation.findFirst.mockResolvedValue({ assignedTo: { id: 'agent-9', isAiAgent: false, lastSeenAt: new Date() } });
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(deps.prisma.message.findFirst.mock.calls.filter((c: unknown[]) => JSON.stringify(c[0]).includes('handoffRequested'))).toHaveLength(0);
+      });
     });
 
     it('degrades gracefully when message persistence fails, without throwing or emitting', async () => {

@@ -102,6 +102,13 @@ const WHATSAPP_WEB_MEDIA_TYPE_MAP: Record<string, MessageType> = {
 
 // Total worst-case wait ~1.7s: covers the gap between provider accept and the DB write of its id.
 const CLIENT_SEND_DEDUPE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * After the AI could not answer because the provider failed and a handoff was requested, the customer has already been told so.
+ * Within this window a further provider failure on the same conversation sends nothing more (see handleAiAutoReply), instead of
+ * repeating the same apology and handoff request on every message the customer writes.
+ */
+const PROVIDER_FAILURE_FALLBACK_COOLDOWN_MS = 15 * 60_000;
 export const RECEIPT_LOOKUP_RETRY_DELAYS_MS: readonly number[] = [150, 400, 1200];
 
 @Injectable()
@@ -1630,6 +1637,27 @@ export class MessagesService {
   }
 
   /**
+   * True if this conversation already received a provider-failure apology, with a successful handoff request, within the cooldown.
+   * A failed lookup answers false: the worst case is the old behaviour (one more apology), never a silent customer on a DB hiccup.
+   */
+  private async recentProviderFailureFallbackSent(tenantId: string, conversationId: string): Promise<boolean> {
+    const prior = await this.prisma.message.findFirst({
+      where: {
+        tenantId,
+        conversationId,
+        direction: 'OUTBOUND',
+        createdAt: { gte: new Date(Date.now() - PROVIDER_FAILURE_FALLBACK_COOLDOWN_MS) },
+        AND: [{ metadata: { path: ['fallback'], equals: true } }, { metadata: { path: ['handoffRequested'], equals: true } }],
+      },
+      select: { id: true },
+    }).catch((err) => {
+      this.logger.warn(`Could not check for a recent AI fallback in conversation ${conversationId}: ${String(err)}`);
+      return null;
+    });
+    return !!prior;
+  }
+
+  /**
    * Resolves the tenant's default AiAgent (lazily backfilled, shares the same
    * synthetic isAiAgent user the legacy responder uses) and runs the Verz-AI
    * v2 pipeline. Only called when the verz_ai_v2 feature flag is on.
@@ -1903,6 +1931,14 @@ export class MessagesService {
       return;
     }
 
+    // A provider outage must not turn into the same apology on every customer message. If this conversation was already told, with a
+    // successful handoff request, a moment ago, stay quiet: the request is open and the customer's messages still reach the team.
+    // A normal reply, or a provider that has recovered, is not affected: only a repeat of the failure is suppressed.
+    if ((!result?.response || result.response === PROVIDER_FAILURE_FALLBACK_TEXT) && await this.recentProviderFailureFallbackSent(tenantId, conversation.id)) {
+      this.logger.warn(`AI provider-failure fallback suppressed for conversation ${conversation.id}: the customer was already told and a handoff is already requested`);
+      return;
+    }
+
     if (!result?.response) {
       // Verz-AI unification, Phase L: this used to be a silent early return -- if
       // generateAiReply() threw outright (rather than returning a handled failure
@@ -1932,7 +1968,7 @@ export class MessagesService {
         data: {
           tenantId, conversationId: conversation.id, contactId: contact.id, direction: 'OUTBOUND' as const, type: 'TEXT' as const,
           ...fallbackDelivery.fields, content: fallbackText, whatsappNumberId: conversation.whatsappNumberId,
-          metadata: { aiGenerated: true, fallback: true },
+          metadata: { aiGenerated: true, fallback: true, handoffRequested: escalated },
         },
       }).catch((err) => {
         this.logger.warn(`Failed to persist the AI fallback message for conversation ${conversation.id}: ${String(err)}`);
@@ -1942,6 +1978,7 @@ export class MessagesService {
       return;
     }
 
+    let handoffRequested = false;
     if (result.shouldEscalate) {
       // Second hardening pass, Section 4: backend-enforced handoff truth. The
       // generator's own text for this turn may already say something like "I'll get
@@ -1953,6 +1990,7 @@ export class MessagesService {
       const escalated = await this.conversationsService.requestWithRetry(
         tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence',
       );
+      handoffRequested = escalated;
       if (!escalated) {
         this.logger.warn(`Handoff failed (after retry) for conversation ${conversation.id} -- rewriting response to avoid a false claim`);
         result.response = HANDOFF_FAILED_TEXT;
@@ -2006,7 +2044,11 @@ export class MessagesService {
         whatsappNumberId: conversation.whatsappNumberId,
         // commerce:true is preserved from the pre-unification Commerce branch's own
         // message metadata, so anything already keying off it keeps working.
-        metadata: commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true },
+        metadata: {
+          ...(commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true }),
+          // Marks a provider-failure apology so that a repeat within the cooldown can be recognised.
+          ...(result.response === PROVIDER_FAILURE_FALLBACK_TEXT ? { fallback: true, handoffRequested } : {}),
+        },
       },
       include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
     }).catch((err) => {
