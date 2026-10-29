@@ -37,7 +37,7 @@ function buildPrismaMock() {
         // version matches RESPONDER_SYSTEM_VERSION so PromptsService.ensureVersion's
         // upgrade path (unrelated to this suite, covered in prompts.service.spec.ts)
         // short-circuits immediately without needing aiPromptVersion mocked here.
-        versions: [{ id: 'ver-1', templateId: 'tmpl-1', version: '1.1.0', body: 'System for {{business_name}}: {{personality}} {{tenant_instructions}} {{knowledge_base}}', variables: [] }],
+        versions: [{ id: 'ver-1', templateId: 'tmpl-1', version: '1.2.0', body: 'System for {{business_name}}: {{personality}} {{tenant_instructions}} {{knowledge_base}}', variables: [] }],
       }),
       create: jest.fn(),
     },

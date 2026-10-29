@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { sanitizeForWhatsApp, sanitizeForMessenger } from '../whatsapp-format.util';
+import { isUnsupportedFollowUpPromise } from '../follow-up-promise.util';
+import { HUMAN_HANDOFF_REPLY } from '../../prompts/escalation-messages.util';
 
 // Fallback responses are knowledge gaps -- cap confidence so they correctly
 // surface as low-confidence and trigger human review. Ported verbatim from
@@ -35,6 +37,15 @@ export class PolicyStage implements PipelineStage {
       ctx.trace.safetyFlags.fallbackCapped = true;
     } else {
       ctx.result = { ...ctx.result, response };
+    }
+
+    // A reply that promises "the team will follow up" when nothing arranged one is turned into a real handoff, so what the
+    // customer is told is true. A follow-up that a tool really arranged this turn (an internal task) is left alone.
+    if (ctx.result && response && !ctx.result.shouldEscalate && isUnsupportedFollowUpPromise(response, ctx.trace.toolTrace)) {
+      ctx.result = { ...ctx.result, shouldEscalate: true, response: HUMAN_HANDOFF_REPLY };
+      ctx.trace.safetyFlags.unsupportedFollowUpPromise = true;
+      ctx.trace.safetyFlags.humanEscalation = true;
+      ctx.trace.safetyFlags.escalationReason = 'unsupported_follow_up_promise';
     }
 
     if (!response && ctx.trace.status === 'SUCCESS') {

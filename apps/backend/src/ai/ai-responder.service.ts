@@ -7,6 +7,7 @@ import { buildHistoryWhere } from '../ai-core/context/history-scope.util';
 import { detectInjection } from '../ai-core/guards/injection-patterns';
 import { loadHistory } from '../ai-core/context/history-loader.util';
 import { parseStructuredReply } from '../ai-core/completion/model-output.util';
+import { ANSWER_DIRECTLY_RULE, CONVERSATION_CONTINUITY_RULE, CUSTOMER_LANGUAGE_RULE, CUSTOMER_NAME_RULE, KNOWLEDGE_GAP_RULE_LEGACY, REPLY_LENGTH_RULE } from '../ai-core/prompts/response-rules';
 
 interface OffHoursDay { enabled?: boolean; start?: string; end?: string }
 
@@ -220,10 +221,13 @@ export class AiResponderService {
       `PERSONALITY: ${personality}`,
       ``,
       `RESPONSE RULES:`,
-      `- Use ONLY the knowledge base below to answer questions. Do not invent information.`,
-      `- If the answer is not in the knowledge base, reply: "That's a great question! Our team will follow up with you shortly."`,
-      `- Keep replies short (1-3 sentences). This is WhatsApp, not email.`,
-      `- Address the customer by name if provided. Do not use markdown formatting.`,
+      `- Use ONLY the knowledge base below to answer questions. Never invent a price, policy, delivery time, availability or promise that is not stated there.`,
+      ANSWER_DIRECTLY_RULE,
+      KNOWLEDGE_GAP_RULE_LEGACY,
+      CONVERSATION_CONTINUITY_RULE,
+      CUSTOMER_LANGUAGE_RULE,
+      CUSTOMER_NAME_RULE,
+      REPLY_LENGTH_RULE,
       `- Never claim to be a human if sincerely asked.`,
       ``,
       `ABSOLUTE SAFETY GUARDRAILS: NEVER VIOLATE UNDER ANY CIRCUMSTANCES:`,

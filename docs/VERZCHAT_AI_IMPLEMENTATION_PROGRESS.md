@@ -60,7 +60,7 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | D3 | The legacy responder never recorded an `AiExecution` (`executionId: null`), and Commerce AI discarded the id of the execution `ToolCallingService` did record. Neither reply could be linked to its interaction log, so neither could ever be evaluated, and legacy outages left no trace (no `ai_executions` rows after 2026-10-24 despite many 401s). Confirmed by reading the code. | High (evaluation was inert for legacy and Commerce workspaces) | `VERIFIED` fixed, see 5.2 |
 | D10 | AI Test Chat sent its synthetic customer message through the real `MessagesService.handleInbound`, so in auto-reply mode the AI reply went to the real channel sender with a fake phone number (Meta `131009`), was logged `AUTO_SENT`, and the page labelled it "Suggested, not sent" (the service reported `SUGGESTION` whenever any log existed). Confirmed by reading the code. | High | `VERIFIED` fixed, see 5.3 |
 | D12 | Simulated (Test Chat) turns are now unmetered, which also makes them free: a tenant user can generate unlimited real DeepSeek calls through the test chat. There is no cap. | Medium | `VERIFIED` fixed, see 5.4 (the numeric defaults are proposals and still need a product decision) |
-| D11 | Fixed wording remains in the legacy prompt (`"That's a great question! Our team will follow up with you shortly."`, `"Address the customer by name"`) and in the shared fallback texts. The Phase 2 hardcoded-response audit is not done. | Medium | `NOT_STARTED` |
+| D11 | Fixed wording remains in the legacy prompt (`"That's a great question! Our team will follow up with you shortly."`, `"Address the customer by name"`) and in the shared fallback texts. The Phase 2 hardcoded-response audit is not done. | Medium | `VERIFIED` (code and prompts), see 5.5; live-model effect not measured |
 | D4 | `ai-learning` judge: no spend cap or usage accounting, no input redaction or length caps, no prompt-injection delimiting, `max_tokens: 500` under an unverified thinking default | Medium | `NOT_STARTED` (F1, F4, F5, F6 from the earlier review) |
 | D5 | Review-task uniqueness is serialization-enforced, not a DB constraint (`InternalTask` has none) | Low | accepted limitation, documented |
 | D6 | `runExclusiveForConversation` and the client-send dedupe are per-process; a second backend replica would break their guarantees | Medium (latent) | `NOT_STARTED` |
@@ -73,7 +73,7 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Audit the existing system | `IN_PROGRESS`: reply path, takeover, queues, models, frontend inventoried; knowledge ingestion, credits, retention not yet traced |
-| 1 | Reliable AI foundation (provider abstraction, validation, retries, instrumentation) | `IN_PROGRESS`: D1, D3, D10 and D12 done; D4, D6 open |
+| 1 | Reliable AI foundation (provider abstraction, validation, retries, instrumentation) | `IN_PROGRESS`: D1, D3, D10, D11 and D12 done; D4, D6 open |
 | 2 | Correct and safe conversations, takeover | `IN_PROGRESS`: takeover rechecks exist and are tested; Test Chat is now an isolated simulation (5.3); no new takeover concurrency work yet |
 | 3 | Learning pipeline (candidates, verification, review, versions) | `NOT_STARTED` beyond the evaluation reliability work already on staging |
 | 4 | Measured outcome feedback loop | `NOT_STARTED` |
@@ -309,6 +309,52 @@ Frontend (headless Chrome driving the real page via the DevTools protocol, again
 
 Results: full backend suite 159 suites passed and 1 failed, 2388 tests passed; the one failure was `audio.util.spec.ts` (real ffmpeg, unrelated, known flaky), which passes 3/3 alone. Opt-in real Redis 16/16, real Postgres 11/11; `tsc --noEmit` exit 0 for backend (src and test), worker, frontend, shared-utils; `git diff --check` exit 0.
 
+### 5.5 D11: hardcoded response wording  (`IMPLEMENTED` + `VERIFIED` locally; live-model effect not measured)
+
+Audit (which execution path each wording problem actually reaches):
+
+| Item | Where | Reaches a customer? | Class | D11 action |
+|---|---|---|---|---|
+| `"That's a great question! Our team will follow up with you shortly."` | legacy prompt (`ai-responder.service.ts`); v2 seed template 1.0.0 and 1.1.0 (`responder-system.v1.ts`) | Legacy: yes, sent as written, nothing arranges a follow-up. v2: the phrase only capped confidence to 40, escalation needs 20 or below, so it was also sent unbacked | Unnecessary fixed wording and an unsupported promise | Removed from both. Replaced by instructions (clarify, partial answer, say plainly, point to a real route); not by another phrase |
+| "Address the customer by name if provided" | same two prompts; the name is passed as `Customer name:` each turn | Yes, every reply | Unnecessary forced name | Replaced by a use-naturally rule; the name is still passed as data |
+| "Keep replies short (1-3 sentences)" | same, plus shared style rules | Yes | Useful default that cut real answers short | "Usually 1-3 sentences but include everything needed" |
+| Commerce: "say a team member will help with that" for refunds/discounts | `commerce-ai.service.ts` | Yes | Unsupported promise (no tool, no handoff) | Now: say you can't, use `create_internal_task`, promise only if it succeeded |
+| Commerce: "you'll follow up once approved" (`AWAITING_APPROVAL`) | same | Yes | Backed by the real approval queue | Kept; the guard recognises it as backed |
+| `FALLBACK_SIGNALS` confidence cap (legacy and v2 policy stage) | both | Internal | Control, matches the old canned text | Kept for tenants on a customised or older prompt |
+| `HUMAN_HANDOFF_REPLY`, `MAX_ITERATIONS_FALLBACK_TEXT`, `PROVIDER_FAILURE_FALLBACK_TEXT`, `HANDOFF_FAILED_TEXT` | `escalation-messages.util.ts` | Yes | Reusable templates, each tied to a real handoff or an honest failure | Kept; `HUMAN_HANDOFF_REPLY` lost "right away" (a timing promise nothing guarantees) |
+| Injection refusal line | all prompts | Yes | Security control | Untouched |
+| Identity and safety block, grounding ("use only the knowledge base"), JSON output contract, business-hours and conversation-state blocks | prompts | n/a | Business policy, security | Untouched, asserted by tests |
+| Pricing, stock, payment status, delivery check, refunds | commerce tools and rules | n/a | Deterministic logic | Untouched, asserted by tests |
+| Escalation and credit metering, tenant isolation | `messages.service`, pipeline, credits | n/a | Authorization, billing, escalation | Untouched |
+
+Changes:
+- New `ai-core/prompts/response-rules.ts` holds the shared wording rules (answer first with no filler, knowledge-gap behaviour, conversation continuity, customer language, natural name use, reply length), used by both the legacy prompt and the v2 template so they cannot drift.
+- New deterministic guard `ai-core/pipeline/follow-up-promise.util.ts`: a reply that promises a team follow-up is replaced by the real handoff (`shouldEscalate`, `HUMAN_HANDOFF_REPLY`) unless a tool arranged it this turn (`create_internal_task` returned a task id, or `submit_order_for_payment` returned `AWAITING_APPROVAL`; an errored tool never counts). Applied in the v2 policy stage and, for legacy and commerce, in `MessagesService.generateAiReply`. In a simulated (Test Chat) run no real handoff is requested and no provider is reached. Trace flag `unsupportedFollowUpPromise` (shared type extended).
+- v2 template is now version 1.2.0. An existing install whose ACTIVE version is 1.1.0 receives 1.2.0 as a DRAFT only (the existing upgrade rule only auto-activates an untouched 1.0.0), so deploying does not change a live prompt. Activating it is a deliberate step via the existing `POST /prompts/:templateId/versions/:versionId/activate`. Legacy and commerce prompt changes are in code and take effect on deploy.
+- `ai-core/quality/reply-wording.util.ts`: mechanical checker (filler opening, name in consecutive replies, repeated greeting, repeated apology, unsupported promise) for fixtures and later live evaluations.
+
+Before and after (prompt text and guard behaviour; not live model output):
+- Legacy, unanswerable question. Before: instructed to reply exactly "That's a great question! Our team will follow up with you shortly." After: told to answer what the knowledge covers, ask for the one missing detail, or say plainly it does not have it and that the customer can ask for a team member; and never to say the team will follow up. If it does anyway, the customer gets the handoff reply and the conversation is really handed off.
+- Name. Before: "Address the customer by name if provided" on every turn. After: use it where natural, never guess, skip handles/numbers/emoji.
+- Commerce discount request. Before: "say a team member will help with that". After: say it cannot be done here and create an internal task; mention follow-up only if the task succeeded.
+
+Evidence (all local, no provider key, no network):
+- Prompt-content tests (legacy prompt captured from the real service with axios mocked; v2 template rendered with the shared blocks; commerce system prompt captured): retired wording absent, new rules present once, every business and security rule still present (grounding, no invented prices, no refunds or payments, injection refusal, JSON contract, identity).
+- Guard: 39 detector and trace cases (follow-up-promise spec), 8 new policy-stage cases (19 in that spec), 7 new `MessagesService` cases (legacy, commerce backed/unbacked/errored/approval, end-to-end auto-reply with a real handoff request, simulated run with no handoff and no provider call). One real gap was found by these tests and fixed ("A team member will get back to you" had no determiner match).
+- Wording fixtures: 8 retired-style replies are flagged, 10 intended-style replies are clean (21 tests with edge cases). These are hand-written, not model output.
+- Existing suites unchanged and green: pipeline, v2, commerce, legacy history, AI Learning trigger and processors, Test Chat isolation, quality scenarios. Prompts spec: version-bump and DRAFT-not-ACTIVE behaviour covered.
+- Full backend suite: 163 suites passed, 1 skipped; 2482 tests passed, 12 skipped, 0 failed (the FFmpeg `audio.util.spec.ts` did not fail this run). `tsc --noEmit` exit 0 for backend (src and test), worker, frontend, shared-utils, shared-types; `git diff --check` exit 0. Opt-in: real Postgres Test Chat 11/11 and AI Learning concurrency 10/10 (after re-applying migrations to the restarted disposable DB), real Redis 16/16.
+
+Limitations and remaining concerns:
+- Not shown: that live model replies are more natural. No provider call was made (by design), so this change is verified as instructions plus deterministic guards, not as measured quality. The wording checker finds mechanical problems only.
+- The promise detector is English only. A promise in another language, or an unusual phrasing, is not caught and relies on the prompt rule.
+- The fixed reply texts (`HUMAN_HANDOFF_REPLY` and the others) are English whatever language the customer wrote in. Making them adapt would need a model call or per-language text; not done.
+- v2 1.2.0 sits as a DRAFT on existing installs; until someone activates it, v2 keeps the 1.1.0 text (including the canned line), though the guard already covers its follow-up promise.
+- A tenant who customised the prompt or wrote their own instructions with the old phrase keeps that wording; only the guard applies to them.
+- The guard can convert an honest "the team will look into it" that a model writes unprompted into a real handoff; that is intended, but it will raise handoff volume slightly for tenants whose bots lean on that phrasing. Watch handoff counts after activation.
+- Not audited: the chatbot-flow text and welcome messages tenants write themselves, the Messenger/Instagram-specific texts, and campaign/template wording (deterministic or tenant-authored by design).
+- The `Customer name:` prefix is still added to the user turn each time; the model decides whether to use it.
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
@@ -356,6 +402,6 @@ Full-suite result after 5.4: 160 suites passed, 1 skipped; 2376 tests passed, 12
 3. D4: judge input length caps, untrusted-content delimiting, and a per-tenant daily judge-call cap; usage accounting.
 4. Bring the `ai-eval` commits onto this branch (cherry-pick) and extend them with the naturalness rubric and the
    baseline-vs-candidate gate for Phase 3.
-5. D11: the hardcoded-wording audit (legacy prompt fallback line and name rule, shared fallback texts) with preservation tests.
+5. D11 follow-up: run the wording checker over replies from a live evaluation once a valid provider key and authorization exist, and activate v2 prompt 1.2.0 on staging deliberately (5.5).
 6. Design the learning-candidate / verification / version / rollback model (needs a reviewed migration; explain risks first).
 7. Trace knowledge-base ingestion (Phase 5) before claiming SSRF coverage.

@@ -58,7 +58,9 @@ export interface AiExecutionSafetyFlags {
   fallbackCapped?: boolean;
   emptyOutput?: boolean;
   humanEscalation?: boolean;
-  escalationReason?: 'explicit_request' | 'low_confidence';
+  /** The reply promised a team follow-up that nothing arranged, so it was replaced by a real handoff. */
+  unsupportedFollowUpPromise?: boolean;
+  escalationReason?: 'explicit_request' | 'low_confidence' | 'unsupported_follow_up_promise';
 }
 
 export interface AiExecution {

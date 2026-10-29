@@ -51,7 +51,7 @@ describe('PromptsService', () => {
       // version matches RESPONDER_SYSTEM_VERSION so ensureVersion's upgrade path
       // (a separate concern, covered below) short-circuits immediately.
       prisma.aiPromptTemplate.findUnique.mockResolvedValue({
-        versions: [{ id: 'v1', templateId: 't1', version: '1.1.0', body: 'x', variables: [] }],
+        versions: [{ id: 'v1', templateId: 't1', version: '1.2.0', body: 'x', variables: [] }],
       });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
@@ -62,7 +62,7 @@ describe('PromptsService', () => {
 
     it('caches the active version and does not re-query within the TTL', async () => {
       prisma.aiPromptTemplate.findUnique.mockResolvedValue({
-        versions: [{ id: 'v1', templateId: 't1', version: '1.1.0', body: 'x', variables: [] }],
+        versions: [{ id: 'v1', templateId: 't1', version: '1.2.0', body: 'x', variables: [] }],
       });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
@@ -89,12 +89,12 @@ describe('PromptsService', () => {
         versions: [{ id: 'v-old', templateId: 't1', version: '1.0.0', body: RESPONDER_SYSTEM_BODY_V1_0_0, variables: [] }],
       });
       prisma.aiPromptVersion.findFirst.mockResolvedValue(null);
-      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-new', version: '1.1.0', status: 'ACTIVE' });
+      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-new', version: '1.2.0', status: 'ACTIVE' });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
 
       expect(prisma.aiPromptVersion.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ version: '1.1.0', status: 'ACTIVE' }),
+        data: expect.objectContaining({ version: '1.2.0', status: 'ACTIVE' }),
       }));
       expect(prisma.aiPromptVersion.update).toHaveBeenCalledWith({ where: { id: 'v-old' }, data: { status: 'ARCHIVED' } });
     });
@@ -105,13 +105,27 @@ describe('PromptsService', () => {
         versions: [{ id: 'v-old', templateId: 't1', version: '1.0.0', body: 'a tenant admin wrote this', variables: [] }],
       });
       prisma.aiPromptVersion.findFirst.mockResolvedValue(null);
-      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-new', version: '1.1.0', status: 'DRAFT' });
+      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-new', version: '1.2.0', status: 'DRAFT' });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
 
       expect(prisma.aiPromptVersion.create).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ version: '1.1.0', status: 'DRAFT' }),
+        data: expect.objectContaining({ version: '1.2.0', status: 'DRAFT' }),
       }));
+      expect(prisma.aiPromptVersion.update).not.toHaveBeenCalled();
+    });
+
+    it('D11: an install whose ACTIVE version is the previous 1.1.0 gets 1.2.0 as a DRAFT and keeps serving 1.1.0 until someone activates it', async () => {
+      prisma.aiPromptTemplate.findUnique.mockResolvedValue({
+        id: 't1',
+        versions: [{ id: 'v-110', templateId: 't1', version: '1.1.0', body: 'the 1.1.0 body as stored', variables: [] }],
+      });
+      prisma.aiPromptVersion.findFirst.mockResolvedValue(null);
+      prisma.aiPromptVersion.create.mockResolvedValue({ id: 'v-120', version: '1.2.0', status: 'DRAFT' });
+
+      await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
+
+      expect(prisma.aiPromptVersion.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ version: '1.2.0', status: 'DRAFT' }) }));
       expect(prisma.aiPromptVersion.update).not.toHaveBeenCalled();
     });
 
@@ -120,7 +134,7 @@ describe('PromptsService', () => {
         id: 't1',
         versions: [{ id: 'v-old', templateId: 't1', version: '1.0.0', body: 'x', variables: [] }],
       });
-      prisma.aiPromptVersion.findFirst.mockResolvedValue({ id: 'v-new', version: '1.1.0' });
+      prisma.aiPromptVersion.findFirst.mockResolvedValue({ id: 'v-new', version: '1.2.0' });
 
       await service.getActiveVersion(RESPONDER_SYSTEM_TEMPLATE_KEY);
 

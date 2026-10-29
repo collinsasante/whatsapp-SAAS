@@ -29,4 +29,4 @@ export const MAX_ITERATIONS_FALLBACK_TEXT = 'Let me get a team member to help fi
 /** What the customer is told when they ask for a person. Used wherever an explicit request for a human is handled
  * without the model composing the reply, so the wording is the same everywhere. The real handoff is performed by
  * messages.service.ts (shouldEscalate), never by this text. */
-export const HUMAN_HANDOFF_REPLY = "I'll connect you with a team member who can help with this right away.";
+export const HUMAN_HANDOFF_REPLY = "I'm connecting you with a team member who can help with this.";

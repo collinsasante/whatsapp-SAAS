@@ -306,3 +306,35 @@ describe('CommerceAiService', () => {
     });
   });
 });
+
+describe('commerce prompt wording (D11)', () => {
+  async function systemPrompt() {
+    const deps = buildDeps();
+    deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+    await buildService(deps).handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'can I get a discount?', 'Ama');
+    return { system: deps.toolCalling.complete.mock.calls[0][0].systemPrompt as string, request: deps.toolCalling.complete.mock.calls[0][0] };
+  }
+
+  it('does not tell the model to promise help it has no way to arrange (refund/discount requests)', async () => {
+    const { system } = await systemPrompt();
+    expect(system).not.toMatch(/say a team member will help with that/);
+    expect(system).toMatch(/use create_internal_task so a team member can look at it/);
+    expect(system).toMatch(/only tell the customer someone will look into it if that tool call succeeded this turn/);
+  });
+
+  it('keeps the commerce business rules: tool-only prices, no invented payment status, no refunds, deterministic delivery check', async () => {
+    const { system } = await systemPrompt();
+    expect(system).toMatch(/Use ONLY tool results for product names, prices, and stock/);
+    expect(system).toMatch(/Never state that a payment has succeeded/);
+    expect(system).toMatch(/Never issue a refund, discount, or price override/);
+    expect(system).toMatch(/call check_delivery_info first/);
+    expect(system).toMatch(/AWAITING_APPROVAL/);
+  });
+
+  it('shares the style rules (no filler closers, no repeated apology, no claimed-but-untaken actions) and has no forced name rule', async () => {
+    const { system } = await systemPrompt();
+    expect(system).toMatch(/Never describe an action as done, in progress, or arranged unless you actually took it this turn/);
+    expect(system).toMatch(/don't repeat a generic apology/);
+    expect(system).not.toMatch(/by name if provided/i);
+  });
+});

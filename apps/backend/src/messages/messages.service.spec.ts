@@ -130,6 +130,70 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: 'exec-legacy' });
     });
 
+    describe('D11: a promised follow-up that nothing arranged becomes a real handoff', () => {
+      const reply = (deps: ReturnType<typeof buildDeps>, opts: { commerceEnabled: boolean }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (buildService(deps) as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { ...opts, readOnlyTools: false });
+      };
+
+      it('legacy: "our team will follow up" is replaced by the human handoff reply and escalates', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "That's a great question! Our team will follow up with you shortly.", confidence: 40, blocked: false });
+        const result = await reply(deps, { commerceEnabled: false });
+        expect(result).toMatchObject({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true });
+      });
+
+      it('legacy: an honest "I do not have that" answer is sent as written, with no handoff forced', async () => {
+        const deps = buildDeps();
+        const text = "I don't have the price for that one. If you'd like to speak to a team member, just ask.";
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: text, confidence: 35, blocked: false });
+        const result = await reply(deps, { commerceEnabled: false });
+        expect(result.response).toBe(text);
+        expect(result.shouldEscalate).toBeUndefined();
+      });
+
+      it('commerce: a promise with no task behind it is replaced', async () => {
+        const deps = buildDeps();
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'A team member will get back to you about the discount.', blocked: false, toolTrace: [] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result).toMatchObject({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true });
+      });
+
+      it('commerce: the same sentence is kept when create_internal_task really ran this turn', async () => {
+        const deps = buildDeps();
+        const text = "I've passed your discount request to our team and they will get back to you.";
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: text, blocked: false, toolTrace: [{ name: 'create_internal_task', args: {}, result: { taskId: 'task-1', status: 'OPEN' } }] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result.response).toBe(text);
+        expect(result.shouldEscalate).toBeUndefined();
+      });
+
+      it('commerce: an order held for approval may say it will follow up once approved', async () => {
+        const deps = buildDeps();
+        const text = "Your order needs a quick review because of the quantity, and we'll get back to you once it's approved.";
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: text, blocked: false, toolTrace: [{ name: 'submit_order_for_payment', args: {}, result: { status: 'AWAITING_APPROVAL' } }] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result.response).toBe(text);
+      });
+
+      it('commerce: a task tool that errored does not make the promise true', async () => {
+        const deps = buildDeps();
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'Our team will follow up.', blocked: false, toolTrace: [{ name: 'create_internal_task', args: {}, result: { error: 'failed' } }] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result).toMatchObject({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true });
+      });
+
+      it('end to end in auto-reply: the customer is sent the handoff reply and the conversation is really handed off', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'Our team will follow up shortly.', confidence: 40, blocked: false });
+        deps.conversationsService.requestWithRetry.mockResolvedValue(true);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+        expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, HUMAN_HANDOFF_REPLY, undefined, undefined);
+      });
+    });
+
     it('reserves the legacy flat estimate before the provider call and settles it after success', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
@@ -1217,6 +1281,18 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
     ] as jest.Mock[];
     const expectNoProvider = (deps: Deps) => { for (const fn of providerCalls(deps)) expect(fn).not.toHaveBeenCalled(); };
     const storedOutbound = (deps: Deps) => deps.prisma.message.create.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data).filter((d: Record<string, unknown>) => d.direction === 'OUTBOUND');
+
+    describe('D11: the follow-up-promise guard in a simulated conversation', () => {
+      it('replaces the promise, requests no real handoff and reaches no provider', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'Our team will follow up shortly.', confidence: 40, blocked: false });
+        await autoReply(deps);
+
+        expectNoProvider(deps);
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(storedOutbound(deps)[0]).toMatchObject({ content: HUMAN_HANDOFF_REPLY, status: 'QUEUED', metadata: expect.objectContaining({ simulated: true }) });
+      });
+    });
 
     describe('auto-reply mode, legacy responder', () => {
       it('generates and stores the reply as SIMULATED: never sent, no provider id, never AUTO_SENT', async () => {

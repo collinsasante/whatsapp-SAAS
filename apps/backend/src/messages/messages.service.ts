@@ -34,6 +34,7 @@ import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate, isSimulatedPhone, SimulatedRecipientError } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
 import { HANDOFF_FAILED_TEXT, HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { isUnsupportedFollowUpPromise } from '../ai-core/pipeline/follow-up-promise.util';
 import { buildLegacyTrace, describeProviderError, LegacyCallObservation, readProviderUsage } from './legacy-ai-execution.util';
 import { detectHumanRequest } from '../ai-core/pipeline/escalation-detector.util';
 import { isAgentAway } from './ai-takeover.util';
@@ -1751,7 +1752,7 @@ export class MessagesService {
       // results converge, so it's also the one place the real handoff (with a real
       // retry, and an honest customer-facing text if it fails) happens -- see
       // handleAiAutoReply/handleAiSuggestion below.
-      return { response: r.response, confidence: null, blocked: r.blocked, executionId: r.executionId ?? null, shouldEscalate: r.shouldEscalate, toolTrace: r.toolTrace, mediaToSend: r.mediaToSend };
+      return this.withoutUnsupportedFollowUp({ response: r.response, confidence: null, blocked: r.blocked, executionId: r.executionId ?? null, shouldEscalate: r.shouldEscalate, toolTrace: r.toolTrace, mediaToSend: r.mediaToSend });
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
@@ -1795,7 +1796,17 @@ export class MessagesService {
     // It is recorded WITHOUT credit metering for exactly that reason: the hold above already charges it, and recording it
     // as a normal RESPONDER execution would charge it a second time. The record makes the reply traceable and evaluable.
     const executionId = await this.recordLegacyExecution(tenantId, conversationId, buildLegacyTrace({ legacy, call, latencyMs: Date.now() - startedAt, simulated: opts.simulated }), opts.simulated);
-    return { ...legacy, executionId };
+    return this.withoutUnsupportedFollowUp({ ...legacy, executionId });
+  }
+
+  /**
+   * A reply that promises the team will follow up, when no tool this turn arranged one, is replaced by a real handoff (the same
+   * shouldEscalate path an explicit request for a person takes), so the customer is never told something that is not happening.
+   * The v2 pipeline applies the same rule in its own policy stage.
+   */
+  private withoutUnsupportedFollowUp(result: UnifiedAiResult): UnifiedAiResult {
+    if (result.shouldEscalate || !result.response || !isUnsupportedFollowUpPromise(result.response, result.toolTrace)) return result;
+    return { ...result, response: HUMAN_HANDOFF_REPLY, shouldEscalate: true };
   }
 
   /** Recording is traceability, never a reason for the customer not to get a reply: a failure is logged and the turn goes on. */

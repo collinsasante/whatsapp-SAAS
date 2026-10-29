@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_TEMPLATE_KEY,
+  RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_CHANGE_NOTE, RESPONDER_SYSTEM_TEMPLATE_KEY,
   RESPONDER_SYSTEM_TEMPLATE_NAME, RESPONDER_SYSTEM_VARIABLES, RESPONDER_SYSTEM_VERSION,
 } from './seed/responder-system.v1';
 
@@ -86,7 +86,7 @@ export class PromptsService {
         body: RESPONDER_SYSTEM_BODY,
         variables: [...RESPONDER_SYSTEM_VARIABLES],
         activatedAt: untouched ? new Date() : undefined,
-        changeNote: 'Adds business-info/conversation-state grounding; identity/safety moved out of the editable body.',
+        changeNote: RESPONDER_SYSTEM_CHANGE_NOTE,
       },
     });
 
