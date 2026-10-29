@@ -422,6 +422,14 @@ How to read it (this is NOT a clean baseline):
 
 Fixes made after the run (local, not deployed): the scorer fix, the catalogue check and signed-in-workspace notice in `staging-eval-baseline.sh`, the commerce handoff reply, and deterministic acceptance of the fixed handoff reply as a handoff in the scorer. To get a clean baseline: deploy those to staging, use `Verz's Workspace` (or any workspace with active, out-of-stock and unlimited products), sign in as its admin, and run once.
 
+Second run, after deploying the fixes (staging at `fae4aa7f691246b44654ee3a60d19298461a43e5`, prompt 1.1.0 still active, run created 2026-10-29 21:43 UTC, again for `STAGE_VERZCHAT's Workspace` because that is the workspace the admin is signed in to; nothing was run for `Verz's Workspace`):
+- Harness verdict PASS, critical failure false; 33 scenarios: 13 passed, 0 failed, 20 skipped (still no products in that workspace). Criteria: price_accuracy 2/2, payment_handling 2/2, product_accuracy 2/2, escalation_behaviour 4/4 (was 2/4), responseQualityAverage 4.6 (was 4.2).
+- Provider usage: 15 calls, all successful, 141,694 input and 3,339 output (provider-reported; every call reported its counts; no cost computed. The first run made 17 calls; two fewer is consistent with explicit requests for a person no longer calling the model, but that is an inference.
+- Live evidence for the commerce handoff change: for "I hate chatting with AI" the reply was exactly "I'm connecting you with a team member who can help with this." with no tool calls (the first run's reply offered a choice the system had already taken away).
+- Production during the run: 0 provider errors, 0 provider-failure fallback messages; staging backend and worker logs: 0 ERROR lines.
+- How to read it: the two earlier failures changed for known reasons (a scorer defect fixed, and the handoff reply made deterministic), not because the wording became better. The same 13 scenarios ran both times, but each is one run judged partly by the same model, so the 4.2 to 4.6 quality movement is within what judge variation could produce and is not evidence of more natural wording. Price, payment and product criteria were each checked on only 2 cases. A full baseline still needs a workspace with active, out-of-stock and unlimited-stock products and an admin signed in to it.
+- Release: the first deploy attempt stopped at the isolated restore rehearsal with the writers stopped and nothing rolled out (cause not identified; the same rehearsal passed twice afterwards); service was restored by starting the three stopped containers and the second attempt completed. Rollback tag `rollback-20261029-223442`.
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
