@@ -106,3 +106,34 @@ describe('RedisSimulationStore (command shapes; real Redis behaviour is covered 
     expect(RESERVE_SCRIPT).toMatch(/TTL', KEYS\[i\]\) < 0/);
   });
 });
+
+describe('RedisSimulationStore: a store that never answers fails within the bound instead of hanging the request', () => {
+  const never = () => new Promise<never>(() => undefined);
+  const hung: RedisLike = { eval: never, mget: never, get: never, set: never, del: never };
+
+  it.each([
+    ['reserve', (s: RedisSimulationStore) => s.reserve([{ key: 'a', limit: 5, ttlSeconds: 60 }])],
+    ['read', (s: RedisSimulationStore) => s.read(['a'])],
+    ['claim', (s: RedisSimulationStore) => s.claim('a', 'v', 60)],
+    ['get', (s: RedisSimulationStore) => s.get('a')],
+    ['set', (s: RedisSimulationStore) => s.set('a', 'v', 60)],
+    ['del', (s: RedisSimulationStore) => s.del('a')],
+  ])('%s rejects when the command never returns', async (_n, run) => {
+    const started = Date.now();
+    await expect(run(new RedisSimulationStore(async () => hung, 50))).rejects.toThrow(/did not respond within 50 ms/);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('rejects when the connection itself never becomes ready (Redis down at the first command)', async () => {
+    await expect(new RedisSimulationStore(never, 50).reserve([{ key: 'a', limit: 5, ttlSeconds: 60 }])).rejects.toThrow(/did not respond/);
+  });
+
+  it('a prompt answer is returned untouched and leaves no pending timer', async () => {
+    const redis: RedisLike = { ...hung, eval: async () => [1, 0, 1, 1] };
+    jest.useFakeTimers();
+    try {
+      await expect(new RedisSimulationStore(async () => redis, 50).reserve([{ key: 'a', limit: 5, ttlSeconds: 60 }])).resolves.toEqual({ ok: true, counts: [1, 1] });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally { jest.useRealTimers(); }
+  });
+});

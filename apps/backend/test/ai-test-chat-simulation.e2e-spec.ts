@@ -233,7 +233,7 @@ suite('AI Test Chat simulation against a real PostgreSQL (disposable database on
       const seeded = await seed(simulatedPhoneFor('user-9'));
       await prisma.aiExecution.create({ data: { tenantId: seeded.tenant.id, conversationId: seeded.conversation.id, taskType: 'TEST', provider: 'deepseek', modelKey: 'deepseek-v4-flash', status: 'PROVIDER_ERROR', errorCode: 'http_401', safetyFlags: { simulated: true } } });
       const u = await usageService().getUsage(seeded.tenant.id, 'user-9');
-      expect(u.providerUsageToday).toMatchObject({ calls: 1, succeeded: 0, inputTokens: 0, outputTokens: 0, callsWithoutTokenCounts: 1, costEstimateComplete: false, estimatedCostUsd: 0 });
+      expect(u.providerUsageToday).toMatchObject({ calls: 1, succeeded: 0, inputTokens: null, outputTokens: null, callsWithoutTokenCounts: 1, costEstimateComplete: false, estimatedCostUsd: null });
     });
 
     it('uses a cost the recorder stored (a Decimal column) in preference to recomputing it', async () => {

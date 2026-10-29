@@ -288,10 +288,26 @@ Limitations:
 - The eval-run "one active run" check is best effort (read then reserve); the runs/day cap is the hard bound.
 - A unit already taken is not refunded if the request fails before the provider call.
 - Redis is now a hard dependency of the test tools; an outage disables them (by design).
-- The frontend change is verified by `tsc` only (no runner, not viewed in a browser).
-- The full `AppModule` dependency-injection wiring was not confirmed: the check run was stopped before completing. Module wiring is covered
-  by the Nest unit/e2e specs only; confirm on a first staging start.
 - Deploying needs backend and frontend rebuilt and Redis reachable.
+
+#### 5.4.1 Release-readiness check (local, disposable Postgres and Redis, no provider key, nothing contacted)
+
+Startup (the real compiled `dist/main.js`, then an `AppModule` context):
+- Boots and answers `/api/v1/health`; SIGTERM exits in about 1 s. The app does not call `enableShutdownHooks` (existing behaviour), so modules are not destroyed gracefully on SIGTERM; not changed here.
+- Startup needs `STRIPE_SECRET_KEY` (existing `StripeGateway` constructor) and a base64 32-byte `CREDENTIALS_ENCRYPTION_KEY`; a hex key only logs an error. Neither is D12.
+- `SimulationLimitsService` is one singleton and is the instance injected into `AiTestChatService`, `CommerceTestChatService`, `EvaluationRunService`, `AiLogsController` and the `@Optional()` parameter of `AiLearningTriggerService` (the one that would silently run uncapped if unwired). `usage()` works through the app's own Redis-backed store; `app.close()` completes.
+- Config loading: an env value above its ceiling, a tenant override above the ceiling, negative, float, `1e9`, non-numeric, empty, malformed JSON, a non-object, and `__proto__`/`constructor` keys are all ignored (defaults stand, warning names only the setting). A tenant override of 0 switches that scope off.
+- The earlier timeout was a test-harness cost (ts-jest compiling the whole app), not an application fault; the compiled app boots in seconds.
+
+Defect found and fixed: with Redis unreachable a send hung instead of returning 503 (BullMQ's connection retries forever and queues commands). It still failed closed (no provider call) but never answered. Every store operation is now bounded to 2 s and then becomes 503 `SIMULATION_LIMITS_UNAVAILABLE`. A command that times out may still execute when Redis returns; that can only over-count, never admit an extra request.
+
+Defect found and fixed: usage reported `0` tokens and `$0` cost when calls had no provider-reported tokens. Token totals and `estimatedCostUsd` are now `null` ("unknown") when there were calls but none reported or could be priced; 0 means only "no calls" or a reported zero; `callsWithoutTokenCounts` and `costEstimateComplete` remain, and `costBasis` states the cost is a catalog estimate, not a provider charge.
+
+Real HTTP checks against the running app (17/17, throwaway script, seeded rows removed afterwards): usage shows only the caller's tenant (1 call, not the other tenant's 3 calls or token totals); `?tenantId=` and `X-Tenant-ID` do not switch tenant; a token for tenant A's user forged with tenant B is 401; an AGENT is 403 even with a token claiming ADMIN; no secret-named fields in the response; oversized input 400 `SIMULATION_INPUT_TOO_LONG`; spent allowance 429 with scope and retry time; Redis down 503; dev tools off 403; no `AiExecution` row is created by any refused request. Duplicate, failed-provider and concurrent cases are covered by the real-Redis spec (100 requests against a budget of 10 run the work exactly 10 times; 20 simultaneous retries of one id run it once) and the service specs (a failed attempt's retry is not re-run and a timeout is remembered). They were not re-driven through HTTP because that would reach the provider path.
+
+Frontend (headless Chrome driving the real page via the DevTools protocol, against the local backend; no provider reachable): normal state shows "0 of 7 test messages used today" with `maxLength` 1000; spent state shows a red `role=alert` line, input and button disabled; store-down state keeps the page usable, a refused send shows "The test tools are temporarily unavailable. Nothing was sent. Please try again shortly." Two UI defects fixed: a refused message stayed in the thread as if sent and its text was lost (now removed and restored to the input), and the input stayed enabled once the allowance was spent. Not covered: a successful reply render (needs a provider), mobile widths, and the cost estimate is not shown on the page (it is in the usage endpoint). The page is only reachable with `NEXT_PUBLIC_SHOW_DEV_TOOLS=true`, as on staging.
+
+Results: full backend suite 159 suites passed and 1 failed, 2388 tests passed; the one failure was `audio.util.spec.ts` (real ffmpeg, unrelated, known flaky), which passes 3/3 alone. Opt-in real Redis 16/16, real Postgres 11/11; `tsc --noEmit` exit 0 for backend (src and test), worker, frontend, shared-utils; `git diff --check` exit 0.
 
 ## 6. Tests run (this branch)
 

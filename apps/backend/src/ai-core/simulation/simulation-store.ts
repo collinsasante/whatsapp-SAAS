@@ -57,41 +57,55 @@ end
 return out
 `;
 
+/** How long one store operation may take before it is treated as "the store is unavailable". */
+export const STORE_OPERATION_TIMEOUT_MS = 2000;
+
 export class RedisSimulationStore implements SimulationStore {
-  /** Takes a provider so the connection is resolved lazily (BullMQ connects on first use). */
-  constructor(private readonly client: () => Promise<RedisLike>) {}
+  /**
+   * Takes a provider so the connection is resolved lazily (BullMQ connects on first use).
+   *
+   * Every operation is bounded by `timeoutMs`. BullMQ's connection retries forever and queues commands while Redis is down, so
+   * without the bound a request would hang instead of failing closed. A command that times out may still run if Redis comes back; that can
+   * only over-count (a unit taken for a request that was refused), never let an extra request through.
+   */
+  constructor(private readonly client: () => Promise<RedisLike>, private readonly timeoutMs: number = STORE_OPERATION_TIMEOUT_MS) {}
+
+  private bounded<T>(op: (redis: RedisLike) => Promise<T>): Promise<T> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`simulation store did not respond within ${this.timeoutMs} ms`)), this.timeoutMs);
+    });
+    return Promise.race([this.client().then(op), timeout]).finally(() => clearTimeout(timer));
+  }
 
   async reserve(specs: CounterSpec[]): Promise<ReserveResult> {
     if (specs.length === 0) return { ok: true, counts: [] };
-    const redis = await this.client();
     const args: Array<string | number> = [];
     for (const s of specs) args.push(s.limit, s.ttlSeconds);
-    const raw = (await redis.eval(RESERVE_SCRIPT, specs.length, ...specs.map((s) => s.key), ...args)) as number[];
+    const raw = (await this.bounded((redis) => redis.eval(RESERVE_SCRIPT, specs.length, ...specs.map((s) => s.key), ...args))) as number[];
     if (raw[0] === 1) return { ok: true, counts: raw.slice(2).map(Number) };
     return { ok: false, blockedIndex: Number(raw[1]) - 1, count: Number(raw[2]), ttlSeconds: Number(raw[3]) };
   }
 
   async read(keys: string[]): Promise<number[]> {
     if (keys.length === 0) return [];
-    const redis = await this.client();
-    return (await redis.mget(...keys)).map((v) => (v === null ? 0 : Number(v)));
+    return (await this.bounded((redis) => redis.mget(...keys))).map((v) => (v === null ? 0 : Number(v)));
   }
 
   async claim(key: string, value: string, ttlSeconds: number): Promise<boolean> {
-    const redis = await this.client();
-    return (await redis.set(key, value, 'EX', ttlSeconds, 'NX')) === 'OK';
+    return (await this.bounded((redis) => redis.set(key, value, 'EX', ttlSeconds, 'NX'))) === 'OK';
   }
 
   async get(key: string): Promise<string | null> {
-    return (await this.client()).get(key);
+    return this.bounded((redis) => redis.get(key));
   }
 
   async set(key: string, value: string, ttlSeconds: number): Promise<void> {
-    await (await this.client()).set(key, value, 'EX', ttlSeconds);
+    await this.bounded((redis) => redis.set(key, value, 'EX', ttlSeconds));
   }
 
   async del(key: string): Promise<void> {
-    await (await this.client()).del(key);
+    await this.bounded((redis) => redis.del(key));
   }
 }
 

@@ -102,13 +102,16 @@ export default function AiTestChatPage() {
 
   useEffect(() => { void loadState(); void loadUsage(); }, [loadState, loadUsage]);
 
+  const allowanceSpent = usage !== null && usage.used.requestsToday >= usage.limits.dailyRequests;
+
   const send = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || allowanceSpent) return;
     setInput('');
     setSending(true);
     const now = new Date().toISOString();
-    setEntries((prev) => [...prev, { id: `local-${Date.now()}`, direction: 'INBOUND', content: text, kind: 'message', createdAt: now }]);
+    const localId = `local-${Date.now()}`;
+    setEntries((prev) => [...prev, { id: localId, direction: 'INBOUND', content: text, kind: 'message', createdAt: now }]);
     try {
       const res = await aiTestChatApi.send(text, newRequestId());
       const data = res.data as {
@@ -134,6 +137,10 @@ export default function AiTestChatPage() {
         setEntries((prev) => [...prev, { id: `note-${Date.now()}`, direction: 'OUTBOUND', content: data.note ?? 'No AI response.', kind: 'note', createdAt: new Date().toISOString() }]);
       }
     } catch (e) {
+      // The server refused it (limit reached, store unavailable, too long, ...): it was never processed, so do not leave it in the
+      // thread as if it had been sent, and give the text back so nothing the person typed is lost.
+      setEntries((prev) => prev.filter((x) => x.id !== localId));
+      setInput((current) => current || text);
       toast.error(apiErr(e, 'Message failed'));
     } finally {
       setSending(false);
@@ -166,8 +173,10 @@ export default function AiTestChatPage() {
                 Chat as a customer with Verz AI through the real message pipeline. Nothing here is ever sent to WhatsApp, Messenger or Instagram: in Suggestion mode replies are drafts, and in Auto-Reply mode they are generated and shown as simulated replies.
               </p>
               {usage && (
-                <p className={cn('text-xs mt-1', usage.used.requestsToday >= usage.limits.dailyRequests ? 'text-red-600' : usage.used.requestsToday >= usage.limits.dailyRequests * 0.9 ? 'text-amber-600' : 'text-gray-400')}>
-                  {usage.used.requestsToday} of {usage.limits.dailyRequests} test messages used today. The allowance resets at 00:00 UTC. Messages can be up to {usage.limits.maxInputChars} characters, and a conversation up to {usage.limits.maxConversationTurns} messages.
+                <p role={allowanceSpent ? 'alert' : undefined} className={cn('text-xs mt-1', allowanceSpent ? 'text-red-600' : usage.used.requestsToday >= usage.limits.dailyRequests * 0.9 ? 'text-amber-600' : 'text-gray-400')}>
+                  {allowanceSpent
+                    ? `Today's allowance of ${usage.limits.dailyRequests} test messages is used up, so sending is paused until it resets at 00:00 UTC. Real customer messages are not affected.`
+                    : `${usage.used.requestsToday} of ${usage.limits.dailyRequests} test messages used today. The allowance resets at 00:00 UTC. Messages can be up to ${usage.limits.maxInputChars} characters, and a conversation up to ${usage.limits.maxConversationTurns} messages.`}
                 </p>
               )}
             </div>
@@ -241,12 +250,12 @@ export default function AiTestChatPage() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
             placeholder="Type as the customer..."
             maxLength={usage?.limits.maxInputChars}
-            disabled={sending}
+            disabled={sending || allowanceSpent}
             className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-50"
           />
           <button
             onClick={send}
-            disabled={sending || !input.trim()}
+            disabled={sending || allowanceSpent || !input.trim()}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-teal-600 text-white text-sm rounded-xl hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

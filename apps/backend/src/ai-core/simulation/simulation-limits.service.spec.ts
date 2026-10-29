@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DEFAULT_SIMULATION_LIMITS } from './simulation-limits.config';
 import { SimulationLimitReachedException, SimulationLimitsService, SimulationUnavailableException } from './simulation-limits.service';
-import { CounterSpec, MemorySimulationStore, SimulationStore } from './simulation-store';
+import { CounterSpec, MemorySimulationStore, RedisSimulationStore, SimulationStore } from './simulation-store';
 
 /** A controllable clock shared by the service and the store, so windows and expiry are exact. */
 function harness(env: Record<string, string> = {}, start = '2026-10-29T10:00:30.000Z') {
@@ -320,6 +320,17 @@ describe('SimulationLimitsService', () => {
       const mem = new MemorySimulationStore();
       const store: SimulationStore = { reserve: (s: CounterSpec[]) => mem.reserve(s), read: (k) => mem.read(k), claim: (k, v, t) => mem.claim(k, v, t), get: (k) => mem.get(k), set: () => Promise.reject(new Error('redis down')), del: (k) => mem.del(k) };
       await expect(svc(store).execute(args({ requestId: 'request-lll1' }), async () => 'v')).resolves.toEqual({ value: 'v', replayed: false });
+    });
+
+    it('a Redis that never answers is a prompt 503 (the real store, bounded), and the work never runs', async () => {
+      const never = () => new Promise<never>(() => undefined);
+      const hung = new RedisSimulationStore(async () => ({ eval: never, mget: never, get: never, set: never, del: never }), 50);
+      const work = jest.fn();
+      const started = Date.now();
+      const err = await caught(svc(hung).execute(args({ requestId: 'request-mmm1' }), work));
+      expect(err).toBeInstanceOf(SimulationUnavailableException);
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(work).not.toHaveBeenCalled();
     });
 
     it('usage reporting fails with 503, not with zeros', async () => {
