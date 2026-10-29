@@ -90,6 +90,15 @@ if [ "$MODE" = before ]; then
     [ "$ok" = 1 ] && pass "tenant $TENANT is active, commerce-enabled and AI-enabled" || bad "tenant $TENANT is not an active, commerce-enabled, AI-enabled staging tenant"
   fi
   if [ -n "$TENANT" ] && echo "$TENANT" | grep -qE '^[0-9a-fA-F-]{36}$'; then
+    # Scenarios that need a product the tenant does not have are SKIPPED (neither passed nor failed): with no catalogue, 20 of the 33 are.
+    cat=$(echo "SELECT count(*) FILTER (WHERE is_active), count(*) FILTER (WHERE is_active AND stock_quantity = 0), count(*) FILTER (WHERE is_active AND stock_quantity IS NULL) FROM commerce_products WHERE tenant_id = '$TENANT';" | sq)
+    nact=${cat%%|*}; rest=${cat#*|}; nout=${rest%%|*}; nunl=${rest#*|}
+    if [ "${nact:-0}" = 0 ]; then bad "this tenant has NO active products: the 20 scenarios that need a product would be skipped, so the run would say little. Add products first, or choose another tenant."
+    else
+      pass "active products: $nact"
+      [ "${nout:-0}" = 0 ] && warn "no out-of-stock product: the 2 scenarios that need one will be skipped"
+      [ "${nunl:-0}" = 0 ] && warn "no unlimited-stock product: the 1 scenario that needs one will be skipped"
+    fi
     act=$(echo "SELECT count(*) FROM commerce_evaluation_runs WHERE tenant_id = '$TENANT' AND status IN ('QUEUED','RUNNING');" | sq)
     [ "$act" = 0 ] && pass "no evaluation run is queued or running for this tenant" || bad "$act evaluation run(s) are already queued or running for this tenant"
     today=$(echo "SELECT count(*) FROM commerce_evaluation_runs WHERE tenant_id = '$TENANT' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC');" | sq)
@@ -105,7 +114,10 @@ if [ "$MODE" = before ]; then
   echo
   T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   if [ "$FAILS" = 0 ]; then
+    tname=$(echo "SELECT name FROM tenants WHERE id = '$TENANT';" | sq)
     echo "READY. T0=$T0   TENANT=$TENANT"
+    echo "IMPORTANT: the run is created for the workspace you are SIGNED IN TO in the staging app, not for the one this script chose. Sign in as an admin of '$tname' first,"
+    echo "           and check the workspace name shown in the app. A run for another workspace still costs model calls (use 'after' with that workspace's id to read it)."
     echo "Next: in the staging app open Commerce Evaluation and press Run evaluation ONCE for that tenant. Then, optionally in a second terminal:"
     echo "  bash infra/scripts/staging-eval-baseline.sh watch --since $T0 --tenant $TENANT"
     echo "and when it finishes:"

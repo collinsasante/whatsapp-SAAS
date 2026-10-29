@@ -32,6 +32,8 @@ case "$1" in
           *"t.id = '"*) echo "${FAKE_TENANT_OK:-1}";;
           *"IN ('QUEUED','RUNNING')"*"count(*)"*|*"count(*) FROM commerce_evaluation_runs WHERE tenant_id"*"QUEUED"*) echo "${FAKE_ACTIVE:-0}";;
           *"date_trunc('day'"*) echo "${FAKE_TODAY:-0}";;
+          *commerce_products*) echo "${FAKE_CATALOGUE-12|1|2}";;
+          *"SELECT name FROM tenants WHERE id"*) echo "Staging Shop";;
           *"status::text || ' ' ||"*) echo "${FAKE_RUN_STATE:-COMPLETED 33}";;
           *"SELECT id FROM commerce_evaluation_runs"*) echo "${FAKE_RUN_ID-run-1}";;
           *"'run status='"*) echo "run status=COMPLETED verdict=FAIL criticalFailure=false scenarios=33 skipped=0 started=a completed=b error=-";;
@@ -77,6 +79,12 @@ out=$(FAKE_DB=waplatform run before); expect "stops on a non-staging database" "
 out=$(FAKE_UID=1000 run before); expect "stops when not root" "STOP: not root" "$out"
 out=$(FAKE_NO_PROD=1 run before); expect "skips production monitoring, with a warning, if the production container is absent" "WARN  the production database container wa_postgres was not found" "$out"
 expect_not "never prints a model key" "k1|sk_test_abcdef" "$(run before)"
+echo "--- catalogue and workspace"
+out=$(run before); expect "reports active products when the catalogue is usable" "PASS  active products: 12" "$out"
+expect "tells you the run follows the workspace you are signed in to, by name" "IMPORTANT: the run is created for the workspace you are SIGNED IN TO.*'Staging Shop'" "$out"
+out=$(FAKE_CATALOGUE="0|0|0" run before); expect "fails when the tenant has no active products (20 scenarios would be skipped)" "FAIL  this tenant has NO active products: the 20 scenarios" "$out"; expect "and is NOT READY" "NOT READY" "$out"
+out=$(FAKE_CATALOGUE="5|0|2" run before); expect "warns, without failing, when no product is out of stock" "WARN  no out-of-stock product: the 2 scenarios" "$out"; expect "...and is still READY" "READY\. T0=" "$out"
+out=$(FAKE_CATALOGUE="5|1|0" run before); expect "warns when no product has unlimited stock" "WARN  no unlimited-stock product: the 1 scenario" "$out"
 echo "--- argument checks"
 out=$(run before --bogus); expect "rejects an unknown argument" "STOP: unknown argument: --bogus" "$out"
 out=$(run before --tenant "x; drop table tenants"); expect "rejects a malformed tenant id before it can reach a query" "STOP: --tenant must be a tenant id" "$out"
