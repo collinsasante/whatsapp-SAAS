@@ -58,7 +58,8 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | D1 | Provider outage repeated the same apology + handoff request on every customer message (observed on staging with an invalid key) | High (customer-facing) | `VERIFIED` fixed, see 5.1 |
 | D2 | Staging `DEEPSEEK_API_KEY` is rejected by the provider (HTTP 401 on every responder call) | Blocker for any AI test on staging | `BLOCKED`: needs a valid key from the owner |
 | D3 | The legacy responder never recorded an `AiExecution` (`executionId: null`), and Commerce AI discarded the id of the execution `ToolCallingService` did record. Neither reply could be linked to its interaction log, so neither could ever be evaluated, and legacy outages left no trace (no `ai_executions` rows after 2026-10-24 despite many 401s). Confirmed by reading the code. | High (evaluation was inert for legacy and Commerce workspaces) | `VERIFIED` fixed, see 5.2 |
-| D10 | AI Test Chat sends its synthetic customer message through the real `MessagesService.handleInbound`, so in auto-reply mode the AI reply goes to the real channel sender with a fake phone number (Meta `131009`). Confirmed by reading `ai-core/test-chat/ai-test-chat.service.ts`. It is not an isolated test environment. | High | `NOT_STARTED` (needs a delivery-isolation mechanism; next unit) |
+| D10 | AI Test Chat sent its synthetic customer message through the real `MessagesService.handleInbound`, so in auto-reply mode the AI reply went to the real channel sender with a fake phone number (Meta `131009`), was logged `AUTO_SENT`, and the page labelled it "Suggested, not sent" (the service reported `SUGGESTION` whenever any log existed). Confirmed by reading the code. | High | `VERIFIED` fixed, see 5.3 |
+| D12 | Simulated (Test Chat) turns are now unmetered, which also makes them free: a tenant user can generate unlimited real DeepSeek calls through the test chat. There is no cap. | Medium | `NOT_STARTED` (needs a product decision: a per-tenant daily limit for simulated turns) |
 | D11 | Fixed wording remains in the legacy prompt (`"That's a great question! Our team will follow up with you shortly."`, `"Address the customer by name"`) and in the shared fallback texts. The Phase 2 hardcoded-response audit is not done. | Medium | `NOT_STARTED` |
 | D4 | `ai-learning` judge: no spend cap or usage accounting, no input redaction or length caps, no prompt-injection delimiting, `max_tokens: 500` under an unverified thinking default | Medium | `NOT_STARTED` (F1, F4, F5, F6 from the earlier review) |
 | D5 | Review-task uniqueness is serialization-enforced, not a DB constraint (`InternalTask` has none) | Low | accepted limitation, documented |
@@ -72,8 +73,8 @@ ordinary tests, no secrets in logs or the repo. Pushing the feature branch and a
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Audit the existing system | `IN_PROGRESS`: reply path, takeover, queues, models, frontend inventoried; knowledge ingestion, credits, retention not yet traced |
-| 1 | Reliable AI foundation (provider abstraction, validation, retries, instrumentation) | `IN_PROGRESS`: D1 and D3 done; D4, D6, D10 open |
-| 2 | Correct and safe conversations, takeover | `IN_PROGRESS`: takeover rechecks exist and are tested by the repo; no new concurrency work yet |
+| 1 | Reliable AI foundation (provider abstraction, validation, retries, instrumentation) | `IN_PROGRESS`: D1, D3 and D10 done; D4, D6, D12 open |
+| 2 | Correct and safe conversations, takeover | `IN_PROGRESS`: takeover rechecks exist and are tested; Test Chat is now an isolated simulation (5.3); no new takeover concurrency work yet |
 | 3 | Learning pipeline (candidates, verification, review, versions) | `NOT_STARTED` beyond the evaluation reliability work already on staging |
 | 4 | Measured outcome feedback loop | `NOT_STARTED` |
 | 5 | Knowledge and retrieval security | `NOT_STARTED` |
@@ -156,6 +157,70 @@ Known limitations: the legacy record is made after the responder returns, so a c
 the record (the reply path is unaffected). Execution rows now exist for legacy turns that have no linked log yet; the evaluation job
 already tolerates that with its retry/backoff.
 
+### 5.3 D10: AI Test Chat is an isolated simulation  (`IMPLEMENTED` + `VERIFIED`)
+
+Design: a simulated customer is a number in a **reserved range** (`+000` followed by 10 digits; no real number can be in it because no
+country code begins with 0). The identity is the number alone, never a flag a tenant user can edit, so a real customer can never be
+silently muted. Every layer that can reach a provider recognises the range and refuses; the application layer additionally
+**simulates** (generates, stores and evaluates) instead of delivering.
+
+Layers:
+1. `packages/shared-utils/src/simulated-recipient.ts` (new): `simulatedPhoneFor`, `isSimulatedPhone`, `assertNotSimulatedRecipient`,
+   `SimulatedRecipientError`. One definition used by Test Chat, the backend and the worker, so they cannot drift.
+2. Provider boundary (defence in depth): all 8 WhatsApp Cloud send methods and both WhatsApp Web senders in the backend refuse the
+   number before credentials are read or a request is built. The worker's direct Graph sends (retry, campaign, automation) refuse it
+   too (retry returns quietly and never resolves credentials; campaign and automation fail the item with the explicit reason).
+3. Application: `dispatchOutbound` throws `SimulatedRecipientError` for every channel type, whoever calls it (bot flow, a human typing in
+   the Inbox, a retry). `sendAiText` reports a simulated delivery (`QUEUED`, no provider id, no `sentAt`, never `SENT`). The welcome
+   message, CSAT thank-you and bot-flow steps store a simulated message instead of calling a provider and marking it `FAILED`.
+4. Statuses: `AiInteractionLog.status = 'SIMULATED'` (free-text column, no migration); the stored message is `QUEUED` with
+   `metadata.simulated = true`. A reply is never `AUTO_SENT` or `SENT`. `SIMULATED` logs are ignored by the AUTO_SENT/SUGGESTED analytics.
+5. Credits and agents: a simulated turn runs as the existing unmetered `TEST` task (legacy: no credit hold; v2 and Commerce: task type
+   `TEST`), so no customer credits are settled. No real handoff is requested (no staff notified, no assignment changed). Lead scoring
+   (a paid call) is skipped. The execution is tagged `safetyFlags.simulated`, and the evaluation trigger evaluates a `TEST` run only
+   when it is tagged, so simulated replies are still graded and no other TEST run (sandboxes, harnesses) is.
+6. Test Chat service: the reported mode comes from what was recorded (`SUGGESTION` | `SIMULATED` | `TIMEOUT` | `ERROR`); an
+   `AUTO_SENT` log or an unmarked outbound message in a simulated conversation is an `ERROR` that says so, never a "suggestion".
+7. Page: simulated replies are labelled "Simulated reply, not sent to any channel" and no longer appear twice (the log duplicate was
+   removed); the header no longer claims auto-reply messages are real.
+
+Files: `packages/shared-utils/src/{simulated-recipient,index}.ts`; backend `messages/messages.service.ts`,
+`messages/legacy-ai-execution.util.ts`, `whatsapp/whatsapp.service.ts`, `whatsapp-web/whatsapp-web.service.ts`,
+`ai-core/{executions/ai-executions.service,pipeline/pipeline.types,pipeline/verz-ai-pipeline.service,pipeline/stages/generation.stage,tools/tool-calling.service,test-chat/ai-test-chat.service}.ts`,
+`commerce/ai/commerce-ai.service.ts`, `ai-learning/ai-learning-trigger.service.ts`, `ai-logs/ai-logs.service.ts`; worker
+`processors/{message-retry,campaign-send,automation}.processor.ts`; frontend `ai/test-chat/page.tsx`; new
+`test/ai-test-chat-simulation.e2e-spec.ts`. No Prisma schema change and no migration.
+
+Evidence:
+- Unit: new or extended specs for the shared predicate (formats, near-misses, non-strings, a 2000-seed fuzz of the range), all 8
+  WhatsApp Cloud methods and both Web senders refusing before any credential or request, `MessagesService` (21 tests: no provider
+  invoked on any path, statuses, credits, handoffs, media, bot flows, welcome message, the delivery door on 4 channel types, real-customer
+  contrasts), Test Chat modes (20), v2/Commerce/tool-calling/generation-stage tagging, the execution recorder and the trigger.
+- Mutation checks (8) on the application layer, each run against the unit suite and the real-DB spec: all caught by the unit suite,
+  7 of 8 also by the real-DB spec (lead scoring is only covered by unit tests). Files restored byte-identical.
+- Real PostgreSQL 16 (disposable local container), `test/ai-test-chat-simulation.e2e-spec.ts`, 7/7: the real `MessagesService` reply
+  path, real persistence, real execution recorder, real trigger and real `AiInteractionEvalProcessor`, with every messaging provider a
+  spy. A simulated reply is stored `QUEUED`/simulated, logged `SIMULATED`, moves no credits and calls no provider; the execution is a
+  `TEST` run tagged simulated with the real token counts and linked to the log; it is queued with the stable job id and the real
+  processor writes an `EVALUATED` evaluation; an escalation requests no handoff and leaves the conversation `OPEN`/unassigned;
+  suggestion mode stays a `SUGGESTED` draft; tenant isolation; and a real customer is unchanged (sent, `SENT`, `AUTO_SENT`, metered, `RESPONDER`).
+- Worker (no test runner exists there): the real processors were exercised with a fake database and a spy on the Graph call, in a
+  throwaway script that is not committed. Retry: no call and no credential lookup. Automation (both messaging actions): refused with
+  `SimulatedRecipientError`. Campaign: the control shows a real number reaches the call, the simulated one does not and is recorded
+  `FAILED` with the explicit reason.
+
+Limitations and follow-ups:
+- `Message.status` has no `SIMULATED` value, so a simulated message is `QUEUED` plus a marker (kept in one constant,
+  `SIMULATED_MESSAGE_METADATA`). A real enum value is cleaner but needs a reviewed migration (`ALTER TYPE ... ADD VALUE`) and a
+  strict rollout order: migrate first, deploy second, never roll the app back below it once rows exist, because an older Prisma client
+  fails to read a row with an enum value it does not know. Decide before doing it.
+- The test conversation and its contact are real rows. They still appear in the real Inbox (a simulated message there is not yet badged)
+  and in message counts. Separating them in the Inbox and analytics is not done.
+- The page change is verified by `tsc` only; there is no frontend test runner and it has not been viewed in a browser.
+- The campaign/retry/automation guards have no committed tests (the worker has no runner); they are covered by the throwaway check above.
+- Existing `FAILED` messages from earlier Test Chat sessions remain; the retry worker now ignores them.
+- Deploying this needs the backend, worker and frontend images rebuilt (and `shared-utils` is built into them by the Docker build).
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
@@ -165,10 +230,14 @@ already tolerates that with its retry/backoff.
 | mutation script (7 mutants), `messages.service.ts` | 7/7 caught, restored |
 | ad-hoc Postgres query check (disposable DB) | 8/8 correct |
 | `npx jest` (full backend) | see "Full-suite result" below |
+| `npx tsc --noEmit` in `apps/backend` (src and test), `apps/worker`, `apps/frontend`; `tsc` in `packages/shared-utils` | all exit 0 |
+| `test/ai-test-chat-simulation.e2e-spec.ts` against the disposable PostgreSQL | 7/7 passed (skipped, not failed, without `AI_LEARNING_PG_TESTS=1`) |
 
 Full-suite result: 150 suites passed, 1 skipped; 2062 tests passed, 12 skipped; 0 failures (`env -u DATABASE_URL npx jest`, no database, no provider). The 12 skips are existing opt-in suites (live provider and Postgres tests); they are not counted as passed. `git diff --check` exit 0.
 
 Full-suite result after 5.2: 151 suites passed, 1 skipped; 2117 tests passed, 12 skipped; 0 failures (`env -u DATABASE_URL npx jest`). The skips are the existing opt-in live-provider and Postgres suites, not counted as passed. `tsc --noEmit` exit 0, `git diff --check` exit 0.
+
+Full-suite result after 5.3: 153 suites passed, 1 skipped; 2218 tests passed, 12 skipped; 0 failures (`env -u DATABASE_URL -u AI_LEARNING_PG_TESTS npx jest`). The skips are the existing opt-in suites, not counted as passed. `tsc --noEmit` exit 0 for backend (src and test projects), worker, frontend and shared-utils; `git diff --check` exit 0; no secret-shaped strings in the added lines.
 
 ## 7. Staging observations (Phase 9, partial)
 
@@ -190,12 +259,13 @@ Full-suite result after 5.2: 151 suites passed, 1 skipped; 2117 tests passed, 12
 
 ## 9. Next actions (resume here)
 
-1. D10: make AI Test Chat a real sandbox: a delivery-isolation flag on the synthetic contact/conversation so `sendAiText` and
-   `dispatchOutbound` never call a channel for it, with a distinct `SIMULATED` message status and tests proving no provider is invoked.
-2. Staging: deploy this branch (owner action) with a valid key and the `ai_learning_system` flag on one tenant, then confirm a legacy
-   reply produces an evaluation row end to end.
+1. Staging: deploy this branch (owner action: rebuild backend, worker and frontend) with a valid key and the `ai_learning_system` flag on
+   one tenant, then confirm in the browser that Test Chat shows simulated replies and that a legacy reply produces an evaluation row.
+2. D12: decide a per-tenant cap on simulated turns (they are now free), and whether to badge/exclude the test conversation in the Inbox
+   and analytics. Decide the `Message.status` `SIMULATED` enum value (migration) vs the current marker.
 3. D4: judge input length caps, untrusted-content delimiting, and a per-tenant daily judge-call cap; usage accounting.
 4. Bring the `ai-eval` commits onto this branch (cherry-pick) and extend them with the naturalness rubric and the
    baseline-vs-candidate gate for Phase 3.
-5. Design the learning-candidate / verification / version / rollback model (needs a reviewed migration; explain risks first).
-6. Trace knowledge-base ingestion (Phase 5) before claiming SSRF coverage.
+5. D11: the hardcoded-wording audit (legacy prompt fallback line and name rule, shared fallback texts) with preservation tests.
+6. Design the learning-candidate / verification / version / rollback model (needs a reviewed migration; explain risks first).
+7. Trace knowledge-base ingestion (Phase 5) before claiming SSRF coverage.

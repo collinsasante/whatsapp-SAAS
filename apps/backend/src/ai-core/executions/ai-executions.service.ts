@@ -100,6 +100,7 @@ export class AiExecutionsService {
       taskType: input.taskType,
       conversationId: input.conversationId,
       status: trace.status,
+      simulated: trace.safetyFlags?.simulated === true,
     });
 
     return execution;

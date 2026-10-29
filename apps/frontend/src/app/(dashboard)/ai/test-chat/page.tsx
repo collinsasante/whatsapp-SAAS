@@ -12,6 +12,8 @@ interface RawMessage {
   direction: 'INBOUND' | 'OUTBOUND';
   content: string | null;
   createdAt: string;
+  /** A reply the test chat generated and stored but deliberately never sent to any channel carries metadata.simulated. */
+  metadata?: { simulated?: boolean } | null;
 }
 
 interface RawSuggestion {
@@ -26,8 +28,10 @@ interface ChatEntry {
   id: string;
   direction: 'INBOUND' | 'OUTBOUND';
   content: string;
-  kind: 'message' | 'suggestion' | 'note';
+  kind: 'message' | 'suggestion' | 'note' | 'error';
   confidence?: number | null;
+  /** Generated and stored, but not sent to any channel. */
+  simulated?: boolean;
   createdAt: string;
 }
 
@@ -41,8 +45,10 @@ function apiErr(e: unknown, fallback: string): string {
 function mergeEntries(messages: RawMessage[], suggestions: RawSuggestion[]): ChatEntry[] {
   const fromMessages: ChatEntry[] = messages
     .filter((m) => m.content)
-    .map((m) => ({ id: m.id, direction: m.direction, content: m.content!, kind: 'message', createdAt: m.createdAt }));
-  const fromSuggestions: ChatEntry[] = suggestions.map((s) => ({
+    .map((m) => ({ id: m.id, direction: m.direction, content: m.content!, kind: 'message', simulated: m.direction === 'OUTBOUND' && m.metadata?.simulated === true, createdAt: m.createdAt }));
+  // Only a draft is shown as a suggestion. A simulated reply is already shown as its stored message above; listing its log as well
+  // would show every reply twice.
+  const fromSuggestions: ChatEntry[] = suggestions.filter((s) => s.status === 'SUGGESTED').map((s) => ({
     id: s.id, direction: 'OUTBOUND', content: s.aiResponse, kind: 'suggestion', confidence: s.confidenceScore, createdAt: s.createdAt,
   }));
   return [...fromMessages, ...fromSuggestions].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -83,13 +89,20 @@ export default function AiTestChatPage() {
     try {
       const res = await aiTestChatApi.send(text);
       const data = res.data as {
-        mode: 'SUGGESTION' | 'AUTO_REPLY' | 'TIMEOUT';
+        mode: 'SUGGESTION' | 'SIMULATED' | 'TIMEOUT' | 'ERROR';
         suggestion: RawSuggestion | null;
         message: RawMessage | null;
         note?: string;
       };
-      if (data.mode === 'AUTO_REPLY' && data.message) {
-        setEntries((prev) => [...prev, { id: data.message!.id, direction: 'OUTBOUND', content: data.message!.content ?? '', kind: 'message', createdAt: data.message!.createdAt }]);
+      if (data.mode === 'SIMULATED' && (data.message || data.suggestion)) {
+        // Generated and stored, never sent. Prefer the stored message; fall back to the logged text if the message is missing.
+        const m = data.message;
+        const entry: ChatEntry = m
+          ? { id: m.id, direction: 'OUTBOUND', content: m.content ?? '', kind: 'message', simulated: true, createdAt: m.createdAt }
+          : { id: data.suggestion!.id, direction: 'OUTBOUND', content: data.suggestion!.aiResponse, kind: 'message', simulated: true, confidence: data.suggestion!.confidenceScore, createdAt: data.suggestion!.createdAt };
+        setEntries((prev) => [...prev, entry]);
+      } else if (data.mode === 'ERROR') {
+        setEntries((prev) => [...prev, { id: `error-${Date.now()}`, direction: 'OUTBOUND', content: data.note ?? 'Something unexpected happened in the test chat.', kind: 'error', createdAt: new Date().toISOString() }]);
       } else if (data.mode === 'SUGGESTION' && data.suggestion) {
         setEntries((prev) => [...prev, { id: data.suggestion!.id, direction: 'OUTBOUND', content: data.suggestion!.aiResponse, kind: 'suggestion', confidence: data.suggestion!.confidenceScore, createdAt: data.suggestion!.createdAt }]);
       } else {
@@ -123,7 +136,7 @@ export default function AiTestChatPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Test Chat</h1>
               <p className="text-xs text-gray-500">
-                Chat as a customer with Verz AI through the real message pipeline, no WhatsApp needed. In Suggestion mode replies are drafts only (not sent); in Auto-Reply mode they're real sent messages.
+                Chat as a customer with Verz AI through the real message pipeline. Nothing here is ever sent to WhatsApp, Messenger or Instagram: in Suggestion mode replies are drafts, and in Auto-Reply mode they are generated and shown as simulated replies.
               </p>
             </div>
           </div>
@@ -152,6 +165,8 @@ export default function AiTestChatPage() {
                   ? 'bg-teal-600 text-white rounded-tr-sm'
                   : e.kind === 'note'
                     ? 'bg-amber-50 text-amber-700 rounded-tl-sm border border-amber-200'
+                    : e.kind === 'error'
+                      ? 'bg-red-50 text-red-700 rounded-tl-sm border border-red-200'
                     : e.kind === 'suggestion'
                       ? 'bg-purple-50 text-purple-900 rounded-tl-sm border border-dashed border-purple-300'
                       : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm',
@@ -161,6 +176,11 @@ export default function AiTestChatPage() {
               {e.kind === 'suggestion' && (
                 <span className="flex items-center gap-1 text-[11px] text-purple-500 mt-1 px-1">
                   <Sparkles size={10} /> Suggested, not sent{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
+                </span>
+              )}
+              {e.simulated && (
+                <span className="flex items-center gap-1 text-[11px] text-gray-500 mt-1 px-1">
+                  <Sparkles size={10} /> Simulated reply, not sent to any channel{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
                 </span>
               )}
               {e.kind === 'note' && (

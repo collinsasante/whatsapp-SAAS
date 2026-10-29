@@ -34,6 +34,20 @@ describe('CommerceAiService', () => {
     jest.clearAllMocks();
   });
 
+  describe('a simulated (AI Test Chat) run', () => {
+    it('is the unmetered TEST task and tagged simulated; a real run is RESPONDER and untagged', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'Yes, we have labels.' }));
+      const service = buildService(deps);
+      await service.handleMessage('t1', 'c1', 'ct1', '+0003458935471', 'labels?', 'Jane', undefined, { simulated: true });
+      expect(deps.toolCalling.complete).toHaveBeenLastCalledWith(expect.objectContaining({ taskType: 'TEST', simulated: true }));
+
+      await service.handleMessage('t1', 'c1', 'ct1', '+233555000111', 'labels?', 'Jane');
+      expect(deps.toolCalling.complete.mock.calls[1][0].taskType).toBe('RESPONDER');
+      expect(deps.toolCalling.complete.mock.calls[1][0].simulated).toBeUndefined();
+    });
+  });
+
   describe('passes the id of the execution ToolCallingService recorded back to the caller', () => {
     const ask = (deps: ReturnType<typeof buildDeps>) => buildService(deps).handleMessage('t1', 'c1', 'ct1', '+233555000111', 'do you have labels?', 'Jane');
 

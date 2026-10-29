@@ -156,6 +156,18 @@ describe('ToolCallingService', () => {
     });
   });
 
+  it('records a simulated run with safetyFlags.simulated, and a real run with none', async () => {
+    const sim = buildDeps();
+    sim.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));
+    await buildService(sim).complete(baseReq({ taskType: 'TEST' as never, simulated: true }));
+    expect(sim.executions.record).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'TEST' }), expect.objectContaining({ safetyFlags: { simulated: true } }));
+
+    const real = buildDeps();
+    real.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));
+    await buildService(real).complete(baseReq());
+    expect(real.executions.record).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ safetyFlags: {} }));
+  });
+
   it('malformed tool-call arguments do not crash the loop', async () => {
     const deps = buildDeps();
     deps.complete

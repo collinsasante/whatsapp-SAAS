@@ -82,6 +82,20 @@ describe('buildLegacyTrace', () => {
     expect(t.provider).toBeUndefined();
   });
 
+  it('tags every kind of trace as simulated when asked, and none otherwise', () => {
+    const cases = [
+      { legacy: { response: 'Hi', confidence: 80 }, call: { invoked: true } },
+      { legacy: { response: '' }, call: { invoked: true } },
+      { legacy: { response: '' }, call: { invoked: true, error: { code: 'http_401', message: 'x' } } },
+      { legacy: { response: 'x', blocked: true }, call: { invoked: false } },
+      { legacy: { response: '' }, call: { invoked: false } },
+    ];
+    for (const c of cases) {
+      expect(buildLegacyTrace({ ...c, latencyMs: 1, simulated: true }).safetyFlags.simulated).toBe(true);
+      expect(buildLegacyTrace({ ...c, latencyMs: 1 }).safetyFlags.simulated).toBeUndefined();
+    }
+  });
+
   it('never reports SUCCESS for an empty response', () => {
     for (const call of [{ invoked: false }, { invoked: true }, { invoked: true, error: { code: 'x', message: 'y' } }]) {
       expect(buildLegacyTrace({ legacy: { response: '' }, call, latencyMs: 1 }).status).not.toBe('SUCCESS');

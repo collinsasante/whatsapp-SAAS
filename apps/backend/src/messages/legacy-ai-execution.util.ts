@@ -39,25 +39,28 @@ export function buildLegacyTrace(args: {
   legacy: { response?: string; confidence?: number | null; blocked?: boolean };
   call: LegacyCallObservation;
   latencyMs: number;
+  /** An AI Test Chat turn: tagged on the trace so evaluation can find a run that is not a RESPONDER task. */
+  simulated?: boolean;
 }): PipelineTrace {
-  const { legacy, call, latencyMs } = args;
+  const { legacy, call, latencyMs, simulated } = args;
+  const sim = simulated ? { simulated: true as const } : {};
   const base = { latencyMs, confidence: legacy.confidence ?? null, stageTimings: {} as Record<string, number> };
 
   if (legacy.blocked) {
-    return { ...base, status: 'BLOCKED', safetyFlags: { injectionDetected: true } };
+    return { ...base, status: 'BLOCKED', safetyFlags: { injectionDetected: true, ...sim } };
   }
   if (!call.invoked) {
     // No provider call was made and nothing was blocked: the responder returned early (for example, no API key).
-    return { ...base, status: 'PROVIDER_ERROR', safetyFlags: {}, errorCode: 'not_configured', errorMessage: 'No provider call was made' };
+    return { ...base, status: 'PROVIDER_ERROR', safetyFlags: { ...sim }, errorCode: 'not_configured', errorMessage: 'No provider call was made' };
   }
   const provider = { provider: 'deepseek', modelKey: DEEPSEEK_MODEL };
   if (call.error) {
-    return { ...base, ...provider, status: 'PROVIDER_ERROR', safetyFlags: {}, errorCode: call.error.code, errorMessage: call.error.message };
+    return { ...base, ...provider, status: 'PROVIDER_ERROR', safetyFlags: { ...sim }, errorCode: call.error.code, errorMessage: call.error.message };
   }
   const tokens = { inputTokens: call.usage?.inputTokens, outputTokens: call.usage?.outputTokens };
   if (!legacy.response) {
     // The provider answered but nothing usable came out (cut-off or malformed output is dropped by the responder).
-    return { ...base, ...provider, ...tokens, status: 'EMPTY', safetyFlags: { emptyOutput: true }, errorCode: 'output_rejected', errorMessage: 'The provider answered but no usable reply came out' };
+    return { ...base, ...provider, ...tokens, status: 'EMPTY', safetyFlags: { emptyOutput: true, ...sim }, errorCode: 'output_rejected', errorMessage: 'The provider answered but no usable reply came out' };
   }
-  return { ...base, ...provider, ...tokens, status: 'SUCCESS', safetyFlags: {} };
+  return { ...base, ...provider, ...tokens, status: 'SUCCESS', safetyFlags: { ...sim } };
 }

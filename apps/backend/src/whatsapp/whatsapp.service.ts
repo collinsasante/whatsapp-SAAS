@@ -10,7 +10,7 @@ import * as FormData from 'form-data';
 import { PrismaService } from '../prisma/prisma.service';
 import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
-import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
+import { assertNotSimulatedRecipient, buildTemplateComponents } from '@whatsapp-platform/shared-utils';
 import { isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
 import { recipientField } from './recipient.util';
 import { readCallingStatus } from '../calls/calling-errors.util';
@@ -150,6 +150,7 @@ export class WhatsAppService {
   }
 
   async sendTextMessage(tenantId: string, to: string, text: string, contextMessageId?: string, whatsappNumberId?: string | null): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
 
@@ -181,6 +182,7 @@ export class WhatsAppService {
     contextMessageId?: string,
     whatsappNumberId?: string | null,
   ): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
 
@@ -217,6 +219,7 @@ export class WhatsAppService {
     whatsappNumberId?: string | null,
     urlVariables?: Record<string, string>,
   ): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
 
@@ -306,6 +309,7 @@ export class WhatsAppService {
     address?: string,
     whatsappNumberId?: string | null,
   ): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
     try {
@@ -325,6 +329,7 @@ export class WhatsAppService {
   }
 
   async sendContactMessage(tenantId: string, to: string, name: string, phone: string, whatsappNumberId?: string | null): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
     try {
@@ -423,6 +428,7 @@ export class WhatsAppService {
     contextMessageId?: string,
     whatsappNumberId?: string | null,
   ): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
     const mediaTypeKey = mediaType.toLowerCase();
@@ -449,6 +455,7 @@ export class WhatsAppService {
   }
 
   async sendReaction(tenantId: string, to: string, waMessageId: string, emoji: string, whatsappNumberId?: string | null): Promise<void> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.resolveCredentials(tenantId, whatsappNumberId);
     const client = this.getClient(accessToken!);
     try {
@@ -656,6 +663,7 @@ export class WhatsAppService {
   }
 
   async sendCsatSurvey(tenantId: string, to: string): Promise<string> {
+    assertNotSimulatedRecipient(to); // before credentials are read or any request is built: a simulated number never reaches Meta
     const { phoneNumberId, accessToken } = await this.getTenantCredentials(tenantId);
     const client = this.getClient(accessToken!);
 

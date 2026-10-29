@@ -97,6 +97,27 @@ describe('AiExecutionsService', () => {
       expect(deps.credits.settleForExecution).toHaveBeenCalledTimes(1);
     });
 
+    it('tells the evaluation trigger a run was simulated, from the trace', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      await service.record({ tenantId: 't1', taskType: 'TEST', conversationId: 'c1' }, { ...newTrace(true), status: 'SUCCESS' as const, provider: 'deepseek', modelKey: 'm1', inputTokens: 5, outputTokens: 5 });
+      expect(deps.aiLearningTrigger.maybeEnqueue).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'TEST', simulated: true, status: 'SUCCESS' }));
+      expect(deps.credits.settleForExecution).not.toHaveBeenCalled(); // TEST is unmetered by the existing rule
+      expect(deps.pricing.getCreditsForUsage).not.toHaveBeenCalled();
+    });
+
+    it('a real run reports simulated:false', async () => {
+      const deps = buildDeps();
+      await buildService(deps).record({ tenantId: 't1', taskType: 'RESPONDER', conversationId: 'c1' }, { ...newTrace(), status: 'SUCCESS' as const });
+      expect(deps.aiLearningTrigger.maybeEnqueue).toHaveBeenCalledWith(expect.objectContaining({ simulated: false }));
+    });
+
+    it('persists the simulated tag with the execution', async () => {
+      const deps = buildDeps();
+      await buildService(deps).record({ tenantId: 't1', taskType: 'TEST', conversationId: 'c1' }, { ...newTrace(true), status: 'SUCCESS' as const });
+      expect(deps.prisma.aiExecution.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ safetyFlags: { simulated: true } }) }));
+    });
+
     it('tells the evaluation trigger the execution\'s status', async () => {
       const deps = buildDeps();
       const service = buildService(deps);

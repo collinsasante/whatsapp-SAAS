@@ -1,10 +1,16 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessagesService } from '../../messages/messages.service';
 import { ConversationsService } from '../../conversations/conversations.service';
 
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 20_000;
+/** A simulated reply writes its interaction log first and its message a moment later; wait this long for the message. */
+const SIMULATED_MESSAGE_GRACE_MS = 3_000;
+
+const isSimulatedMessage = (m: { metadata?: unknown } | null | undefined): boolean =>
+  (m?.metadata as { simulated?: boolean } | null | undefined)?.simulated === true;
 
 /**
  * Dashboard "test as a customer" chat for the general Verz-AI responder --
@@ -19,9 +25,16 @@ const POLL_TIMEOUT_MS = 20_000;
  * end-to-end during development. Testing through the real entry point is also
  * more faithful than bypassing it: a tenant's actual chatbot flows or welcome
  * message will fire too, exactly as they would for a real customer.
+ *
+ * SIMULATION: the customer here is a synthetic contact whose number is in a reserved range no real recipient can have (see
+ * shared-utils simulated-recipient). The inbound pipeline recognises it and never hands anything to a messaging provider: replies
+ * are generated, stored as SIMULATED (never AUTO_SENT or SENT), run as the unmetered TEST task so no customer credits are
+ * settled, create no real handoff, and are still evaluated. The provider clients and the worker refuse the number as a backstop.
  */
 @Injectable()
 export class AiTestChatService {
+  private readonly logger = new Logger(AiTestChatService.name);
+
   constructor(
     private prisma: PrismaService,
     private messagesService: MessagesService,
@@ -29,18 +42,12 @@ export class AiTestChatService {
   ) {}
 
   /**
-   * Must be purely numeric (after the leading +): handleInbound() ultimately calls
-   * ContactsService.findOrCreate(), which runs the phone through normalizePhone()
-   * (strips every non-digit character). A letter-containing synthetic phone would
-   * get mangled by that strip and never match what this service looks up under
-   * its own key -- two different Contact rows, broken conversation continuity.
+   * The synthetic number is in the reserved range (see shared-utils simulated-recipient) and purely numeric after the leading +,
+   * which matters: handleInbound() runs the phone through normalizePhone(), which strips every non-digit character, so a
+   * letter-containing phone would be mangled and never match what this service looks up under its own key.
    */
   private phoneFor(userId: string): string {
-    let hash = 0;
-    for (let i = 0; i < userId.length; i++) {
-      hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
-    }
-    return `+000${hash.toString().padStart(10, '0').slice(0, 10)}`;
+    return simulatedPhoneFor(userId);
   }
 
   private async ensureAiEnabled(tenantId: string) {
@@ -100,7 +107,7 @@ export class AiTestChatService {
       this.prisma.message.findMany({
         where: { tenantId, conversationId: conversation.id },
         orderBy: { createdAt: 'asc' },
-        select: { id: true, direction: true, content: true, createdAt: true },
+        select: { id: true, direction: true, content: true, createdAt: true, metadata: true },
       }),
       this.prisma.aiInteractionLog.findMany({
         where: { tenantId, conversationId: conversation.id },
@@ -132,9 +139,12 @@ export class AiTestChatService {
     );
 
     // handleInbound's AI branch is fire-and-forget (real webhook traffic never awaits
-    // it) -- poll for whichever row it produces: a SUGGESTED AiInteractionLog
-    // (suggestion mode, never auto-sent) or a new outbound Message (auto-reply mode).
+    // it) -- poll for whichever row it produces: a SUGGESTED AiInteractionLog (suggestion
+    // mode, a draft that is never sent) or, in auto-reply mode, a SIMULATED log plus its
+    // stored (never delivered) message. The mode reported to the page comes from what was
+    // actually recorded, never from the mere existence of a log.
     const deadline = Date.now() + POLL_TIMEOUT_MS;
+    let logSeenAt: number | null = null;
     while (Date.now() < deadline) {
       const [log, outboundMessage] = await Promise.all([
         this.prisma.aiInteractionLog.findFirst({
@@ -146,12 +156,31 @@ export class AiTestChatService {
           orderBy: { createdAt: 'desc' },
         }),
       ]);
-      if (log || outboundMessage) {
+
+      if (log?.status === 'SUGGESTED') {
+        return { conversationId: conversation.id, mode: 'SUGGESTION' as const, suggestion: log, message: null };
+      }
+      if (log?.status === 'SIMULATED') {
+        logSeenAt ??= Date.now();
+        if (outboundMessage || Date.now() - logSeenAt >= SIMULATED_MESSAGE_GRACE_MS) {
+          return { conversationId: conversation.id, mode: 'SIMULATED' as const, suggestion: log, message: outboundMessage };
+        }
+      } else if (log) {
+        // Impossible for a simulated contact. If it ever happens something real may have been sent: say so, loudly.
+        this.logger.error(`AI Test Chat: interaction log ${log.id} has status ${log.status} for a simulated conversation (${conversation.id})`);
         return {
-          conversationId: conversation.id,
-          mode: log ? ('SUGGESTION' as const) : ('AUTO_REPLY' as const),
-          suggestion: log,
-          message: outboundMessage,
+          conversationId: conversation.id, mode: 'ERROR' as const, suggestion: log, message: outboundMessage,
+          note: `Unexpected status ${log.status} in a simulated conversation. Please report this: nothing should be sent from the test chat.`,
+        };
+      } else if (outboundMessage) {
+        if (isSimulatedMessage(outboundMessage)) {
+          // A welcome message, a chatbot-flow step or the provider-failure apology: stored, never delivered.
+          return { conversationId: conversation.id, mode: 'SIMULATED' as const, suggestion: null, message: outboundMessage };
+        }
+        this.logger.error(`AI Test Chat: outbound message ${outboundMessage.id} in simulated conversation ${conversation.id} is not marked simulated`);
+        return {
+          conversationId: conversation.id, mode: 'ERROR' as const, suggestion: null, message: outboundMessage,
+          note: 'An outbound message in the test chat is not marked as simulated. Please report this: nothing should be sent from the test chat.',
         };
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));

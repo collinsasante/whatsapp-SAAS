@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ChannelType } from '@prisma/client';
+import { SimulatedRecipientError, simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
 import { WhatsAppWebService } from './whatsapp-web.service';
 
 jest.mock('axios');
@@ -354,5 +355,30 @@ describe('WhatsAppWebService outbound target', () => {
     const bodies = (mockedAxios.request as jest.Mock).mock.calls.map((c) => c[0].data);
     expect(bodies[0]).toEqual({ toJid: '1587145059558262@lid', text: 'hello' });
     expect(bodies[1]).toEqual({ toPhone: '+233555000111', text: 'hello' });
+  });
+});
+
+describe('WhatsAppWebService refuses a simulated recipient before touching the session manager', () => {
+  const SIMULATED = simulatedPhoneFor('user-1');
+
+  it('sendText', async () => {
+    const deps = buildDeps();
+    await expect(buildService(deps).sendText('t1', 'chan1', SIMULATED, 'hi')).rejects.toBeInstanceOf(SimulatedRecipientError);
+    expect(deps.prisma.whatsAppWebSession.findFirst).not.toHaveBeenCalled();
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+  });
+
+  it.each(['image', 'video', 'audio', 'document'] as const)('sendMedia (%s)', async (type) => {
+    const deps = buildDeps();
+    await expect(buildService(deps).sendMedia('t1', 'chan1', SIMULATED, 'https://cdn.example/x', type, 'cap')).rejects.toBeInstanceOf(SimulatedRecipientError);
+    expect(deps.prisma.whatsAppWebSession.findFirst).not.toHaveBeenCalled();
+    expect(mockedAxios.request).not.toHaveBeenCalled();
+  });
+
+  it('a JID target is not mistaken for a phone: it proceeds past the guard (and then fails here only because no session exists)', async () => {
+    const deps = buildDeps();
+    deps.prisma.whatsAppWebSession.findFirst.mockResolvedValue(null);
+    await expect(buildService(deps).sendText('t1', 'chan1', { jid: '1234567890123@lid' }, 'hi')).rejects.not.toBeInstanceOf(SimulatedRecipientError);
+    expect(deps.prisma.whatsAppWebSession.findFirst).toHaveBeenCalled();
   });
 });

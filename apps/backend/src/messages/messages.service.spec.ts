@@ -1,4 +1,5 @@
 import { HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { SimulatedRecipientError, simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
 import { MessagesService } from './messages.service';
 
 /**
@@ -14,7 +15,7 @@ function buildDeps() {
     prisma: {
       tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
       tenant: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(1) },
+      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), update: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(1) },
       // Default: no assignee on a fresh ownership-recheck lookup, i.e. "not
       // human-handled" -- matches every existing test's assumption that AI is
       // free to proceed. Tests of the human-ownership guard itself override
@@ -1200,6 +1201,226 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       await svc.runExclusiveForConversation('conv1', () => svc.handleAiAutoReply('t1', conversation, contact, 'hi', false, null, false, true));
 
       expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('AI Test Chat simulation: a simulated customer never reaches a messaging provider', () => {
+    const simContact = { id: 'contact1', phone: simulatedPhoneFor('user-1'), name: 'Test Customer (you)' };
+    type Deps = ReturnType<typeof buildDeps>;
+    type Svc = { handleAiAutoReply: (...a: unknown[]) => Promise<void>; handleAiSuggestion: (...a: unknown[]) => Promise<void>; dispatchOutbound: (...a: unknown[]) => Promise<unknown>; sendAiText: (...a: unknown[]) => Promise<{ delivered: boolean; simulated?: boolean; fields: { status: string; whatsappMessageId?: string; sentAt?: Date } }>; runBotFlow: (...a: unknown[]) => Promise<void> };
+    const svc = (deps: Deps) => buildService(deps) as unknown as Svc;
+    const autoReply = (deps: Deps, c = simContact, commerce = false, content = 'hi') => svc(deps).handleAiAutoReply('t1', conversation, c, content, commerce, null);
+
+    /** Every provider send the backend can make. None may be invoked for a simulated customer. */
+    const providerCalls = (deps: Deps) => [
+      ...Object.values(deps.whatsappService), ...Object.values(deps.facebookMessengerService), ...Object.values(deps.whatsAppWebService),
+    ] as jest.Mock[];
+    const expectNoProvider = (deps: Deps) => { for (const fn of providerCalls(deps)) expect(fn).not.toHaveBeenCalled(); };
+    const storedOutbound = (deps: Deps) => deps.prisma.message.create.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data).filter((d: Record<string, unknown>) => d.direction === 'OUTBOUND');
+
+    describe('auto-reply mode, legacy responder', () => {
+      it('generates and stores the reply as SIMULATED: never sent, no provider id, never AUTO_SENT', async () => {
+        const deps = buildDeps();
+        await autoReply(deps);
+
+        expectNoProvider(deps);
+        const out = storedOutbound(deps);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ content: 'Hi there', status: 'QUEUED', metadata: expect.objectContaining({ aiGenerated: true, simulated: true }) });
+        expect(out[0].whatsappMessageId).toBeUndefined();
+        expect(out[0].sentAt).toBeUndefined();
+        expect(out[0].status).not.toBe('SENT');
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SIMULATED' }));
+        expect(deps.aiLogsService.create).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+        expect(deps.realtimeService.emitNewMessage).toHaveBeenCalled();
+      });
+
+      it('settles no customer credits: no hold, no settlement, and the run is the unmetered TEST task', async () => {
+        const deps = buildDeps();
+        await autoReply(deps);
+        expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled();
+        expect(deps.aiCreditsService.settleReservation).not.toHaveBeenCalled();
+        const [input, trace, opts] = deps.aiExecutionsService.record.mock.calls[0];
+        expect(input).toEqual({ tenantId: 't1', conversationId: 'conv1', taskType: 'TEST' });
+        expect(trace.safetyFlags).toMatchObject({ simulated: true });
+        expect(opts).toEqual({ meterCredits: false });
+      });
+
+      it('still records an execution and links it to the SIMULATED log, so the reply can be evaluated', async () => {
+        const deps = buildDeps();
+        await autoReply(deps);
+        expect(deps.aiExecutionsService.record).toHaveBeenCalledTimes(1);
+        expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-legacy', 'log-1');
+      });
+
+      it('CONTRAST: a real customer is unchanged: sent, AUTO_SENT, metered, RESPONDER', async () => {
+        const deps = buildDeps();
+        await autoReply(deps, { id: 'contact1', phone: '+233555000111', name: 'Jane' });
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+        expect(storedOutbound(deps)[0]).toMatchObject({ status: 'SENT', metadata: { aiGenerated: true } });
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+        expect(deps.aiCreditsService.reserveFixedCredits).toHaveBeenCalledTimes(1);
+        expect(deps.aiExecutionsService.record.mock.calls[0][0].taskType).toBe('RESPONDER');
+        expect(deps.aiExecutionsService.record.mock.calls[0][1].safetyFlags.simulated).toBeUndefined();
+      });
+
+      it('requests no real handoff when the reply escalates (no staff notified, no assignment changed), yet reads as it would in production', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "Sure, I'll get someone to help.", confidence: 20, blocked: false, shouldEscalate: true });
+        await autoReply(deps);
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(deps.conversationsService.request).not.toHaveBeenCalled();
+        expect(deps.prisma.conversation.update).not.toHaveBeenCalled();
+        expectNoProvider(deps);
+        expect(storedOutbound(deps)[0]).toMatchObject({ content: "Sure, I'll get someone to help.", metadata: expect.objectContaining({ simulated: true }) });
+      });
+
+      it('a provider failure produces a simulated apology and no real handoff, and nothing is sent', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: '', confidence: null, blocked: false });
+        await autoReply(deps);
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expectNoProvider(deps);
+        expect(storedOutbound(deps)[0]).toMatchObject({ content: PROVIDER_FAILURE_FALLBACK_TEXT, status: 'QUEUED', metadata: { aiGenerated: true, fallback: true, handoffRequested: true, simulated: true } });
+      });
+
+      it('does not run the paid lead-scoring call for a test conversation', async () => {
+        const deps = buildDeps();
+        await autoReply(deps, simContact, true);
+        expect(deps.leadsService.scoreConversation).not.toHaveBeenCalled();
+      });
+
+      it('AI-triggered media is stored as a simulated message and never dispatched', async () => {
+        const deps = buildDeps();
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'Here it is.', blocked: false, toolTrace: [], mediaToSend: [{ mediaUrl: 'https://cdn.example/p.jpg', caption: 'Shea butter', productId: 'p1' }] });
+        await autoReply(deps, simContact, true);
+        expectNoProvider(deps);
+        const media = storedOutbound(deps).find((d: Record<string, unknown>) => d.type === 'IMAGE');
+        expect(media).toMatchObject({ status: 'QUEUED', mediaUrl: 'https://cdn.example/p.jpg', metadata: expect.objectContaining({ simulated: true, productId: 'p1' }) });
+        expect(media?.whatsappMessageId).toBeUndefined();
+      });
+
+      it('human takeover still wins: a human-handled conversation gets nothing generated or stored', async () => {
+        const deps = buildDeps();
+        deps.prisma.conversation.findFirst.mockResolvedValue({ assignedTo: { id: 'agent-9', isAiAgent: false, lastSeenAt: new Date() } });
+        await autoReply(deps);
+        expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled();
+        expect(storedOutbound(deps)).toHaveLength(0);
+        expectNoProvider(deps);
+      });
+    });
+
+    describe('the other generators', () => {
+      it('Commerce AI is told the run is simulated', async () => {
+        const deps = buildDeps();
+        await autoReply(deps, simContact, true);
+        expect(deps.commerceAiService.handleMessage.mock.calls[0][7]).toMatchObject({ simulated: true });
+        const real = buildDeps();
+        await autoReply(real, { id: 'contact1', phone: '+233555000111', name: 'Jane' }, true);
+        expect(real.commerceAiService.handleMessage.mock.calls[0][7].simulated).toBeUndefined();
+      });
+
+      it('the v2 pipeline runs as the unmetered TEST task and is tagged simulated; a real customer still runs as RESPONDER', async () => {
+        const deps = buildDeps();
+        deps.featureFlagsService.isEnabledCached.mockImplementation(async (key: string) => key === 'verz_ai_v2');
+        await autoReply(deps);
+        expect(deps.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'TEST', simulated: true }));
+        expectNoProvider(deps);
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SIMULATED' }));
+
+        const real = buildDeps();
+        real.featureFlagsService.isEnabledCached.mockImplementation(async (key: string) => key === 'verz_ai_v2');
+        await autoReply(real, { id: 'contact1', phone: '+233555000111', name: 'Jane' });
+        expect(real.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'RESPONDER' }));
+        expect(real.verzAiPipeline.run.mock.calls[0][0].simulated).toBeUndefined();
+      });
+    });
+
+    describe('suggestion mode', () => {
+      it('logs a draft as SUGGESTED, requests no real handoff, runs unmetered, and sends nothing', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'Draft', confidence: 20, blocked: false, shouldEscalate: true });
+        await svc(deps).handleAiSuggestion('t1', conversation, simContact, 'hi', false);
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SUGGESTED' }));
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled();
+        expect(deps.aiExecutionsService.record.mock.calls[0][0].taskType).toBe('TEST');
+        expect(deps.leadsService.scoreConversation).not.toHaveBeenCalled();
+        expectNoProvider(deps);
+      });
+    });
+
+    describe('the delivery door itself', () => {
+      const conv = (channel?: { id: string; type: string }) => ({ id: 'conv1', whatsappNumberId: null, channel });
+      it.each<[string, { id: string; type: string } | undefined]>([
+        ['WhatsApp Cloud API', undefined], ['WhatsApp Web', { id: 'ch1', type: 'WHATSAPP_WEB' }],
+        ['Messenger', { id: 'ch1', type: 'FACEBOOK_MESSENGER' }], ['Instagram', { id: 'ch1', type: 'INSTAGRAM' }],
+      ])('refuses %s delivery for a simulated contact before touching any provider (text and media)', async (_n, channel) => {
+        const deps = buildDeps();
+        const c = { ...simContact, externalId: 'psid-1', externalIdType: 'MESSENGER_PSID' };
+        await expect(svc(deps).dispatchOutbound('t1', conv(channel), c, { kind: 'TEXT', text: 'hi' })).rejects.toBeInstanceOf(SimulatedRecipientError);
+        await expect(svc(deps).dispatchOutbound('t1', conv(channel), c, { kind: 'MEDIA', mediaType: 'IMAGE', mediaUrl: 'https://x/y.jpg' })).rejects.toBeInstanceOf(SimulatedRecipientError);
+        expectNoProvider(deps);
+      });
+
+      it('sendAiText reports a simulated delivery: not delivered, QUEUED, no provider id, never SENT', async () => {
+        const deps = buildDeps();
+        const r = await svc(deps).sendAiText('t1', conv(), simContact, 'hi');
+        expect(r).toEqual({ delivered: false, simulated: true, fields: { status: 'QUEUED' } });
+        expectNoProvider(deps);
+      });
+
+      it('a real contact is delivered exactly as before', async () => {
+        const deps = buildDeps();
+        const r = await svc(deps).sendAiText('t1', conv(), { id: 'contact1', phone: '+233555000111' }, 'hi');
+        expect(r.delivered).toBe(true);
+        expect(r.fields.status).toBe('SENT');
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('other messages the inbound pipeline can produce', () => {
+      const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
+
+      it('the welcome message is stored as simulated (not FAILED) and not sent', async () => {
+        const deps = buildDeps();
+        deps.contactsService.findOrCreate.mockResolvedValue(simContact);
+        deps.prisma.tenantSettings.findUnique.mockResolvedValue({ welcomeEnabled: true, welcomeMessage: 'Welcome to Acme!' });
+        deps.prisma.message.count.mockResolvedValue(0);
+        deps.prisma.message.create.mockResolvedValue({ id: 'draft-1' });
+        deps.prisma.message.update.mockResolvedValue({ id: 'draft-1' });
+        await buildService(deps).handleInbound('t1', { id: 'wamid.sim-1', from: simContact.phone.replace('+', ''), timestamp: '1700000000', type: 'text', text: { body: 'hi' } }, simContact.name);
+        await flush();
+        expectNoProvider(deps);
+        const update = deps.prisma.message.update.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data);
+        expect(update).toContainEqual({ metadata: { simulated: true } });
+        expect(update.some((d: Record<string, unknown>) => d.status === 'FAILED' || d.status === 'SENT')).toBe(false);
+      });
+
+      it('chatbot-flow text and image steps are stored as simulated and not sent', async () => {
+        const deps = buildDeps();
+        deps.prisma.message.create.mockResolvedValue({ id: 'flow-msg' });
+        deps.prisma.message.update.mockResolvedValue({ id: 'flow-msg' });
+        await svc(deps).runBotFlow('t1', conversation, simContact, [
+          { id: 'a', type: 'start', content: '', nextNodeId: 'b' }, { id: 'b', type: 'text', content: 'Hello!', nextNodeId: 'c' }, { id: 'c', type: 'image', content: 'Look', mediaUrl: 'https://x/y.jpg' },
+        ]);
+        expectNoProvider(deps);
+        const updates = deps.prisma.message.update.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data);
+        expect(updates).toHaveLength(2);
+        for (const d of updates) expect(d).toEqual({ metadata: { simulated: true } });
+      });
+
+      it('CONTRAST: the same flow for a real contact sends and marks SENT', async () => {
+        const deps = buildDeps();
+        deps.prisma.message.create.mockResolvedValue({ id: 'flow-msg' });
+        deps.prisma.message.update.mockResolvedValue({ id: 'flow-msg' });
+        deps.whatsappService.sendTextMessage.mockResolvedValue('wamid.real');
+        await svc(deps).runBotFlow('t1', conversation, { id: 'contact1', phone: '+233555000111', name: 'Jane' }, [
+          { id: 'a', type: 'start', content: '', nextNodeId: 'b' }, { id: 'b', type: 'text', content: 'Hello!' },
+        ]);
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+        expect(deps.prisma.message.update.mock.calls[0][0].data).toMatchObject({ status: 'SENT', whatsappMessageId: 'wamid.real' });
+      });
     });
   });
 

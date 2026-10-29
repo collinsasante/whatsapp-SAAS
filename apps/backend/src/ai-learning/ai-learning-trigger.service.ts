@@ -35,8 +35,11 @@ export class AiLearningTriggerService {
    * blocks the customer response): a flag lookup + a queue.add() is the only
    * synchronous cost, the evaluation itself happens later in the processor.
    */
-  async maybeEnqueue(input: { tenantId: string; aiExecutionId: string; taskType: string; conversationId?: string | null; status?: string }): Promise<void> {
-    if (!EVALUABLE_TASK_TYPES.includes(input.taskType as AiTaskType)) return;
+  async maybeEnqueue(input: { tenantId: string; aiExecutionId: string; taskType: string; conversationId?: string | null; status?: string; simulated?: boolean }): Promise<void> {
+    // A simulated (AI Test Chat) reply is a genuine conversational turn, recorded as TEST so it settles no credits; it is still
+    // worth grading. Any other TEST run (admin sandboxes, evaluation harnesses) is not.
+    const evaluable = EVALUABLE_TASK_TYPES.includes(input.taskType as AiTaskType) || (input.taskType === 'TEST' && input.simulated === true);
+    if (!evaluable) return;
     // Only an execution that produced an answer can be graded. A blocked, empty or failed one has no interaction log to evaluate,
     // so queueing it would only create a job that retries and fails. (Callers that pass no status are unchanged.)
     if (input.status !== undefined && input.status !== 'SUCCESS') return;

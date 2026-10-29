@@ -14,6 +14,8 @@ const DEFAULT_MAX_ITERATIONS = 4;
 export interface ToolCallingRequest {
   tenantId: string;
   taskType: AiTaskType;
+  /** A simulated (Test Chat) run: recorded with safetyFlags.simulated so evaluation can find it even though it is not a RESPONDER task. */
+  simulated?: boolean;
   conversationId?: string;
   agentId?: string;
   systemPrompt: string;
@@ -170,7 +172,7 @@ export class ToolCallingService {
         { tenantId: req.tenantId, agentId: req.agentId, conversationId: req.conversationId, taskType: req.taskType },
         {
           ...trace,
-          safetyFlags: {},
+          safetyFlags: req.simulated ? { simulated: true } : {},
           stageTimings: {},
           toolTrace: toolTrace.length > 0 ? sanitizeToolTrace(toolTrace) : undefined,
           ...(reservationIds.length > 0 && { reservationIds }),

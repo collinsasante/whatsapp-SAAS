@@ -66,6 +66,36 @@ describe('AiLearningTriggerService', () => {
     expect(featureFlags.isEnabledCached).not.toHaveBeenCalled();
   });
 
+  it('evaluates a simulated TEST run (an AI Test Chat reply), because it is a real conversational turn that settles no credits', async () => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-1', taskType: 'TEST', conversationId: 'conv-1', status: 'SUCCESS', simulated: true });
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([[undefined], [false]])('does not evaluate any other TEST run (simulated: %p): admin sandboxes and evaluation harnesses are not customer turns', async (simulated) => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-1', taskType: 'TEST', conversationId: 'conv-1', status: 'SUCCESS', simulated });
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it.each(['SUMMARIZE', 'KB_LEARN', 'LEAD_SCORE'])('the simulated tag does not make %s evaluable', async (taskType) => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-1', taskType, conversationId: 'conv-1', status: 'SUCCESS', simulated: true });
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('a simulated run is still gated by the tenant flag and by status', async () => {
+    const { service, featureFlags, queue } = build();
+    featureFlags.isEnabledCached.mockResolvedValue(false);
+    await service.maybeEnqueue({ tenantId: 'other', aiExecutionId: 'exec-1', taskType: 'TEST', conversationId: 'conv-1', status: 'SUCCESS', simulated: true });
+    featureFlags.isEnabledCached.mockResolvedValue(true);
+    await service.maybeEnqueue({ tenantId: 'pakkmax-id', aiExecutionId: 'exec-2', taskType: 'TEST', conversationId: 'conv-1', status: 'PROVIDER_ERROR', simulated: true });
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
   it('never enqueues non-RESPONDER task types even when the flag is on', async () => {
     const { service, featureFlags, queue } = build();
     featureFlags.isEnabledCached.mockResolvedValue(true);

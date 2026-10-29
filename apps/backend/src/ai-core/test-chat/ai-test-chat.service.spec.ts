@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { isSimulatedPhone } from '@whatsapp-platform/shared-utils';
 import { AiTestChatService } from './ai-test-chat.service';
 
 function buildPrismaMock() {
@@ -48,6 +49,13 @@ describe('AiTestChatService', () => {
       expect(phone).toMatch(/^\+\d+$/);
     });
 
+    it('always lies in the reserved simulated range, so no provider layer will ever accept it as a recipient', () => {
+      for (const id of ['u1', 'some-uuid-1234-abcd', '', 'x'.repeat(200), '00000000-0000-0000-0000-000000000000']) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect(isSimulatedPhone((service as any).phoneFor(id))).toBe(true);
+      }
+    });
+
     it('is deterministic for the same userId', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const a = (service as any).phoneFor('user-abc');
@@ -93,14 +101,106 @@ describe('AiTestChatService', () => {
       expect(result.suggestion).toEqual({ id: 'log-1', status: 'SUGGESTED', aiResponse: 'Hi!' });
     });
 
-    it('returns AUTO_REPLY mode when a new outbound Message appears instead', async () => {
-      prisma.aiInteractionLog.findFirst.mockResolvedValue(null);
-      prisma.message.findFirst.mockResolvedValue({ id: 'msg-1', content: 'Hi there!' });
+    it('hands the inbound pipeline a phone in the reserved range (so it, and every layer below it, treats the customer as simulated)', async () => {
+      prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'SUGGESTED' });
+      prisma.message.findFirst.mockResolvedValue(null);
+      await service.sendMessage('t1', 'u1', 'hi');
+      expect(isSimulatedPhone(messagesService.handleInbound.mock.calls[0][1].from)).toBe(true);
+    });
 
-      const result = await service.sendMessage('t1', 'u1', 'hi');
+    describe('the reported mode comes from what was recorded, never from the mere existence of a log', () => {
+      afterEach(() => jest.useRealTimers());
 
-      expect(result.mode).toBe('AUTO_REPLY');
-      expect(result.message).toEqual({ id: 'msg-1', content: 'Hi there!' });
+      it('a SUGGESTED log is a draft: SUGGESTION, with no message', async () => {
+        prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'SUGGESTED', aiResponse: 'Hi!' });
+        prisma.message.findFirst.mockResolvedValue(null);
+        const r = await service.sendMessage('t1', 'u1', 'hi');
+        expect(r.mode).toBe('SUGGESTION');
+        expect(r.message).toBeNull();
+      });
+
+      it('a SIMULATED log with its stored message is SIMULATED and carries both', async () => {
+        prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'SIMULATED', aiResponse: 'Hi!' });
+        prisma.message.findFirst.mockResolvedValue({ id: 'msg-1', content: 'Hi!', metadata: { aiGenerated: true, simulated: true } });
+        const r = await service.sendMessage('t1', 'u1', 'hi');
+        expect(r.mode).toBe('SIMULATED');
+        expect(r.suggestion).toMatchObject({ id: 'log-1', status: 'SIMULATED' });
+        expect(r.message).toMatchObject({ id: 'msg-1' });
+      });
+
+      it('a SIMULATED log whose message lands a moment later waits for it (the log is written first)', async () => {
+        jest.useFakeTimers();
+        prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'SIMULATED', aiResponse: 'Hi!' });
+        prisma.message.findFirst.mockResolvedValueOnce(null).mockResolvedValue({ id: 'msg-1', content: 'Hi!', metadata: { simulated: true } });
+        const pending = service.sendMessage('t1', 'u1', 'hi');
+        await jest.advanceTimersByTimeAsync(1_000);
+        const r = await pending;
+        expect(r.mode).toBe('SIMULATED');
+        expect(r.message).toMatchObject({ id: 'msg-1' });
+      });
+
+      it('a SIMULATED log whose message never appears is returned after a short grace, not after the full timeout', async () => {
+        jest.useFakeTimers();
+        prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'SIMULATED', aiResponse: 'Hi!' });
+        prisma.message.findFirst.mockResolvedValue(null);
+        const pending = service.sendMessage('t1', 'u1', 'hi');
+        await jest.advanceTimersByTimeAsync(4_000);
+        const r = await pending;
+        expect(r.mode).toBe('SIMULATED');
+        expect(r.message).toBeNull();
+      });
+
+      it('an outbound message with no log (welcome message, flow step, provider-failure apology) is SIMULATED when marked so', async () => {
+        prisma.aiInteractionLog.findFirst.mockResolvedValue(null);
+        prisma.message.findFirst.mockResolvedValue({ id: 'msg-1', content: 'Welcome!', metadata: { simulated: true } });
+        const r = await service.sendMessage('t1', 'u1', 'hi');
+        expect(r.mode).toBe('SIMULATED');
+        expect(r.suggestion).toBeNull();
+      });
+
+      it('REGRESSION: a log recorded as AUTO_SENT is never presented as "suggested"; it is an ERROR that says so', async () => {
+        prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'AUTO_SENT', aiResponse: 'Hi!' });
+        prisma.message.findFirst.mockResolvedValue(null);
+        const r = await service.sendMessage('t1', 'u1', 'hi');
+        expect(r.mode).toBe('ERROR');
+        expect(r.mode).not.toBe('SUGGESTION');
+        expect((r as { note?: string }).note).toMatch(/AUTO_SENT/);
+      });
+
+      it('an outbound message that is NOT marked simulated is an ERROR, not an AUTO_REPLY', async () => {
+        prisma.aiInteractionLog.findFirst.mockResolvedValue(null);
+        prisma.message.findFirst.mockResolvedValue({ id: 'msg-1', content: 'Hi there!', metadata: { aiGenerated: true } });
+        const r = await service.sendMessage('t1', 'u1', 'hi');
+        expect(r.mode).toBe('ERROR');
+        expect((r as { note?: string }).note).toMatch(/not marked as simulated/);
+      });
+
+      it('an outbound message with no metadata at all is also an ERROR', async () => {
+        prisma.aiInteractionLog.findFirst.mockResolvedValue(null);
+        prisma.message.findFirst.mockResolvedValue({ id: 'msg-1', content: 'Hi there!', metadata: null });
+        expect((await service.sendMessage('t1', 'u1', 'hi')).mode).toBe('ERROR');
+      });
+
+      it('nothing recorded within the timeout is TIMEOUT', async () => {
+        jest.useFakeTimers();
+        prisma.aiInteractionLog.findFirst.mockResolvedValue(null);
+        prisma.message.findFirst.mockResolvedValue(null);
+        const pending = service.sendMessage('t1', 'u1', 'hi');
+        await jest.advanceTimersByTimeAsync(21_000);
+        expect((await pending).mode).toBe('TIMEOUT');
+      });
+    });
+  });
+
+  describe('getState', () => {
+    it('returns each message\'s metadata, so the page can show a message as simulated', async () => {
+      prisma.tenantSettings.findUnique.mockResolvedValue({ aiEnabled: true });
+      prisma.contact.findFirst.mockResolvedValue({ id: 'contact-1', name: 'Test Customer (you)' });
+      prisma.conversation.findFirst.mockResolvedValue({ id: 'conv-1' });
+      prisma.message.findMany.mockResolvedValue([]);
+      prisma.aiInteractionLog.findMany.mockResolvedValue([]);
+      await service.getState('t1', 'u1');
+      expect(prisma.message.findMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ metadata: true }) }));
     });
   });
 

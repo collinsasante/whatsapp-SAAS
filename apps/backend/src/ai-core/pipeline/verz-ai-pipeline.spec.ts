@@ -88,6 +88,33 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
 }
 
 describe('VerzAiPipelineService (integration, MockProvider)', () => {
+  const happy = () => {
+    const provider = new MockProvider();
+    (provider as { key: string }).key = 'deepseek';
+    provider.nextResult = {
+      content: JSON.stringify({ response: 'Delivery to Accra is GHS 30.', confidence: 92 }),
+      toolCalls: [], finishReason: 'stop', usage: { inputTokens: 150, outputTokens: 20 }, provider: 'deepseek', model: DEFAULT_MODEL_KEY, latencyMs: 5,
+    };
+    return provider;
+  };
+
+  it('a simulated run is recorded as the unmetered TEST task, tagged simulated, and still has a complete trace', async () => {
+    const prisma = buildPrismaMock();
+    const result = await buildPipeline(happy(), prisma).run({ tenantId: 't1', agentId: 'agent-1', conversationId: 'c1', customerMessage: 'How much is delivery?', taskType: 'TEST', simulated: true });
+    expect(result.response).toBe('Delivery to Accra is GHS 30.');
+    const [row] = prisma.__executionRows as Array<{ taskType: string; status: string; safetyFlags: { simulated?: boolean }; inputTokens: number }>;
+    expect(row).toMatchObject({ taskType: 'TEST', status: 'SUCCESS', inputTokens: 150 });
+    expect(row.safetyFlags.simulated).toBe(true);
+  });
+
+  it('a real run is recorded as RESPONDER and is not tagged simulated', async () => {
+    const prisma = buildPrismaMock();
+    await buildPipeline(happy(), prisma).run({ tenantId: 't1', agentId: 'agent-1', conversationId: 'c1', customerMessage: 'How much is delivery?', taskType: 'RESPONDER' });
+    const [row] = prisma.__executionRows as Array<{ taskType: string; safetyFlags: { simulated?: boolean } }>;
+    expect(row.taskType).toBe('RESPONDER');
+    expect(row.safetyFlags.simulated).toBeUndefined();
+  });
+
   it('runs the full happy path and persists a complete SUCCESS trace', async () => {
     const provider = new MockProvider();
     (provider as { key: string }).key = 'deepseek'; // catalog maps model -> 'deepseek' provider

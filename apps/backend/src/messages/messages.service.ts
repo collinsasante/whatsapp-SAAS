@@ -31,7 +31,7 @@ import { shouldApplyStatus } from './message-status.util';
 import { isMetaPlayableAudio, isOggBuffer, isWebmBuffer, transcodeToM4a, transcodeWebmToOgg } from '../common/media/audio.util';
 import type { OutboundFile } from '../facebook-messenger/facebook-messenger.service';
 import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
-import { buildPaginationMeta, getPaginationSkip, interpolateTemplate } from '@whatsapp-platform/shared-utils';
+import { buildPaginationMeta, getPaginationSkip, interpolateTemplate, isSimulatedPhone, SimulatedRecipientError } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
 import { HANDOFF_FAILED_TEXT, HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
 import { buildLegacyTrace, describeProviderError, LegacyCallObservation, readProviderUsage } from './legacy-ai-execution.util';
@@ -102,6 +102,13 @@ const WHATSAPP_WEB_MEDIA_TYPE_MAP: Record<string, MessageType> = {
 };
 
 // Total worst-case wait ~1.7s: covers the gap between provider accept and the DB write of its id.
+/**
+ * How a simulated (AI Test Chat) message is marked on its row. The message is never handed to a provider, so it must not read as
+ * sent: the status stays QUEUED, it gets no provider id and no sentAt, and this marker says why. (MessageStatus has no
+ * "simulated" value; adding one needs a reviewed migration, and the marker keeps that choice open: change it in one place.)
+ */
+const SIMULATED_MESSAGE_METADATA = { simulated: true } as const;
+
 const CLIENT_SEND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
 /**
@@ -180,6 +187,8 @@ export class MessagesService {
       | { kind: 'TEXT'; text: string; replyToWaMessageId?: string; replyToProviderId?: string }
       | { kind: 'MEDIA'; mediaType: MessageType; mediaUrl: string; caption?: string; replyToWaMessageId?: string; replyToProviderId?: string },
   ): Promise<string | undefined> {
+    // A simulated recipient is never handed to a channel, whoever asks (a bot flow, a human typing in the Inbox, a retry).
+    if (isSimulatedPhone(contact.phone)) throw new SimulatedRecipientError();
     if (conversation.channel?.type === 'FACEBOOK_MESSENGER') {
       if (!contact.externalId) throw new BadRequestException('This Messenger contact has no PSID on file.');
       if (payload.kind === 'TEXT') {
@@ -1132,14 +1141,18 @@ export class MessagesService {
                   whatsappNumberId: resolvedConv.whatsappNumberId,
                 },
               });
-              const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, thankYouText, undefined, resolvedConv.whatsappNumberId).catch(() => null);
+              // A simulated recipient gets no provider call and is not reported as sent.
+              const simulatedRecipient = isSimulatedPhone(contact.phone);
+              const waId = simulatedRecipient ? null : await this.whatsappService.sendTextMessage(tenantId, contact.phone, thankYouText, undefined, resolvedConv.whatsappNumberId).catch(() => null);
               const sentMsg = await this.prisma.message.update({
                 where: { id: msg.id },
-                data: {
-                  whatsappMessageId: waId ?? undefined,
-                  status: waId ? MessageStatus.SENT : MessageStatus.FAILED,
-                  sentAt: waId ? new Date() : undefined,
-                },
+                data: simulatedRecipient
+                  ? { metadata: SIMULATED_MESSAGE_METADATA }
+                  : {
+                    whatsappMessageId: waId ?? undefined,
+                    status: waId ? MessageStatus.SENT : MessageStatus.FAILED,
+                    sentAt: waId ? new Date() : undefined,
+                  },
               });
               this.realtimeService.emitNewMessage(tenantId, resolvedConv.id, sentMsg as unknown as Record<string, unknown>);
             }
@@ -1480,10 +1493,14 @@ export class MessagesService {
             const draft = await this.prisma.message.create({
               data: { tenantId, conversationId: conversation.id, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content: welcomeText, whatsappNumberId: conversation.whatsappNumberId, metadata: { isAutoReply: true } as never },
             });
-            const waId = await this.whatsappService.sendTextMessage(tenantId, contact.phone, welcomeText, undefined, conversation.whatsappNumberId).catch(() => null);
+            // A simulated recipient gets no provider call and is not reported as sent.
+            const simulatedRecipient = isSimulatedPhone(contact.phone);
+            const waId = simulatedRecipient ? null : await this.whatsappService.sendTextMessage(tenantId, contact.phone, welcomeText, undefined, conversation.whatsappNumberId).catch(() => null);
             const sent = await this.prisma.message.update({
               where: { id: draft.id },
-              data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined },
+              data: simulatedRecipient
+                ? { metadata: SIMULATED_MESSAGE_METADATA }
+                : { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined },
             });
             this.realtimeService.emitNewMessage(tenantId, conversation.id, sent as unknown as Record<string, unknown>);
             this.logger.log(`Welcome message sent to ${contact.phone}`);
@@ -1597,6 +1614,18 @@ export class MessagesService {
   }
 
   /**
+   * A simulated conversation never creates a real handoff: no staff are notified and no assignment changes. The outcome is
+   * reported as successful so the simulated reply reads as it would in production.
+   */
+  private requestHandoff(simulated: boolean, tenantId: string, conversationId: string, reason: string): Promise<boolean> {
+    if (simulated) {
+      this.logger.log(`Handoff not requested for simulated conversation ${conversationId}`);
+      return Promise.resolve(true);
+    }
+    return this.conversationsService.requestWithRetry(tenantId, conversationId, reason);
+  }
+
+  /**
    * Re-reads conversation ownership directly from the DB and recomputes the
    * same humanOwned/agentAway decision dispatchAiAndChatbot made at dispatch
    * time. Called immediately before a paid provider call and again
@@ -1668,6 +1697,7 @@ export class MessagesService {
     customerMessage: string, contactName: string | undefined, readOnlyTools: boolean,
     channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER',
     currentMessageId?: string,
+    simulated?: boolean,
   ) {
     return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
       this.verzAiPipeline.run({
@@ -1677,7 +1707,9 @@ export class MessagesService {
         customerMessage,
         currentMessageId,
         contactName,
-        taskType: 'RESPONDER',
+        // A simulated (Test Chat) run is TEST: the existing metering rule leaves it unmetered, so no customer credits are settled.
+        taskType: simulated ? 'TEST' : 'RESPONDER',
+        ...(simulated && { simulated: true }),
         // Verz-AI unification, Phase E: turns GenerationStage's tool-calling
         // branch live for this tenant -- both were already in scope at this
         // call's one caller (generateAiReply), just never threaded through.
@@ -1705,12 +1737,12 @@ export class MessagesService {
     customerPhone: string,
     content: string,
     contactName: string | undefined,
-    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string },
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean },
   ): Promise<UnifiedAiResult> {
     if (opts.commerceEnabled) {
       const r = await this.commerceAiService.handleMessage(
         tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
-        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType, currentMessageId: opts.currentMessageId },
+        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType, currentMessageId: opts.currentMessageId, ...(opts.simulated && { simulated: true }) },
       );
       // Second hardening pass, Section 4: r.shouldEscalate was never mapped through
       // here before -- Commerce's own escalation branches called
@@ -1723,7 +1755,7 @@ export class MessagesService {
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType, opts.currentMessageId);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType, opts.currentMessageId, opts.simulated);
 
     // An explicit request for a person never needs the model: hand off for real (messages.service acts on
     // shouldEscalate in both AUTO_REPLY and SUGGESTION mode) and skip a paid call whose reply would be replaced anyway.
@@ -1741,31 +1773,35 @@ export class MessagesService {
       conversationId,
       content,
       contactName,
-      <T>(providerCall: () => Promise<T>) => this.runLegacyAiProviderCall(tenantId, async () => {
-        call.invoked = true;
-        try {
-          const response = await providerCall();
-          call.usage = readProviderUsage(response);
-          return response;
-        } catch (err) {
-          call.error = describeProviderError(err);
-          throw err;
-        }
-      }),
+      <T>(providerCall: () => Promise<T>) => {
+        const observed = async (): Promise<T> => {
+          call.invoked = true;
+          try {
+            const response = await providerCall();
+            call.usage = readProviderUsage(response);
+            return response;
+          } catch (err) {
+            call.error = describeProviderError(err);
+            throw err;
+          }
+        };
+        // A simulated run takes no credit hold: it is unmetered test usage, like every TEST task.
+        return opts.simulated ? observed() : this.runLegacyAiProviderCall(tenantId, observed);
+      },
       opts.currentMessageId,
     );
     // The legacy responder still uses a fixed estimate, but its provider request is
     // wrapped in the same durable hold so concurrent calls cannot spend held credits.
     // It is recorded WITHOUT credit metering for exactly that reason: the hold above already charges it, and recording it
     // as a normal RESPONDER execution would charge it a second time. The record makes the reply traceable and evaluable.
-    const executionId = await this.recordLegacyExecution(tenantId, conversationId, buildLegacyTrace({ legacy, call, latencyMs: Date.now() - startedAt }));
+    const executionId = await this.recordLegacyExecution(tenantId, conversationId, buildLegacyTrace({ legacy, call, latencyMs: Date.now() - startedAt, simulated: opts.simulated }), opts.simulated);
     return { ...legacy, executionId };
   }
 
   /** Recording is traceability, never a reason for the customer not to get a reply: a failure is logged and the turn goes on. */
-  private async recordLegacyExecution(tenantId: string, conversationId: string, trace: Parameters<AiExecutionsService['record']>[1]): Promise<string | null> {
+  private async recordLegacyExecution(tenantId: string, conversationId: string, trace: Parameters<AiExecutionsService['record']>[1], simulated?: boolean): Promise<string | null> {
     try {
-      const execution = await this.aiExecutionsService.record({ tenantId, conversationId, taskType: 'RESPONDER' }, trace, { meterCredits: false });
+      const execution = await this.aiExecutionsService.record({ tenantId, conversationId, taskType: simulated ? 'TEST' : 'RESPONDER' }, trace, { meterCredits: false });
       return execution?.id ?? null;
     } catch (err) {
       this.logger.warn(`Failed to record the legacy AI execution for conversation ${conversationId}: ${String(err)}`);
@@ -1841,7 +1877,8 @@ export class MessagesService {
 
     // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
     // ownership check above -- never for a human-handled conversation or on a failed lookup.
-    this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
+    const simulated = isSimulatedPhone(contact.phone);
+    if (!simulated) this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled); // a paid, metered call: not for a test conversation
 
     const startMs = Date.now();
     // SUGGESTION mode restricts Commerce to read-only tools: it has never run in
@@ -1851,7 +1888,7 @@ export class MessagesService {
     // for a new capability, not a weakening of anything that exists today.
     const result = await this.generateAiReply(
       tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type), currentMessageId },
+      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type), currentMessageId, ...(simulated && { simulated: true }) },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
@@ -1862,7 +1899,7 @@ export class MessagesService {
       // but silently doing nothing left the conversation stuck with no signal that
       // the AI couldn't produce a suggestion at all. Escalate for real instead.
       this.logger.warn(`AI suggestion generation produced no response at all for conversation ${conversation.id} -- escalating`);
-      await this.conversationsService.requestWithRetry(tenantId, conversation.id, 'AI escalation: suggestion generation threw before returning a response');
+      await this.requestHandoff(simulated, tenantId, conversation.id, 'AI escalation: suggestion generation threw before returning a response');
       return;
     }
 
@@ -1871,7 +1908,7 @@ export class MessagesService {
       // customer (a human reviews first), so there's no customer-facing text to keep
       // honest here -- but the handoff itself should still be real and retried, not a
       // swallowed .catch(() => null).
-      await this.conversationsService.requestWithRetry(tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence');
+      await this.requestHandoff(simulated, tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence');
     }
 
     // Re-check again right before storing/surfacing the suggestion. Generation
@@ -1932,13 +1969,14 @@ export class MessagesService {
 
     // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
     // ownership check above -- never for a human-handled conversation or on a failed lookup.
-    this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled);
+    const simulated = isSimulatedPhone(contact.phone);
+    if (!simulated) this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled); // a paid, metered call: not for a test conversation
 
     const startMs = Date.now();
     const [result, verzAgent] = await Promise.all([
       this.generateAiReply(
         tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type), currentMessageId },
+        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type), currentMessageId, ...(simulated && { simulated: true }) },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
         return null;
@@ -1978,8 +2016,8 @@ export class MessagesService {
       // Second hardening pass, Section 4: attempt the real handoff first (with a real
       // retry) so the text actually sent matches what really happened, instead of
       // sending an optimistic line and separately hoping the handoff also worked.
-      const escalated = await this.conversationsService.requestWithRetry(
-        tenantId, conversation.id, 'AI escalation: AI reply generation threw before returning a response',
+      const escalated = await this.requestHandoff(
+        simulated, tenantId, conversation.id, 'AI escalation: AI reply generation threw before returning a response',
       );
       const fallbackText = escalated
         ? PROVIDER_FAILURE_FALLBACK_TEXT
@@ -1996,7 +2034,7 @@ export class MessagesService {
         data: {
           tenantId, conversationId: conversation.id, contactId: contact.id, direction: 'OUTBOUND' as const, type: 'TEXT' as const,
           ...fallbackDelivery.fields, content: fallbackText, whatsappNumberId: conversation.whatsappNumberId,
-          metadata: { aiGenerated: true, fallback: true, handoffRequested: escalated },
+          metadata: { aiGenerated: true, fallback: true, handoffRequested: escalated, ...(simulated ? SIMULATED_MESSAGE_METADATA : {}) },
         },
       }).catch((err) => {
         this.logger.warn(`Failed to persist the AI fallback message for conversation ${conversation.id}: ${String(err)}`);
@@ -2015,8 +2053,8 @@ export class MessagesService {
       // swallowed .catch(() => null)) and only keeps that optimistic text if it's
       // actually true; if the handoff genuinely fails, the text sent to the customer
       // is rewritten to something honest instead of a claim that didn't happen.
-      const escalated = await this.conversationsService.requestWithRetry(
-        tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence',
+      const escalated = await this.requestHandoff(
+        simulated, tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence',
       );
       handoffRequested = escalated;
       if (!escalated) {
@@ -2047,7 +2085,8 @@ export class MessagesService {
       contactId: contact.id,
       customerMessage: content,
       aiResponse: result.response,
-      status: 'AUTO_SENT',
+      // A simulated reply is never AUTO_SENT: nothing was sent.
+      status: simulated ? 'SIMULATED' : 'AUTO_SENT',
       confidenceScore: result.confidence,
       responseTimeMs: Date.now() - startMs,
     }).catch((err) => {
@@ -2076,6 +2115,7 @@ export class MessagesService {
           ...(commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true }),
           // Marks a provider-failure apology so that a repeat within the cooldown can be recognised.
           ...(result.response === PROVIDER_FAILURE_FALLBACK_TEXT ? { fallback: true, handoffRequested } : {}),
+          ...(simulated ? SIMULATED_MESSAGE_METADATA : {}),
         },
       },
       include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
@@ -2097,7 +2137,7 @@ export class MessagesService {
         this.logger.log(`AI-triggered media NOT delivered for conversation ${conversation.id}: a human agent took over after the text reply (ownership recheck before media send).`);
         break;
       }
-      const whatsappMessageId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: 'IMAGE' as MessageType, mediaUrl: effect.mediaUrl, caption: effect.caption }).catch((err) => {
+      const whatsappMessageId = simulated ? undefined : await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: 'IMAGE' as MessageType, mediaUrl: effect.mediaUrl, caption: effect.caption }).catch((err) => {
         this.logger.warn(`Failed to deliver AI-triggered media for conversation ${conversation.id}: ${String(err)}`);
         return undefined;
       });
@@ -2109,13 +2149,13 @@ export class MessagesService {
           senderId: verzAgent?.id ?? null,
           direction: 'OUTBOUND' as const,
           type: 'IMAGE' as const,
-          status: whatsappMessageId ? ('SENT' as const) : ('FAILED' as const),
+          status: simulated ? ('QUEUED' as const) : whatsappMessageId ? ('SENT' as const) : ('FAILED' as const),
           mediaUrl: effect.mediaUrl,
           mediaCaption: effect.caption,
           whatsappMessageId,
           whatsappNumberId: conversation.whatsappNumberId,
           sentAt: whatsappMessageId ? new Date() : undefined,
-          metadata: { aiGenerated: true, productId: effect.productId },
+          metadata: { aiGenerated: true, productId: effect.productId, ...(simulated ? SIMULATED_MESSAGE_METADATA : {}) },
         },
         include: { sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } } },
       }).catch((err) => {
@@ -2160,7 +2200,9 @@ export class MessagesService {
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null },
     contact: { id: string; phone: string | null; externalId?: string | null; externalIdType?: string | null },
     text: string,
-  ): Promise<{ delivered: boolean; fields: { status: MessageStatus; whatsappMessageId?: string; sentAt?: Date; failedAt?: Date; failureReason?: string } }> {
+  ): Promise<{ delivered: boolean; simulated?: boolean; fields: { status: MessageStatus; whatsappMessageId?: string; sentAt?: Date; failedAt?: Date; failureReason?: string } }> {
+    // Simulation: the reply was generated but is deliberately not delivered. It is never reported as SENT.
+    if (isSimulatedPhone(contact.phone)) return { delivered: false, simulated: true, fields: { status: MessageStatus.QUEUED } };
     try {
       const providerId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text });
       return { delivered: true, fields: { status: MessageStatus.SENT, whatsappMessageId: providerId ?? undefined, sentAt: new Date() } };
@@ -2221,15 +2263,19 @@ export class MessagesService {
           const msg = await this.prisma.message.create({
             data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.TEXT, status: MessageStatus.QUEUED, content, whatsappNumberId },
           });
-          const waId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: content }).catch(() => null);
-          const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
+          // A simulated recipient gets no provider call and is not reported as sent.
+          const simulatedRecipient = isSimulatedPhone(contact.phone);
+          const waId = simulatedRecipient ? null : await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'TEXT', text: content }).catch(() => null);
+          const updated = await this.prisma.message.update({ where: { id: msg.id }, data: simulatedRecipient ? { metadata: SIMULATED_MESSAGE_METADATA } : { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
           this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
         } else if (node.type === 'image' && mediaUrl) {
           const msg = await this.prisma.message.create({
             data: { tenantId, conversationId, contactId: contact.id, direction: MessageDirection.OUTBOUND, type: MessageType.IMAGE, status: MessageStatus.QUEUED, mediaUrl, mediaCaption: content ?? null, whatsappNumberId },
           });
-          const waId = await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: MessageType.IMAGE, mediaUrl, caption: content }).catch(() => null);
-          const updated = await this.prisma.message.update({ where: { id: msg.id }, data: { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
+          // A simulated recipient gets no provider call and is not reported as sent.
+          const simulatedRecipient = isSimulatedPhone(contact.phone);
+          const waId = simulatedRecipient ? null : await this.dispatchOutbound(tenantId, conversation, contact, { kind: 'MEDIA', mediaType: MessageType.IMAGE, mediaUrl, caption: content }).catch(() => null);
+          const updated = await this.prisma.message.update({ where: { id: msg.id }, data: simulatedRecipient ? { metadata: SIMULATED_MESSAGE_METADATA } : { whatsappMessageId: waId ?? undefined, status: waId ? MessageStatus.SENT : MessageStatus.FAILED, sentAt: waId ? new Date() : undefined } });
           this.realtimeService.emitNewMessage(tenantId, conversationId, updated as unknown as Record<string, unknown>);
         } else if (node.type === 'delay' && delaySec) {
           await new Promise(r => setTimeout(r, Math.min(delaySec * 1000, 10000)));

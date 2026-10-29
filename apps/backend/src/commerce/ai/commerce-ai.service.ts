@@ -112,7 +112,7 @@ export class CommerceAiService {
     customerMessage: string,
     contactName?: string,
     evalContext?: { dryRunPayment: boolean },
-    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string },
+    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean },
   ): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
       return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
@@ -194,7 +194,9 @@ export class CommerceAiService {
       // through AiExecutionsService's existing unmetered-task-type list (no real
       // credit deduction for a tenant's own synthetic QA scenarios) and also lets
       // platform-admin AI analytics exclude them from cost/revenue KPIs.
-      taskType: evalContext ? 'TEST' : 'RESPONDER',
+      // A simulated (AI Test Chat) run is TEST for the same reason: unmetered, and excluded from real cost KPIs.
+      taskType: evalContext || opts?.simulated ? 'TEST' : 'RESPONDER',
+      simulated: opts?.simulated,
       conversationId,
       systemPrompt,
       // The history excludes this customerMessage (selected by id); userMessage below carries the properly

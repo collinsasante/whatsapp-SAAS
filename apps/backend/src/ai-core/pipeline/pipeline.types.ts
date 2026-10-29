@@ -23,7 +23,16 @@ export interface VerzAiResult {
   mediaToSend?: ToolSideEffect[];
 }
 
+/** What an execution records about its own safety handling, plus whether it was a simulated (Test Chat) run. */
+export type TraceSafetyFlags = AiExecutionSafetyFlags & { simulated?: boolean };
+
 export interface PipelineInput {
+  /**
+   * AI Test Chat: the customer is a synthetic contact and nothing may reach a messaging provider. The caller also sets
+   * `taskType: 'TEST'`, which the existing metering rule leaves unmetered, so a simulated turn settles no customer credits.
+   * The execution is tagged simulated so evaluation can still pick it up.
+   */
+  simulated?: boolean;
   tenantId: string;
   agentId: string;
   conversationId: string;
@@ -61,7 +70,7 @@ export interface PipelineTrace {
   outputTokens?: number;
   estCostUsd?: number;
   confidence?: number | null;
-  safetyFlags: AiExecutionSafetyFlags;
+  safetyFlags: TraceSafetyFlags;
   errorCode?: string;
   errorMessage?: string;
   stageTimings: Record<string, number>;
@@ -126,6 +135,6 @@ export interface PipelineStage {
   execute(ctx: PipelineContext): Promise<void>;
 }
 
-export function newTrace(): PipelineTrace {
-  return { status: 'EMPTY', safetyFlags: {}, stageTimings: {} };
+export function newTrace(simulated = false): PipelineTrace {
+  return { status: 'EMPTY', safetyFlags: simulated ? { simulated: true } : {}, stageTimings: {} };
 }

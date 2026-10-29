@@ -43,6 +43,7 @@ export class GenerationStage implements PipelineStage {
         const result = await this.toolCalling.complete({
           tenantId: ctx.input.tenantId,
           taskType: ctx.input.taskType,
+          simulated: ctx.input.simulated,
           conversationId: ctx.input.conversationId,
           agentId: ctx.input.agentId,
           systemPrompt: ctx.renderedSystemPrompt ?? '',
