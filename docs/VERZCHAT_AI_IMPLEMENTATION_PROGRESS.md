@@ -355,6 +355,23 @@ Limitations and remaining concerns:
 - Not audited: the chatbot-flow text and welcome messages tenants write themselves, the Messenger/Instagram-specific texts, and campaign/template wording (deterministic or tenant-authored by design).
 - The `Customer name:` prefix is still added to the user turn each time; the model decides whether to use it.
 
+### 5.6 Staging deployment of D10-D12 and the MinIO repair  (2026-10-29)
+
+Deployment (owner-run on the staging VPS with `infra/scripts/staging-release-deploy.sh`, from a separate checkout at the exact commit):
+- Candidate `f6b6728` (six commits, no migrations). The named extra-migration exception `20260708120000_verz_ai_grounded_retrieval` was justified by comparing the applied history with the commit: it was the only applied migration absent from the candidate, all 92 candidate checksums matched, none pending, none unfinished.
+- Result per the script's output: images built, isolated restore rehearsal passed, `No pending migrations to apply`, five services recreated, nginx and ingress health passed. Independent checks afterwards: all five services running with 0 restarts and tagged `f6b6728`, health 200, unauthenticated usage endpoint 401, no dependency-injection errors, `SimulationLimitsModule` initialised. The v2 prompt stayed `1.1.0 ACTIVE`; 1.2.0 is created only as an inactive draft on the first v2 prompt build and was not activated.
+- Rollback tag from that release: `rollback-20261029-165349` (code only).
+- Not verified on staging: the follow-up guard, the new wording, commerce task creation and the usage limits against a live model, and an authenticated call to `GET /ai/test-chat/usage`.
+
+MinIO (D9 recurred; not caused by this release, whose diff touches no storage code):
+- Backend logged `MinIO init failed: The Access Key Id you provided does not exist`. The backend held `.env.staging`'s key; `wa_staging_minio` had been created on 2026-10-28 with MinIO's built-in default login (`minioadmin`), from a different env file (`/root/whatsapp-platform/.env.staging`) and a third checkout (`/root/verzchat-staging`). The release script does not recreate MinIO, so the mismatch only became visible when the backend was recreated.
+- Repair (owner-run): volume backed up (7.3 GB, archive verified), then only `wa_staging_minio` recreated from `infra/.env.staging`. Verified: root user equals the backend key and is no longer the default; `bucketExists` returned true with the backend's own credentials.
+- Hardening: staging MinIO no longer publishes host ports 9002/9003 (`027aa85`; they listened on 0.0.0.0 and [::], and Docker-published ports bypass UFW). Verified on the host: `docker port` empty, nothing listening, backend access still works, health 200. Production MinIO had the same publication; fixed separately by hotfix PR #137 (`9440d6f`, merged to `main` as `10859b1`). **That merge changes nothing on the running production container**: it applies only when `wa_minio` is recreated.
+- Finding: the staging release moved the application from `/root/whatsapp-platform/.env.staging` to `infra/.env.staging`. The two files differ in `JWT_SECRET`, `JWT_REFRESH_SECRET`, `PLATFORM_ADMIN_SETUP_SECRET`, `PAYSTACK_SECRET_KEY`, `MESSENGER_WEBHOOK_VERIFY_TOKEN` and the MinIO pair (names only compared). Expect staging logins to need redoing, and check Messenger and Paystack on staging if used.
+- Finding: the staging DeepSeek key is identical to production's, so any live-model test on staging bills production.
+
+Open items from this work: production `wa_minio` still publishes 9000/9001 until recreated (prerequisites: confirm no external user of those ports; production checkout updated; `wa_minio` project label `verzchat-prod` and volume `infra_minio_data` confirmed); `dev` is about 100 commits behind `main`, so the hotfix was not opened against it (decision needed: cherry-pick PR or a `main` to `dev` sync); consolidate to one staging checkout and one env file; tighten `infra/.env` and `.env.bak-metaapp` permissions; remove the 7.3 GB MinIO backup when satisfied; give staging its own DeepSeek key before any live evaluation.
+
 ## 6. Tests run (this branch)
 
 | Command (from `apps/backend`) | Result |
@@ -395,8 +412,7 @@ Full-suite result after 5.4: 160 suites passed, 1 skipped; 2376 tests passed, 12
 
 ## 9. Next actions (resume here)
 
-1. Staging: deploy this branch (owner action: rebuild backend, worker and frontend) with a valid key and the `ai_learning_system` flag on
-   one tenant, then confirm in the browser that Test Chat shows simulated replies and that a legacy reply produces an evaluation row.
+1. Staging: D10-D12 are deployed (5.6). Next: a separate staging DeepSeek key and the `ai_learning_system` flag on one tenant, then confirm in the browser that Test Chat shows simulated replies and that a legacy reply produces an evaluation row (a live-model step; needs authorization).
 2. D12 follow-up: review the proposed defaults (5.4), decide how per-tenant limits should be stored (env JSON now; admin UI needs a migration), and whether to badge/exclude the test conversation in the Inbox
    and analytics. Decide the `Message.status` `SIMULATED` enum value (migration) vs the current marker.
 3. D4: judge input length caps, untrusted-content delimiting, and a per-tenant daily judge-call cap; usage accounting.
