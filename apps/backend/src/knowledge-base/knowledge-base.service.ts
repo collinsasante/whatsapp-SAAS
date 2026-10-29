@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { articleContentKey, articleTitleKey, selectRelevantArticles } from './knowledge-base.util';
 import { fetchPublicPage, UnsafePageUrlError } from './public-page-fetch';
+import { redactText } from '../common/privacy/pii-redaction.util';
 
 const LEARN_THROTTLE_MS = 30 * 60 * 1000;
 
@@ -267,10 +268,11 @@ export class KnowledgeBaseService {
     const conversations = await this.prisma.conversation.findMany({
       where: { tenantId, updatedAt: { gte: since } },
       include: {
+        contact: { select: { name: true } },
         messages: {
           where: { type: 'TEXT', content: { not: null }, deletedForEveryone: false },
           orderBy: { createdAt: 'asc' },
-          include: { sender: { select: { isAiAgent: true } } },
+          include: { sender: { select: { isAiAgent: true, name: true } } },
         },
       },
       take: 60,
@@ -289,7 +291,12 @@ export class KnowledgeBaseService {
           m.content && next.content &&
           m.content.length > 5 && next.content.length > 10
         ) {
-          pairs.push({ question: m.content.slice(0, 300), answer: next.content.slice(0, 500) });
+          // Personal data and secrets are removed BEFORE the text reaches the provider (and before an article is written from it).
+          const names = [conv.contact?.name, (next as typeof next & { sender?: { name?: string | null } }).sender?.name];
+          pairs.push({
+            question: redactText(m.content.slice(0, 300), { knownNames: names }).text,
+            answer: redactText(next.content.slice(0, 500), { knownNames: names }).text,
+          });
         }
       }
     }
@@ -346,7 +353,9 @@ export class KnowledgeBaseService {
         if (seenTitles.has(titleKey) || seenContent.has(contentKey)) continue;
 
         await this.prisma.knowledgeBaseArticle.create({
-          data: { tenantId, title: art.title, content: art.content, source: 'learned', isActive: true },
+          // Generated text is never trusted automatically: it is stored INACTIVE until an admin reviews and activates it, because an active
+          // article is sent to the model as business fact on every customer reply.
+          data: { tenantId, title: art.title, content: redactText(art.content).text, source: 'learned', isActive: false },
         });
         // Claim these keys immediately so a second near-duplicate proposed in the
         // same batch (the LLM sometimes returns two similar articles at once) is
