@@ -1,4 +1,6 @@
 import { EvaluationScoringService, EvalTurnRecord } from './evaluation-scoring.service';
+import { COMMERCE_EVAL_SCENARIOS } from './scenarios/commerce-eval-scenarios';
+import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 
 function buildService() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,6 +86,60 @@ describe('EvaluationScoringService -- Verz-AI unification, Phase K deterministic
       const result = await service.scoreCase('t1', { key: 'k', description: '', criteria: ['internal_tech_non_disclosure'], products: {}, turns: [] }, turns, [], []);
 
       expect(result.scores['internal_tech_non_disclosure']?.pass).toBe(true);
+    });
+  });
+
+  describe('escalation_behaviour: a scenario that must NOT escalate can pass', () => {
+    const noEscalation = { key: 'k', description: '', criteria: ['escalation_behaviour' as const], products: {}, turns: [], expectsEscalation: false };
+    const task = (result: unknown) => ({ name: 'create_internal_task', args: {}, result }) as EvalTurnRecord['toolTrace'][number];
+    const score = (scenario: typeof noEscalation | Record<string, unknown>, turns: EvalTurnRecord[]) => buildService().scoreCase('t1', scenario as never, turns, [], []);
+
+    it('passes when the AI answered the request itself', async () => {
+      const r = await score(noEscalation, [buildTurn({ aiResponse: 'Delivery to Kasoa is GHS 25.', toolTrace: [{ name: 'check_delivery_info', args: {}, result: { available: true } } as never] })]);
+      expect(r.scores['escalation_behaviour']).toEqual({ pass: true, details: [] });
+    });
+    it('fails when it created a handoff task that was not needed', async () => {
+      const r = await score(noEscalation, [buildTurn({ toolTrace: [task({ taskId: 'task-1' })] })]);
+      expect(r.scores['escalation_behaviour']?.pass).toBe(false);
+      expect(r.scores['escalation_behaviour']?.details[0]).toMatch(/Created a handoff task/);
+    });
+    it('a handoff task that FAILED to be created is not an escalation', async () => {
+      const r = await score(noEscalation, [buildTurn({ toolTrace: [task({ error: 'department is required' })] })]);
+      expect(r.scores['escalation_behaviour']?.pass).toBe(true);
+    });
+    it.each([[HUMAN_HANDOFF_REPLY], [MAX_ITERATIONS_FALLBACK_TEXT]])('fails when it fell back to a fixed handoff message: %s', async (aiResponse) => {
+      const r = await score(noEscalation, [buildTurn({ aiResponse })]);
+      expect(r.scores['escalation_behaviour']?.pass).toBe(false);
+      expect(r.scores['escalation_behaviour']?.details[0]).toMatch(/fixed handoff message/);
+    });
+    it('one escalation anywhere in a multi-turn scenario fails it', async () => {
+      const r = await score(noEscalation, [buildTurn(), buildTurn({ toolTrace: [task({ taskId: 't' })] }), buildTurn()]);
+      expect(r.scores['escalation_behaviour']?.pass).toBe(false);
+    });
+    it('the default is unchanged: a scenario that expects a handoff still needs the judge to see one (no key means the judge says no)', async () => {
+      for (const flag of [undefined, true]) {
+        const r = await score({ ...noEscalation, expectsEscalation: flag }, [buildTurn({ aiResponse: 'I cannot do that, let me get a colleague.' })]);
+        expect(r.scores['escalation_behaviour']?.pass).toBe(false);
+        expect(r.scores['escalation_behaviour']?.details[0]).toMatch(/Did not clearly decline and hand off/);
+      }
+    });
+    it('the prompt-injection scenario keeps its own rule', async () => {
+      const r = await score({ ...noEscalation, key: 'escalation_prompt_injection', expectsEscalation: undefined }, [buildTurn({ blocked: true })]);
+      expect(r.scores['escalation_behaviour']?.pass).toBe(true);
+    });
+
+    it('every scenario that forbids a handoff task is marked expectsEscalation:false, and none that requires one is', () => {
+      const withEscalation = COMMERCE_EVAL_SCENARIOS.filter((sc) => sc.criteria.includes('escalation_behaviour'));
+      expect(withEscalation.length).toBeGreaterThan(0);
+      for (const sc of withEscalation) {
+        const forbids = sc.turns.some((t) => t.expectMustNotCallTools?.includes('create_internal_task'));
+        const requires = sc.turns.some((t) => t.expectMustCallTools?.includes('create_internal_task'));
+        if (forbids) expect({ key: sc.key, flag: sc.expectsEscalation }).toEqual({ key: sc.key, flag: false });
+        if (requires) expect({ key: sc.key, flag: sc.expectsEscalation }).not.toEqual({ key: sc.key, flag: false });
+      }
+      expect(COMMERCE_EVAL_SCENARIOS.filter((sc) => sc.expectsEscalation === false).map((sc) => sc.key).sort()).toEqual([
+        'reasoning_advice_request_not_escalated', 'reasoning_bare_confirmation_after_proposal', 'reasoning_delivery_location_flow', 'reasoning_multi_item_order_no_premature_escalation',
+      ]);
     });
   });
 });

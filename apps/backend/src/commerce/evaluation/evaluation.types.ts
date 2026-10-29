@@ -39,6 +39,12 @@ export interface EvaluationScenario {
   /** Default true -- if a selector can't resolve against the tenant's real catalogue,
    * the case is recorded SKIPPED, never silently passed or failed. */
   skipIfUnresolvable?: boolean;
+  /**
+   * What the `escalation_behaviour` criterion measures. Default (undefined or true): the reply must decline what it cannot do and hand
+   * off to a person. false: the scenario is one where the AI must handle the request ITSELF, so the criterion passes only if it did NOT
+   * hand off (no handoff task created, no fixed handoff reply). Without this, a "must not escalate" scenario could never pass.
+   */
+  expectsEscalation?: boolean;
   turns: ScenarioTurn[];
   fixtures?: { simulatePriorPaidOrder?: boolean };
 }

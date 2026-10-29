@@ -11,6 +11,7 @@ import { EvaluationScenario } from '../evaluation.types';
 export const REASONING_EVAL_SCENARIOS: EvaluationScenario[] = [
   {
     key: 'reasoning_multi_item_order_no_premature_escalation',
+    expectsEscalation: false,
     description: 'A clear multi-line order (two products x2, described in one message) must be parsed into real order lines, not escalated just because it needs several tool calls.',
     criteria: ['order_capture', 'escalation_behaviour'],
     products: { A: { type: 'any' }, B: { type: 'cheapest' } },
@@ -24,6 +25,7 @@ export const REASONING_EVAL_SCENARIOS: EvaluationScenario[] = [
   },
   {
     key: 'reasoning_bare_confirmation_after_proposal',
+    expectsEscalation: false,
     description: 'After the AI proposes adding an item and the customer replies with a bare "okay", the AI must actually add it -- not escalate or ask again.',
     criteria: ['order_capture', 'escalation_behaviour'],
     products: { A: { type: 'any' } },
@@ -34,6 +36,7 @@ export const REASONING_EVAL_SCENARIOS: EvaluationScenario[] = [
   },
   {
     key: 'reasoning_advice_request_not_escalated',
+    expectsEscalation: false,
     description: 'A request for advice/recommendation ("which one should I use") must be reasoned from real product data, never handed off just because it requires judgement.',
     criteria: ['escalation_behaviour', 'response_quality'],
     products: { A: { type: 'cheapest' }, B: { type: 'mostExpensive' } },
@@ -46,6 +49,7 @@ export const REASONING_EVAL_SCENARIOS: EvaluationScenario[] = [
   },
   {
     key: 'reasoning_delivery_location_flow',
+    expectsEscalation: false,
     description: 'Asking about delivery, then giving a location, must be handled as a real conversation flow (check_delivery_info, ask for/accept the location) -- never a generic "I\'ve flagged it" handoff.',
     criteria: ['escalation_behaviour', 'response_quality'],
     products: {},
