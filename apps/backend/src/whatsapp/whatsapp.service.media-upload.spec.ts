@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { WhatsAppService } from './whatsapp.service';
+import { makeOversizedPng } from '../common/media/image.test-helpers';
+import { WHATSAPP_IMAGE_MAX_BYTES } from '../common/media/image.util';
 
 jest.mock('axios');
 
@@ -51,6 +53,23 @@ describe('WhatsAppService.uploadMediaToMeta: images', () => {
       await service.uploadMediaToMeta('t1', buf, mime, name);
       expect(uploaded()).toMatchObject({ filename: name, contentType: mime, firstBytes: [...buf.subarray(0, 4)] });
     }
+  });
+
+  it('shrinks a valid PNG that is over the 5 MB limit to a JPEG WhatsApp will take (the 7.6 MB image that failed in production)', async () => {
+    const big = makeOversizedPng();
+    expect(big.length).toBeGreaterThan(WHATSAPP_IMAGE_MAX_BYTES);
+    const { service, logger } = build();
+    await service.uploadMediaToMeta('t1', big, 'image/png', 'media.png');
+    const form = (axios.post as jest.Mock).mock.calls[0][1] as { getBuffer: () => Buffer };
+    expect(uploaded()).toMatchObject({ filename: 'media.jpg', contentType: 'image/jpeg', firstBytes: [0xff, 0xd8, 0xff, expect.any(Number)] });
+    expect(form.getBuffer().length).toBeLessThan(WHATSAPP_IMAGE_MAX_BYTES + 1000); // the multipart part headers are a few hundred bytes
+    expect(logger.log).toHaveBeenCalledWith(expect.stringMatching(/Uploading media to Meta: image\/jpeg, \d+ bytes, as media\.jpg \(received image\/png, \d+ bytes\)/));
+  });
+
+  it('sends a PNG under the limit unchanged, keeping its transparency', async () => {
+    const { service } = build();
+    await service.uploadMediaToMeta('t1', PNG, 'image/png', 'media.png');
+    expect(uploaded()).toMatchObject({ filename: 'media.png', contentType: 'image/png' });
   });
 
   it('does not touch a document', async () => {
