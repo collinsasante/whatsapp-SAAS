@@ -1,3 +1,4 @@
+import { HANDOFF_FAILED_TEXT, MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { checkFacts, compareStyles, measureReply, type FactRules, type StyleMetrics } from './style-compare.util';
 
 /**
@@ -56,6 +57,10 @@ export function assertSafeTarget(apiUrl: string, confirmSyntheticData: boolean):
   const staging = host.startsWith('staging.') || host.includes('.staging.') || host.endsWith('.staging');
   if (!local && !staging) throw new Error(`Refusing to run against "${host}": only a staging or local host is allowed.`);
 }
+
+/** A canned apology or hand-off, not an answer: the model call failed or gave up. It says nothing about style or facts. */
+const FALLBACK_TEXTS = [PROVIDER_FAILURE_FALLBACK_TEXT, HANDOFF_FAILED_TEXT, MAX_ITERATIONS_FALLBACK_TEXT];
+export const isFallbackReply = (reply: string): boolean => FALLBACK_TEXTS.some((t) => reply.includes(t));
 
 const toolNames = (trace: unknown): string[] =>
   Array.isArray(trace) ? [...new Set(trace.map((t) => (t as { name?: string; tool?: string })?.name ?? (t as { tool?: string })?.tool).filter((n): n is string => !!n))].sort() : [];
@@ -148,15 +153,26 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const nonEmpty = (xs: string[]) => xs.length > 0 && xs.every((x) => x.length > 0);
   add('Every run produced a reply', nonEmpty(replies.A) && nonEmpty(replies.B) && nonEmpty(replies.none), 'a run returned nothing: check AI is enabled and the test allowance');
 
+  const real = (label: keyof typeof replies): string[] => replies[label].filter((r) => r.length > 0 && !isFallbackReply(r));
+  const fallbacks = (['A', 'B', 'none', 'insufficient'] as const).reduce((n, l) => n + replies[l].filter(isFallbackReply).length, 0);
+  const total = (['A', 'B', 'none', 'insufficient'] as const).reduce((n, l) => n + replies[l].length, 0);
+  add('The AI gave real answers (no provider failures or hand-offs)', fallbacks === 0, `${fallbacks} of ${total} replies were the canned "trouble on my end" or hand-off text: the model call failed or gave up, so those replies say nothing about style or facts. Check the staging provider key and the backend logs.`);
+
   for (const label of ['A', 'B', 'none', 'insufficient'] as const) {
     if (replies[label].length === 0) continue;
-    const problems = replies[label].flatMap((r, i) => checkFacts(r, cfg.facts).map((p) => `run ${i + 1}: ${p}`));
-    add(`Facts are correct and nothing is invented (${label === 'none' ? 'no Digital Self' : label === 'insufficient' ? 'too little learned' : `agent ${label}`})`, problems);
+    const title = `Facts are correct and nothing is invented (${label === 'none' ? 'no Digital Self' : label === 'insufficient' ? 'too little learned' : `agent ${label}`})`;
+    if (real(label).length === 0) { skip(title, 'inconclusive: every reply was a fallback, so there was no answer to check'); continue; }
+    add(title, real(label).flatMap((r, i) => checkFacts(r, cfg.facts).map((p) => `reply ${i + 1}: ${p}`)));
   }
 
-  const [ma, mb] = [replies.A, replies.B].map((rs) => rs.map(measureReply).filter((m): m is StyleMetrics => !!m));
-  const comparison = compareStyles(ma!, mb!);
-  add('The two agents\' replies are distinguishable in style', comparison.distinguishable, `differing on: ${comparison.differing.join(', ') || 'nothing'}`);
+  const styleTitle = 'The two agents\' replies are distinguishable in style';
+  if (real('A').length === 0 || real('B').length === 0) {
+    skip(styleTitle, 'inconclusive: at least one agent had no real answer to compare');
+  } else {
+    const [ma, mb] = [real('A'), real('B')].map((rs) => rs.map(measureReply).filter((m): m is StyleMetrics => !!m));
+    const comparison = compareStyles(ma!, mb!);
+    add(styleTitle, comparison.distinguishable, `differing on: ${comparison.differing.join(', ') || 'nothing'}`);
+  }
 
   const [ta, tb] = [tools.A!.flat(), tools.B!.flat()];
   if (ta.length === 0 && tb.length === 0) skip('Both used the same tools and knowledge', 'the executions API returned no tool trace; compare in the AI Activity page');
