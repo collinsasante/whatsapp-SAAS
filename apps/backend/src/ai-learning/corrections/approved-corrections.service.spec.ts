@@ -44,7 +44,13 @@ describe('ApprovedCorrectionsService', () => {
     it('always queries with the tenant id and the APPROVED status', async () => {
       const { prisma, findMany } = storeWith([]);
       await ask(new ApprovedCorrectionsService(prisma as never), 'tenant-a');
-      expect(findMany.mock.calls[0][0].where).toEqual({ tenantId: 'tenant-a', status: 'APPROVED' });
+      expect(findMany.mock.calls[0][0].where).toMatchObject({ tenantId: 'tenant-a', status: 'APPROVED' });
+    });
+
+    it('leaves out a style correction that is applied to one agent\'s Digital Self, so it cannot steer every other agent', async () => {
+      const { prisma, findMany } = storeWith([]);
+      await ask(new ApprovedCorrectionsService(prisma as never), 'tenant-a');
+      expect(findMany.mock.calls[0][0].where).toEqual({ tenantId: 'tenant-a', status: 'APPROVED', digitalSelfId: null });
     });
 
     it('does not query at all without a tenant', async () => {

@@ -25,7 +25,8 @@ export class ApprovedCorrectionsService {
     if (this.isDisabled() || !tenantId || !customerMessage.trim()) return '';
     try {
       const examples = await this.prisma.aiTrainingExample.findMany({
-        where: { tenantId, status: TrainingExampleStatus.APPROVED },
+        // digitalSelfId null: a style correction applied to one agent's Digital Self must not also steer every other agent's replies.
+        where: { tenantId, status: TrainingExampleStatus.APPROVED, digitalSelfId: null },
         orderBy: [{ approvedAt: 'desc' }, { updatedAt: 'desc' }],
         take: CANDIDATE_LIMIT,
         select: { id: true, customerInput: true, expectedAction: true, expectedResponse: true, approvedAt: true, updatedAt: true },

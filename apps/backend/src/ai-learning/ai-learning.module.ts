@@ -11,6 +11,7 @@ import { AiInteractionEvalProcessor } from './ai-interaction-eval.processor';
 import { AiLearningService } from './ai-learning.service';
 import { AiLearningController } from './ai-learning.controller';
 import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.module';
+import { DigitalSelfModule } from '../digital-self/digital-self.module';
 
 /**
  * AI Learning & Evaluation System. Deliberately standalone -- does not
@@ -26,6 +27,7 @@ import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.
     FeatureFlagsModule,
     InternalTasksModule,
     SimulationLimitsModule,
+    DigitalSelfModule,
     BullModule.registerQueue({ name: QueueName.AI_INTERACTION_EVAL }),
   ],
   controllers: [AiLearningController],

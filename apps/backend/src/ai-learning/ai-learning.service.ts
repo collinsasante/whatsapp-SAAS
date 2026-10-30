@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { EvalQualityStatus, TrainingExampleStatus, FailureCategory, TakeoverClassification, CorrectionCategory, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DigitalSelfCorrectionsService } from '../digital-self/digital-self-corrections.service';
 
 export interface ListInteractionsFilters {
   status?: EvalQualityStatus;
@@ -25,7 +26,10 @@ export interface SubmitFeedbackInput {
 
 @Injectable()
 export class AiLearningService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private digitalSelfCorrections?: DigitalSelfCorrectionsService,
+  ) {}
 
   // ─── Overview / analytics ────────────────────────────────────────────
 
@@ -200,6 +204,9 @@ export class AiLearningService {
       },
     });
     await this.audit(tenantId, actorId, `training_example.${status.toLowerCase()}`, 'training_example', id, { status: example.status }, { status });
+    // A style-only correction also refines the Digital Self of the agent whose style the reply was written in. It never blocks or fails
+    // the approval workflow, and anything that is not a style correction is left exactly as it was.
+    await this.digitalSelfCorrections?.sync(tenantId, id, actorId).catch((err: unknown) => new Logger(AiLearningService.name).warn(`Digital Self correction sync failed: ${err instanceof Error ? err.name : 'unknown'}`));
     return updated;
   }
 

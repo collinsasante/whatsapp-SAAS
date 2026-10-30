@@ -16,6 +16,12 @@ import { DigitalSelfLearningService } from './digital-self-learning.service';
 import { DigitalSelfLearningProcessor } from './digital-self-learning.processor';
 import { DigitalSelfLearningTrigger } from './digital-self-learning.trigger';
 import { DigitalSelfContextService } from './digital-self-context.service';
+import { DigitalSelfCorrectionsService } from './digital-self-corrections.service';
+import { AiLearningService } from '../ai-learning/ai-learning.service';
+import { ApprovedCorrectionsService } from '../ai-learning/corrections/approved-corrections.service';
+import { lockConversationAndReadExclusion } from './evidence.util';
+import { extractFeatures } from './message-features.util';
+import { emptyProfile, mergeFeatures, parseProfile } from './profile.util';
 
 const dbUrl = process.env['DIGITAL_SELF_TEST_DATABASE_URL'];
 const redisUrl = process.env['DIGITAL_SELF_TEST_REDIS_URL'];
@@ -199,6 +205,212 @@ suite('Digital Self against a real database', () => {
     expect(await ctx.getStyleBlock(t, conversation.id)).toBe('');
   });
 
+
+  // ------------------------------------------------------------------ privacy: conversation exclusion
+  const learnSequentially = async (t: string, convId: string, contactId: string, senderId: string, texts: string[]) => {
+    const ids: string[] = [];
+    for (const text of texts) {
+      const m = await msg(t, convId, contactId, senderId, text);
+      ids.push(m.id);
+      expect(await learning.learnFromMessage(t, m.id)).toBe('learned');
+    }
+    return ids;
+  };
+  const texts = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix} ${i % 2 === 0 ? 'Hello! Happy to help 😊 Which size?' : 'Kindly confirm the address. Thank you.'} ${i}`);
+
+  it('excluding a conversation removes exactly what was learned from it and leaves the rest untouched', async () => {
+    const t = await tenant('excl');
+    const ama = await user(t, 'ama');
+    const [a, b] = [await convo(t), await convo(t)];
+    const self = (await svc.ensureForUser(t, ama.id))!;
+    const bTexts = texts('B', 6);
+    await learnSequentially(t, a.conversation.id, a.contact.id, ama.id, texts('A', 12));
+    await learnSequentially(t, b.conversation.id, b.contact.id, ama.id, bTexts);
+    expect((await prisma.digitalSelf.findUniqueOrThrow({ where: { id: self.id } })).evidenceCount).toBe(18);
+    await svc.setOverrides(t, self.id, { warmth: 'reserved' });
+
+    const result = await svc.setConversationLearningExcluded(t, a.conversation.id, true, { id: ama.id, role: 'ADMIN' });
+    expect(result).toMatchObject({ excluded: true, evidenceRemoved: 12, profilesRebuilt: 1 });
+
+    const after = await prisma.digitalSelf.findUniqueOrThrow({ where: { id: self.id } });
+    expect(after.evidenceCount).toBe(6);
+    expect(after.status).toBe('LEARNING');
+    expect(await prisma.digitalSelfLearningEvent.count({ where: { digitalSelfId: self.id, conversationId: a.conversation.id } })).toBe(0);
+    // The rebuilt profile is exactly what learning from conversation B alone would have produced, and the business override survived.
+    const expected = mergeFeatures(emptyProfile(), bTexts.map((x) => extractFeatures(x)!));
+    expect({ ...parseProfile(after.profile), overrides: {} }).toEqual(expected);
+    expect(parseProfile(after.profile).overrides).toEqual({ warmth: 'reserved' });
+
+    // Nothing more is learned from A; lifting the exclusion allows new replies only, never restoring what was removed.
+    const next = await msg(t, a.conversation.id, a.contact.id, ama.id, 'Another reply in the excluded conversation');
+    expect(await learning.learnFromMessage(t, next.id)).toBe('excluded');
+    await svc.setConversationLearningExcluded(t, a.conversation.id, false, { id: ama.id, role: 'ADMIN' });
+    expect(await learning.learnFromMessage(t, next.id)).toBe('learned');
+    expect((await prisma.digitalSelf.findUniqueOrThrow({ where: { id: self.id } })).evidenceCount).toBe(7);
+  });
+
+  it('a learner that is mid-flight when the conversation is excluded cannot slip evidence in behind the removal', async () => {
+    const t = await tenant('race');
+    const ama = await user(t, 'ama');
+    const { contact, conversation } = await convo(t);
+    const self = (await svc.ensureForUser(t, ama.id))!;
+    const m = await msg(t, conversation.id, contact.id, ama.id, 'Hello! Happy to help 😊 Which size?');
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let lockedAndSawFlag!: (excluded: boolean) => void;
+    const sawFlag = new Promise<boolean>((r) => { lockedAndSawFlag = r; });
+    // A learner transaction that has already read "not excluded" under the shared lock and is about to write its evidence.
+    const inFlight = prisma.$transaction(async (tx) => {
+      lockedAndSawFlag(await lockConversationAndReadExclusion(tx as never, t, conversation.id));
+      await gate;
+      await tx.digitalSelfLearningEvent.create({ data: { tenantId: t, digitalSelfId: self.id, messageId: m.id, conversationId: conversation.id, features: extractFeatures('Hello! Happy to help 😊 Which size?') as never } });
+      await tx.digitalSelf.update({ where: { id: self.id }, data: { evidenceCount: 1 } });
+    });
+    expect(await sawFlag).toBe(false);
+
+    let settled = false;
+    const exclusion = svc.setConversationLearningExcluded(t, conversation.id, true, { id: ama.id, role: 'ADMIN' }).then((r) => { settled = true; return r; });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(settled).toBe(false); // blocked behind the in-flight learner, not racing it
+    expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } })).digitalSelfLearningExcluded).toBe(false);
+
+    release();
+    await inFlight;
+    const result = await exclusion;
+    expect(result.evidenceRemoved).toBe(1); // the evidence that committed just before was found and removed
+    expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t, conversationId: conversation.id } })).toBe(0);
+    expect((await prisma.digitalSelf.findUniqueOrThrow({ where: { id: self.id } })).evidenceCount).toBe(0);
+  });
+
+  it('learning and exclusion racing repeatedly always end with no evidence from the excluded conversation', async () => {
+    const t = await tenant('race2');
+    const ama = await user(t, 'ama');
+    const self = (await svc.ensureForUser(t, ama.id))!;
+    for (let i = 0; i < 12; i++) {
+      const { contact, conversation } = await convo(t);
+      const m = await msg(t, conversation.id, contact.id, ama.id, `Hello! Happy to help 😊 Which size? ${i}`);
+      await Promise.all([learning.learnFromMessage(t, m.id), svc.setConversationLearningExcluded(t, conversation.id, true, { id: ama.id, role: 'ADMIN' })]);
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t, conversationId: conversation.id } })).toBe(0);
+    }
+    const final = await prisma.digitalSelf.findUniqueOrThrow({ where: { id: self.id } });
+    expect(final.evidenceCount).toBe(0);
+    expect(parseProfile(final.profile).samples).toBe(0);
+  });
+
+  it('exclusion is tenant-scoped and permission-checked', async () => {
+    const [a, b] = [await tenant('xt-a'), await tenant('xt-b')];
+    const [ama, bea, kofi] = [await user(a, 'ama'), await user(b, 'bea'), await user(a, 'kofi')];
+    const { conversation } = await convo(a, ama.id);
+    await expect(svc.setConversationLearningExcluded(b, conversation.id, true, { id: bea.id, role: 'ADMIN' })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.setConversationLearningExcluded(a, conversation.id, true, { id: kofi.id, role: 'AGENT' })).rejects.toThrow(/Only an admin/);
+    expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } })).digitalSelfLearningExcluded).toBe(false);
+    await svc.setConversationLearningExcluded(a, conversation.id, true, { id: ama.id, role: 'AGENT' }); // the owner may
+    const view = await svc.getForConversation(a, conversation.id);
+    expect(view.learning.excluded).toBe(true);
+  });
+
+  // ------------------------------------------------------------------ what is NOT the agent's own writing
+  it('does not learn from saved replies (with variables filled), automated sends or AI-written text, but does from a genuine reply', async () => {
+    const t = await tenant('saved');
+    const ama = await user(t, 'ama');
+    const { contact, conversation } = await convo(t);
+    await svc.ensureForUser(t, ama.id);
+    await prisma.cannedResponse.create({ data: { tenantId: t, createdById: ama.id, shortcut: '/ready', content: 'Hi {{customer_name}}, your order {{order_number}} is ready for pickup today.' } });
+    const send = (content: string, over: Record<string, unknown> = {}) => msg(t, conversation.id, contact.id, ama.id, content, over).then((m) => learning.learnFromMessage(t, m.id));
+
+    expect(await send('Hi Abena Mensah, your order #10442 is ready for pickup today.')).toBe('ineligible'); // saved reply, variables filled
+    expect(await send('Hello there, anything else?', { metadata: { source: 'saved_reply', cannedResponseId: 'x' } })).toBe('ineligible'); // marked by the inbox
+    expect(await send('Sure! Happy to help.', { metadata: { source: 'ai_suggestion', aiSuggestionLogId: 'x' } })).toBe('ineligible');
+    expect(await send('Welcome to Acme!', { metadata: { isAutoReply: true } })).toBe('ineligible');
+    expect(await msg(t, conversation.id, contact.id, null, 'Automated workflow message').then((m) => learning.learnFromMessage(t, m.id))).toBe('ineligible');
+    expect(await send('Hi Abena, your order #10442 is ready for pickup today. Shall I keep it aside for you?')).toBe('learned'); // resembles it, but is her own
+    expect((await prisma.digitalSelf.findFirstOrThrow({ where: { tenantId: t } })).evidenceCount).toBe(1);
+  });
+
+  // ------------------------------------------------------------------ approved style corrections
+  describe('approved style corrections', () => {
+    const corrections = new DigitalSelfCorrectionsService(prisma as never, flagsOn as never);
+    const workflow = new AiLearningService(prisma as never, corrections);
+    const approvedGuidance = new ApprovedCorrectionsService(prisma as never);
+
+    async function scene(name: string) {
+      const t = await tenant(name);
+      const [ama, kofi] = [await user(t, 'ama'), await user(t, 'kofi')];
+      const [dsAma, dsKofi] = [(await svc.ensureForUser(t, ama.id))!, (await svc.ensureForUser(t, kofi.id))!];
+      const { contact, conversation } = await convo(t);
+      await svc.assignToConversation(t, conversation.id, dsAma.id, { id: ama.id, role: 'ADMIN' });
+      const execution = await prisma.aiExecution.create({ data: { tenantId: t, conversationId: conversation.id, taskType: 'RESPONDER', provider: 'test', modelKey: 'test-model', status: 'SUCCESS' } });
+      const evaluation = await prisma.aiInteractionEvaluation.create({ data: { tenantId: t, conversationId: conversation.id, aiExecutionId: execution.id } });
+      const example = (failureCategories: string[], over: Record<string, unknown> = {}) =>
+        prisma.aiTrainingExample.create({ data: { tenantId: t, sourceEvaluationId: evaluation.id, sourceConversationId: conversation.id, customerInput: 'how much is the red shirt please', actualResponse: 'A very long reply...', expectedResponse: 'Sure! It is GH₵50 😊 Which size would you like?', failureCategories: failureCategories as never, status: 'REVIEW', ...over } });
+      return { t, ama, kofi, dsAma, dsKofi, conversation, contact, example };
+    }
+
+    it('an approved style correction refines only the assigned agent\'s profile, is audited, and leaves the workspace guidance alone', async () => {
+      const { t, ama, dsAma, dsKofi, example } = await scene('corr');
+      const ex = await example(['TOO_VERBOSE']);
+      await workflow.setTrainingExampleStatus(t, ex.id, 'APPROVED', ama.id);
+
+      const [a, k] = await Promise.all([prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } }), prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsKofi.id } })]);
+      expect(parseProfile(a.profile)).toMatchObject({ samples: 3, correctionSamples: 3 });
+      expect(a.evidenceCount).toBe(0); // a correction is not one of the agent's own replies
+      expect(parseProfile(k.profile).samples).toBe(0); // another agent: untouched
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { digitalSelfId: dsKofi.id } })).toBe(0);
+      expect((await prisma.aiTrainingExample.findUniqueOrThrow({ where: { id: ex.id } })).digitalSelfId).toBe(dsAma.id);
+      expect(await prisma.aiLearningAuditLog.count({ where: { tenantId: t, targetId: ex.id, action: 'digital_self.style_correction_applied' } })).toBe(1);
+      expect((await svc.get(t, dsAma.id)).correctionCount).toBe(1);
+      // It does not also steer the whole workspace.
+      expect(await approvedGuidance.getGuidanceBlock(t, 'how much is the red shirt please')).toBe('');
+    });
+
+    it('a factual correction is still ordinary guidance and can never touch a personality profile', async () => {
+      const { t, ama, dsAma, example } = await scene('corr-fact');
+      const factual = await example(['WRONG_PRICE']);
+      const mixed = await example(['WRONG_PRICE', 'TOO_VERBOSE']);
+      await workflow.setTrainingExampleStatus(t, factual.id, 'APPROVED', ama.id);
+      await workflow.setTrainingExampleStatus(t, mixed.id, 'APPROVED', ama.id);
+      const self = await prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } });
+      expect(parseProfile(self.profile).samples).toBe(0);
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t } })).toBe(0);
+      expect(await approvedGuidance.getGuidanceBlock(t, 'how much is the red shirt please')).toContain('REVIEWED GUIDANCE'); // the existing system still gets it
+    });
+
+    it('a style correction does nothing without a Digital Self on the conversation, and returns to ordinary guidance', async () => {
+      const { t, ama, conversation, example } = await scene('corr-none');
+      await svc.assignToConversation(t, conversation.id, null, { id: ama.id, role: 'ADMIN' });
+      const ex = await example(['TOO_SHORT']);
+      await workflow.setTrainingExampleStatus(t, ex.id, 'APPROVED', ama.id);
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t } })).toBe(0);
+      expect(await approvedGuidance.getGuidanceBlock(t, 'how much is the red shirt please')).toContain('REVIEWED GUIDANCE');
+    });
+
+    it('withdrawing the approval, or excluding the conversation, removes the correction exactly', async () => {
+      const { t, ama, dsAma, conversation, example } = await scene('corr-undo');
+      const ex = await example(['ROBOTIC_RESPONSE']);
+      await workflow.setTrainingExampleStatus(t, ex.id, 'APPROVED', ama.id);
+      await workflow.setTrainingExampleStatus(t, ex.id, 'REJECTED', ama.id);
+      let self = await prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } });
+      expect(parseProfile(self.profile).samples).toBe(0);
+      expect((await prisma.aiTrainingExample.findUniqueOrThrow({ where: { id: ex.id } })).digitalSelfId).toBeNull();
+
+      await workflow.setTrainingExampleStatus(t, ex.id, 'APPROVED', ama.id); // approved again
+      expect(parseProfile((await prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } })).profile).correctionSamples).toBe(3);
+      await svc.setConversationLearningExcluded(t, conversation.id, true, { id: ama.id, role: 'ADMIN' });
+      self = await prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } });
+      expect(parseProfile(self.profile)).toMatchObject({ samples: 0, correctionSamples: 0 });
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t } })).toBe(0);
+    });
+
+    it('is tenant-scoped: another tenant cannot cause a correction to be applied', async () => {
+      const a = await scene('corr-tenant-a');
+      const ex = await a.example(['TOO_VERBOSE']);
+      const other = await tenant('corr-tenant-b');
+      expect(await corrections.sync(other, ex.id, null)).toBe('missing');
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: { in: [a.t, other] } } })).toBe(0);
+    });
+  });
+
   queueSuite('through a real BullMQ queue', () => {
     it('queues a human reply once, a worker learns from it, and a flag-off tenant queues nothing', async () => {
       const t = await tenant('queue');
@@ -230,6 +442,35 @@ suite('Digital Self against a real database', () => {
         expect((await queue.getJobs(['waiting', 'active', 'completed', 'delayed'])).length).toBe(before);
       } finally {
         await worker.close();
+        await queue.obliterate({ force: true });
+        await queue.close();
+      }
+    }, 30_000);
+
+    it('a job queued before the conversation was excluded learns nothing when the worker finally runs it', async () => {
+      const t = await tenant('queue-excl');
+      const ama = await user(t, 'ama');
+      const { contact, conversation } = await convo(t);
+      await svc.ensureForUser(t, ama.id);
+      const m = await msg(t, conversation.id, contact.id, ama.id, 'Hello! Happy to help 😊 Which size?');
+
+      const connection = { url: redisUrl! } as never;
+      const name = `ds-learn-excl-${tag}`;
+      const queue = new Queue(name, { connection });
+      let worker: Worker | undefined;
+      try {
+        await new DigitalSelfLearningTrigger(flagsOn as never, queue as never).enqueue(t, m.id); // queued, no worker yet
+        await svc.setConversationLearningExcluded(t, conversation.id, true, { id: ama.id, role: 'ADMIN' });
+        const processor = new DigitalSelfLearningProcessor(learning, flagsOn as never);
+        let done = false;
+        worker = new Worker(name, async (job) => { await processor.process(job); done = true; }, { connection });
+        for (let i = 0; i < 50 && !done; i++) await new Promise((r) => setTimeout(r, 100));
+        expect(done).toBe(true);
+        const self = await prisma.digitalSelf.findFirstOrThrow({ where: { tenantId: t } });
+        expect(self.evidenceCount).toBe(0);
+        expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t } })).toBe(0);
+      } finally {
+        await worker?.close();
         await queue.obliterate({ force: true });
         await queue.close();
       }
