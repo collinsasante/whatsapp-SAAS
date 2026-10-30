@@ -115,6 +115,15 @@ describe('runValidation', () => {
     expect(skipped.checks.find((c) => c.name.startsWith('Both used the same tools'))!.status).toBe('skipped');
   });
 
+  it('ignores the AI\'s own bookkeeping tools (a note to itself) but still compares information tools', async () => {
+    const noted = await runValidation(cfg(), fakeApi({ tools: { dsAma: ['search_products'], dsKofi: ['search_products', 'remember_conversation_facts', 'qualify_lead'] } }).fetchFn);
+    const check = noted.checks.find((c) => c.name.startsWith('Both used the same tools'))!;
+    expect(check.status).toBe('pass');
+    expect(check.detail).toMatch(/ignored the AI's own bookkeeping tools: qualify_lead, remember_conversation_facts/);
+    const looked = await runValidation(cfg(), fakeApi({ tools: { dsAma: ['search_products'], dsKofi: ['search_products', 'check_delivery_info'] } }).fetchFn);
+    expect(failed(looked)).toContain('Both used the same tools and knowledge');
+  });
+
   it('never prints the token and does not echo response bodies in errors', async () => {
     const report = await runValidation(cfg(), fakeApi().fetchFn);
     expect(JSON.stringify(report) + formatReport(report)).not.toContain(TOKEN);

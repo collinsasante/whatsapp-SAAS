@@ -68,6 +68,13 @@ export function assertSafeTarget(apiUrl: string, confirmSyntheticData: boolean):
 const FALLBACK_TEXTS = [PROVIDER_FAILURE_FALLBACK_TEXT, HANDOFF_FAILED_TEXT, MAX_ITERATIONS_FALLBACK_TEXT];
 export const isFallbackReply = (reply: string): boolean => FALLBACK_TEXTS.some((t) => reply.includes(t));
 
+/**
+ * Tools the AI uses for its own bookkeeping. Whether it jots a note or scores a lead varies from run to run and says nothing about
+ * where the facts a customer hears came from, so they are left out of the 'same tools and knowledge' comparison (and listed in its
+ * detail). Information tools (search_products, get_product_details, check_delivery_info, get_order_status ...) are always compared.
+ */
+export const BOOKKEEPING_TOOLS = ['remember_conversation_facts', 'qualify_lead', 'set_pending_action', 'clear_pending_action'];
+
 const toolNames = (trace: unknown): string[] =>
   Array.isArray(trace) ? [...new Set(trace.map((t) => (t as { name?: string; tool?: string })?.name ?? (t as { tool?: string })?.tool).filter((n): n is string => !!n))].sort() : [];
 
@@ -207,8 +214,14 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   }
 
   const [ta, tb] = [tools.A!.flat(), tools.B!.flat()];
+  const unique = (xs: string[]) => [...new Set(xs)].sort();
+  const info = (xs: string[]) => unique(xs.filter((t) => !BOOKKEEPING_TOOLS.includes(t)));
+  const ignored = unique([...ta, ...tb].filter((t) => BOOKKEEPING_TOOLS.includes(t)));
   if (ta.length === 0 && tb.length === 0) skip('Both used the same tools and knowledge', 'the executions API returned no tool trace; compare in the AI Activity page');
-  else add('Both used the same tools and knowledge', JSON.stringify([...new Set(ta)].sort()) === JSON.stringify([...new Set(tb)].sort()), `A used [${[...new Set(ta)].join(', ')}], B used [${[...new Set(tb)].join(', ')}]`);
+  else {
+    add('Both used the same tools and knowledge', JSON.stringify(info(ta)) === JSON.stringify(info(tb)),
+      `A used [${info(ta).join(', ')}], B used [${info(tb).join(', ')}]${ignored.length ? `; ignored the AI's own bookkeeping tools: ${ignored.join(', ')}` : ''}`);
+  }
 
   return { ok: checks.every((x) => x.status !== 'fail'), checks, replies };
 }

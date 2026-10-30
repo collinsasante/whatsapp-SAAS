@@ -3,6 +3,13 @@
 A repeatable check that two agents' Digital Selves change **how** Verz AI writes and nothing else. It needs a real model, so it
 runs on **staging with a synthetic workspace**, never in CI and never against production or real customers.
 
+## Use two questions
+
+A price question ("How much is the red shirt?") has a one-line answer for any personality, so it shows little style. Run it for the
+facts, and run a conversational one for the style, for example `Hi, I'm looking for a gift for my brother. What would you suggest?`
+(leave `MUST_CONTAIN` empty for that one: the AI may reasonably ask a question first; invented prices and promises are still caught).
+The first live runs on staging: the price question differed on emoji only; the conversational one differed on emoji and energy.
+
 ## What it proves, and what it does not
 
 It asks the same question as each of two agents (several runs each, every run in a fresh Test Chat conversation) and checks:
@@ -11,7 +18,8 @@ It asks the same question as each of two agents (several runs each, every run in
 | --- | --- |
 | Styles are distinguishable | the two sets of replies differ on at least two of: length, energy, follow-up questions, emoji, formality |
 | Facts are correct and nothing is invented | every required fact is present (prices compared by value, so `GH₵ 50.00` equals `GH₵50`), no forbidden phrase (for example "discount") appears, and any price in a reply that is not in the allowed list fails |
-| Same tools and knowledge | the tool names recorded for both agents' executions match (skipped, not passed, if the executions API returns no trace) |
+| Same tools and knowledge | the information tools (for example `search_products`) recorded for both agents' executions match. The AI's own bookkeeping tools (`remember_conversation_facts`, `qualify_lead`, `set_pending_action`, `clear_pending_action`) are ignored because whether it jots a note varies run to run; they are listed in the result. Skipped, not passed, if the executions API returns no trace |
+| The Digital Self reached the reply | the reply comes from the same conversation the Digital Self was assigned to (a Test Chat conversation mismatch otherwise looks like "the styles are identical") |
 | Ownership and AI handling unchanged | `assignedTo` and `status` of the conversation are identical before assigning, after assigning, and after the reply |
 | Missing or insufficient learning falls back | a conversation with no Digital Self, and (optionally) one with an under-trained Digital Self, still answer correctly |
 
