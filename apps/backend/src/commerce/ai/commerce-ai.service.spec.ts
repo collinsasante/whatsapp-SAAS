@@ -13,6 +13,7 @@ function buildPrismaMock() {
 
 function buildDeps() {
   return {
+    corrections: { getGuidanceBlock: jest.fn().mockResolvedValue('') },
     prisma: buildPrismaMock(),
     knowledgeBase: { getRelevant: jest.fn().mockResolvedValue([]) },
     conversationState: { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) },
@@ -22,7 +23,7 @@ function buildDeps() {
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new CommerceAiService(deps.prisma as any, deps.knowledgeBase as any, deps.conversationState as any, deps.toolCalling as any);
+  return new CommerceAiService(deps.prisma as any, deps.knowledgeBase as any, deps.conversationState as any, deps.toolCalling as any, deps.corrections as any);
 }
 
 function mockCompletion(overrides: Record<string, unknown> = {}) {
@@ -333,6 +334,36 @@ describe('CommerceAiService', () => {
 
       expect(deps.prisma.message.findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('reviewed corrections in the commerce prompt', () => {
+  beforeEach(() => { process.env.DEEPSEEK_API_KEY = 'test-key'; });
+
+  async function run(corrections: jest.Mock) {
+    const deps = buildDeps();
+    deps.corrections.getGuidanceBlock = corrections;
+    deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'ok' }));
+    await buildService(deps).handleMessage('tenant-a', 'conv1', 'contact1', '+233555000111', 'can you deliver to Kumasi?', 'Ama');
+    return deps.toolCalling.complete.mock.calls[0][0].systemPrompt as string;
+  }
+
+  it("asks for this tenant's guidance for this message and appends it after the rules", async () => {
+    const get = jest.fn().mockResolvedValue('\n\nREVIEWED GUIDANCE FROM THIS BUSINESS (x)\n- When a customer says something like "y": ...');
+    const system = await run(get);
+    expect(get).toHaveBeenCalledWith('tenant-a', 'can you deliver to Kumasi?');
+    expect(system).toContain('REVIEWED GUIDANCE FROM THIS BUSINESS');
+    expect(system.indexOf('COMMERCE RULES')).toBeLessThan(system.indexOf('REVIEWED GUIDANCE'));
+  });
+
+  it('adds nothing when no guidance applies', async () => {
+    expect(await run(jest.fn().mockResolvedValue(''))).not.toContain('REVIEWED GUIDANCE');
+  });
+
+  it('still answers, without guidance, when the lookup fails', async () => {
+    const system = await run(jest.fn().mockRejectedValue(new Error('db down')));
+    expect(system).toContain('COMMERCE RULES');
+    expect(system).not.toContain('REVIEWED GUIDANCE');
   });
 });
 

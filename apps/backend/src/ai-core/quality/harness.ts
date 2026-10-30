@@ -171,7 +171,7 @@ export async function runLegacy(s: Scenario): Promise<Observed> {
   post.mockReset();
   post.mockResolvedValue({ data: { choices: [{ message: { content: modelRaw(s) } }] } });
   const prisma = prismaFor(s);
-  const service = new AiResponderService(prisma as never, knowledgeBase(prisma));
+  const service = new AiResponderService(prisma as never, knowledgeBase(prisma), { getGuidanceBlock: async () => '' } as never);
   const result = await service.generateSuggestion(TENANT, CONVERSATION, currentText(s), undefined, undefined, s.current);
   if (post.mock.calls.length === 0) return { ...none, response: result.response, blocked: result.blocked };
   const sent = (post.mock.calls[0][1] as { messages: ChatTurn[] }).messages;
@@ -199,7 +199,7 @@ export async function runV2(s: Scenario): Promise<Observed> {
   const pipeline = new VerzAiPipelineService(
     prisma as never, executions,
     new GuardStage(prisma as never),
-    new ContextAssemblyStage(prisma as never, state as never, new KbRelevantContextSource(kb)),
+    new ContextAssemblyStage(prisma as never, state as never, new KbRelevantContextSource(kb, { getGuidanceBlock: async () => '' } as never)),
     new PromptBuildStage(new PromptsService(prisma as never)),
     new GenerationStage(registry, {} as never, state as never, metered as never),
     new PolicyStage(),
@@ -219,7 +219,7 @@ export async function runCommerce(s: Scenario): Promise<Observed> {
     complete: jest.fn().mockResolvedValue({ content: s.commerceText ?? s.reply ?? 'Sure, happy to help.', toolTrace: [], failed: false, hitMaxIterations: false, sideEffects: [] }),
   };
   const state = { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) };
-  const service = new CommerceAiService(prisma as never, knowledgeBase(prisma), state as never, toolCalling as never);
+  const service = new CommerceAiService(prisma as never, knowledgeBase(prisma), state as never, toolCalling as never, { getGuidanceBlock: async () => '' } as never);
   const result = await service.handleMessage(TENANT, CONVERSATION, CONTACT, '+233555000111', currentText(s), undefined, undefined, { currentMessageId: s.current });
   if (toolCalling.complete.mock.calls.length === 0) return { ...none, response: result.response, blocked: result.blocked, escalate: !!result.shouldEscalate };
   const call = toolCalling.complete.mock.calls[0][0] as { systemPrompt: string; historyMessages: ChatTurn[]; userMessage: string };

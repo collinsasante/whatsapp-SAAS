@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { ApprovedCorrectionsService } from '../../ai-learning/corrections/approved-corrections.service';
 import { ConversationStateService } from '../../conversations/conversation-state.service';
 import { sanitizeForWhatsApp, sanitizeForMessenger } from '../../ai-core/pipeline/whatsapp-format.util';
 import { detectHumanRequest } from '../../ai-core/pipeline/escalation-detector.util';
@@ -102,6 +103,7 @@ export class CommerceAiService {
     private knowledgeBase: KnowledgeBaseService,
     private conversationState: ConversationStateService,
     private toolCalling: ToolCallingService,
+    private corrections: ApprovedCorrectionsService,
   ) {}
 
   async handleMessage(
@@ -165,6 +167,9 @@ export class CommerceAiService {
       : '\n\nKNOWLEDGE BASE (for policies, hours, and other non-product questions -- product info still comes from the tools):\n' +
         kbArticles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n');
 
+    // Reviewed corrections for this tenant only; '' when none apply or the lookup fails.
+    const correctionsContext = await this.corrections.getGuidanceBlock(tenantId, customerMessage).catch(() => '');
+
     const commerceRules = [
       `You are the AI sales assistant for ${businessName} on WhatsApp. You help customers browse products, build an order, and check out.`,
       ``,
@@ -200,7 +205,7 @@ export class CommerceAiService {
       formatStateBlock(aiState),
       ``,
       buildIdentityAndSafetyBlock(businessName),
-    ].join('\n') + knowledgeContext;
+    ].join('\n') + knowledgeContext + correctionsContext;
 
     const userContent = contactName ? `Customer name: ${contactName}\nMessage: ${customerMessage}` : customerMessage;
 

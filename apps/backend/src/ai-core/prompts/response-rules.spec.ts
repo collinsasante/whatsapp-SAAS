@@ -27,7 +27,7 @@ describe('legacy responder prompt (D11)', () => {
     };
     const kb = { getRelevant: jest.fn().mockResolvedValue([{ title: 'Delivery', content: 'Delivery to Accra is GHS 30.' }]) };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = new AiResponderService(prisma as any, kb as any);
+    const service = new AiResponderService(prisma as any, kb as any, { getGuidanceBlock: async () => '' } as any);
     await service.generateSuggestion('t1', 'c1', 'How much is delivery to Accra?', opts.contactName);
     const body = (axios.post as jest.Mock).mock.calls[0][1] as { messages: Array<{ role: string; content: string }> };
     return { system: body.messages[0].content, user: body.messages[body.messages.length - 1].content, all: body.messages };

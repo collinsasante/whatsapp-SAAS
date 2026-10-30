@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
+import { ApprovedCorrectionsModule } from '../ai-learning/corrections/approved-corrections.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { InternalTasksModule } from '../internal-tasks/internal-tasks.module';
 import { AiCoreModule } from '../ai-core/ai-core.module';
@@ -36,6 +37,7 @@ import { PublicCheckoutService } from './public-checkout/public-checkout.service
     ConfigModule,
     AuditModule,
     KnowledgeBaseModule,
+    ApprovedCorrectionsModule,
     // ConversationsModule itself imports AiCoreModule (forwardRef'd there too, see
     // conversations.module.ts), and AiCoreModule now imports this module back -- a
     // 3-module JS require cycle (Commerce -> Conversations -> AiCore -> Commerce), not

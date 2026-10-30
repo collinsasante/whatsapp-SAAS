@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
+import { ApprovedCorrectionsModule } from '../ai-learning/corrections/approved-corrections.module';
 import { InternalTasksModule } from '../internal-tasks/internal-tasks.module';
 import { CommerceModule } from '../commerce/commerce.module';
 import { AiLearningModule } from '../ai-learning/ai-learning.module';
@@ -40,6 +41,7 @@ import { AiPricingService } from './pricing/ai-pricing.service';
     PrismaModule,
     AiModule,
     forwardRef(() => KnowledgeBaseModule),
+    ApprovedCorrectionsModule,
     InternalTasksModule,
     // ToolRegistryService needs ProductsService/OrdersService -- CommerceModule imports
     // AiCoreModule back (for ToolCallingService/ToolRegistryService, see commerce.module.ts),

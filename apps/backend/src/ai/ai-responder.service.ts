@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
+import { ApprovedCorrectionsService } from '../ai-learning/corrections/approved-corrections.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
 import { buildHistoryWhere } from '../ai-core/context/history-scope.util';
 import { detectInjection } from '../ai-core/guards/injection-patterns';
@@ -54,6 +55,7 @@ export class AiResponderService {
   constructor(
     private prisma: PrismaService,
     private knowledgeBaseService: KnowledgeBaseService,
+    private corrections: ApprovedCorrectionsService,
   ) {}
 
   async findOrCreateVerzAgent(tenantId: string): Promise<{ id: string; name: string; avatarUrl: string | null }> {
@@ -243,7 +245,7 @@ export class AiResponderService {
       `OUTPUT FORMAT:`,
       `Respond with ONLY valid JSON on a single line: {"response":"<your reply>","confidence":<0-100>}`,
       `The confidence score reflects how well your knowledge base covers the question (100 = perfect match, <70 = knowledge gap).`,
-      kbContext,
+      kbContext + (await this.corrections.getGuidanceBlock(tenantId, customerMessage).catch(() => '')),
     ].join('\n');
 
     const userContent = contactName

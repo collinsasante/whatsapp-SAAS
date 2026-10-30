@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { ApprovedCorrectionsService } from '../../ai-learning/corrections/approved-corrections.service';
 
 /**
  * Abstraction point for Phase 3's RAG work to swap in real vector retrieval
@@ -19,11 +20,13 @@ export const KNOWLEDGE_CONTEXT_SOURCE = Symbol('KNOWLEDGE_CONTEXT_SOURCE');
 
 @Injectable()
 export class KbRelevantContextSource implements KnowledgeContextSource {
-  constructor(private knowledgeBase: KnowledgeBaseService) {}
+  constructor(private knowledgeBase: KnowledgeBaseService, private corrections: ApprovedCorrectionsService) {}
 
   async getContext(tenantId: string, query: string, previousCustomerMessages: string[] = []): Promise<string> {
     const articles = await this.knowledgeBase.getRelevant(tenantId, query, previousCustomerMessages);
-    if (articles.length === 0) return '';
-    return '\n\nKNOWLEDGE BASE:\n' + articles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n');
+    // Rides in the same template variable as the KB, so no stored prompt template has to change.
+    const guidance = await this.corrections.getGuidanceBlock(tenantId, query).catch(() => '');
+    if (articles.length === 0) return guidance;
+    return '\n\nKNOWLEDGE BASE:\n' + articles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n') + guidance;
   }
 }
