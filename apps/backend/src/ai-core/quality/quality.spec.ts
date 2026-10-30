@@ -38,6 +38,8 @@ describe('conversation quality scenarios', () => {
       // The named articles are the best matches, in any order, and nothing outranks them.
       expect(seen.kbTitles.slice(0, want.kbTopAnyOf.length).sort()).toEqual([...want.kbTopAnyOf].sort());
     }
+    for (const needle of want.systemIncludes ?? []) expect(seen.system).toMatch(typeof needle === 'string' ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : needle);
+    for (const needle of want.systemExcludes ?? []) expect(seen.system).not.toMatch(typeof needle === 'string' ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : needle);
     expectResponse(seen.response, want.responseBy?.[generator] ?? want.response);
     const escalate = want.escalateBy?.[generator] ?? want.escalate;
     if (escalate !== undefined) expect(seen.escalate).toBe(escalate);

@@ -94,6 +94,14 @@ export interface RetrievalQuery {
   hintTerms: Map<string, number>;
 }
 
+/** Words that refer to something said earlier instead of naming it. */
+const POINTS_BACK = /\b(it|that|this|those|these|them|one|ones|other|another|same|there)\b/i;
+/**
+ * A question or a request, as opposed to an acknowledgement ("ok that is fine", "thanks for that"). Deliberately NOT any message that
+ * merely contains "is" or "can": a question mark, a request verb, or a question opener at the start of the message.
+ */
+const ASKS_FOR_SOMETHING = /\?|\b(want|need|take|buy|order|get|give me|let me have|i'?ll take)\b|^\s*(?:and |so |but |ok |okay )?(is|are|do|does|can|could|will|what|which|how|when|where)\b/i;
+
 const OWN_WORDS = 1;
 const SYNONYM_WEIGHT = 0.7;
 const CONTEXT_WEIGHT = 0.6;
@@ -111,8 +119,11 @@ export function buildRetrievalQuery(current: string, previousCustomerMessages: s
   const own = [...named, ...hinted];
 
   // A thin message ("and the 500g?", "how much for delivery?") keeps its subject from what the customer said just
-  // before. A greeting or "ok" has no terms at all and is NOT given context: it asks for nothing.
-  if (own.length > 0 && own.length < THIN_MESSAGE_TERMS) {
+  // before. A greeting or "ok" has no terms at all and is NOT given context: it asks for nothing. The exception is a message that
+  // has no terms of its own because its subject is a pronoun ("I want that one", "can I get it today?", "what about the other
+  // one?"): it points back at what was just discussed and asks for something, so it borrows that subject too.
+  const pointsBack = own.length === 0 && POINTS_BACK.test(current) && ASKS_FOR_SOMETHING.test(current);
+  if (pointsBack || (own.length > 0 && own.length < THIN_MESSAGE_TERMS)) {
     let used = 0;
     for (let i = previousCustomerMessages.length - 1; i >= 0 && used < CONTEXT_MESSAGES; i--) {
       const before = contentTerms(previousCustomerMessages[i]);
@@ -148,11 +159,46 @@ export function scoreArticles(articles: RankableArticle[], query: RetrievalQuery
   return scoreTerms(articles, query.hintTerms);
 }
 
-function scoreTerms(articles: RankableArticle[], terms: Map<string, number>): number[] {
+const TYPO_WEIGHT = 0.8;
+const TYPO_MIN_LENGTH = 5;
+
+/** True when `a` and `b` differ by exactly one inserted, deleted or substituted letter (or one swap of neighbours). */
+export function withinOneEdit(a: string, b: string): boolean {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) {
+    if (a.slice(i + 1) === b.slice(i + 1)) return true; // one substitution
+    return a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2); // one swap
+  }
+  const [longer, shorter] = a.length > b.length ? [a, b] : [b, a];
+  return longer.slice(i + 1) === shorter.slice(i); // one insertion or deletion
+}
+
+/**
+ * Customers misspell ("delivary", "recieve"). A query word that appears in no article is matched to an article word that is one
+ * edit away, at slightly lower weight. Deliberately narrow so it cannot manufacture a match: only words of 5+ letters, only when the
+ * word matches nothing exactly, only the same first letter, and only one edit.
+ */
+function withTypoTolerance(terms: Map<string, number>, docs: Array<{ title: Set<string>; body: Set<string> }>): Map<string, number> {
+  const vocabulary = new Set<string>();
+  for (const d of docs) { for (const t of d.title) vocabulary.add(t); for (const t of d.body) vocabulary.add(t); }
+  const out = new Map(terms);
+  for (const [term, weight] of terms) {
+    if (term.length < TYPO_MIN_LENGTH || /\d/.test(term) || vocabulary.has(term)) continue;
+    for (const known of vocabulary) {
+      if (known[0] === term[0] && known.length >= TYPO_MIN_LENGTH && withinOneEdit(term, known) && weight * TYPO_WEIGHT > (out.get(known) ?? 0)) out.set(known, weight * TYPO_WEIGHT);
+    }
+  }
+  return out;
+}
+
+function scoreTerms(articles: RankableArticle[], rawTerms: Map<string, number>): number[] {
   const docs = articles.map((a) => ({
     title: new Set(contentTerms(a.title)),
     body: new Set(contentTerms(a.content)),
   }));
+  const terms = withTypoTolerance(rawTerms, docs);
   const df = new Map<string, number>();
   for (const term of terms.keys()) {
     df.set(term, docs.filter((d) => d.title.has(term) || d.body.has(term)).length);

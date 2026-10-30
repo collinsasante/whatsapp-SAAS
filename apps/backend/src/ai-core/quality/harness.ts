@@ -75,10 +75,15 @@ export interface Scenario {
     responseBy?: Partial<Record<Generator, string | RegExp>>;
     escalate?: boolean;
     escalateBy?: Partial<Record<Generator, boolean>>;
+    /** Text the system prompt the model receives must contain / must not contain (checks prompt rules, not just retrieval). */
+    systemIncludes?: Array<string | RegExp>;
+    systemExcludes?: Array<string | RegExp>;
   };
 }
 
 export interface Observed {
+  /** The system prompt the model was sent ('' when it was never called). */
+  system: string;
   turns: string[];
   finalUser: string | null;
   kbTitles: string[];
@@ -153,17 +158,18 @@ function knowledgeBase(prisma: ReturnType<typeof prismaFor>): KnowledgeBaseServi
 
 interface ChatTurn { role: string; content: string }
 
-function observeChat(messages: ChatTurn[]): Pick<Observed, 'turns' | 'finalUser' | 'kbTitles'> {
+function observeChat(messages: ChatTurn[]): Pick<Observed, 'system' | 'turns' | 'finalUser' | 'kbTitles'> {
   const [system, ...rest] = messages;
   const last = rest[rest.length - 1];
   return {
+    system: system.content,
     turns: rest.slice(0, -1).map((m) => label(m.role, m.content)),
     finalUser: last?.content ?? null,
     kbTitles: titlesIn(system.content),
   };
 }
 
-const none: Observed = { turns: [], finalUser: null, kbTitles: [], response: '', escalate: false, blocked: false, modelCalled: false };
+const none: Observed = { system: '', turns: [], finalUser: null, kbTitles: [], response: '', escalate: false, blocked: false, modelCalled: false };
 
 export async function runLegacy(s: Scenario): Promise<Observed> {
   process.env.DEEPSEEK_API_KEY = 'test';
@@ -224,6 +230,7 @@ export async function runCommerce(s: Scenario): Promise<Observed> {
   if (toolCalling.complete.mock.calls.length === 0) return { ...none, response: result.response, blocked: result.blocked, escalate: !!result.shouldEscalate };
   const call = toolCalling.complete.mock.calls[0][0] as { systemPrompt: string; historyMessages: ChatTurn[]; userMessage: string };
   return {
+    system: call.systemPrompt,
     turns: call.historyMessages.map((m) => label(m.role, m.content)),
     finalUser: call.userMessage,
     kbTitles: titlesIn(call.systemPrompt),
