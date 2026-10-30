@@ -95,6 +95,15 @@ export class AiTestChatService {
       : await this.prisma.conversation.findFirst({
           where: { tenantId, contactId: contact.id, status: { not: 'RESOLVED' } },
         });
+    // With no open conversation, ConversationsService.findOrCreate REOPENS the most recently updated resolved one, so that is the
+    // conversation the AI will answer in. This must mirror it: creating a new one here left the conversation just handed out by
+    // reset() unused, and anything done to it (for example choosing a Digital Self) never applied to the reply.
+    if (!conversation && !forceNew) {
+      conversation = await this.prisma.conversation.findFirst({
+        where: { tenantId, contactId: contact.id, status: 'RESOLVED' },
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
         data: { tenantId, contactId: contact.id, contactSource: 'dashboard_test_ai', status: 'RESOLVED' },
