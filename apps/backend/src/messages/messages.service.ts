@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, Optional, forwardRef } from '@nestjs/common';
+import { DigitalSelfLearningTrigger } from '../digital-self/digital-self-learning.trigger';
 import axios from 'axios';
 import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -167,6 +168,7 @@ export class MessagesService {
     private conversationState: ConversationStateService,
     @Inject(forwardRef(() => FacebookMessengerService)) private facebookMessengerService: FacebookMessengerService,
     @Inject(forwardRef(() => WhatsAppWebService)) private whatsAppWebService: WhatsAppWebService,
+    @Optional() private digitalSelfLearning?: DigitalSelfLearningTrigger,
   ) {}
 
   /**
@@ -495,6 +497,8 @@ export class MessagesService {
       // Trigger real-time AI learning from this agent reply (throttled to once per 30 min per tenant)
       if (dto.type === MessageType.TEXT || !dto.type) {
         void this.knowledgeBaseService.triggerLearningAsync(tenantId);
+        // Digital Self: queue this human reply for background style learning (flag-gated, never blocks or fails the send).
+        void this.digitalSelfLearning?.enqueue(tenantId, message.id);
       }
 
       const updatedMessage = await this.prisma.message.findUnique({

@@ -52,6 +52,12 @@ export interface AiInteractionEvalJob {
   tenantId: string;
 }
 
+/** One eligible human-agent reply for the Digital Self learning engine. IDs only: the message is re-read (and re-checked) by the worker. */
+export interface DigitalSelfLearnJob {
+  tenantId: string;
+  messageId: string;
+}
+
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
   MESSAGE_RETRY = 'message-retry',
@@ -67,4 +73,5 @@ export enum QueueName {
   COMMERCE_RECONCILIATION = 'commerce-reconciliation',
   AI_EVAL_RUN = 'ai-eval-run',
   AI_INTERACTION_EVAL = 'ai-interaction-eval',
+  DIGITAL_SELF_LEARN = 'digital-self-learn',
 }
