@@ -22,6 +22,7 @@ import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
 import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
+import { DigitalSelfPicker } from '@/components/shared/DigitalSelfPicker';
 import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatMessageTime, getProxiedMediaUrl, getDownloadFilename, getApiError } from '@/lib/utils';
@@ -1513,6 +1514,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 flex-shrink-0">
+              {/* AI reply style: whose Digital Self Verz AI writes like here. Style only; ownership and AI on/off are untouched. */}
+              {!isViewer && (
+                <DigitalSelfPicker conversationId={conversation.id} canEdit={user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || assigneeId === user?.id} />
+              )}
+
               {/* Intervene — always visible */}
               {isRequested && !assignedToOther && (
                 <button

@@ -6,6 +6,7 @@ import { aiTestChatApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { linkify } from '@/lib/linkify';
 import toast from 'react-hot-toast';
+import { DigitalSelfPicker } from '@/components/shared/DigitalSelfPicker';
 
 interface RawMessage {
   id: string;
@@ -72,6 +73,7 @@ export default function AiTestChatPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,7 +83,8 @@ export default function AiTestChatPage() {
   const loadState = useCallback(async () => {
     try {
       const res = await aiTestChatApi.getState();
-      const data = res.data as { messages: RawMessage[]; suggestions: RawSuggestion[] };
+      const data = res.data as { conversationId?: string; messages: RawMessage[]; suggestions: RawSuggestion[] };
+      setConversationId(data.conversationId ?? null);
       setEntries(mergeEntries(data.messages, data.suggestions));
     } catch (e) {
       toast.error(apiErr(e, 'Failed to load test chat -- make sure Verz AI is enabled on the Settings tab first'));
@@ -150,7 +153,9 @@ export default function AiTestChatPage() {
 
   const reset = async () => {
     try {
-      await aiTestChatApi.reset();
+      const res = await aiTestChatApi.reset();
+      // A new conversation is a new row, so the style choice starts fresh and the picker follows the new id.
+      setConversationId((res.data as { conversationId?: string }).conversationId ?? null);
       setEntries([]);
       toast.success('New conversation started');
       void loadUsage();
@@ -181,12 +186,16 @@ export default function AiTestChatPage() {
               )}
             </div>
           </div>
+          <div className="flex items-center gap-2">
+          {/* Preview: pick a Digital Self, then chat. Replies use the real pipeline with that style and are never sent to a customer. */}
+          {conversationId && <DigitalSelfPicker conversationId={conversationId} canEdit />}
           <button
             onClick={reset}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium"
           >
             <RotateCcw className="w-3.5 h-3.5" /> New conversation
           </button>
+          </div>
         </div>
       </div>
 

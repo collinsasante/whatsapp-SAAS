@@ -7,6 +7,7 @@ import {
   CheckCircle2, FileText,
 } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
+import { DigitalSelfSection } from './DigitalSelfSection';
 import { useAuthStore } from '@/store/auth.store';
 import { assignableWorkspaceRoles, userRoleToWorkspaceRole, workspaceRoleLabel } from '@/lib/workspace-role';
 import toast from 'react-hot-toast';
@@ -726,6 +727,9 @@ export function TeamManagement() {
           </div>
         </div>
       )}
+
+      {/* AI Digital Selves: admins only (the API enforces the same) */}
+      {(authUser?.role === 'ADMIN' || authUser?.role === 'SUPER_ADMIN') && <DigitalSelfSection />}
 
       {/* Modals */}
       {editMember && (

@@ -7,7 +7,10 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { AuditService } from '../audit/audit.service';
+import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
+import { DIGITAL_SELF_FLAG_KEY } from './digital-self-learning.trigger';
 import { DigitalSelfService } from './digital-self.service';
+import { MIN_ATTRIBUTE_SAMPLES, READY_SAMPLES } from './digital-self.constants';
 import { AssignDigitalSelfDto, SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
 
 /** Every query is scoped by the authenticated tenant; the tenant id is never taken from the request. Reads: agents and up (the conversation selector needs the list). Changes: admins. */
@@ -19,13 +22,16 @@ export class DigitalSelfController {
   constructor(
     private readonly service: DigitalSelfService,
     private readonly audit: AuditService,
+    private readonly featureFlags: FeatureFlagsService,
   ) {}
 
   @Get()
   @Roles(UserRole.AGENT)
   @ApiOperation({ summary: "List this workspace's agents' Digital Selves" })
-  list(@CurrentTenant() tenantId: string) {
-    return this.service.list(tenantId);
+  async list(@CurrentTenant() tenantId: string) {
+    const [items, featureEnabled] = await Promise.all([this.service.list(tenantId), this.featureFlags.isEnabledCached(DIGITAL_SELF_FLAG_KEY, tenantId)]);
+    // featureEnabled tells the UI whether learning and styling are actually switched on for this workspace; profiles exist either way.
+    return { featureEnabled, thresholds: { minAttributeSamples: MIN_ATTRIBUTE_SAMPLES, readySamples: READY_SAMPLES }, items };
   }
 
   @Get('conversations/:conversationId')
