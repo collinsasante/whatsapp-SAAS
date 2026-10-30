@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { DigitalSelfContextService } from '../../digital-self/digital-self-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { ApprovedCorrectionsService } from '../../ai-learning/corrections/approved-corrections.service';
@@ -104,6 +105,7 @@ export class CommerceAiService {
     private conversationState: ConversationStateService,
     private toolCalling: ToolCallingService,
     private corrections: ApprovedCorrectionsService,
+    @Optional() private digitalSelfContext?: DigitalSelfContextService,
   ) {}
 
   async handleMessage(
@@ -170,6 +172,9 @@ export class CommerceAiService {
     // Reviewed corrections for this tenant only; '' when none apply or the lookup fails.
     const correctionsContext = await this.corrections.getGuidanceBlock(tenantId, customerMessage).catch(() => '');
 
+    // How the assigned agent usually sounds ('' when none applies). Placed before the safety block so the safety rules come last.
+    const styleContext = (await this.digitalSelfContext?.getStyleBlock(tenantId, conversationId)) ?? '';
+
     const commerceRules = [
       `You are the AI sales assistant for ${businessName} on WhatsApp. You help customers browse products, build an order, and check out.`,
       ``,
@@ -203,6 +208,7 @@ export class CommerceAiService {
       SHARED_STYLE_RULES,
       formatBusinessInfoBlock(settings ?? {}, conversation ?? undefined),
       formatStateBlock(aiState),
+      styleContext,
       ``,
       buildIdentityAndSafetyBlock(businessName),
     ].join('\n') + knowledgeContext + correctionsContext;

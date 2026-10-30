@@ -7,6 +7,7 @@ import { AuditModule } from '../audit/audit.module';
 import { DigitalSelfController } from './digital-self.controller';
 import { DigitalSelfService } from './digital-self.service';
 import { DigitalSelfLearningService } from './digital-self-learning.service';
+import { DigitalSelfContextService } from './digital-self-context.service';
 import { DigitalSelfLearningTrigger } from './digital-self-learning.trigger';
 import { DigitalSelfLearningProcessor } from './digital-self-learning.processor';
 
@@ -14,7 +15,7 @@ import { DigitalSelfLearningProcessor } from './digital-self-learning.processor'
 @Module({
   imports: [PrismaModule, FeatureFlagsModule, AuditModule, BullModule.registerQueue({ name: QueueName.DIGITAL_SELF_LEARN })],
   controllers: [DigitalSelfController],
-  providers: [DigitalSelfService, DigitalSelfLearningService, DigitalSelfLearningTrigger, DigitalSelfLearningProcessor],
-  exports: [DigitalSelfService, DigitalSelfLearningTrigger],
+  providers: [DigitalSelfService, DigitalSelfContextService, DigitalSelfLearningService, DigitalSelfLearningTrigger, DigitalSelfLearningProcessor],
+  exports: [DigitalSelfService, DigitalSelfContextService, DigitalSelfLearningTrigger],
 })
 export class DigitalSelfModule {}

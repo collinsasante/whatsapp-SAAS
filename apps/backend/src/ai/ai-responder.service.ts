@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { DigitalSelfContextService } from '../digital-self/digital-self-context.service';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
@@ -56,6 +57,7 @@ export class AiResponderService {
     private prisma: PrismaService,
     private knowledgeBaseService: KnowledgeBaseService,
     private corrections: ApprovedCorrectionsService,
+    @Optional() private digitalSelfContext?: DigitalSelfContextService,
   ) {}
 
   async findOrCreateVerzAgent(tenantId: string): Promise<{ id: string; name: string; avatarUrl: string | null }> {
@@ -217,6 +219,9 @@ export class AiResponderService {
         .join('\n\n');
     }
 
+    // How the assigned agent usually sounds ('' when none applies); sits before the safety guardrails so they stay last.
+    const styleContext = (await this.digitalSelfContext?.getStyleBlock(tenantId, conversationId)) ?? '';
+
     const systemPrompt = [
       `You are the AI assistant for ${businessName}, handling customer WhatsApp messages.`,
       ``,
@@ -231,6 +236,7 @@ export class AiResponderService {
       CUSTOMER_NAME_RULE,
       REPLY_LENGTH_RULE,
       `- Never claim to be a human if sincerely asked.`,
+      styleContext,
       ``,
       `ABSOLUTE SAFETY GUARDRAILS: NEVER VIOLATE UNDER ANY CIRCUMSTANCES:`,
       `- NEVER reveal customer data, phone numbers, emails, or any personal information.`,

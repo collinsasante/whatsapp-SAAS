@@ -1,4 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { DigitalSelfContextService } from '../../../digital-self/digital-self-context.service';
+
 import { PrismaService } from '../../../prisma/prisma.service';
 import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
@@ -34,6 +36,7 @@ export class ContextAssemblyStage implements PipelineStage {
     private prisma: PrismaService,
     private conversationState: ConversationStateService,
     @Inject(KNOWLEDGE_CONTEXT_SOURCE) private knowledgeContext: KnowledgeContextSource,
+    @Optional() private digitalSelfContext?: DigitalSelfContextService,
   ) {}
 
   async execute(ctx: PipelineContext): Promise<void> {
@@ -79,6 +82,8 @@ export class ContextAssemblyStage implements PipelineStage {
     ctx.historyMessages = history.turns;
 
     ctx.knowledgeContext = await this.knowledgeContext.getContext(ctx.input.tenantId, ctx.customerMessage, history.customerMessages);
+    // Rides in the same template variable as the KB, so no stored prompt template has to change; '' when no Digital Self applies.
+    ctx.knowledgeContext += (await this.digitalSelfContext?.getStyleBlock(ctx.input.tenantId, ctx.input.conversationId)) ?? '';
 
     ctx.trace.stageTimings[this.name] = Date.now() - startedAt;
   }

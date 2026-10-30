@@ -27,6 +27,7 @@ import { ToolRegistryService } from './tools/tool-registry.service';
 import { ToolCallingService } from './tools/tool-calling.service';
 import { AiCreditsService } from './credits/ai-credits.service';
 import { AiPricingService } from './pricing/ai-pricing.service';
+import { DigitalSelfModule } from '../digital-self/digital-self.module';
 
 /**
  * Verz-AI Phase 1 foundation. Built strangler-style alongside the existing
@@ -38,6 +39,7 @@ import { AiPricingService } from './pricing/ai-pricing.service';
  */
 @Module({
   imports: [
+    DigitalSelfModule,
     PrismaModule,
     AiModule,
     forwardRef(() => KnowledgeBaseModule),

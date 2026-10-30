@@ -24,6 +24,7 @@ import { CommerceTestChatService } from './test-chat/commerce-test-chat.service'
 import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.module';
 import { PublicCheckoutController } from './public-checkout/public-checkout.controller';
 import { PublicCheckoutService } from './public-checkout/public-checkout.service';
+import { DigitalSelfModule } from '../digital-self/digital-self.module';
 
 // Managed Commerce (Phase 1, single-pilot-tenant). Sibling to BillingModule --
 // commerce has its own domain objects (Order/Product/CommerceLedgerEntry, not
@@ -33,6 +34,7 @@ import { PublicCheckoutService } from './public-checkout/public-checkout.service
 // BillingModule today) rather than depending on billing's public surface.
 @Module({
   imports: [
+    DigitalSelfModule,
     PrismaModule,
     ConfigModule,
     AuditModule,
