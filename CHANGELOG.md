@@ -7,7 +7,12 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- Verz AI: when a customer sends several messages in quick succession, each reply now sees the conversation in the right order. Before, the message being answered could appear twice and the assistant's own latest reply could be missing, which made replies repeat or miss the point.
+- Verz AI no longer pulls unrelated knowledge-base articles for a greeting, thanks or a short follow-up. Questions are matched on their real subject (mobile money and "momo", delivery and shipping, opening hours), and a follow-up like "how much for delivery?" keeps the product being discussed.
+- Verz AI no longer treats ordinary requests as attacks: "give me the phone number of the shop", "give me the user guide" and "you are now a bit late with my order" now get a normal reply. Real attempts to extract other customers' data or change the assistant's role are still blocked.
+- A reply from the AI that is cut off, malformed, or an internal error is never sent to a customer. It is handled like any other failed AI reply: a team member is asked to pick the conversation up.
+- Customers who ask for a person in everyday wording ("I need to talk to someone", "can someone call me", "abeg make I talk to somebody") are handed to the team, including on workspaces using the original Verz AI responder, which did not detect this before.
 
 ## [2.8.3] - 2026-10-30
 

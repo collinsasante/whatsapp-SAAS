@@ -1,5 +1,6 @@
 import { PolicyStage } from './policy.stage';
 import { newTrace, PipelineContext } from '../pipeline.types';
+import { HUMAN_HANDOFF_REPLY } from '../../prompts/escalation-messages.util';
 
 function buildCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
   return {
@@ -113,5 +114,66 @@ describe('PolicyStage', () => {
 
     expect(ctx.result?.response).toBe('Your order is confirmed!');
     expect(ctx.result?.response).not.toContain('*');
+  });
+});
+
+describe('PolicyStage: unsupported follow-up promises become a real handoff', () => {
+  const stage = new PolicyStage();
+  const build = (response: string, toolTrace?: unknown, extra: Partial<NonNullable<PipelineContext['result']>> = {}): PipelineContext => {
+    const trace = { ...newTrace(), status: 'SUCCESS' as const, confidence: 80, ...(toolTrace !== undefined && { toolTrace }) };
+    return buildCtx({ result: { response, confidence: 80, blocked: false, ...extra }, trace });
+  };
+
+  it('replaces a promise nothing arranged with the real handoff reply and flags it', async () => {
+    const ctx = build('Our team will get back to you about the price.');
+    await stage.execute(ctx);
+    expect(ctx.result).toMatchObject({ shouldEscalate: true, response: HUMAN_HANDOFF_REPLY });
+    expect(ctx.trace.safetyFlags).toMatchObject({ unsupportedFollowUpPromise: true, humanEscalation: true, escalationReason: 'unsupported_follow_up_promise' });
+  });
+
+  it('keeps a promise that a successful create_internal_task arranged this turn', async () => {
+    const ctx = build("I've passed this to our team and they will follow up with you.", [{ name: 'create_internal_task', result: { taskId: 'task-9' } }]);
+    await stage.execute(ctx);
+    expect(ctx.result?.shouldEscalate).toBeUndefined();
+    expect(ctx.result?.response).toMatch(/will follow up/);
+  });
+
+  it('does not trust a task tool that errored', async () => {
+    const ctx = build('Our team will follow up shortly.', [{ name: 'create_internal_task', result: { error: 'failed' } }]);
+    await stage.execute(ctx);
+    expect(ctx.result?.shouldEscalate).toBe(true);
+  });
+
+  it('leaves a direct factual answer completely alone', async () => {
+    const ctx = build('Delivery to Accra is GHS 30 and takes one to two days.');
+    await stage.execute(ctx);
+    expect(ctx.result).toMatchObject({ response: 'Delivery to Accra is GHS 30 and takes one to two days.', confidence: 80 });
+    expect(ctx.result?.shouldEscalate).toBeUndefined();
+    expect(ctx.trace.safetyFlags.unsupportedFollowUpPromise).toBeUndefined();
+  });
+
+  it('leaves a plain "I do not have that" answer alone (no handoff is forced for an honest gap)', async () => {
+    const ctx = build("I don't have the price for that one. If you'd like to talk to a team member, just ask.");
+    await stage.execute(ctx);
+    expect(ctx.result?.shouldEscalate).toBeUndefined();
+  });
+
+  it('works when the model reports no confidence (the tool-calling path)', async () => {
+    const ctx = buildCtx({ result: { response: 'Someone will get back to you.', confidence: null, blocked: false }, trace: { ...newTrace(), status: 'SUCCESS' } });
+    await stage.execute(ctx);
+    expect(ctx.result?.shouldEscalate).toBe(true);
+  });
+
+  it('does not touch a reply that is already escalating', async () => {
+    const ctx = build(HUMAN_HANDOFF_REPLY, undefined, { shouldEscalate: true });
+    await stage.execute(ctx);
+    expect(ctx.trace.safetyFlags.unsupportedFollowUpPromise).toBeUndefined();
+  });
+
+  it('a short-circuited run (injection refusal, outage) is not rewritten', async () => {
+    const ctx = build('Our team will follow up.');
+    ctx.shortCircuit = true;
+    await stage.execute(ctx);
+    expect(ctx.result?.response).toBe('Our team will follow up.');
   });
 });

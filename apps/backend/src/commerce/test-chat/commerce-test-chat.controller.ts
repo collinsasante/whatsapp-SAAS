@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
 import { CommerceTestChatService } from './commerce-test-chat.service';
@@ -16,6 +16,12 @@ class TestChatMessageDto {
   @IsNotEmpty()
   @MaxLength(4000)
   message!: string;
+
+  /** Optional per-send id: a retry with the same id replays the stored result instead of calling the AI again. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{8,64}$/, { message: 'clientMessageId must be 8-64 letters, digits, - or _' })
+  clientMessageId?: string;
 }
 
 /** Admin-only, non-production-only: drives the real commerce AI (real orders, real Paystack init). */
@@ -37,7 +43,7 @@ export class CommerceTestChatController {
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Send a message as the test customer through the real commerce AI flow' })
   send(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: TestChatMessageDto) {
-    return this.testChat.sendMessage(tenantId, user.sub, dto.message);
+    return this.testChat.sendMessage(tenantId, user.sub, dto.message, dto.clientMessageId);
   }
 
   @Post('reset')

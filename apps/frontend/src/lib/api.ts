@@ -665,8 +665,25 @@ export const aiLearningApi = {
   listCorrections: () => api.get('/ai-learning/corrections'),
 };
 
+export const digitalSelfApi = {
+  list: () => api.get('/digital-self'),
+  forConversation: (conversationId: string) => api.get(`/digital-self/conversations/${conversationId}`),
+  /** `null` removes the assignment. Never changes who owns the conversation or whether AI replies. */
+  assign: (conversationId: string, digitalSelfId: string | null) => api.put(`/digital-self/conversations/${conversationId}`, { digitalSelfId }),
+  /** `true` excludes the conversation from learning and removes what was already learned from it. */
+  setLearningExclusion: (conversationId: string, excluded: boolean) => api.put(`/digital-self/conversations/${conversationId}/learning-exclusion`, { excluded }),
+  setLearningPaused: (id: string, paused: boolean) => api.patch(`/digital-self/${id}/learning`, { paused }),
+  setEnabled: (id: string, enabled: boolean) => api.patch(`/digital-self/${id}/enabled`, { enabled }),
+  /** Each field optional; `null` clears that correction and goes back to what was learned. */
+  setOverrides: (id: string, overrides: Partial<Record<'length' | 'emoji' | 'formality' | 'warmth', string | null>>) => api.put(`/digital-self/${id}/overrides`, overrides),
+  reset: (id: string) => api.post(`/digital-self/${id}/reset`),
+};
+
 export const aiTestChatApi = {
   getState: () => api.get('/ai/test-chat'),
-  send: (message: string) => api.post('/ai/test-chat', { message }),
+  /** `clientMessageId` is generated once per send: a retry of the same send replays the stored result instead of calling the AI again. */
+  send: (message: string, clientMessageId?: string) => api.post('/ai/test-chat', { message, clientMessageId }),
   reset: () => api.post('/ai/test-chat/reset'),
+  /** This workspace's simulated-AI allowance and today's provider usage. */
+  usage: () => api.get('/ai/test-chat/usage'),
 };

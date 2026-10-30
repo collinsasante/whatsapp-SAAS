@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { DigitalSelfContextService } from '../../digital-self/digital-self-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
+import { ApprovedCorrectionsService } from '../../ai-learning/corrections/approved-corrections.service';
 import { ConversationStateService } from '../../conversations/conversation-state.service';
 import { sanitizeForWhatsApp, sanitizeForMessenger } from '../../ai-core/pipeline/whatsapp-format.util';
 import { detectHumanRequest } from '../../ai-core/pipeline/escalation-detector.util';
@@ -8,14 +10,15 @@ import { detectInjection } from '../../ai-core/guards/injection-patterns';
 import { ToolCallingService, ToolCallTrace } from '../../ai-core/tools/tool-calling.service';
 import { ToolSideEffect } from '../../ai-core/tools/tool-registry.types';
 import { deriveStateFromToolTrace } from '../../ai-core/tools/state-derivation.util';
-import { ChatMessage } from '../../ai-core/providers/ai-provider.interface';
 import { buildIdentityAndSafetyBlock } from '../../ai-core/prompts/shared-identity-block';
 import { SHARED_STYLE_RULES } from '../../ai-core/prompts/shared-style-rules';
 import { formatBusinessInfoBlock } from '../../ai-core/prompts/business-info.util';
 import { formatStateBlock } from '../../ai-core/prompts/conversation-state.util';
-import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
+import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { DEEPSEEK_MODEL } from '../../common/deepseek';
 import { buildConversationHistoryWhere } from '../../ai-core/context/history-scope.util';
+import { loadHistory } from '../../ai-core/context/history-loader.util';
+import { checkCustomerText } from '../../ai-core/completion/model-output.util';
 
 /**
  * Managed Commerce's AI sales assistant. Verz-AI unification, Phase A: this
@@ -84,6 +87,8 @@ export interface CommerceAiResult {
    * (e.g. to verify get_order_status was actually invoked before a payment claim).
    * messages.service.ts destructures only response/blocked, so this is additive. */
   toolTrace?: ToolCallTrace[];
+  /** The AiExecution ToolCallingService recorded for this turn, so MessagesService can link it to the interaction log. */
+  executionId?: string;
   /** Verz-AI unification, Phase G: side effects (e.g. send_product_image) a tool
    * call this turn triggered -- the caller is responsible for actually delivering
    * them (see MessagesService.deliverMedia). */
@@ -99,6 +104,8 @@ export class CommerceAiService {
     private knowledgeBase: KnowledgeBaseService,
     private conversationState: ConversationStateService,
     private toolCalling: ToolCallingService,
+    private corrections: ApprovedCorrectionsService,
+    @Optional() private digitalSelfContext?: DigitalSelfContextService,
   ) {}
 
   async handleMessage(
@@ -109,7 +116,7 @@ export class CommerceAiService {
     customerMessage: string,
     contactName?: string,
     evalContext?: { dryRunPayment: boolean },
-    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER' },
+    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean },
   ): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
       return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
@@ -129,6 +136,14 @@ export class CommerceAiService {
     // decides the final customer-facing text based on whether it truly succeeded, so
     // this only ever sets the signal, never performs or narrates the action itself.
     const explicitHumanRequest = detectHumanRequest(customerMessage);
+    if (explicitHumanRequest) {
+      // The signal below makes messages.service.ts hand the conversation to a person for real, but the model is never told that, so a
+      // model-written reply could offer "if you'd rather talk to a person, say the word" to a customer who is ALREADY being handed over
+      // (seen in the first staging evaluation of "I hate chatting with AI"). The legacy responder and the v2 pipeline answer this with
+      // the fixed handoff line and no model call; commerce does the same, so what the customer reads matches what happens, the wording
+      // does not depend on a model, and no paid call is made for it. If the handoff itself fails, messages.service.ts swaps the text.
+      return { response: HUMAN_HANDOFF_REPLY, blocked: false, shouldEscalate: true, toolTrace: [] };
+    }
 
     const [settings, conversation, aiState] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
@@ -140,35 +155,35 @@ export class CommerceAiService {
     ]);
     const businessName = settings?.businessName ?? 'our shop';
 
+    // Current conversation only (the original behavior), now also tenant-scoped; a blank conversation id yields
+    // empty history rather than an unscoped query. Built around the stored inbound message by id, so it never
+    // contains the message being answered and never shows later, not yet answered, fragments.
+    const history = await loadHistory(this.prisma, buildConversationHistoryWhere(tenantId, conversationId), 12, opts?.currentMessageId);
+
     // Non-product questions (hours, delivery policy, returns, etc.) live in the
     // general knowledge base, not the product catalogue -- without this the
     // commerce agent has no way to answer anything outside of search_products.
-    const kbArticles = await this.knowledgeBase.getRelevant(tenantId, customerMessage).catch(() => []);
+    const kbArticles = await this.knowledgeBase.getRelevant(tenantId, customerMessage, history.customerMessages).catch(() => []);
     const knowledgeContext = kbArticles.length === 0
       ? ''
       : '\n\nKNOWLEDGE BASE (for policies, hours, and other non-product questions -- product info still comes from the tools):\n' +
         kbArticles.map((a) => `## ${a.title}\n${a.content}`).join('\n\n');
 
-    // Current conversation only (the original behavior), now also tenant-scoped; a blank
-    // conversation id yields empty history rather than an unscoped query.
-    const historyWhere = buildConversationHistoryWhere(tenantId, conversationId);
-    const history = historyWhere
-      ? await this.prisma.message.findMany({
-          where: historyWhere,
-          orderBy: { createdAt: 'desc' },
-          take: 12,
-          select: { direction: true, content: true },
-        })
-      : [];
+    // Reviewed corrections for this tenant only; '' when none apply or the lookup fails.
+    const correctionsContext = await this.corrections.getGuidanceBlock(tenantId, customerMessage).catch(() => '');
+
+    // How the assigned agent usually sounds ('' when none applies). Placed before the safety block so the safety rules come last.
+    const styleContext = (await this.digitalSelfContext?.getStyleBlock(tenantId, conversationId)) ?? '';
 
     const commerceRules = [
       `You are the AI sales assistant for ${businessName} on WhatsApp. You help customers browse products, build an order, and check out.`,
       ``,
       `COMMERCE RULES:`,
       `- Use ONLY tool results for product names, prices, and stock. Never invent or guess a price or say something is in stock without checking.`,
+      `- Only talk about a product (name, price, stock, availability) if a tool result this turn returned it. If search_products finds nothing (found: false or an empty list), say plainly that you could not find it, ask the customer to clarify what they mean, and stop. Never repeat the unmatched name back as if it were for sale, never state a price or stock level for it, and never offer a different product as if it were the one they asked for. A real product that a search did return may be mentioned, but only as a different product the customer can ask about.`,
       `- Never state that a payment has succeeded, an order is paid, or money has been received unless get_order_status just told you so. If a customer says they paid, check with get_order_status before confirming anything.`,
       `- Whenever a customer asks about their order or payment status -- e.g. "did my order go through", "is it paid", "what's my order status" -- ALWAYS call get_order_status right away, even if they have not given you an order ID. It automatically looks up their most recent order in this conversation. Never guess, never ask a clarifying question first when you could just check.`,
-      `- Never issue a refund, discount, or price override -- you have no tool for it, so if asked, say a team member will help with that.`,
+      `- Never issue a refund, discount, or price override -- you have no tool for it. Say plainly that you can't do that yourself, and use create_internal_task so a team member can look at it; only tell the customer someone will look into it if that tool call succeeded this turn.`,
       `- If the knowledge base lists more than one design-related price (e.g. a logo design vs. a label/print design), treat them as separate services with separate prices. Never combine, average, or confuse them -- always be clear which specific service a price applies to.`,
       `- When the customer is ready to buy, add items with add_item_to_order, confirm the order with get_current_order, then only call submit_order_for_payment once they explicitly say to check out. Give them the payment link exactly as returned.`,
       `- If a customer needs something a team member has to handle -- forwarding artwork, a special request, a complaint -- use create_internal_task rather than just saying someone will follow up. Tell the customer you've flagged it, briefly.`,
@@ -177,6 +192,14 @@ export class CommerceAiService {
       `- If the customer asks to see a product, wants a picture, or asks "where's the photo" -- check get_product_details for hasImage, then call send_product_image if one exists. If there's no image, say so honestly rather than pretending you sent one.`,
       `- Call remember_conversation_facts once you've learned something worth keeping (what they want, quantity, a deadline, a delivery area) so you don't have to ask again if the conversation wanders and comes back.`,
       `- Delivery: whenever delivery/shipping comes up, call check_delivery_info first -- never assume or guess. If it says delivery isn't available, say so plainly (don't say "I've flagged it"). If available but no location has been given, just ask which area/location, naturally -- that's a normal question, not something to hand off. Once you have a location (and a method, if this business offers more than one), confirm it back to the customer, and only once they've confirmed recipient name + phone + address do you call arrange_delivery. Don't tell the customer delivery is arranged until arrange_delivery has actually succeeded.`,
+      ``,
+      `SELLING (be a good salesperson, but only from what the catalogue actually says):`,
+      `- Work out what the customer needs before you list things. If the request is specific, answer it directly. If it is vague ("something for a gift", "what do you have"), ask ONE short question that would change your recommendation, such as the use, budget or quantity, instead of dumping the catalogue. When they describe a need rather than a product name, call search_products with no query (or a budget) and choose from what comes back.`,
+      `- Recommend one to three products from search results and say why each fits, using only what the result says (its description, price, variants, stock). Do not invent features, materials, quality claims or benefits the result does not state. If the customer asks how two products differ and the results do not say, tell them what you do know and that you are not sure about the rest.`,
+      `- When a customer pushes back on price, acknowledge it briefly, then offer what is genuinely available: search with sort price_asc or a maxPrice, or a cheaper variant, or a smaller quantity. You cannot discount, bargain or invent a promotion. If nothing cheaper exists, say so plainly instead of padding the reply.`,
+      `- When a product the customer wants is out of stock, say so first, then offer in-stock products from a search as clearly different options. When nothing suitable exists, say that rather than stretching.`,
+      `- Once the customer is clearly interested, move them forward with one concrete next step (add it to the order, pick a variant or quantity), and ask only for what you are missing. Do not push after a no, and never create urgency or scarcity ("only a few left", "selling fast") that the stock data does not show.`,
+      `- Use the customer's name at most once in the conversation, and usually not at all after your first reply. Don't open every message with a greeting or a stock phrase; reply to what they just said.`,
     ].join('\n');
 
     const systemPrompt = [
@@ -185,14 +208,10 @@ export class CommerceAiService {
       SHARED_STYLE_RULES,
       formatBusinessInfoBlock(settings ?? {}, conversation ?? undefined),
       formatStateBlock(aiState),
+      styleContext,
       ``,
       buildIdentityAndSafetyBlock(businessName),
-    ].join('\n') + knowledgeContext;
-
-    const historyMessages: ChatMessage[] = history.reverse().map((m) => ({
-      role: m.direction === 'INBOUND' ? 'user' : 'assistant',
-      content: m.content!,
-    }));
+    ].join('\n') + knowledgeContext + correctionsContext;
 
     const userContent = contactName ? `Customer name: ${contactName}\nMessage: ${customerMessage}` : customerMessage;
 
@@ -203,13 +222,14 @@ export class CommerceAiService {
       // through AiExecutionsService's existing unmetered-task-type list (no real
       // credit deduction for a tenant's own synthetic QA scenarios) and also lets
       // platform-admin AI analytics exclude them from cost/revenue KPIs.
-      taskType: evalContext ? 'TEST' : 'RESPONDER',
+      // A simulated (AI Test Chat) run is TEST for the same reason: unmetered, and excluded from real cost KPIs.
+      taskType: evalContext || opts?.simulated ? 'TEST' : 'RESPONDER',
+      simulated: opts?.simulated,
       conversationId,
       systemPrompt,
-      // The last history entry is this same customerMessage, already persisted before
-      // this call runs -- dropped here since userMessage below carries the properly
-      // contactName-prefixed version instead, matching the pre-unification behavior.
-      historyMessages: historyMessages.slice(0, -1),
+      // The history excludes this customerMessage (selected by id); userMessage below carries the properly
+      // contactName-prefixed version.
+      historyMessages: history.turns,
       userMessage: userContent,
       toolNames: opts?.readOnlyTools ? READ_ONLY_COMMERCE_TOOL_NAMES : COMMERCE_TOOL_NAMES,
       toolContext: { tenantId, conversationId, contactId, customerPhone, dryRunPayment: evalContext?.dryRunPayment },
@@ -239,7 +259,7 @@ export class CommerceAiService {
       this.logger.warn(`Commerce AI provider call failed for conversation ${conversationId}`);
       return {
         response: PROVIDER_FAILURE_FALLBACK_TEXT,
-        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace,
+        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId,
       };
     }
 
@@ -250,11 +270,18 @@ export class CommerceAiService {
       // customer if it fails) now happens once, centrally, in messages.service.ts.
       return {
         response: MAX_ITERATIONS_FALLBACK_TEXT,
-        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace,
+        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId,
       };
     }
 
     const content = result.content.trim();
+    const textCheck = checkCustomerText(content);
+    if (content && !textCheck.safe) {
+      // Machine output (raw JSON, a provider error body, a stack trace) is never shown to a customer: same recovery
+      // as a failed provider call -- the standard fallback text and a real handoff.
+      this.logger.warn(`Commerce AI output rejected (${textCheck.reason}) for conversation ${conversationId}; nothing sent to the customer`);
+      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
+    }
     if (!content) {
       this.logger.warn(`Commerce AI: empty content and no tool calls for conversation ${conversationId}`);
     }
@@ -266,7 +293,7 @@ export class CommerceAiService {
       // (detected before generation, above) -- the model's own reply this turn may or
       // may not mention it, but the real handoff must happen regardless of what it said.
       shouldEscalate: explicitHumanRequest || undefined,
-      toolTrace: result.toolTrace,
+      toolTrace: result.toolTrace, executionId: result.executionId,
       mediaToSend: result.sideEffects,
     };
   }

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { detectHumanRequest, shouldEscalateOnConfidence } from '../escalation-detector.util';
+import { HUMAN_HANDOFF_REPLY } from '../../prompts/escalation-messages.util';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 
 /**
@@ -35,7 +36,7 @@ export class EscalationStage implements PipelineStage {
       ctx.result = {
         ...ctx.result,
         shouldEscalate: true,
-        response: "I'll connect you with a team member who can help with this right away.",
+        response: HUMAN_HANDOFF_REPLY,
       };
       ctx.trace.safetyFlags.humanEscalation = true;
       ctx.trace.safetyFlags.escalationReason = explicitRequest ? 'explicit_request' : 'low_confidence';

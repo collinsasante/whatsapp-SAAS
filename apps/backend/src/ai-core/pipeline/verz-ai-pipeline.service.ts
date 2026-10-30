@@ -52,7 +52,7 @@ export class VerzAiPipelineService {
       historyMessages: [],
       knowledgeContext: '',
       shortCircuit: false,
-      trace: newTrace(),
+      trace: newTrace(input.simulated),
       // Verz-AI unification, Phase E: turns GenerationStage's tool-calling branch
       // live for the first time in production -- previously nothing ever set these.
       ...(input.contactId && input.customerPhone

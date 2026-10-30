@@ -1,3 +1,5 @@
+import { buildRetrievalQuery, scoreArticles } from './knowledge-retrieval.util';
+
 export interface ScorableArticle {
   title: string;
   content: string;
@@ -38,46 +40,32 @@ export function capByCharBudget<T extends ScorableArticle>(articles: T[], maxCha
 }
 
 /**
- * Pure selection logic behind KnowledgeBaseService.getRelevant() -- bounded,
- * relevance-filtered subset of a tenant's active KB articles, for use as LLM
- * prompt context instead of sending every active article on every call.
+ * Pure selection logic behind KnowledgeBaseService.getRelevant() -- a bounded, relevance-ranked subset of a tenant's
+ * active KB articles for use as LLM prompt context. Ranking lives in knowledge-retrieval.util.ts (stop words,
+ * synonyms, term rarity, follow-up context); this applies the caps.
  *
- * Conservative interim fix: the real fix -- vector + full-text hybrid retrieval
- * over chunked/embedded articles (RetrievalService, dev branch only) -- depends on
- * a knowledge_base_chunks table, a generated tsvector column, an embedding
- * pipeline, and a backfill of every existing article. None of that exists on this
- * branch yet, and promoting it here without the backfill would make retrieval
- * return nothing until every article is reprocessed -- a regression, not a fix.
- * This is a dependency-free bridge until that's ready: deterministic term-overlap
- * scoring, hard caps on both article count and total character budget, and a
- * design that degrades to something reasonable rather than silently returning
- * nothing.
+ *  - nothing to look up (a greeting, thanks, an acknowledgement) -> no articles, whatever the KB size;
+ *  - a KB no bigger than maxArticles -> all of it (within the character budget): the model can judge, as before;
+ *  - a larger KB -> the best matches only. When nothing matches, nothing is returned: five unrelated articles
+ *    would only invite the model to stretch them into an answer.
+ *
+ * Still the dependency-free bridge until vector retrieval exists; deterministic and cheap.
  */
 export function selectRelevantArticles<T extends ScorableArticle>(
   all: T[],
   query: string,
   opts: { maxArticles: number; maxChars: number },
+  previousCustomerMessages: string[] = [],
 ): T[] {
   if (all.length === 0) return [];
-  if (all.length <= opts.maxArticles) {
-    // Small KB -- relevance filtering wouldn't reduce anything meaningfully;
-    // just keep the character budget so a handful of huge articles can't blow it.
-    return capByCharBudget(all, opts.maxChars);
-  }
+  const retrieval = buildRetrievalQuery(query, previousCustomerMessages);
+  if (retrieval.terms.size === 0 && retrieval.hintTerms.size === 0) return [];
+  if (all.length <= opts.maxArticles) return capByCharBudget(all, opts.maxChars);
 
-  const queryTerms = tokenize(query);
-  if (queryTerms.size === 0) {
-    // No usable keywords to match on (e.g. an emoji-only message). Falling back
-    // to the whole KB would defeat the point of this function; falling back to
-    // nothing would regress replies that currently work. Most-recently-added
-    // articles is a reasonable, deterministic middle ground.
-    return capByCharBudget([...all].reverse().slice(0, opts.maxArticles).reverse(), opts.maxChars);
-  }
-
-  const scored = all
-    .map((article) => ({ article, score: scoreOverlap(queryTerms, tokenize(`${article.title} ${article.content}`)) }))
-    .sort((a, b) => b.score - a.score);
-
-  const relevant = scored[0]?.score > 0 ? scored.filter((s) => s.score > 0) : scored;
-  return capByCharBudget(relevant.slice(0, opts.maxArticles).map((s) => s.article), opts.maxChars);
+  const scores = scoreArticles(all, retrieval);
+  const ranked = all
+    .map((article, index) => ({ article, index, score: scores[index] }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  return capByCharBudget(ranked.slice(0, opts.maxArticles).map((r) => r.article), opts.maxChars);
 }

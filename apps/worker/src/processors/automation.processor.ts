@@ -1,3 +1,4 @@
+import { assertNotSimulatedRecipient } from '@whatsapp-platform/shared-utils';
 import { Worker, Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { MessageDirection, MessageType, MessageStatus } from '@whatsapp-platform/shared-types';
@@ -124,6 +125,7 @@ export class AutomationWorker {
 
     switch (action.type) {
       case AutomationAction.SEND_MESSAGE: {
+        assertNotSimulatedRecipient(ctx.contact.phone); // a simulated number never reaches Meta or the WhatsApp Web session
         // Unofficial WhatsApp Web (QR/linked-device) conversation -- send via
         // the real Baileys session through apps/whatsapp-web's internal HTTP
         // API, same direct-HTTP pattern this worker already uses for Meta's
@@ -268,6 +270,7 @@ export class AutomationWorker {
       case AutomationAction.SEND_TEMPLATE: {
         const templateId = payload['templateId'];
         if (!templateId || !ctx.credentials) break;
+        assertNotSimulatedRecipient(ctx.contact.phone);
         const template = await this.prisma.template.findUnique({ where: { id: templateId } });
         if (!template) break;
         const variables = payload as Record<string, string>;

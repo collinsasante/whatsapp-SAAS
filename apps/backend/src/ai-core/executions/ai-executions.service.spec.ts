@@ -68,6 +68,63 @@ describe('AiExecutionsService', () => {
       }));
     });
 
+    it('meterCredits:false records the execution but settles nothing (for callers already charged by their own hold)', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const trace = { ...newTrace(), status: 'SUCCESS' as const, provider: 'deepseek', modelKey: 'm1', inputTokens: 100, outputTokens: 50 };
+
+      const execution = await service.record({ tenantId: 't1', taskType: 'RESPONDER', conversationId: 'c1' }, trace, { meterCredits: false });
+
+      expect(execution.id).toBe('exec-1');
+      expect(deps.prisma.aiExecution.create).toHaveBeenCalledTimes(1);
+      expect(deps.pricing.getCreditsForUsage).not.toHaveBeenCalled();
+      expect(deps.credits.settleForExecution).not.toHaveBeenCalled();
+      expect(deps.credits.linkReservationsToExecution).not.toHaveBeenCalled();
+    });
+
+    it('meterCredits:false also skips reservation linking and failure settlement', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      await service.record({ tenantId: 't1', taskType: 'RESPONDER' }, { ...newTrace(), status: 'PROVIDER_ERROR' as const, reservationIds: ['r1'] }, { meterCredits: false });
+      expect(deps.credits.settleForExecution).not.toHaveBeenCalled();
+      expect(deps.credits.linkReservationsToExecution).not.toHaveBeenCalled();
+    });
+
+    it('without options, a RESPONDER execution is still metered exactly as before', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      await service.record({ tenantId: 't1', taskType: 'RESPONDER' }, { ...newTrace(), status: 'SUCCESS' as const, provider: 'deepseek', modelKey: 'm1', inputTokens: 1, outputTokens: 1 });
+      expect(deps.credits.settleForExecution).toHaveBeenCalledTimes(1);
+    });
+
+    it('tells the evaluation trigger a run was simulated, from the trace', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      await service.record({ tenantId: 't1', taskType: 'TEST', conversationId: 'c1' }, { ...newTrace(true), status: 'SUCCESS' as const, provider: 'deepseek', modelKey: 'm1', inputTokens: 5, outputTokens: 5 });
+      expect(deps.aiLearningTrigger.maybeEnqueue).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'TEST', simulated: true, status: 'SUCCESS' }));
+      expect(deps.credits.settleForExecution).not.toHaveBeenCalled(); // TEST is unmetered by the existing rule
+      expect(deps.pricing.getCreditsForUsage).not.toHaveBeenCalled();
+    });
+
+    it('a real run reports simulated:false', async () => {
+      const deps = buildDeps();
+      await buildService(deps).record({ tenantId: 't1', taskType: 'RESPONDER', conversationId: 'c1' }, { ...newTrace(), status: 'SUCCESS' as const });
+      expect(deps.aiLearningTrigger.maybeEnqueue).toHaveBeenCalledWith(expect.objectContaining({ simulated: false }));
+    });
+
+    it('persists the simulated tag with the execution', async () => {
+      const deps = buildDeps();
+      await buildService(deps).record({ tenantId: 't1', taskType: 'TEST', conversationId: 'c1' }, { ...newTrace(true), status: 'SUCCESS' as const });
+      expect(deps.prisma.aiExecution.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ safetyFlags: { simulated: true } }) }));
+    });
+
+    it('tells the evaluation trigger the execution\'s status', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      await service.record({ tenantId: 't1', taskType: 'RESPONDER', conversationId: 'c1' }, { ...newTrace(), status: 'PROVIDER_ERROR' as const });
+      expect(deps.aiLearningTrigger.maybeEnqueue).toHaveBeenCalledWith(expect.objectContaining({ aiExecutionId: 'exec-1', taskType: 'RESPONDER', conversationId: 'c1', status: 'PROVIDER_ERROR' }));
+    });
+
     it('settles credits for a RESPONDER trace using real token usage', async () => {
       const deps = buildDeps();
       const service = buildService(deps);

@@ -121,12 +121,11 @@ describe('selectRelevantArticles', () => {
     expect(totalChars).toBeLessThanOrEqual(3000 + 1010);
   });
 
-  it('falls back to the most recent articles (bounded) when the query has no matchable keywords', () => {
+  it('returns no articles for a message with nothing to look up (an emoji, a greeting, thanks), instead of the most recent ones', () => {
     const articles = Array.from({ length: 10 }, (_, i) => article(`Topic ${i}`, `Content ${i}`));
-    const result = selectRelevantArticles(articles, '👍👍👍', { maxArticles: 3, maxChars: 100_000 });
-    expect(result).toHaveLength(3);
-    // Most recently added = last in the array (getActive orders by createdAt asc).
-    expect(result.map((a) => a.title)).toEqual(['Topic 7', 'Topic 8', 'Topic 9']);
+    for (const q of ['👍👍👍', 'Hi', 'ok thanks', 'Good morning!']) {
+      expect(selectRelevantArticles(articles, q, { maxArticles: 3, maxChars: 100_000 })).toEqual([]);
+    }
   });
 
   it('is deterministic -- same input always produces the same output', () => {
@@ -135,7 +134,7 @@ describe('selectRelevantArticles', () => {
     expect(run()).toEqual(run());
   });
 
-  it('falls back to all scored articles when none score above zero relevance', () => {
+  it('returns nothing, not unrelated articles, when a real question matches no article in a large KB', () => {
     const articles = [
       article('Hours', 'We open at nine'),
       article('Location', 'We are downtown'),
@@ -146,6 +145,6 @@ describe('selectRelevantArticles', () => {
     ];
     // Query shares no real keywords with any article.
     const result = selectRelevantArticles(articles, 'xyzzy plugh', { maxArticles: 3, maxChars: 100_000 });
-    expect(result).toHaveLength(3);
+    expect(result).toEqual([]);
   });
 });

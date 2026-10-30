@@ -32,9 +32,13 @@ CONTAINER_ID=$(docker run --detach --rm \
   --env POSTGRES_DB=restoretest \
   postgres:16-alpine)
 
+# The postgres image first runs a temporary server that listens ONLY on the Unix socket, stops it, then starts the real server. A
+# socket check can therefore pass in that first phase and the restore then runs while nothing is listening. The temporary server has
+# no TCP listener, so readiness and the restore both go over TCP (loopback inside the network-disabled container) and can only
+# succeed against the real server.
 ready=false
 for _ in $(seq 1 60); do
-  if docker exec "$CONTAINER_ID" pg_isready -U restoretest -d restoretest >/dev/null 2>&1; then
+  if docker exec "$CONTAINER_ID" pg_isready -h 127.0.0.1 -U restoretest -d restoretest >/dev/null 2>&1; then
     ready=true
     break
   fi
@@ -44,7 +48,7 @@ done
 
 docker cp "$BACKUP" "$CONTAINER_ID:/tmp/restore.dump" >/dev/null
 docker exec "$CONTAINER_ID" pg_restore --list /tmp/restore.dump >/dev/null
-docker exec "$CONTAINER_ID" pg_restore \
+docker exec "$CONTAINER_ID" pg_restore -h 127.0.0.1 \
   --exit-on-error --no-owner --no-acl \
   -U restoretest -d restoretest /tmp/restore.dump >/dev/null
 echo "PASS: PostgreSQL dump restored in an isolated, network-disabled disposable container."

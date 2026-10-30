@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type AiLogStatus = 'SUGGESTED' | 'APPROVED' | 'EDITED' | 'REJECTED' | 'AUTO_SENT';
+/** SIMULATED: an AI Test Chat reply that was generated but deliberately never sent to any channel. */
+export type AiLogStatus = 'SUGGESTED' | 'APPROVED' | 'EDITED' | 'REJECTED' | 'AUTO_SENT' | 'SIMULATED';
 
 export interface CreateAiLogDto {
   tenantId: string;

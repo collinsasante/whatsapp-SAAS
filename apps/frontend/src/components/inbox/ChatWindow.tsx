@@ -22,6 +22,7 @@ import toast from 'react-hot-toast';
 import { showConfirm } from '@/store/confirm.store';
 import { useInboxStore } from '@/store/inbox.store';
 import { useAuthStore } from '@/store/auth.store';
+import { DigitalSelfPicker } from '@/components/shared/DigitalSelfPicker';
 import { useCallsStore } from '@/store/calls.store';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { cn, getInitials, formatMessageTime, getProxiedMediaUrl, getDownloadFilename, getApiError } from '@/lib/utils';
@@ -279,7 +280,12 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     current_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   }), [conversation, user]);
 
-  const handleCannedSelect = useCallback((resolvedText: string, mediaUrl?: string, mediaType?: string) => {
+  // Where the composer text came from, so the server can tell a saved reply or an AI draft from the agent's own writing
+  // (Digital Self learns only from the latter). A saved reply counts only while it is unchanged; an AI draft counts even if edited.
+  const textOriginRef = useRef<{ kind: 'saved_reply' | 'ai_suggestion'; id: string; text: string } | null>(null);
+  useEffect(() => { if (!text.trim()) textOriginRef.current = null; }, [text]);
+
+  const handleCannedSelect = useCallback((resolvedText: string, mediaUrl?: string, mediaType?: string, cannedResponseId?: string) => {
     setShowCanned(false);
     if (mediaUrl) {
       const rawType = (mediaType ?? '').toUpperCase();
@@ -290,6 +296,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
         .finally(() => { setSending(false); inputRef.current?.focus(); });
       setText('');
     } else {
+      textOriginRef.current = cannedResponseId ? { kind: 'saved_reply', id: cannedResponseId, text: resolvedText } : null;
       setText(resolvedText);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
@@ -963,7 +970,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     const sendStartedAt = Date.now();
     const channelLabel = conversation.channel?.type ?? 'WHATSAPP';
     try {
-      const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', clientMessageId: tempId, ...(replyToId ? { replyToId } : {}) });
+      const origin = textOriginRef.current;
+      textOriginRef.current = null;
+      const provenance = origin?.kind === 'ai_suggestion' ? { aiSuggestionLogId: origin.id } : origin?.kind === 'saved_reply' && origin.text.trim() === content.trim() ? { cannedResponseId: origin.id } : {};
+      const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', clientMessageId: tempId, ...provenance, ...(replyToId ? { replyToId } : {}) });
       // Replace temp immediately from API response — don't wait for socket (socket may be down)
       const real = res.data as Message;
       // Lifecycle trace for "sent but stuck on sending" reports (status and timing only, never the text).
@@ -1513,6 +1523,11 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
 
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 flex-shrink-0">
+              {/* AI reply style: whose Digital Self Verz AI writes like here. Style only; ownership and AI on/off are untouched. */}
+              {!isViewer && (
+                <DigitalSelfPicker conversationId={conversation.id} canEdit={user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || assigneeId === user?.id} />
+              )}
+
               {/* Intervene — always visible */}
               {isRequested && !assignedToOther && (
                 <button
@@ -2125,7 +2140,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                         const responseText = aiSuggestion.response;
                         await aiLogsApi.updateStatus(logId, 'APPROVED', responseText).catch(() => null);
                         setAiSuggestion(null);
-                        await messagesApi.send(conversation.id, { content: responseText, type: 'TEXT' });
+                        await messagesApi.send(conversation.id, { content: responseText, type: 'TEXT', aiSuggestionLogId: logId });
                         setAiFeedbackLogId(logId);
                       } catch { toast.error('Failed to send'); }
                       finally { setAiSuggestionSending(false); }
@@ -2136,6 +2151,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
                   </button>
                   <button
                     onClick={() => {
+                      textOriginRef.current = { kind: 'ai_suggestion', id: aiSuggestion.logId, text: aiSuggestion.response };
                       setText(aiSuggestion.response);
                       setAiSuggestion(null);
                       inputRef.current?.focus();

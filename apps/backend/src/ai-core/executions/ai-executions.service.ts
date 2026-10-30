@@ -40,7 +40,11 @@ export class AiExecutionsService {
    * fully successful response), so treating them as 0 below means failed
    * calls are never charged with no special-casing needed.
    */
-  async record(input: TraceRecordInput, trace: PipelineTrace) {
+  /**
+   * `opts.meterCredits: false` records the execution WITHOUT settling credits. For callers whose provider call is already charged
+   * by its own reservation (the legacy responder's flat hold), so recording it for traceability cannot charge it a second time.
+   */
+  async record(input: TraceRecordInput, trace: PipelineTrace, opts: { meterCredits?: boolean } = {}) {
     const execution = await this.prisma.aiExecution.create({
       data: {
         tenantId: input.tenantId,
@@ -64,7 +68,7 @@ export class AiExecutionsService {
       },
     });
 
-    if (CREDIT_METERED_TASK_TYPES.includes(input.taskType)) {
+    if (opts.meterCredits !== false && CREDIT_METERED_TASK_TYPES.includes(input.taskType)) {
       try {
         if (trace.reservationIds?.length) {
           await this.credits.linkReservationsToExecution(input.tenantId, execution.id, trace.reservationIds);
@@ -95,6 +99,8 @@ export class AiExecutionsService {
       aiExecutionId: execution.id,
       taskType: input.taskType,
       conversationId: input.conversationId,
+      status: trace.status,
+      simulated: trace.safetyFlags?.simulated === true,
     });
 
     return execution;

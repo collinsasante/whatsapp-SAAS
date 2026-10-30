@@ -64,6 +64,19 @@ describe('GenerationStage', () => {
       }));
     });
 
+    it('passes a simulated run through to the tool-calling run (as the unmetered TEST task), and leaves a real run untagged', async () => {
+      const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We have that in stock.', toolTrace: [], failed: false, hitMaxIterations: false }) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, { complete: jest.fn() } as any);
+
+      await stage.execute(buildCtx({ tools: ['search_products'], toolContext, input: { tenantId: 't1', agentId: 'a1', conversationId: 'c1', customerMessage: 'hi', taskType: 'TEST', simulated: true } }));
+      expect(toolCalling.complete).toHaveBeenLastCalledWith(expect.objectContaining({ taskType: 'TEST', simulated: true }));
+
+      await stage.execute(buildCtx({ tools: ['search_products'], toolContext }));
+      expect(toolCalling.complete.mock.calls[1][0].simulated).toBeUndefined();
+      expect(toolCalling.complete.mock.calls[1][0].taskType).toBe('RESPONDER');
+    });
+
     it('produces a PROVIDER_ERROR trace and a real fallback + escalation when the tool-calling call fails, instead of empty silence', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: '', toolTrace: [], failed: true, hitMaxIterations: false }) };
       const meteredProvider = { complete: jest.fn() };

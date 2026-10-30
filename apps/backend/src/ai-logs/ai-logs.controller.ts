@@ -9,6 +9,7 @@ import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { AiLogsService } from './ai-logs.service';
 import { AiResponderService } from '../ai/ai-responder.service';
 import { detectInjection } from '../ai-core/guards/injection-patterns';
+import { SimulationLimitsService } from '../ai-core/simulation/simulation-limits.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('ai-logs')
@@ -16,6 +17,7 @@ export class AiLogsController {
   constructor(
     private svc: AiLogsService,
     private aiResponder: AiResponderService,
+    private limits: SimulationLimitsService,
   ) {}
 
   /** GET /ai-logs/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD */
@@ -73,11 +75,17 @@ export class AiLogsController {
       throw new ForbiddenException('VerzAI is not enabled for this workspace, or you are out of AI credits.');
     }
 
+    // The sandbox makes a real, unmetered provider call, so it shares the simulated-AI limits with the test chats.
+    if (typeof body.message === 'string') this.limits.assertInputSize(user.tenantId, body.message);
+
     // Was a 7-of-10 partial duplicate of the injection list; now the canonical
     // list from ai-core/guards, shared with the v2 pipeline's GuardStage.
     const injectionDetected = detectInjection(body.message);
     const startMs = Date.now();
-    const result = await this.aiResponder.generateSuggestion(user.tenantId, 'sandbox-test', body.message);
+    const { value: result } = await this.limits.execute(
+      { tenantId: user.tenantId, userId: user.sub, kind: 'ai-sandbox' },
+      () => this.aiResponder.generateSuggestion(user.tenantId, 'sandbox-test', body.message),
+    );
     return {
       response: result.response,
       confidence: result.confidence,

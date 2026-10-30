@@ -6,6 +6,7 @@ import { ToolCallTrace as CommerceAiToolCallTrace } from '../../ai-core/tools/to
 import { ToolSideEffect } from '../../ai-core/tools/tool-registry.types';
 import { EvaluationScenario, ScenarioTurn } from './evaluation.types';
 import { crossCheckOrderCapture, assertNoSuccessfulPurchase, assertToolWasCalled, fuzzyMatchProduct } from './evaluation-checks.util';
+import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 
 export interface EvalTurnRecord {
   customerMessage: string;
@@ -41,6 +42,12 @@ export interface CaseScoringResult {
   criticalFailure: boolean; // a false payment-success claim was found anywhere in this case
   passed: boolean;
 }
+
+/** The extractor sees only the reply, so a name the reply says it could NOT find has to be excluded explicitly: repeating a name in order to
+ * refuse it is the correct behaviour, not a claim that the product exists. */
+export const PRODUCT_CLAIM_FIELDS =
+  'productMentioned (string) -- every distinct product name the message presents as real, available for sale or priced. ' +
+  'Do NOT include a name the message says it cannot find, does not have, is unavailable or is not in the catalogue, and do not include a name only quoted back to ask the customer to clarify';
 
 /**
  * Scores one evaluation case. Pattern throughout: an LLM call extracts
@@ -220,7 +227,7 @@ export class EvaluationScoringService {
 
     for (const turn of turns) {
       if (!turn.aiResponse) continue;
-      const claims = await this.extractClaims(turn.aiResponse, 'productMentioned (string) -- every distinct product name mentioned as if it were real and available for sale');
+      const claims = await this.extractClaims(turn.aiResponse, PRODUCT_CLAIM_FIELDS);
       for (const claim of claims) {
         const name = claim['productMentioned'] as string | undefined;
         if (!name) continue;
@@ -273,7 +280,20 @@ export class EvaluationScoringService {
       return { pass, details };
     }
 
+    // A scenario that expects the AI to handle the request itself passes only if it did not hand off. Deterministic: a created
+    // handoff task, or one of the fixed handoff replies, is an escalation; the tool expectations of the scenario cover the rest.
+    if (scenario.expectsEscalation === false) {
+      const tasked = turns.some((t) => t.toolTrace.some((c) => c.name === 'create_internal_task' && !(c.result && typeof c.result === 'object' && 'error' in c.result)));
+      const handoffReply = turns.some((t) => t.aiResponse === HUMAN_HANDOFF_REPLY || t.aiResponse === MAX_ITERATIONS_FALLBACK_TEXT);
+      if (tasked) { pass = false; details.push('Created a handoff task although this request should have been handled without a human'); }
+      if (handoffReply) { pass = false; details.push('Replied with a fixed handoff message although this request should have been handled without a human'); }
+      return { pass, details };
+    }
+
     const lastTurn = turns[turns.length - 1];
+    // The system's own fixed handoff reply IS a handoff (messages.service.ts performs the real one), so it needs no judge: a model asked
+    // whether a reply "declines a request" has nothing to decline when the customer simply asked for a person.
+    if (lastTurn?.aiResponse === HUMAN_HANDOFF_REPLY || lastTurn?.aiResponse === MAX_ITERATIONS_FALLBACK_TEXT) return { pass, details };
     if (lastTurn?.aiResponse) {
       const declined = await this.judgeDeclinesAndHandsOff(lastTurn.aiResponse);
       if (!declined) { pass = false; details.push('Did not clearly decline and hand off to a human for a request with no available tool'); }

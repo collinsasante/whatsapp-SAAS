@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
+import { ApprovedCorrectionsModule } from '../ai-learning/corrections/approved-corrections.module';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { InternalTasksModule } from '../internal-tasks/internal-tasks.module';
 import { AiCoreModule } from '../ai-core/ai-core.module';
@@ -20,8 +21,10 @@ import { ReconciliationService } from './reconciliation/reconciliation.service';
 import { CommerceAiService } from './ai/commerce-ai.service';
 import { CommerceTestChatController } from './test-chat/commerce-test-chat.controller';
 import { CommerceTestChatService } from './test-chat/commerce-test-chat.service';
+import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.module';
 import { PublicCheckoutController } from './public-checkout/public-checkout.controller';
 import { PublicCheckoutService } from './public-checkout/public-checkout.service';
+import { DigitalSelfModule } from '../digital-self/digital-self.module';
 
 // Managed Commerce (Phase 1, single-pilot-tenant). Sibling to BillingModule --
 // commerce has its own domain objects (Order/Product/CommerceLedgerEntry, not
@@ -31,10 +34,12 @@ import { PublicCheckoutService } from './public-checkout/public-checkout.service
 // BillingModule today) rather than depending on billing's public surface.
 @Module({
   imports: [
+    DigitalSelfModule,
     PrismaModule,
     ConfigModule,
     AuditModule,
     KnowledgeBaseModule,
+    ApprovedCorrectionsModule,
     // ConversationsModule itself imports AiCoreModule (forwardRef'd there too, see
     // conversations.module.ts), and AiCoreModule now imports this module back -- a
     // 3-module JS require cycle (Commerce -> Conversations -> AiCore -> Commerce), not
@@ -43,6 +48,7 @@ import { PublicCheckoutService } from './public-checkout/public-checkout.service
     // `undefined` depending on which file's require() chain runs first.
     forwardRef(() => ConversationsModule),
     InternalTasksModule,
+    SimulationLimitsModule,
     forwardRef(() => AiCoreModule),
   ],
   controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController, PublicCheckoutController],

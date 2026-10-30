@@ -2,7 +2,7 @@ import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundEx
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ChannelType } from '@prisma/client';
-import { normalizePhone } from '@whatsapp-platform/shared-utils';
+import { assertNotSimulatedRecipient, normalizePhone } from '@whatsapp-platform/shared-utils';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AuditService } from '../audit/audit.service';
@@ -112,12 +112,14 @@ export class WhatsAppWebService {
 
   /** Called by MessagesService.dispatchOutbound() for a WHATSAPP_WEB conversation -- mirrors FacebookMessengerService's shape (resolve credentials/session, then send). */
   async sendText(tenantId: string, channelId: string, to: string | { jid: string }, text: string): Promise<string> {
+    if (typeof to === 'string') assertNotSimulatedRecipient(to); // a simulated number never reaches the session manager
     const session = await this.resolveConnectedSession(tenantId, channelId);
     const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-text`, { ...recipientBody(to), text });
     return result.providerMessageId;
   }
 
   async sendMedia(tenantId: string, channelId: string, to: string | { jid: string }, mediaUrl: string, mediaType: 'image' | 'video' | 'audio' | 'document', caption?: string, opts: { voiceNote?: boolean } = {}): Promise<string> {
+    if (typeof to === 'string') assertNotSimulatedRecipient(to);
     const session = await this.resolveConnectedSession(tenantId, channelId);
     const result = await this.callSessionManager<{ providerMessageId: string }>('post', `/sessions/${session.id}/send-media`, { ...recipientBody(to), mediaUrl, mediaType, caption, ...(opts.voiceNote ? { voiceNote: true } : {}) });
     return result.providerMessageId;

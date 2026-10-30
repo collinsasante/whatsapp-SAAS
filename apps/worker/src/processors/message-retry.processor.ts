@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { MessageStatus } from '@whatsapp-platform/shared-types';
 import axios from 'axios';
 import { QueueName, MessageRetryJob } from '@whatsapp-platform/shared-types';
+import { isSimulatedPhone } from '@whatsapp-platform/shared-utils';
 import { resolveWhatsAppCredentials, GRAPH_API_BASE } from '../lib/whatsapp-credentials';
 
 const MAX_RETRIES = 3;
@@ -57,6 +58,9 @@ export class MessageRetryWorker {
     });
 
     if (!message || message.status !== MessageStatus.FAILED) return;
+
+    // A simulated (Test Chat) recipient is not a real number: never retry it against Meta, and do not even resolve credentials for it.
+    if (isSimulatedPhone(message.contact.phone)) return;
 
     // Retry from the exact number the original send used, not whichever
     // number happens to be the tenant's current default -- otherwise a

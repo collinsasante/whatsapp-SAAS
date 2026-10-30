@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MessagesModule } from '../../messages/messages.module';
 import { ConversationsModule } from '../../conversations/conversations.module';
+import { SimulationLimitsModule } from '../simulation/simulation-limits.module';
 import { AiTestChatService } from './ai-test-chat.service';
 import { AiTestChatController } from './ai-test-chat.controller';
 
@@ -18,7 +19,7 @@ import { AiTestChatController } from './ai-test-chat.controller';
  * see the comment on findOrCreateSession() for why that matters.
  */
 @Module({
-  imports: [PrismaModule, MessagesModule, ConversationsModule],
+  imports: [PrismaModule, MessagesModule, ConversationsModule, SimulationLimitsModule],
   controllers: [AiTestChatController],
   providers: [AiTestChatService],
 })

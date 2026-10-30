@@ -1,3 +1,5 @@
+import { HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
+import { SimulatedRecipientError, simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
 import { MessagesService } from './messages.service';
 
 /**
@@ -13,7 +15,7 @@ function buildDeps() {
     prisma: {
       tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
       tenant: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(1) },
+      message: { create: jest.fn().mockResolvedValue({ id: 'msg-1' }), update: jest.fn().mockResolvedValue({ id: 'msg-1' }), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(1) },
       // Default: no assignee on a fresh ownership-recheck lookup, i.e. "not
       // human-handled" -- matches every existing test's assumption that AI is
       // free to proceed. Tests of the human-ownership guard itself override
@@ -59,7 +61,7 @@ function buildDeps() {
     featureFlagsService: { isEnabledCached: jest.fn().mockResolvedValue(false) },
     aiAgentsService: { findOrCreateDefaultAgent: jest.fn().mockResolvedValue({ id: 'agent-2' }) },
     verzAiPipeline: { run: jest.fn().mockResolvedValue({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' }) },
-    aiExecutionsService: { linkInteractionLog: jest.fn().mockResolvedValue(null) },
+    aiExecutionsService: { linkInteractionLog: jest.fn().mockResolvedValue(null), record: jest.fn().mockResolvedValue({ id: 'exec-legacy' }) },
     leadsService: { scoreConversation: jest.fn().mockResolvedValue(null) },
     aiCreditsService: {
       hasSufficientBalance: jest.fn().mockResolvedValue(true),
@@ -117,15 +119,79 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(result).toEqual({ response: 'v2 reply', confidence: 90, blocked: false, executionId: 'exec-1' });
     });
 
-    it('routes to the legacy responder when not commerce-enabled and verz_ai_v2 is off, forcing executionId null', async () => {
+    it('routes to the legacy responder when not commerce-enabled and verz_ai_v2 is off, and returns the execution it recorded (it used to force executionId null)', async () => {
       const deps = buildDeps();
       const service = buildService(deps);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (service as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { commerceEnabled: false, readOnlyTools: false });
 
-      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function));
-      expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: null });
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), undefined);
+      expect(result).toEqual({ response: 'Hi there', confidence: 80, blocked: false, executionId: 'exec-legacy' });
+    });
+
+    describe('D11: a promised follow-up that nothing arranged becomes a real handoff', () => {
+      const reply = (deps: ReturnType<typeof buildDeps>, opts: { commerceEnabled: boolean }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (buildService(deps) as any).generateAiReply('t1', 'conv1', 'contact1', '+233555000111', 'hi', 'Jane', { ...opts, readOnlyTools: false });
+      };
+
+      it('legacy: "our team will follow up" is replaced by the human handoff reply and escalates', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "That's a great question! Our team will follow up with you shortly.", confidence: 40, blocked: false });
+        const result = await reply(deps, { commerceEnabled: false });
+        expect(result).toMatchObject({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true });
+      });
+
+      it('legacy: an honest "I do not have that" answer is sent as written, with no handoff forced', async () => {
+        const deps = buildDeps();
+        const text = "I don't have the price for that one. If you'd like to speak to a team member, just ask.";
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: text, confidence: 35, blocked: false });
+        const result = await reply(deps, { commerceEnabled: false });
+        expect(result.response).toBe(text);
+        expect(result.shouldEscalate).toBeUndefined();
+      });
+
+      it('commerce: a promise with no task behind it is replaced', async () => {
+        const deps = buildDeps();
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'A team member will get back to you about the discount.', blocked: false, toolTrace: [] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result).toMatchObject({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true });
+      });
+
+      it('commerce: the same sentence is kept when create_internal_task really ran this turn', async () => {
+        const deps = buildDeps();
+        const text = "I've passed your discount request to our team and they will get back to you.";
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: text, blocked: false, toolTrace: [{ name: 'create_internal_task', args: {}, result: { taskId: 'task-1', status: 'OPEN' } }] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result.response).toBe(text);
+        expect(result.shouldEscalate).toBeUndefined();
+      });
+
+      it('commerce: an order held for approval may say it will follow up once approved', async () => {
+        const deps = buildDeps();
+        const text = "Your order needs a quick review because of the quantity, and we'll get back to you once it's approved.";
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: text, blocked: false, toolTrace: [{ name: 'submit_order_for_payment', args: {}, result: { status: 'AWAITING_APPROVAL' } }] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result.response).toBe(text);
+      });
+
+      it('commerce: a task tool that errored does not make the promise true', async () => {
+        const deps = buildDeps();
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'Our team will follow up.', blocked: false, toolTrace: [{ name: 'create_internal_task', args: {}, result: { error: 'failed' } }] });
+        const result = await reply(deps, { commerceEnabled: true });
+        expect(result).toMatchObject({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true });
+      });
+
+      it('end to end in auto-reply: the customer is sent the handoff reply and the conversation is really handed off', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'Our team will follow up shortly.', confidence: 40, blocked: false });
+        deps.conversationsService.requestWithRetry.mockResolvedValue(true);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null);
+        expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.any(String));
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, HUMAN_HANDOFF_REPLY, undefined, undefined);
+      });
     });
 
     it('reserves the legacy flat estimate before the provider call and settles it after success', async () => {
@@ -445,6 +511,238 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       expect(sentText).toMatch(/trouble connecting|kept this conversation open/i);
     });
 
+    describe('a provider outage does not repeat the same apology on every customer message', () => {
+      // The legacy responder swallows a provider error into an empty response, so this is the outage path.
+      const outage = (deps: ReturnType<typeof buildDeps>) => deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: '', confidence: null, blocked: false });
+      const recentFallback = (deps: ReturnType<typeof buildDeps>) => deps.prisma.message.findFirst.mockResolvedValue({ id: 'earlier-fallback' });
+      const run = (service: unknown, commerce = false) => (service as { handleAiAutoReply: (...a: unknown[]) => Promise<void> }).handleAiAutoReply('t1', conversation, contact, 'hi again', commerce, null);
+
+      it('the first failure still apologises and hands off, and records that it did so', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        await run(buildService(deps));
+        expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+        expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, fallback: true, handoffRequested: true } }) }));
+      });
+
+      it('a repeat failure within the cooldown sends nothing and does not request another handoff', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        recentFallback(deps);
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(deps.prisma.message.create).not.toHaveBeenCalled();
+        expect(deps.aiLogsService.create).not.toHaveBeenCalled();
+      });
+
+      it('looks only for this tenant and conversation\'s own recent, outbound, flagged-and-handed-off fallback', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        const before = Date.now();
+        await run(buildService(deps));
+        const lookups = deps.prisma.message.findFirst.mock.calls.map((c: unknown[]) => c[0] as { where: Record<string, unknown> }).filter((a) => JSON.stringify(a).includes('handoffRequested'));
+        expect(lookups).toHaveLength(1);
+        const where = lookups[0].where as { tenantId: string; conversationId: string; direction: string; createdAt: { gte: Date }; AND: unknown[] };
+        expect(where).toMatchObject({ tenantId: 't1', conversationId: 'conv1', direction: 'OUTBOUND' });
+        expect(where.AND).toEqual([{ metadata: { path: ['fallback'], equals: true } }, { metadata: { path: ['handoffRequested'], equals: true } }]);
+        const windowMs = before - where.createdAt.gte.getTime();
+        expect(windowMs).toBeGreaterThanOrEqual(15 * 60_000 - 5_000);
+        expect(windowMs).toBeLessThanOrEqual(15 * 60_000 + 5_000);
+      });
+
+      it('a provider that has recovered answers normally even right after an apology (only a repeat failure is suppressed)', async () => {
+        const deps = buildDeps();
+        recentFallback(deps);
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, 'Hi there', undefined, undefined);
+        expect(deps.prisma.message.findFirst.mock.calls.filter((c: unknown[]) => JSON.stringify(c[0]).includes('handoffRequested'))).toHaveLength(0);
+        expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true } }) }));
+      });
+
+      it('if the earlier handoff failed, the apology records that, so a later failure is not silenced by it', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        deps.conversationsService.requestWithRetry.mockResolvedValue(false);
+        await run(buildService(deps));
+        expect(deps.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, fallback: true, handoffRequested: false } }) }));
+      });
+
+      it('a failed lookup fails open: the apology is sent as before rather than leaving the customer in silence', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        deps.prisma.message.findFirst.mockRejectedValue(new Error('db down'));
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+      });
+
+      it('the same holds for the v2/commerce path, where the generator returns the fallback text with shouldEscalate', async () => {
+        const first = buildDeps();
+        first.commerceAiService.handleMessage.mockResolvedValue({ response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: [] });
+        await run(buildService(first), true);
+        expect(first.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+        expect(first.prisma.message.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: { aiGenerated: true, commerce: true, fallback: true, handoffRequested: true } }) }));
+
+        const repeat = buildDeps();
+        repeat.commerceAiService.handleMessage.mockResolvedValue({ response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: [] });
+        recentFallback(repeat);
+        await run(buildService(repeat), true);
+        expect(repeat.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(repeat.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+      });
+
+      it('a genuine escalation (customer asked for a person) is never suppressed by an earlier apology', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "Sure, I'll get someone to help.", confidence: 20, blocked: false, shouldEscalate: true });
+        recentFallback(deps);
+        await run(buildService(deps));
+        expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, "Sure, I'll get someone to help.", undefined, undefined);
+      });
+
+      it('human takeover still wins: a human-handled conversation gets no apology and no lookup', async () => {
+        const deps = buildDeps();
+        outage(deps);
+        deps.prisma.conversation.findFirst.mockResolvedValue({ assignedTo: { id: 'agent-9', isAiAgent: false, lastSeenAt: new Date() } });
+        await run(buildService(deps));
+        expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(deps.prisma.message.findFirst.mock.calls.filter((c: unknown[]) => JSON.stringify(c[0]).includes('handoffRequested'))).toHaveLength(0);
+      });
+    });
+
+    describe('every AI response path leaves a traceable execution that can be linked to its interaction log', () => {
+      type Wrapper = <T>(call: () => Promise<T>) => Promise<T>;
+      const autoReply = (service: unknown, content = 'hi', commerce = false) =>
+        (service as { handleAiAutoReply: (...a: unknown[]) => Promise<void> }).handleAiAutoReply('t1', conversation, contact, content, commerce, null);
+      const answering = (deps: ReturnType<typeof buildDeps>, response: unknown, text = 'Hi there') =>
+        deps.aiResponderService.generateSuggestion.mockImplementation(async (_t: string, _c: string, _m: string, _n: unknown, wrapper?: Wrapper) => {
+          if (wrapper) await wrapper(() => Promise.resolve(response));
+          return { response: text, confidence: 80, blocked: false };
+        });
+
+      describe('legacy responder', () => {
+        it('records a SUCCESS execution with the provider\'s own tokens, unmetered, and links it to the interaction log', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 120, completion_tokens: 30 } } });
+          await autoReply(buildService(deps));
+
+          expect(deps.aiExecutionsService.record).toHaveBeenCalledTimes(1);
+          const [input, trace, opts] = deps.aiExecutionsService.record.mock.calls[0];
+          expect(input).toEqual({ tenantId: 't1', conversationId: 'conv1', taskType: 'RESPONDER' });
+          expect(trace).toMatchObject({ status: 'SUCCESS', provider: 'deepseek', inputTokens: 120, outputTokens: 30, confidence: 80 });
+          expect(typeof trace.latencyMs).toBe('number');
+          expect(trace.estCostUsd).toBeUndefined();
+          expect(opts).toEqual({ meterCredits: false });
+          expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-legacy', 'log-1');
+        });
+
+        it('does not charge credits a second time: the hold is settled once, and the record is made without metering', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 1, completion_tokens: 1 } } });
+          await autoReply(buildService(deps));
+          expect(deps.aiCreditsService.reserveFixedCredits).toHaveBeenCalledTimes(1);
+          expect(deps.aiCreditsService.settleReservation).toHaveBeenCalledTimes(1);
+          expect(deps.aiExecutionsService.record.mock.calls[0][2]).toEqual({ meterCredits: false });
+        });
+
+        it('has no token numbers when the provider sent no usage block (never zero, never estimated)', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: {} });
+          await autoReply(buildService(deps));
+          const trace = deps.aiExecutionsService.record.mock.calls[0][1];
+          expect(trace.status).toBe('SUCCESS');
+          expect(trace.inputTokens).toBeUndefined();
+          expect(trace.outputTokens).toBeUndefined();
+        });
+
+        it('records a provider failure as PROVIDER_ERROR with the HTTP status only, and the customer path is unchanged', async () => {
+          const deps = buildDeps();
+          const providerError = Object.assign(new Error('Request failed'), { response: { status: 401, data: { error: 'Authentication Fails' } }, config: { headers: { Authorization: 'Bearer sk-secret' } } });
+          deps.aiResponderService.generateSuggestion.mockImplementation(async (_t: string, _c: string, _m: string, _n: unknown, wrapper?: Wrapper) => {
+            try { await wrapper!(() => Promise.reject(providerError)); } catch { /* the real responder swallows it */ }
+            return { response: '', confidence: null, blocked: false };
+          });
+          await autoReply(buildService(deps));
+
+          const trace = deps.aiExecutionsService.record.mock.calls[0][1];
+          expect(trace).toMatchObject({ status: 'PROVIDER_ERROR', provider: 'deepseek', errorCode: 'http_401', errorMessage: 'Provider answered HTTP 401' });
+          expect(trace.inputTokens).toBeUndefined();
+          expect(JSON.stringify(trace)).not.toContain('sk-secret');
+          // unchanged behaviour: a real handoff and the standard apology
+          expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+          expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, PROVIDER_FAILURE_FALLBACK_TEXT, undefined, undefined);
+        });
+
+        it('records an injection block as BLOCKED, without any provider detail', async () => {
+          const deps = buildDeps();
+          deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'I am here to help.', confidence: 100, blocked: true });
+          await autoReply(buildService(deps));
+          expect(deps.aiExecutionsService.record.mock.calls[0][1]).toMatchObject({ status: 'BLOCKED', safetyFlags: { injectionDetected: true } });
+          expect(deps.aiExecutionsService.record.mock.calls[0][1].provider).toBeUndefined();
+        });
+
+        it('records an answered call whose output was dropped as EMPTY (with the tokens it really used)', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 50, completion_tokens: 400 } } }, '');
+          await autoReply(buildService(deps));
+          expect(deps.aiExecutionsService.record.mock.calls[0][1]).toMatchObject({ status: 'EMPTY', errorCode: 'output_rejected', inputTokens: 50, outputTokens: 400 });
+        });
+
+        it('a failure to record never stops the reply, and nothing is linked', async () => {
+          const deps = buildDeps();
+          deps.aiExecutionsService.record.mockRejectedValue(new Error('db down'));
+          await expect(autoReply(buildService(deps))).resolves.toBeUndefined();
+          expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, 'Hi there', undefined, undefined);
+          expect(deps.aiExecutionsService.linkInteractionLog).not.toHaveBeenCalled();
+        });
+
+        it('a customer asking for a person makes no model call, so records no execution', async () => {
+          const deps = buildDeps();
+          await autoReply(buildService(deps), 'I want to talk to a person');
+          expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled();
+          expect(deps.aiExecutionsService.record).not.toHaveBeenCalled();
+        });
+
+        it('suggestion mode is traceable too: the SUGGESTED log is linked to the same kind of execution', async () => {
+          const deps = buildDeps();
+          answering(deps, { data: { usage: { prompt_tokens: 10, completion_tokens: 5 } } });
+          await (buildService(deps) as unknown as { handleAiSuggestion: (...a: unknown[]) => Promise<void> }).handleAiSuggestion('t1', conversation, contact, 'hi', false);
+          expect(deps.aiExecutionsService.record).toHaveBeenCalledTimes(1);
+          expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SUGGESTED' }));
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-legacy', 'log-1');
+          expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('Commerce AI', () => {
+        it('links the execution ToolCallingService recorded, and MessagesService does not record a second one', async () => {
+          const deps = buildDeps();
+          deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'We have that in stock.', blocked: false, toolTrace: [], executionId: 'exec-commerce' });
+          await autoReply(buildService(deps), 'hi', true);
+          expect(deps.aiExecutionsService.record).not.toHaveBeenCalled();
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-commerce', 'log-1');
+        });
+
+        it('links nothing when no execution was recorded (as before)', async () => {
+          const deps = buildDeps();
+          await autoReply(buildService(deps), 'hi', true);
+          expect(deps.aiExecutionsService.linkInteractionLog).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('v2 pipeline (unchanged)', () => {
+        it('links the pipeline\'s execution and MessagesService does not record another', async () => {
+          const deps = buildDeps();
+          deps.featureFlagsService.isEnabledCached.mockImplementation(async (key: string) => key === 'verz_ai_v2');
+          await autoReply(buildService(deps));
+          expect(deps.aiExecutionsService.record).not.toHaveBeenCalled();
+          expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-1', 'log-1');
+        });
+      });
+    });
+
     it('degrades gracefully when message persistence fails, without throwing or emitting', async () => {
       const deps = buildDeps();
       deps.prisma.message.create.mockRejectedValue(new Error('db down'));
@@ -453,6 +751,106 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await expect((service as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null)).resolves.toBeUndefined();
       expect(deps.realtimeService.emitNewMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Phase 1: customer asks for a person (real detector, real handlers)', () => {
+    const PHRASES = ['I need to talk to someone', 'abeg make I talk to somebody', 'can someone call me', 'I wan talk to person', 'let me speak to your boss'];
+
+    it.each(PHRASES)('legacy AUTO_REPLY: "%s" starts a real handoff without calling the model, and tells the customer so', async (message) => {
+      const deps = buildDeps();
+      deps.conversationsService.requestWithRetry.mockResolvedValue(true);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, message, false, null, false, true, 'msg-1');
+
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledWith('t1', 'conv1', expect.stringMatching(/requested a human/));
+      expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled(); // no paid provider call
+      expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled(); // and no credit hold
+      expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledWith('t1', contact.phone, HUMAN_HANDOFF_REPLY, undefined, undefined);
+    });
+
+    it('legacy AUTO_REPLY: when the handoff itself fails, the customer is told the truth, not that someone is coming', async () => {
+      const deps = buildDeps();
+      deps.conversationsService.requestWithRetry.mockResolvedValue(false);
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'I need to talk to someone', false, null, false, true, 'msg-1');
+
+      const sent = deps.whatsappService.sendTextMessage.mock.calls[0][2];
+      expect(sent).not.toBe(HUMAN_HANDOFF_REPLY);
+      expect(sent).toMatch(/trouble connecting|kept this conversation open/i);
+    });
+
+    it('legacy SUGGESTION mode: the handoff is requested and nothing is sent to the customer', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiSuggestion('t1', conversation, contact, 'I need to talk to someone', false, false, true, 'msg-1');
+
+      expect(deps.conversationsService.requestWithRetry).toHaveBeenCalledTimes(1);
+      expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled();
+      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('an ordinary question still goes to the legacy responder and starts no handoff', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'You can call me Kwame', false, null, false, true, 'msg-1');
+
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalled();
+      expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+    });
+
+    it('human-ownership recheck still wins: a conversation a person has taken over gets no AI handoff reply', async () => {
+      const deps = buildDeps();
+      deps.prisma.conversation.findFirst.mockResolvedValue({ assignedTo: { id: 'human-1', isAiAgent: false, lastSeenAt: new Date() } });
+      const service = buildService(deps);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (service as any).handleAiAutoReply('t1', conversation, contact, 'I need to talk to someone', false, null, false, true, 'msg-1');
+
+      expect(deps.whatsappService.sendTextMessage).not.toHaveBeenCalled();
+      expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Phase 1: the stored inbound message id reaches every generator', () => {
+    it('legacy: generateSuggestion receives it', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null, false, true, 'msg-42');
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), 'msg-42');
+    });
+
+    it('v2: the pipeline input carries it', async () => {
+      const deps = buildDeps();
+      deps.featureFlagsService.isEnabledCached.mockResolvedValue(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', false, null, false, true, 'msg-42');
+      expect(deps.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ currentMessageId: 'msg-42' }));
+    });
+
+    it('commerce: handleMessage receives it', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiAutoReply('t1', conversation, contact, 'hi', true, null, false, true, 'msg-42');
+      expect(deps.commerceAiService.handleMessage).toHaveBeenCalledWith(
+        't1', 'conv1', 'contact1', contact.phone, 'hi', 'Jane', undefined, expect.objectContaining({ currentMessageId: 'msg-42' }),
+      );
+    });
+
+    it('SUGGESTION mode passes it too', async () => {
+      const deps = buildDeps();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (buildService(deps) as any).handleAiSuggestion('t1', conversation, contact, 'hi', false, false, true, 'msg-42');
+      expect(deps.aiResponderService.generateSuggestion).toHaveBeenCalledWith('t1', 'conv1', 'hi', 'Jane', expect.any(Function), 'msg-42');
     });
   });
 
@@ -867,6 +1265,238 @@ describe('MessagesService -- Verz-AI unification, Phase C routing', () => {
       await svc.runExclusiveForConversation('conv1', () => svc.handleAiAutoReply('t1', conversation, contact, 'hi', false, null, false, true));
 
       expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('AI Test Chat simulation: a simulated customer never reaches a messaging provider', () => {
+    const simContact = { id: 'contact1', phone: simulatedPhoneFor('user-1'), name: 'Test Customer (you)' };
+    type Deps = ReturnType<typeof buildDeps>;
+    type Svc = { handleAiAutoReply: (...a: unknown[]) => Promise<void>; handleAiSuggestion: (...a: unknown[]) => Promise<void>; dispatchOutbound: (...a: unknown[]) => Promise<unknown>; sendAiText: (...a: unknown[]) => Promise<{ delivered: boolean; simulated?: boolean; fields: { status: string; whatsappMessageId?: string; sentAt?: Date } }>; runBotFlow: (...a: unknown[]) => Promise<void> };
+    const svc = (deps: Deps) => buildService(deps) as unknown as Svc;
+    const autoReply = (deps: Deps, c = simContact, commerce = false, content = 'hi') => svc(deps).handleAiAutoReply('t1', conversation, c, content, commerce, null);
+
+    /** Every provider send the backend can make. None may be invoked for a simulated customer. */
+    const providerCalls = (deps: Deps) => [
+      ...Object.values(deps.whatsappService), ...Object.values(deps.facebookMessengerService), ...Object.values(deps.whatsAppWebService),
+    ] as jest.Mock[];
+    const expectNoProvider = (deps: Deps) => { for (const fn of providerCalls(deps)) expect(fn).not.toHaveBeenCalled(); };
+    const storedOutbound = (deps: Deps) => deps.prisma.message.create.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data).filter((d: Record<string, unknown>) => d.direction === 'OUTBOUND');
+
+    describe('D11: the follow-up-promise guard in a simulated conversation', () => {
+      it('replaces the promise, requests no real handoff and reaches no provider', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'Our team will follow up shortly.', confidence: 40, blocked: false });
+        await autoReply(deps);
+
+        expectNoProvider(deps);
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(storedOutbound(deps)[0]).toMatchObject({ content: HUMAN_HANDOFF_REPLY, status: 'QUEUED', metadata: expect.objectContaining({ simulated: true }) });
+      });
+    });
+
+    describe('auto-reply mode, legacy responder', () => {
+      it('generates and stores the reply as SIMULATED: never sent, no provider id, never AUTO_SENT', async () => {
+        const deps = buildDeps();
+        await autoReply(deps);
+
+        expectNoProvider(deps);
+        const out = storedOutbound(deps);
+        expect(out).toHaveLength(1);
+        expect(out[0]).toMatchObject({ content: 'Hi there', status: 'QUEUED', metadata: expect.objectContaining({ aiGenerated: true, simulated: true }) });
+        expect(out[0].whatsappMessageId).toBeUndefined();
+        expect(out[0].sentAt).toBeUndefined();
+        expect(out[0].status).not.toBe('SENT');
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SIMULATED' }));
+        expect(deps.aiLogsService.create).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+        expect(deps.realtimeService.emitNewMessage).toHaveBeenCalled();
+      });
+
+      it('settles no customer credits: no hold, no settlement, and the run is the unmetered TEST task', async () => {
+        const deps = buildDeps();
+        await autoReply(deps);
+        expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled();
+        expect(deps.aiCreditsService.settleReservation).not.toHaveBeenCalled();
+        const [input, trace, opts] = deps.aiExecutionsService.record.mock.calls[0];
+        expect(input).toEqual({ tenantId: 't1', conversationId: 'conv1', taskType: 'TEST' });
+        expect(trace.safetyFlags).toMatchObject({ simulated: true });
+        expect(opts).toEqual({ meterCredits: false });
+      });
+
+      it('still records an execution and links it to the SIMULATED log, so the reply can be evaluated', async () => {
+        const deps = buildDeps();
+        await autoReply(deps);
+        expect(deps.aiExecutionsService.record).toHaveBeenCalledTimes(1);
+        expect(deps.aiExecutionsService.linkInteractionLog).toHaveBeenCalledWith('exec-legacy', 'log-1');
+      });
+
+      it('CONTRAST: a real customer is unchanged: sent, AUTO_SENT, metered, RESPONDER', async () => {
+        const deps = buildDeps();
+        await autoReply(deps, { id: 'contact1', phone: '+233555000111', name: 'Jane' });
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+        expect(storedOutbound(deps)[0]).toMatchObject({ status: 'SENT', metadata: { aiGenerated: true } });
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'AUTO_SENT' }));
+        expect(deps.aiCreditsService.reserveFixedCredits).toHaveBeenCalledTimes(1);
+        expect(deps.aiExecutionsService.record.mock.calls[0][0].taskType).toBe('RESPONDER');
+        expect(deps.aiExecutionsService.record.mock.calls[0][1].safetyFlags.simulated).toBeUndefined();
+      });
+
+      it('requests no real handoff when the reply escalates (no staff notified, no assignment changed), yet reads as it would in production', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: "Sure, I'll get someone to help.", confidence: 20, blocked: false, shouldEscalate: true });
+        await autoReply(deps);
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(deps.conversationsService.request).not.toHaveBeenCalled();
+        expect(deps.prisma.conversation.update).not.toHaveBeenCalled();
+        expectNoProvider(deps);
+        expect(storedOutbound(deps)[0]).toMatchObject({ content: "Sure, I'll get someone to help.", metadata: expect.objectContaining({ simulated: true }) });
+      });
+
+      it('a provider failure produces a simulated apology and no real handoff, and nothing is sent', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: '', confidence: null, blocked: false });
+        await autoReply(deps);
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expectNoProvider(deps);
+        expect(storedOutbound(deps)[0]).toMatchObject({ content: PROVIDER_FAILURE_FALLBACK_TEXT, status: 'QUEUED', metadata: { aiGenerated: true, fallback: true, handoffRequested: true, simulated: true } });
+      });
+
+      it('does not run the paid lead-scoring call for a test conversation', async () => {
+        const deps = buildDeps();
+        await autoReply(deps, simContact, true);
+        expect(deps.leadsService.scoreConversation).not.toHaveBeenCalled();
+      });
+
+      it('AI-triggered media is stored as a simulated message and never dispatched', async () => {
+        const deps = buildDeps();
+        deps.commerceAiService.handleMessage.mockResolvedValue({ response: 'Here it is.', blocked: false, toolTrace: [], mediaToSend: [{ mediaUrl: 'https://cdn.example/p.jpg', caption: 'Shea butter', productId: 'p1' }] });
+        await autoReply(deps, simContact, true);
+        expectNoProvider(deps);
+        const media = storedOutbound(deps).find((d: Record<string, unknown>) => d.type === 'IMAGE');
+        expect(media).toMatchObject({ status: 'QUEUED', mediaUrl: 'https://cdn.example/p.jpg', metadata: expect.objectContaining({ simulated: true, productId: 'p1' }) });
+        expect(media?.whatsappMessageId).toBeUndefined();
+      });
+
+      it('human takeover still wins: a human-handled conversation gets nothing generated or stored', async () => {
+        const deps = buildDeps();
+        deps.prisma.conversation.findFirst.mockResolvedValue({ assignedTo: { id: 'agent-9', isAiAgent: false, lastSeenAt: new Date() } });
+        await autoReply(deps);
+        expect(deps.aiResponderService.generateSuggestion).not.toHaveBeenCalled();
+        expect(storedOutbound(deps)).toHaveLength(0);
+        expectNoProvider(deps);
+      });
+    });
+
+    describe('the other generators', () => {
+      it('Commerce AI is told the run is simulated', async () => {
+        const deps = buildDeps();
+        await autoReply(deps, simContact, true);
+        expect(deps.commerceAiService.handleMessage.mock.calls[0][7]).toMatchObject({ simulated: true });
+        const real = buildDeps();
+        await autoReply(real, { id: 'contact1', phone: '+233555000111', name: 'Jane' }, true);
+        expect(real.commerceAiService.handleMessage.mock.calls[0][7].simulated).toBeUndefined();
+      });
+
+      it('the v2 pipeline runs as the unmetered TEST task and is tagged simulated; a real customer still runs as RESPONDER', async () => {
+        const deps = buildDeps();
+        deps.featureFlagsService.isEnabledCached.mockImplementation(async (key: string) => key === 'verz_ai_v2');
+        await autoReply(deps);
+        expect(deps.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'TEST', simulated: true }));
+        expectNoProvider(deps);
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SIMULATED' }));
+
+        const real = buildDeps();
+        real.featureFlagsService.isEnabledCached.mockImplementation(async (key: string) => key === 'verz_ai_v2');
+        await autoReply(real, { id: 'contact1', phone: '+233555000111', name: 'Jane' });
+        expect(real.verzAiPipeline.run).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'RESPONDER' }));
+        expect(real.verzAiPipeline.run.mock.calls[0][0].simulated).toBeUndefined();
+      });
+    });
+
+    describe('suggestion mode', () => {
+      it('logs a draft as SUGGESTED, requests no real handoff, runs unmetered, and sends nothing', async () => {
+        const deps = buildDeps();
+        deps.aiResponderService.generateSuggestion.mockResolvedValue({ response: 'Draft', confidence: 20, blocked: false, shouldEscalate: true });
+        await svc(deps).handleAiSuggestion('t1', conversation, simContact, 'hi', false);
+        expect(deps.aiLogsService.create).toHaveBeenCalledWith(expect.objectContaining({ status: 'SUGGESTED' }));
+        expect(deps.conversationsService.requestWithRetry).not.toHaveBeenCalled();
+        expect(deps.aiCreditsService.reserveFixedCredits).not.toHaveBeenCalled();
+        expect(deps.aiExecutionsService.record.mock.calls[0][0].taskType).toBe('TEST');
+        expect(deps.leadsService.scoreConversation).not.toHaveBeenCalled();
+        expectNoProvider(deps);
+      });
+    });
+
+    describe('the delivery door itself', () => {
+      const conv = (channel?: { id: string; type: string }) => ({ id: 'conv1', whatsappNumberId: null, channel });
+      it.each<[string, { id: string; type: string } | undefined]>([
+        ['WhatsApp Cloud API', undefined], ['WhatsApp Web', { id: 'ch1', type: 'WHATSAPP_WEB' }],
+        ['Messenger', { id: 'ch1', type: 'FACEBOOK_MESSENGER' }], ['Instagram', { id: 'ch1', type: 'INSTAGRAM' }],
+      ])('refuses %s delivery for a simulated contact before touching any provider (text and media)', async (_n, channel) => {
+        const deps = buildDeps();
+        const c = { ...simContact, externalId: 'psid-1', externalIdType: 'MESSENGER_PSID' };
+        await expect(svc(deps).dispatchOutbound('t1', conv(channel), c, { kind: 'TEXT', text: 'hi' })).rejects.toBeInstanceOf(SimulatedRecipientError);
+        await expect(svc(deps).dispatchOutbound('t1', conv(channel), c, { kind: 'MEDIA', mediaType: 'IMAGE', mediaUrl: 'https://x/y.jpg' })).rejects.toBeInstanceOf(SimulatedRecipientError);
+        expectNoProvider(deps);
+      });
+
+      it('sendAiText reports a simulated delivery: not delivered, QUEUED, no provider id, never SENT', async () => {
+        const deps = buildDeps();
+        const r = await svc(deps).sendAiText('t1', conv(), simContact, 'hi');
+        expect(r).toEqual({ delivered: false, simulated: true, fields: { status: 'QUEUED' } });
+        expectNoProvider(deps);
+      });
+
+      it('a real contact is delivered exactly as before', async () => {
+        const deps = buildDeps();
+        const r = await svc(deps).sendAiText('t1', conv(), { id: 'contact1', phone: '+233555000111' }, 'hi');
+        expect(r.delivered).toBe(true);
+        expect(r.fields.status).toBe('SENT');
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('other messages the inbound pipeline can produce', () => {
+      const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
+
+      it('the welcome message is stored as simulated (not FAILED) and not sent', async () => {
+        const deps = buildDeps();
+        deps.contactsService.findOrCreate.mockResolvedValue(simContact);
+        deps.prisma.tenantSettings.findUnique.mockResolvedValue({ welcomeEnabled: true, welcomeMessage: 'Welcome to Acme!' });
+        deps.prisma.message.count.mockResolvedValue(0);
+        deps.prisma.message.create.mockResolvedValue({ id: 'draft-1' });
+        deps.prisma.message.update.mockResolvedValue({ id: 'draft-1' });
+        await buildService(deps).handleInbound('t1', { id: 'wamid.sim-1', from: simContact.phone.replace('+', ''), timestamp: '1700000000', type: 'text', text: { body: 'hi' } }, simContact.name);
+        await flush();
+        expectNoProvider(deps);
+        const update = deps.prisma.message.update.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data);
+        expect(update).toContainEqual({ metadata: { simulated: true } });
+        expect(update.some((d: Record<string, unknown>) => d.status === 'FAILED' || d.status === 'SENT')).toBe(false);
+      });
+
+      it('chatbot-flow text and image steps are stored as simulated and not sent', async () => {
+        const deps = buildDeps();
+        deps.prisma.message.create.mockResolvedValue({ id: 'flow-msg' });
+        deps.prisma.message.update.mockResolvedValue({ id: 'flow-msg' });
+        await svc(deps).runBotFlow('t1', conversation, simContact, [
+          { id: 'a', type: 'start', content: '', nextNodeId: 'b' }, { id: 'b', type: 'text', content: 'Hello!', nextNodeId: 'c' }, { id: 'c', type: 'image', content: 'Look', mediaUrl: 'https://x/y.jpg' },
+        ]);
+        expectNoProvider(deps);
+        const updates = deps.prisma.message.update.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data);
+        expect(updates).toHaveLength(2);
+        for (const d of updates) expect(d).toEqual({ metadata: { simulated: true } });
+      });
+
+      it('CONTRAST: the same flow for a real contact sends and marks SENT', async () => {
+        const deps = buildDeps();
+        deps.prisma.message.create.mockResolvedValue({ id: 'flow-msg' });
+        deps.prisma.message.update.mockResolvedValue({ id: 'flow-msg' });
+        deps.whatsappService.sendTextMessage.mockResolvedValue('wamid.real');
+        await svc(deps).runBotFlow('t1', conversation, { id: 'contact1', phone: '+233555000111', name: 'Jane' }, [
+          { id: 'a', type: 'start', content: '', nextNodeId: 'b' }, { id: 'b', type: 'text', content: 'Hello!' },
+        ]);
+        expect(deps.whatsappService.sendTextMessage).toHaveBeenCalledTimes(1);
+        expect(deps.prisma.message.update.mock.calls[0][0].data).toMatchObject({ status: 'SENT', whatsappMessageId: 'wamid.real' });
+      });
     });
   });
 

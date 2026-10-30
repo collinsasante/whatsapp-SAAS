@@ -94,9 +94,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
     volumes:
       - minio_staging_data:/data
-    ports:
-      - "9002:9000"
-      - "9003:9001"
+    # No host ports: only the backend uses MinIO, over staging-network (minio:9000). Publishing them put the API and
+    # console on every host interface, and Docker-published ports bypass UFW.
     networks:
       - staging-network
 

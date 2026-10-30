@@ -14,6 +14,18 @@ export class SendMessageDto {
   @IsString()
   content?: string;
 
+  @ApiProperty({ required: false, description: 'Set when the text is an unedited saved reply, so it is not mistaken for the agent\'s own writing.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  cannedResponseId?: string;
+
+  @ApiProperty({ required: false, description: 'Set when the text was written by Verz AI (a suggestion the agent sent or started from).' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  aiSuggestionLogId?: string;
+
   @ApiProperty({ enum: MessageType, default: MessageType.TEXT })
   @IsEnum(MessageType)
   type: MessageType = MessageType.TEXT;

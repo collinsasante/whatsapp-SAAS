@@ -119,6 +119,55 @@ describe('ToolCallingService', () => {
     );
   });
 
+  describe('returns the id of the execution it recorded, so the caller can link it to the interaction log', () => {
+    it('on a normal answer', async () => {
+      const deps = buildDeps();
+      deps.executions.record.mockResolvedValue({ id: 'exec-77' });
+      deps.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));
+      expect((await buildService(deps).complete(baseReq())).executionId).toBe('exec-77');
+    });
+
+    it('on a provider failure', async () => {
+      const deps = buildDeps();
+      deps.executions.record.mockResolvedValue({ id: 'exec-78' });
+      deps.complete.mockRejectedValue(new AiProviderError('auth', 'bad key', false));
+      const result = await buildService(deps).complete(baseReq());
+      expect(result.failed).toBe(true);
+      expect(result.executionId).toBe('exec-78');
+    });
+
+    it('when the loop runs out of iterations', async () => {
+      const deps = buildDeps();
+      deps.executions.record.mockResolvedValue({ id: 'exec-79' });
+      deps.complete.mockResolvedValue(mockCompletion({ toolCalls: [{ id: 'call-1', name: 'search_products', arguments: '{}' }] }));
+      deps.tools.execute.mockResolvedValue({ ok: true });
+      const result = await buildService(deps).complete(baseReq({ maxIterations: 2 }));
+      expect(result.hitMaxIterations).toBe(true);
+      expect(result.executionId).toBe('exec-79');
+    });
+
+    it('has no id, and still answers, when recording fails', async () => {
+      const deps = buildDeps();
+      deps.executions.record.mockRejectedValue(new Error('db down'));
+      deps.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));
+      const result = await buildService(deps).complete(baseReq());
+      expect(result.content).toBe('We have labels in stock.');
+      expect(result.executionId).toBeUndefined();
+    });
+  });
+
+  it('records a simulated run with safetyFlags.simulated, and a real run with none', async () => {
+    const sim = buildDeps();
+    sim.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));
+    await buildService(sim).complete(baseReq({ taskType: 'TEST' as never, simulated: true }));
+    expect(sim.executions.record).toHaveBeenCalledWith(expect.objectContaining({ taskType: 'TEST' }), expect.objectContaining({ safetyFlags: { simulated: true } }));
+
+    const real = buildDeps();
+    real.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));
+    await buildService(real).complete(baseReq());
+    expect(real.executions.record).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ safetyFlags: {} }));
+  });
+
   it('malformed tool-call arguments do not crash the loop', async () => {
     const deps = buildDeps();
     deps.complete

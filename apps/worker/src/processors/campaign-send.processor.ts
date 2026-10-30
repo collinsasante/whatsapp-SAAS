@@ -1,3 +1,4 @@
+import { assertNotSimulatedRecipient } from '@whatsapp-platform/shared-utils';
 import { Worker, Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import { MessageStatus, MessageDirection, MessageType } from '@whatsapp-platform/shared-types';
@@ -99,6 +100,7 @@ export class CampaignSendWorker {
         }
 
         const components = buildTemplateComponents(campaign.template.components as never, templateVariables);
+        assertNotSimulatedRecipient(recipient.contact.phone); // a simulated number never reaches Meta
 
         const response = await axios.post(
           `${GRAPH_API_BASE}/${credentials.phoneNumberId}/messages`,

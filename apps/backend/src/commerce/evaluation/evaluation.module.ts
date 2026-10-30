@@ -1,3 +1,4 @@
+import { SimulationLimitsModule } from '../../ai-core/simulation/simulation-limits.module';
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { QueueName } from '@whatsapp-platform/shared-types';
@@ -17,6 +18,7 @@ import { EvaluationProcessor } from './evaluation.processor';
   imports: [
     PrismaModule,
     CommerceModule,
+    SimulationLimitsModule,
     BullModule.registerQueue({ name: QueueName.AI_EVAL_RUN }),
   ],
   controllers: [EvaluationController],

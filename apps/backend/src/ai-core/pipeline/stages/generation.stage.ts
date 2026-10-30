@@ -8,11 +8,7 @@ import { ConversationStateService } from '../../../conversations/conversation-st
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../prompts/escalation-messages.util';
 import { AiMeteredProviderService } from '../../completion/ai-metered-provider.service';
-
-interface ParsedGeneration {
-  response?: string;
-  confidence?: number;
-}
+import { checkCustomerText, parseStructuredReply } from '../../completion/model-output.util';
 
 @Injectable()
 export class GenerationStage implements PipelineStage {
@@ -47,6 +43,7 @@ export class GenerationStage implements PipelineStage {
         const result = await this.toolCalling.complete({
           tenantId: ctx.input.tenantId,
           taskType: ctx.input.taskType,
+          simulated: ctx.input.simulated,
           conversationId: ctx.input.conversationId,
           agentId: ctx.input.agentId,
           systemPrompt: ctx.renderedSystemPrompt ?? '',
@@ -62,7 +59,9 @@ export class GenerationStage implements PipelineStage {
         // ran this turn regardless of the outcome below. Never throws.
         void this.conversationState.mergeState(ctx.input.tenantId, ctx.input.conversationId, deriveStateFromToolTrace(result.toolTrace));
 
-        if (result.failed) {
+        const toolText = result.failed || result.hitMaxIterations ? null : checkCustomerText(result.content);
+        if (result.failed || (toolText && !toolText.safe)) {
+          if (toolText && !toolText.safe) this.logger.warn(`Generation (tool-calling) output rejected (${toolText.reason}) for conversation ${ctx.input.conversationId}; nothing sent to the customer`);
           // Verz-AI unification, Phase L: previously this left response empty with no
           // shouldEscalate -- messages.service.ts's `if (!result?.response) return;`
           // then silently dropped the turn, so a genuine provider failure (the provider
@@ -127,21 +126,13 @@ export class GenerationStage implements PipelineStage {
       ctx.trace.outputTokens = completion.usage.outputTokens;
       ctx.trace.estCostUsd = estimateCostUsd(ctx.modelKey, completion.usage.inputTokens, completion.usage.outputTokens);
 
-      const raw = completion.content.trim();
-      try {
-        const parsed = JSON.parse(raw) as ParsedGeneration;
-        const response = (parsed.response ?? '').trim();
-        const confidence = typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, Math.round(parsed.confidence))) : null;
-        ctx.result = { response, confidence, blocked: false };
-        ctx.trace.status = 'SUCCESS';
-        ctx.trace.confidence = confidence;
-      } catch {
-        // Parity with legacy: an unparseable body still returns the raw text as the
-        // response rather than failing the whole interaction.
-        ctx.result = { response: raw, confidence: null, blocked: false };
-        ctx.trace.status = 'SUCCESS';
-        ctx.trace.confidence = null;
-      }
+      // Only a clean reply is used. Cut-off or malformed JSON, provider error text and the like take the same
+      // recovery path as a provider failure below (standard fallback text and a real handoff), never the customer.
+      const parsed = parseStructuredReply(completion.content);
+      if (!parsed.ok) throw new AiProviderError('parse_error', `Model output rejected: ${parsed.reason}`, false);
+      ctx.result = { response: parsed.response, confidence: parsed.confidence, blocked: false };
+      ctx.trace.status = 'SUCCESS';
+      ctx.trace.confidence = parsed.confidence;
     } catch (err) {
       const providerErr = err instanceof AiProviderError ? err : new AiProviderError('network', String(err), false, err);
       this.logger.warn(`Generation failed (${providerErr.code}): ${providerErr.message}`);

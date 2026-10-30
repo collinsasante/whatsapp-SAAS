@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { EvalQualityStatus, TrainingExampleStatus, FailureCategory, TakeoverClassification, CorrectionCategory, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DigitalSelfCorrectionsService } from '../digital-self/digital-self-corrections.service';
 
 export interface ListInteractionsFilters {
   status?: EvalQualityStatus;
@@ -25,7 +26,10 @@ export interface SubmitFeedbackInput {
 
 @Injectable()
 export class AiLearningService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() private digitalSelfCorrections?: DigitalSelfCorrectionsService,
+  ) {}
 
   // ─── Overview / analytics ────────────────────────────────────────────
 
@@ -153,6 +157,13 @@ export class AiLearningService {
     if (!evaluation) throw new NotFoundException('Evaluation not found');
     if (!evaluation.feedback) throw new BadRequestException('An evaluation needs human feedback (expected action/response) before it can become a training example');
 
+    // One live example per evaluation: a second one for the same turn would be a duplicate precedent. A rejected or archived one does not block a fresh attempt.
+    const existing = await this.prisma.aiTrainingExample.findFirst({
+      where: { tenantId, sourceEvaluationId: evaluationId, status: { notIn: [TrainingExampleStatus.REJECTED, TrainingExampleStatus.ARCHIVED] } },
+      select: { id: true },
+    });
+    if (existing) throw new BadRequestException('A training example already exists for this evaluation');
+
     const log = evaluation.aiExecution.interactionLogId
       ? await this.prisma.aiInteractionLog.findUnique({ where: { id: evaluation.aiExecution.interactionLogId }, select: { customerMessage: true, aiResponse: true } })
       : null;
@@ -179,6 +190,11 @@ export class AiLearningService {
   async setTrainingExampleStatus(tenantId: string, id: string, status: TrainingExampleStatus, actorId: string) {
     const example = await this.prisma.aiTrainingExample.findFirst({ where: { id, tenantId } });
     if (!example) throw new NotFoundException('Training example not found');
+    // Approval is what lets the AI use an example, so there must be something concrete to teach. An example with neither an expected
+    // action nor an expected reply, or without the customer message it applies to, could only ever be noise in a prompt.
+    if (status === TrainingExampleStatus.APPROVED && (!example.customerInput.trim() || !(example.expectedAction?.trim() || example.expectedResponse?.trim()))) {
+      throw new BadRequestException('A training example needs the customer message and an expected action or reply before it can be approved');
+    }
 
     const updated = await this.prisma.aiTrainingExample.update({
       where: { id },
@@ -188,6 +204,9 @@ export class AiLearningService {
       },
     });
     await this.audit(tenantId, actorId, `training_example.${status.toLowerCase()}`, 'training_example', id, { status: example.status }, { status });
+    // A style-only correction also refines the Digital Self of the agent whose style the reply was written in. It never blocks or fails
+    // the approval workflow, and anything that is not a style correction is left exactly as it was.
+    await this.digitalSelfCorrections?.sync(tenantId, id, actorId).catch((err: unknown) => new Logger(AiLearningService.name).warn(`Digital Self correction sync failed: ${err instanceof Error ? err.name : 'unknown'}`));
     return updated;
   }
 

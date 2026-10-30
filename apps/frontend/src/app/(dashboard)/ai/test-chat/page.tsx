@@ -6,12 +6,15 @@ import { aiTestChatApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { linkify } from '@/lib/linkify';
 import toast from 'react-hot-toast';
+import { DigitalSelfPicker } from '@/components/shared/DigitalSelfPicker';
 
 interface RawMessage {
   id: string;
   direction: 'INBOUND' | 'OUTBOUND';
   content: string | null;
   createdAt: string;
+  /** A reply the test chat generated and stored but deliberately never sent to any channel carries metadata.simulated. */
+  metadata?: { simulated?: boolean } | null;
 }
 
 interface RawSuggestion {
@@ -26,9 +29,23 @@ interface ChatEntry {
   id: string;
   direction: 'INBOUND' | 'OUTBOUND';
   content: string;
-  kind: 'message' | 'suggestion' | 'note';
+  kind: 'message' | 'suggestion' | 'note' | 'error';
   confidence?: number | null;
+  /** Generated and stored, but not sent to any channel. */
+  simulated?: boolean;
   createdAt: string;
+}
+
+interface UsageInfo {
+  limits: { dailyRequests: number; userPerMinute: number; maxInputChars: number; maxConversationTurns: number };
+  used: { requestsToday: number };
+  resetsAt: string;
+}
+
+/** One id per send, kept across retries of that send. Matches the server's accepted shape (8-64 letters, digits, - or _). */
+function newRequestId(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  return c && 'randomUUID' in c ? c.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function apiErr(e: unknown, fallback: string): string {
@@ -41,8 +58,10 @@ function apiErr(e: unknown, fallback: string): string {
 function mergeEntries(messages: RawMessage[], suggestions: RawSuggestion[]): ChatEntry[] {
   const fromMessages: ChatEntry[] = messages
     .filter((m) => m.content)
-    .map((m) => ({ id: m.id, direction: m.direction, content: m.content!, kind: 'message', createdAt: m.createdAt }));
-  const fromSuggestions: ChatEntry[] = suggestions.map((s) => ({
+    .map((m) => ({ id: m.id, direction: m.direction, content: m.content!, kind: 'message', simulated: m.direction === 'OUTBOUND' && m.metadata?.simulated === true, createdAt: m.createdAt }));
+  // Only a draft is shown as a suggestion. A simulated reply is already shown as its stored message above; listing its log as well
+  // would show every reply twice.
+  const fromSuggestions: ChatEntry[] = suggestions.filter((s) => s.status === 'SUGGESTED').map((s) => ({
     id: s.id, direction: 'OUTBOUND', content: s.aiResponse, kind: 'suggestion', confidence: s.confidenceScore, createdAt: s.createdAt,
   }));
   return [...fromMessages, ...fromSuggestions].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -53,6 +72,8 @@ export default function AiTestChatPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,7 +83,8 @@ export default function AiTestChatPage() {
   const loadState = useCallback(async () => {
     try {
       const res = await aiTestChatApi.getState();
-      const data = res.data as { messages: RawMessage[]; suggestions: RawSuggestion[] };
+      const data = res.data as { conversationId?: string; messages: RawMessage[]; suggestions: RawSuggestion[] };
+      setConversationId(data.conversationId ?? null);
       setEntries(mergeEntries(data.messages, data.suggestions));
     } catch (e) {
       toast.error(apiErr(e, 'Failed to load test chat -- make sure Verz AI is enabled on the Settings tab first'));
@@ -71,42 +93,72 @@ export default function AiTestChatPage() {
     }
   }, []);
 
-  useEffect(() => { void loadState(); }, [loadState]);
+  // The allowance line is informational: if it cannot be loaded the chat still works (the server enforces the limits either way).
+  const loadUsage = useCallback(async () => {
+    try {
+      const res = await aiTestChatApi.usage();
+      setUsage(res.data as UsageInfo);
+    } catch {
+      setUsage(null);
+    }
+  }, []);
+
+  useEffect(() => { void loadState(); void loadUsage(); }, [loadState, loadUsage]);
+
+  const allowanceSpent = usage !== null && usage.used.requestsToday >= usage.limits.dailyRequests;
 
   const send = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || allowanceSpent) return;
     setInput('');
     setSending(true);
     const now = new Date().toISOString();
-    setEntries((prev) => [...prev, { id: `local-${Date.now()}`, direction: 'INBOUND', content: text, kind: 'message', createdAt: now }]);
+    const localId = `local-${Date.now()}`;
+    setEntries((prev) => [...prev, { id: localId, direction: 'INBOUND', content: text, kind: 'message', createdAt: now }]);
     try {
-      const res = await aiTestChatApi.send(text);
+      const res = await aiTestChatApi.send(text, newRequestId());
       const data = res.data as {
-        mode: 'SUGGESTION' | 'AUTO_REPLY' | 'TIMEOUT';
+        mode: 'SUGGESTION' | 'SIMULATED' | 'TIMEOUT' | 'ERROR';
         suggestion: RawSuggestion | null;
         message: RawMessage | null;
         note?: string;
+        replayed?: boolean;
       };
-      if (data.mode === 'AUTO_REPLY' && data.message) {
-        setEntries((prev) => [...prev, { id: data.message!.id, direction: 'OUTBOUND', content: data.message!.content ?? '', kind: 'message', createdAt: data.message!.createdAt }]);
+      if (data.replayed) toast('That message was already processed, so this is the earlier reply (nothing new was used).');
+      if (data.mode === 'SIMULATED' && (data.message || data.suggestion)) {
+        // Generated and stored, never sent. Prefer the stored message; fall back to the logged text if the message is missing.
+        const m = data.message;
+        const entry: ChatEntry = m
+          ? { id: m.id, direction: 'OUTBOUND', content: m.content ?? '', kind: 'message', simulated: true, createdAt: m.createdAt }
+          : { id: data.suggestion!.id, direction: 'OUTBOUND', content: data.suggestion!.aiResponse, kind: 'message', simulated: true, confidence: data.suggestion!.confidenceScore, createdAt: data.suggestion!.createdAt };
+        setEntries((prev) => [...prev, entry]);
+      } else if (data.mode === 'ERROR') {
+        setEntries((prev) => [...prev, { id: `error-${Date.now()}`, direction: 'OUTBOUND', content: data.note ?? 'Something unexpected happened in the test chat.', kind: 'error', createdAt: new Date().toISOString() }]);
       } else if (data.mode === 'SUGGESTION' && data.suggestion) {
         setEntries((prev) => [...prev, { id: data.suggestion!.id, direction: 'OUTBOUND', content: data.suggestion!.aiResponse, kind: 'suggestion', confidence: data.suggestion!.confidenceScore, createdAt: data.suggestion!.createdAt }]);
       } else {
         setEntries((prev) => [...prev, { id: `note-${Date.now()}`, direction: 'OUTBOUND', content: data.note ?? 'No AI response.', kind: 'note', createdAt: new Date().toISOString() }]);
       }
     } catch (e) {
+      // The server refused it (limit reached, store unavailable, too long, ...): it was never processed, so do not leave it in the
+      // thread as if it had been sent, and give the text back so nothing the person typed is lost.
+      setEntries((prev) => prev.filter((x) => x.id !== localId));
+      setInput((current) => current || text);
       toast.error(apiErr(e, 'Message failed'));
     } finally {
       setSending(false);
+      void loadUsage();
     }
   };
 
   const reset = async () => {
     try {
-      await aiTestChatApi.reset();
+      const res = await aiTestChatApi.reset();
+      // A new conversation is a new row, so the style choice starts fresh and the picker follows the new id.
+      setConversationId((res.data as { conversationId?: string }).conversationId ?? null);
       setEntries([]);
       toast.success('New conversation started');
+      void loadUsage();
     } catch (e) {
       toast.error(apiErr(e, 'Failed to reset'));
     }
@@ -123,16 +175,27 @@ export default function AiTestChatPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Test Chat</h1>
               <p className="text-xs text-gray-500">
-                Chat as a customer with Verz AI through the real message pipeline, no WhatsApp needed. In Suggestion mode replies are drafts only (not sent); in Auto-Reply mode they're real sent messages.
+                Chat as a customer with Verz AI through the real message pipeline. Nothing here is ever sent to WhatsApp, Messenger or Instagram: in Suggestion mode replies are drafts, and in Auto-Reply mode they are generated and shown as simulated replies.
               </p>
+              {usage && (
+                <p role={allowanceSpent ? 'alert' : undefined} className={cn('text-xs mt-1', allowanceSpent ? 'text-red-600' : usage.used.requestsToday >= usage.limits.dailyRequests * 0.9 ? 'text-amber-600' : 'text-gray-400')}>
+                  {allowanceSpent
+                    ? `Today's allowance of ${usage.limits.dailyRequests} test messages is used up, so sending is paused until it resets at 00:00 UTC. Real customer messages are not affected.`
+                    : `${usage.used.requestsToday} of ${usage.limits.dailyRequests} test messages used today. The allowance resets at 00:00 UTC. Messages can be up to ${usage.limits.maxInputChars} characters, and a conversation up to ${usage.limits.maxConversationTurns} messages.`}
+                </p>
+              )}
             </div>
           </div>
+          <div className="flex items-center gap-2">
+          {/* Preview: pick a Digital Self, then chat. Replies use the real pipeline with that style and are never sent to a customer. */}
+          {conversationId && <DigitalSelfPicker conversationId={conversationId} canEdit />}
           <button
             onClick={reset}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium"
           >
             <RotateCcw className="w-3.5 h-3.5" /> New conversation
           </button>
+          </div>
         </div>
       </div>
 
@@ -152,6 +215,8 @@ export default function AiTestChatPage() {
                   ? 'bg-teal-600 text-white rounded-tr-sm'
                   : e.kind === 'note'
                     ? 'bg-amber-50 text-amber-700 rounded-tl-sm border border-amber-200'
+                    : e.kind === 'error'
+                      ? 'bg-red-50 text-red-700 rounded-tl-sm border border-red-200'
                     : e.kind === 'suggestion'
                       ? 'bg-purple-50 text-purple-900 rounded-tl-sm border border-dashed border-purple-300'
                       : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm',
@@ -161,6 +226,11 @@ export default function AiTestChatPage() {
               {e.kind === 'suggestion' && (
                 <span className="flex items-center gap-1 text-[11px] text-purple-500 mt-1 px-1">
                   <Sparkles size={10} /> Suggested, not sent{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
+                </span>
+              )}
+              {e.simulated && (
+                <span className="flex items-center gap-1 text-[11px] text-gray-500 mt-1 px-1">
+                  <Sparkles size={10} /> Simulated reply, not sent to any channel{e.confidence !== null && e.confidence !== undefined ? ` (${e.confidence}% confidence)` : ''}
                 </span>
               )}
               {e.kind === 'note' && (
@@ -188,12 +258,13 @@ export default function AiTestChatPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
             placeholder="Type as the customer..."
-            disabled={sending}
+            maxLength={usage?.limits.maxInputChars}
+            disabled={sending || allowanceSpent}
             className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:bg-gray-50"
           />
           <button
             onClick={send}
-            disabled={sending || !input.trim()}
+            disabled={sending || allowanceSpent || !input.trim()}
             className="flex items-center gap-1.5 px-4 py-2.5 bg-teal-600 text-white text-sm rounded-xl hover:bg-teal-500 disabled:opacity-50 transition-colors font-medium"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

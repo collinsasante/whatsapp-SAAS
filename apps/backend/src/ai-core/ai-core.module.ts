@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
 import { KnowledgeBaseModule } from '../knowledge-base/knowledge-base.module';
+import { ApprovedCorrectionsModule } from '../ai-learning/corrections/approved-corrections.module';
 import { InternalTasksModule } from '../internal-tasks/internal-tasks.module';
 import { CommerceModule } from '../commerce/commerce.module';
 import { AiLearningModule } from '../ai-learning/ai-learning.module';
@@ -26,6 +27,7 @@ import { ToolRegistryService } from './tools/tool-registry.service';
 import { ToolCallingService } from './tools/tool-calling.service';
 import { AiCreditsService } from './credits/ai-credits.service';
 import { AiPricingService } from './pricing/ai-pricing.service';
+import { DigitalSelfModule } from '../digital-self/digital-self.module';
 
 /**
  * Verz-AI Phase 1 foundation. Built strangler-style alongside the existing
@@ -37,9 +39,11 @@ import { AiPricingService } from './pricing/ai-pricing.service';
  */
 @Module({
   imports: [
+    DigitalSelfModule,
     PrismaModule,
     AiModule,
     forwardRef(() => KnowledgeBaseModule),
+    ApprovedCorrectionsModule,
     InternalTasksModule,
     // ToolRegistryService needs ProductsService/OrdersService -- CommerceModule imports
     // AiCoreModule back (for ToolCallingService/ToolRegistryService, see commerce.module.ts),

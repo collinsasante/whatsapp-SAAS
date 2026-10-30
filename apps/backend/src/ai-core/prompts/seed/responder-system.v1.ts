@@ -13,9 +13,12 @@
  * body can't accidentally weaken either.
  */
 
+import { ANSWER_DIRECTLY_RULE, CONVERSATION_CONTINUITY_RULE, CUSTOMER_LANGUAGE_RULE, CUSTOMER_NAME_RULE, KNOWLEDGE_GAP_RULE_V2 } from '../response-rules';
+
 export const RESPONDER_SYSTEM_TEMPLATE_KEY = 'responder.system';
 export const RESPONDER_SYSTEM_TEMPLATE_NAME = 'Commerce/Support Responder: System Prompt';
-export const RESPONDER_SYSTEM_VERSION = '1.1.0';
+export const RESPONDER_SYSTEM_VERSION = '1.2.0';
+export const RESPONDER_SYSTEM_CHANGE_NOTE = 'Removes the canned "great question / team will follow up" fallback and the always-use-the-name rule; adds answer-first, knowledge-gap, continuity, language and name-use rules (D11).';
 
 export const RESPONDER_SYSTEM_VARIABLES = [
   'business_name', 'personality', 'tenant_instructions', 'knowledge_base',
@@ -62,10 +65,12 @@ export const RESPONDER_SYSTEM_BODY = [
   `PERSONALITY: {{personality}}`,
   ``,
   `RESPONSE RULES:`,
-  `- Use ONLY the knowledge base and business info below to answer questions. Do not invent information.`,
-  `- If the answer is not in the knowledge base or business info, and it's not something a colleague should handle, reply: "That's a great question! Our team will follow up with you shortly."`,
-  `- Keep replies short (1-3 sentences). This is WhatsApp, not email.`,
-  `- Address the customer by name if provided. Do not use markdown formatting.`,
+  `- Use ONLY the knowledge base and business info below to answer questions. Never invent a price, policy, delivery time, availability or promise that is not stated there.`,
+  ANSWER_DIRECTLY_RULE,
+  KNOWLEDGE_GAP_RULE_V2,
+  CONVERSATION_CONTINUITY_RULE,
+  CUSTOMER_LANGUAGE_RULE,
+  CUSTOMER_NAME_RULE,
   `{{tenant_instructions}}`,
   `{{business_info}}`,
   `{{conversation_state}}`,

@@ -14,6 +14,8 @@ const DEFAULT_MAX_ITERATIONS = 4;
 export interface ToolCallingRequest {
   tenantId: string;
   taskType: AiTaskType;
+  /** A simulated (Test Chat) run: recorded with safetyFlags.simulated so evaluation can find it even though it is not a RESPONDER task. */
+  simulated?: boolean;
   conversationId?: string;
   agentId?: string;
   systemPrompt: string;
@@ -54,6 +56,8 @@ export interface ToolCallingResult {
    * called chose to trigger, collected across every iteration -- the caller is
    * responsible for actually delivering them (see MessagesService.deliverMedia). */
   sideEffects: ToolSideEffect[];
+  /** The AiExecution this run recorded (undefined if recording failed), so the caller can link it to its interaction log. */
+  executionId?: string;
 }
 
 /**
@@ -109,12 +113,12 @@ export class ToolCallingService {
         lastProvider = completion.provider;
 
         if (!completion.toolCalls.length) {
-          await this.trace(req, {
+          const executionId = await this.trace(req, {
             status: 'SUCCESS', provider: lastProvider, modelKey,
             latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
           }, toolTrace, reservationIds);
-          return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects };
+          return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects, executionId };
         }
 
         messages.push({ role: 'assistant', content: completion.content ?? '', toolCalls: completion.toolCalls });
@@ -134,20 +138,20 @@ export class ToolCallingService {
       }
 
       this.logger.warn(`Tool-calling hit max iterations (${maxIterations}) for conversation ${req.conversationId ?? 'unknown'}`);
-      await this.trace(req, {
+      const executionId = await this.trace(req, {
         status: 'SUCCESS', provider: lastProvider, modelKey,
         latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
         estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
       }, toolTrace, reservationIds);
-      return { content: '', toolTrace, failed: false, hitMaxIterations: true, sideEffects };
+      return { content: '', toolTrace, failed: false, hitMaxIterations: true, sideEffects, executionId };
     } catch (err) {
       const providerErr = err instanceof AiProviderError ? err : new AiProviderError('network', String(err), false, err);
       this.logger.warn(`Tool-calling call failed (${req.taskType}, ${providerErr.code}): ${providerErr.message}`);
-      await this.trace(req, {
+      const executionId = await this.trace(req, {
         status: 'PROVIDER_ERROR', provider: 'deepseek', modelKey,
         latencyMs: Date.now() - startedAt, errorCode: providerErr.code, errorMessage: providerErr.message,
       }, toolTrace, reservationIds);
-      return { content: '', toolTrace, failed: true, hitMaxIterations: false, sideEffects };
+      return { content: '', toolTrace, failed: true, hitMaxIterations: false, sideEffects, executionId };
     }
   }
 
@@ -162,18 +166,22 @@ export class ToolCallingService {
     // once, rather than at every call site.
     toolTrace: ToolCallTrace[],
     reservationIds: string[],
-  ) {
-    await this.executions
+  ): Promise<string | undefined> {
+    const execution = await this.executions
       .record(
         { tenantId: req.tenantId, agentId: req.agentId, conversationId: req.conversationId, taskType: req.taskType },
         {
           ...trace,
-          safetyFlags: {},
+          safetyFlags: req.simulated ? { simulated: true } : {},
           stageTimings: {},
           toolTrace: toolTrace.length > 0 ? sanitizeToolTrace(toolTrace) : undefined,
           ...(reservationIds.length > 0 && { reservationIds }),
         },
       )
-      .catch((err) => this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`));
+      .catch((err) => {
+        this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`);
+        return null;
+      });
+    return execution?.id;
   }
 }
