@@ -132,6 +132,27 @@ describe('runValidation', () => {
   });
 });
 
+describe('which checks apply to which question', () => {
+  it('skips the tools comparison, visibly, when no fact is required', async () => {
+    const report = await runValidation(cfg({ facts: { mustContain: [], mustNotContain: ['discount'], allowedPrices: ['GH₵50'] } }), fakeApi({ tools: { dsAma: ['search_products'], dsKofi: [] } }).fetchFn);
+    const check = report.checks.find((c) => c.name.startsWith('Both used the same tools'))!;
+    expect(check.status).toBe('skipped');
+    expect(check.detail).toMatch(/no fact is required/);
+  });
+  it('still compares tools when a fact is required', async () => {
+    const report = await runValidation(cfg(), fakeApi({ tools: { dsAma: ['search_products'], dsKofi: [] } }).fetchFn);
+    expect(failed(report)).toContain('Both used the same tools and knowledge');
+  });
+  it('skips the style comparison only when the operator asks, and says so', async () => {
+    const same = 'The red shirt is GH₵50. Which size do you need?';
+    const skipped = await runValidation(cfg({ skipStyleCheck: true }), fakeApi({ replyFor: { dsAma: same, dsKofi: same } }).fetchFn);
+    const check = skipped.checks.find((c) => c.name.includes('distinguishable'))!;
+    expect(check.status).toBe('skipped');
+    expect(check.detail).toMatch(/skipped by the operator/);
+    expect(failed(await runValidation(cfg(), fakeApi({ replyFor: { dsAma: same, dsKofi: same } }).fetchFn))).toContain("The two agents' replies are distinguishable in style");
+  });
+});
+
 describe('harness mismatch', () => {
   it('fails clearly when the AI answered in a different conversation than the one the Digital Self was assigned to', async () => {
     const report = await runValidation(cfg(), fakeApi({ answerInOtherConversation: true }).fetchFn);

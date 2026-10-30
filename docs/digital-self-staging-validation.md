@@ -3,6 +3,25 @@
 A repeatable check that two agents' Digital Selves change **how** Verz AI writes and nothing else. It needs a real model, so it
 runs on **staging with a synthetic workspace**, never in CI and never against production or real customers.
 
+## Record: first live validation (staging, build f050b8a, 2026-10-30)
+
+Synthetic workspace, commerce path, two agents seeded with 36 invented replies each (Ama: warm; Kofi: terse and formal).
+No single run was green under the final rules; each check passed in the run designed for it:
+
+| Run | Question | Passed | Notes |
+| --- | --- | --- | --- |
+| 1 | price ("How much is the red shirt?") | Digital Self reached the reply; ownership unchanged; 7 of 7 real answers; facts correct for both agents and the no-agent run; both used `search_products` | style differed on emoji only (a one-line price answer leaves little room for style) |
+| 2 | conversational ("a gift for my brother") | Digital Self reached the reply; 7 of 7 real answers; no invented prices or promises; style differed on emoji and energy | the tools check does not apply to an open question |
+
+What the replies showed: Ama's use an acknowledgement opener, exclamations and emoji (😊 🙂 🎁); Kofi's open with a formal greeting
+("Good evening."), use no emoji, and are plainer; the no-agent reply sits between them. This is a modest, real effect on tone, not a
+different writer. Earlier runs on the same environment failed for reasons that were not about Digital Self and are why the checks above
+exist: the legacy responder returns empty answers intermittently (also before Digital Self existed) and does not isolate history per
+conversation, so use the commerce path; and the Test Chat answered in a different conversation than the one it handed out (fixed in
+f050b8a), so a Digital Self assigned to it never applied.
+
+Use `SKIP_STYLE_CHECK=yes` for the price run and leave `MUST_CONTAIN` empty for the conversational run. Both are shown as SKIPPED.
+
 ## Use two questions
 
 A price question ("How much is the red shirt?") has a one-line answer for any personality, so it shows little style. Run it for the
