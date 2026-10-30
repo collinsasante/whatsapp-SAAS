@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DigitalSelf, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OVERRIDE_OPTIONS } from './digital-self.constants';
@@ -122,6 +122,45 @@ export class DigitalSelfService {
     return this.mutate(tenantId, id, (row) => ({ profile: { ...emptyProfile(), overrides: parseProfile(row.profile).overrides } as unknown as Prisma.InputJsonValue, evidenceCount: 0, lastLearnedAt: null, lastError: null }), true);
   }
 
+  /** The Digital Self a conversation uses, and why: the one assigned explicitly, else its human owner's, else none. */
+  async getForConversation(tenantId: string, conversationId: string): Promise<ConversationDigitalSelf> {
+    const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { digitalSelfId: true, assignedToId: true } });
+    if (!conv) throw new NotFoundException('Conversation not found');
+    const assigned = conv.digitalSelfId ? await this.get(tenantId, conv.digitalSelfId).catch(() => null) : null;
+    if (assigned) return { source: 'assigned', digitalSelf: assigned };
+    // Default: a conversation a human agent owns is naturally represented by that agent's Digital Self.
+    const owner = conv.assignedToId ? await this.prisma.digitalSelf.findFirst({ where: { tenantId, userId: conv.assignedToId }, select: { id: true } }) : null;
+    const inherited = owner ? await this.get(tenantId, owner.id).catch(() => null) : null;
+    return inherited ? { source: 'owner', digitalSelf: inherited } : { source: null, digitalSelf: null };
+  }
+
+  /**
+   * Chooses (or, with null, removes) the Digital Self for a conversation. This writes ONLY Conversation.digitalSelfId: it never
+   * changes assignedToId (human ownership) and never turns AI replies on -- whether the AI may answer is decided elsewhere,
+   * exactly as before. Admins may assign on any conversation; an agent only on one they own.
+   */
+  async assignToConversation(tenantId: string, conversationId: string, digitalSelfId: string | null, actor: { id: string; role: string }): Promise<ConversationDigitalSelf> {
+    const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { id: true, assignedToId: true } });
+    if (!conv) throw new NotFoundException('Conversation not found');
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === 'SUPER_ADMIN';
+    if (!isAdmin && !(actor.role === UserRole.AGENT && conv.assignedToId === actor.id)) {
+      throw new ForbiddenException('Only an admin, or the agent who owns this conversation, can change its Digital Self');
+    }
+
+    if (digitalSelfId !== null) {
+      const target = await this.prisma.digitalSelf.findFirst({ where: { id: digitalSelfId, tenantId }, select: { id: true, userId: true, enabled: true } });
+      if (!target) throw new NotFoundException('Digital Self not found');
+      if (!target.enabled) throw new BadRequestException('This Digital Self is deactivated');
+      const eligible = await this.prisma.user.count({ where: { ...DigitalSelfService.assignableUserWhere(tenantId), id: target.userId } });
+      if (eligible === 0) throw new BadRequestException('This agent is not active in the workspace, so their Digital Self cannot be assigned');
+    }
+
+    // tenantId in the filter keeps the write tenant-scoped even though the row was already checked above.
+    const res = await this.prisma.conversation.updateMany({ where: { id: conversationId, tenantId }, data: { digitalSelfId } });
+    if (res.count === 0) throw new NotFoundException('Conversation not found');
+    return this.getForConversation(tenantId, conversationId);
+  }
+
   /** Read-modify-write under the same row lock the learner takes, so an admin edit and a learning job cannot overwrite each other. */
   private async mutate(tenantId: string, id: string, build: (row: DigitalSelf) => Prisma.DigitalSelfUpdateInput, clearLedger = false): Promise<DigitalSelfView> {
     await this.prisma.$transaction(async (tx) => {
@@ -138,6 +177,12 @@ export class DigitalSelfService {
     });
     return this.get(tenantId, id);
   }
+}
+
+export interface ConversationDigitalSelf {
+  /** 'assigned' = chosen for this conversation; 'owner' = inherited from its human owner; null = none (existing AI behaviour). */
+  source: 'assigned' | 'owner' | null;
+  digitalSelf: DigitalSelfView | null;
 }
 
 export interface DigitalSelfView {

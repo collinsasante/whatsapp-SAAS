@@ -8,7 +8,7 @@ import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { AuditService } from '../audit/audit.service';
 import { DigitalSelfService } from './digital-self.service';
-import { SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
+import { AssignDigitalSelfDto, SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
 
 /** Every query is scoped by the authenticated tenant; the tenant id is never taken from the request. Reads: agents and up (the conversation selector needs the list). Changes: admins. */
 @ApiTags('Digital Self')
@@ -26,6 +26,22 @@ export class DigitalSelfController {
   @ApiOperation({ summary: "List this workspace's agents' Digital Selves" })
   list(@CurrentTenant() tenantId: string) {
     return this.service.list(tenantId);
+  }
+
+  @Get('conversations/:conversationId')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Which Digital Self represents this conversation' })
+  forConversation(@CurrentTenant() tenantId: string, @Param('conversationId') conversationId: string) {
+    return this.service.getForConversation(tenantId, conversationId);
+  }
+
+  @Put('conversations/:conversationId')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: "Assign, change or remove a conversation's Digital Self. Never changes human ownership or enables AI replies." })
+  async assign(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('conversationId') conversationId: string, @Body() dto: AssignDigitalSelfDto) {
+    const result = await this.service.assignToConversation(tenantId, conversationId, dto.digitalSelfId ?? null, { id: user.sub, role: user.role });
+    await this.audit.log({ tenantId, userId: user.sub, action: AuditAction.UPDATE, resource: 'conversation_digital_self', resourceId: conversationId, metadata: { digitalSelfId: dto.digitalSelfId ?? null } });
+    return result;
   }
 
   @Get(':id')
