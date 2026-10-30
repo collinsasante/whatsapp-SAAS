@@ -31,6 +31,11 @@ export interface ValidationConfig {
    * is being measured. Retries are counted and reported, never hidden. Default 2.
    */
   maxEmptyRetries?: number;
+  /**
+   * Skips the style comparison. For a factual question ("how much is X?") every personality gives a one-line answer, so there is
+   * little style to compare; run that question for the facts and a conversational one for the style. Shown as SKIPPED, never hidden.
+   */
+  skipStyleCheck?: boolean;
   /** Progress lines for the operator (the run takes a few minutes because of the rate limit). */
   onProgress?: (message: string) => void;
 }
@@ -205,7 +210,9 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   }
 
   const styleTitle = 'The two agents\' replies are distinguishable in style';
-  if (real('A').length === 0 || real('B').length === 0) {
+  if (cfg.skipStyleCheck) {
+    skip(styleTitle, 'skipped by the operator: this run is for the facts; run a conversational question to compare style');
+  } else if (real('A').length === 0 || real('B').length === 0) {
     skip(styleTitle, 'inconclusive: at least one agent had no real answer to compare');
   } else {
     const [ma, mb] = [real('A'), real('B')].map((rs) => rs.map(measureReply).filter((m): m is StyleMetrics => !!m));
@@ -217,7 +224,10 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const unique = (xs: string[]) => [...new Set(xs)].sort();
   const info = (xs: string[]) => unique(xs.filter((t) => !BOOKKEEPING_TOOLS.includes(t)));
   const ignored = unique([...ta, ...tb].filter((t) => BOOKKEEPING_TOOLS.includes(t)));
-  if (ta.length === 0 && tb.length === 0) skip('Both used the same tools and knowledge', 'the executions API returned no tool trace; compare in the AI Activity page');
+  if (cfg.facts.mustContain.length === 0) {
+    // On an open question the AI may or may not look something up before asking a clarifying question, so a difference proves nothing.
+    skip('Both used the same tools and knowledge', 'no fact is required for this question, so whether the AI looked something up before asking is optional; this is checked on the factual question');
+  } else if (ta.length === 0 && tb.length === 0) skip('Both used the same tools and knowledge', 'the executions API returned no tool trace; compare in the AI Activity page');
   else {
     add('Both used the same tools and knowledge', JSON.stringify(info(ta)) === JSON.stringify(info(tb)),
       `A used [${info(ta).join(', ')}], B used [${info(tb).join(', ')}]${ignored.length ? `; ignored the AI's own bookkeeping tools: ${ignored.join(', ')}` : ''}`);

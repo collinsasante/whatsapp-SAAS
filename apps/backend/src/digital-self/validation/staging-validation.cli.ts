@@ -7,7 +7,7 @@ import { formatReport, runValidation } from './staging-validation';
  *   CONFIRM_SYNTHETIC_DATA=yes STAGING_API_URL=https://staging.verzchat.com:8443/api/v1 STAGING_TOKEN=... \
  *   DS_A=<id> DS_B=<id> QUESTION="How much is the red shirt?" MUST_CONTAIN="red shirt,GH₵50" ALLOWED_PRICES="GH₵50" \
  *   MUST_NOT_CONTAIN="discount,free delivery" pnpm digital-self:validate
- * Optional: DS_INSUFFICIENT=<id>, RUNS (default 3), REPORT_FILE=<path> to save the replies and results as JSON.
+ * Optional: SKIP_STYLE_CHECK=yes (for a factual question), DS_INSUFFICIENT=<id>, RUNS (default 3), REPORT_FILE=<path> to save the replies and results as JSON.
  */
 const list = (v: string | undefined): string[] => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 
@@ -26,6 +26,7 @@ async function main(): Promise<void> {
       digitalSelfInsufficient: env['DS_INSUFFICIENT'], question: need('QUESTION'), runs,
       facts: { mustContain: list(env['MUST_CONTAIN']), mustNotContain: list(env['MUST_NOT_CONTAIN']), allowedPrices: list(env['ALLOWED_PRICES']) },
       confirmSyntheticData: env['CONFIRM_SYNTHETIC_DATA'] === 'yes',
+      skipStyleCheck: env['SKIP_STYLE_CHECK'] === 'yes',
       onProgress: (m) => console.log(m),
     },
     (url, init) => fetch(url, init),
