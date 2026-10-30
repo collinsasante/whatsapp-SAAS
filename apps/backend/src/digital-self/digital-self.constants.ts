@@ -11,7 +11,7 @@ export const MAX_ANALYSED_CHARS = 2000;
 /** Upper bound on the style block added to a prompt. */
 export const MAX_STYLE_BLOCK_CHARS = 700;
 /** Sentinel for the profile JSON shape, so a future shape (semantic learning) can be migrated rather than guessed. */
-export const PROFILE_SCHEMA_VERSION = 1;
+export const PROFILE_SCHEMA_VERSION = 2;
 
 export const OVERRIDE_OPTIONS = {
   length: ['short', 'medium', 'detailed'],

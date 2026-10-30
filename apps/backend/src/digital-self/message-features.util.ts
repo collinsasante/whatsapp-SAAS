@@ -3,6 +3,16 @@ import { MAX_ANALYSED_CHARS } from './digital-self.constants';
 /** What the learning engine reads from one agent message. Derived numbers and tags only: the text itself is never kept. */
 export interface MessageFeatures {
   words: number;
+  sentences: number;
+  /** The reply ends by asking the customer something: the follow-up habit. */
+  endsWithQuestion: boolean;
+  /** Opens with a short acknowledgement ("Sure", "Of course", "Got it"). */
+  acknowledges: boolean;
+  /** Apologises, reassures or recognises the customer's situation. */
+  empathy: boolean;
+  /** Mixes a non-English lexicon (Pidgin, Twi, Ghanaian English) into an otherwise longer sentence. */
+  codeSwitch: boolean;
+  lowercaseStart: boolean;
   hasQuestion: boolean;
   hasExclaim: boolean;
   hasEmoji: boolean;
@@ -37,7 +47,9 @@ export function isEligibleHumanMessage(msg: CandidateMessage, tenantId: string, 
   if (msg.senderId !== agentUserId || msg.senderIsAiAgent !== false) return false;
   if (msg.templateId) return false;
   const meta = msg.metadata && typeof msg.metadata === 'object' ? (msg.metadata as Record<string, unknown>) : {};
-  if (meta['isAutoReply'] || meta['simulated'] || meta['source'] === 'external' || meta['commerce']) return false;
+  // Anything that is not the agent typing it: automation/system markers, the platform's own AI output, a pasted saved reply, a phone-app message.
+  const notTyped = ['isAutoReply', 'simulated', 'commerce', 'aiGenerated', 'automation', 'campaignId', 'flowId', 'cannedResponseId', 'aiSuggestionLogId'];
+  if (notTyped.some((k) => meta[k]) || ['external', 'saved_reply', 'ai_suggestion'].includes(meta['source'] as string)) return false;
   const text = (msg.content ?? '').trim();
   return text.length > 0 && text.length <= MAX_ANALYSED_CHARS;
 }
@@ -57,6 +69,8 @@ const CLOSINGS: Array<[string, RegExp]> = [
 
 const FORMAL = /\b(kindly|please|sir|madam|regards|assist|inform|regret|apologi[sz]e|appreciate|would you)\b/gi;
 const CASUAL = /\b(hey|yeah|yep|yup|okay|ok|cool|sure|no worries|lol|wow|abeg|chale|charley)\b/gi;
+const EMPATHY = /\b(sorry|apologi[sz]e|apologies|i understand|understand how|i see|that must be|bear with me|no worries|no problem|don'?t worry|thank you for (your )?(patience|understanding)|i appreciate)\b/i;
+const ACKNOWLEDGE = /^(sure|of course|certainly|okay|ok|alright|noted|got it|absolutely|great|perfect|yes|no problem)\b/i;
 const CONTRACTION = /\b[a-z]+['’](s|t|re|ll|ve|d|m)\b/i;
 
 /** Lexical markers only -- a language tag means "this lexicon appeared", not a claim about fluency. */
@@ -75,9 +89,17 @@ export function extractFeatures(rawText: string): MessageFeatures | null {
 
   const languages = LANGUAGE_MARKERS.filter(([, re]) => re.test(text)).map(([tag]) => tag);
   if (languages.length === 0 && words >= 3) languages.push('english');
+  const sentences = text.split(/[.!?]+(?:\s|$)/).filter((x) => /[\p{L}\p{N}]/u.test(x)).length || 1;
+  const trimmed = text.replace(/[\s\p{Extended_Pictographic}]+$/u, '');
 
   return {
     words,
+    sentences,
+    endsWithQuestion: trimmed.endsWith('?'),
+    acknowledges: ACKNOWLEDGE.test(text),
+    empathy: EMPATHY.test(text),
+    codeSwitch: words >= 6 && languages.some((l) => l !== 'english'),
+    lowercaseStart: /^\p{Ll}/u.test(text),
     hasQuestion: text.includes('?'),
     hasExclaim: text.includes('!'),
     hasEmoji: /\p{Extended_Pictographic}/u.test(text),

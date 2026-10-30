@@ -53,7 +53,7 @@ export default function CannedPicker({
 }: {
   query: string;
   vars: Record<string, string>;
-  onSelect: (text: string, mediaUrl?: string, mediaType?: string) => void;
+  onSelect: (text: string, mediaUrl?: string, mediaType?: string, cannedResponseId?: string) => void;
   onClose: () => void;
 }) {
   const [items, setItems] = useState<CannedItem[]>(cache?.items ?? []);
@@ -137,7 +137,7 @@ export default function CannedPicker({
   const handleSelect = useCallback(
     async (item: CannedItem) => {
       const resolved = applyVars(item.content, vars);
-      onSelect(resolved, item.mediaUrl ?? undefined, item.mediaType ?? undefined);
+      onSelect(resolved, item.mediaUrl ?? undefined, item.mediaType ?? undefined, item.id);
       try {
         await cannedResponsesApi.trackUsage(item.id);
         // Update local recent list

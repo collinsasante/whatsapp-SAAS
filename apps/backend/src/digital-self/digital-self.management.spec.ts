@@ -27,11 +27,12 @@ function build(rows: Array<Record<string, unknown>>) {
       findMany: jest.fn(async ({ where }) => store.filter((r) => r['tenantId'] === where.tenantId).map((r) => ({ ...r, user: USER }))),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    digitalSelfLearningEvent: { count: jest.fn().mockResolvedValue(0), groupBy: jest.fn().mockResolvedValue([]) },
     user: { count: jest.fn().mockResolvedValue(1), findMany: jest.fn(async () => store.map((r) => ({ id: r['userId'] }))) },
   };
   return { svc: new DigitalSelfService(prisma as never), prisma, tx, store };
 }
-const row = (over: Record<string, unknown> = {}) => ({ id: 'ds1', tenantId: 't1', userId: 'ama', enabled: true, learningPaused: false, evidenceCount: 12, lastLearnedAt: new Date(), lastError: null, profileVersion: 3, status: 'LEARNING', profile: { v: 1, samples: 12, words: 120, overrides: { emoji: 'none' } }, ...over });
+const row = (over: Record<string, unknown> = {}) => ({ id: 'ds1', tenantId: 't1', userId: 'ama', enabled: true, learningPaused: false, evidenceCount: 12, lastLearnedAt: new Date(), lastError: null, profileVersion: 3, status: 'LEARNING', profile: { v: 2, samples: 12, words: 120, overrides: { emoji: 'none' } }, ...over });
 
 describe('DigitalSelfService management', () => {
   it('never returns or changes another tenant\'s Digital Self', async () => {

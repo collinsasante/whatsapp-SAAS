@@ -354,6 +354,23 @@ export class MessagesService {
       messageMetadata['contactPhone'] = dto.contactPhone;
     }
 
+    // Provenance of the text. The inbox says when a message is a saved reply or AI-written; each id is checked against THIS tenant's own
+    // records before it is trusted, so a client cannot label arbitrary text, and an unknown id is simply ignored. Digital Self learning
+    // skips both kinds because neither is the agent's own writing.
+    if ((dto.type === MessageType.TEXT || !dto.type) && (dto.cannedResponseId || dto.aiSuggestionLogId)) {
+      const [saved, suggestion] = await Promise.all([
+        dto.cannedResponseId ? this.prisma.cannedResponse.findFirst({ where: { id: dto.cannedResponseId, tenantId }, select: { id: true } }) : null,
+        dto.aiSuggestionLogId ? this.prisma.aiInteractionLog.findFirst({ where: { id: dto.aiSuggestionLogId, tenantId }, select: { id: true } }) : null,
+      ]);
+      if (suggestion) {
+        messageMetadata['source'] = 'ai_suggestion';
+        messageMetadata['aiSuggestionLogId'] = suggestion.id;
+      } else if (saved) {
+        messageMetadata['source'] = 'saved_reply';
+        messageMetadata['cannedResponseId'] = saved.id;
+      }
+    }
+
     // For template messages, resolve the body text so it renders in the chat
     let resolvedContent = dto.content ?? null;
     if (dto.type === MessageType.TEMPLATE && dto.templateId) {
@@ -498,7 +515,7 @@ export class MessagesService {
       if (dto.type === MessageType.TEXT || !dto.type) {
         void this.knowledgeBaseService.triggerLearningAsync(tenantId);
         // Digital Self: queue this human reply for background style learning (flag-gated, never blocks or fails the send).
-        void this.digitalSelfLearning?.enqueue(tenantId, message.id);
+        void this.digitalSelfLearning?.enqueue(tenantId, message.id).catch((err: unknown) => this.logger.warn(`Could not queue Digital Self learning: ${err instanceof Error ? err.name : 'unknown error'}`));
       }
 
       const updatedMessage = await this.prisma.message.findUnique({
