@@ -517,6 +517,11 @@ model Conversation {
   // AI Digital Self: which agent's communication style the AI uses for this conversation. Style only -- it never
   // changes assignedToId (human ownership) and never enables AI replies. Tenant match is enforced in DigitalSelfService.
   digitalSelfId    String?            @map("digital_self_id")
+  // Privacy: when true, nothing in this conversation is learned from, and evidence already taken from it is removed. This is
+  // separate from the tenant flag and a per-agent pause, which say nothing about one particular conversation.
+  digitalSelfLearningExcluded     Boolean   @default(false) @map("digital_self_learning_excluded")
+  digitalSelfLearningExcludedAt   DateTime? @map("digital_self_learning_excluded_at")
+  digitalSelfLearningExcludedById String?   @map("digital_self_learning_excluded_by_id")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
 
@@ -2913,6 +2918,11 @@ model AiTrainingExample {
 
   regressionCaseCreated Boolean @default(false) @map("regression_case_created")
 
+  // Set while this example is applied to ONE agent's Digital Self as a style correction. It is then left out of the workspace-wide
+  // reviewed guidance, so a correction for one agent's style cannot change how every other agent's replies sound. Cleared when the
+  // correction can no longer be applied (withdrawn, conversation excluded, ...), which returns it to ordinary guidance.
+  digitalSelfId String? @map("digital_self_id")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -3201,14 +3211,23 @@ model DigitalSelf {
 // twice. `messageId` is deliberately not a foreign key -- deleting a message under a retention rule must not cascade here, and
 // the row holds no message content.
 model DigitalSelfLearningEvent {
-  id            String   @id @default(uuid())
-  tenantId      String   @map("tenant_id")
-  digitalSelfId String   @map("digital_self_id")
-  messageId     String   @unique @map("message_id")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  digitalSelfId  String   @map("digital_self_id")
+  // Dedupe key. For a reply it is the message id; for an approved style correction it is "correction:<training example id>".
+  messageId      String   @unique @map("message_id")
+  // 'REPLY' (a human agent's own message) or 'CORRECTION' (an approved style correction).
+  source         String   @default("REPLY")
+  // Where it came from, so evidence can be removed when a conversation is excluded.
+  conversationId String?  @map("conversation_id")
+  // The derived numbers this event contributed (never text). Makes removal exact: the profile is rebuilt from the remaining events.
+  features       Json?
+  weight         Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
 
   digitalSelf DigitalSelf @relation(fields: [digitalSelfId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, digitalSelfId])
+  @@index([tenantId, conversationId])
   @@map("digital_self_learning_events")
 }

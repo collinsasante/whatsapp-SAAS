@@ -4,14 +4,20 @@ import { PrismaService } from '../prisma/prisma.service';
 import { provisionDigitalSelf } from './digital-self.service';
 import { extractFeatures, isEligibleHumanMessage } from './message-features.util';
 import { deriveStatus, mergeFeatures, parseProfile } from './profile.util';
+import { lockConversationAndReadExclusion, lockDigitalSelf, REPLY_SOURCE } from './evidence.util';
+import { matchesSavedReply, templateBodyText } from './saved-reply.util';
 
-export type LearnOutcome = 'learned' | 'duplicate' | 'ineligible' | 'paused';
+export type LearnOutcome = 'learned' | 'duplicate' | 'ineligible' | 'paused' | 'excluded';
+
+/** How many saved replies / templates are compared against; a workspace with more than this has its newest ones checked. */
+const MAX_SAVED_TEXTS = 500;
 
 /**
  * Incremental, idempotent learning from ONE human-agent reply. Never called on the customer reply path: the processor runs it
  * after the fact. The dedupe ledger row and the profile update commit together under a row lock on the agent's Digital Self, so a
  * redelivered job, a retry, or two replies processed at once can neither double-count nor lose an update, and a failure part-way
- * leaves the previous profile untouched.
+ * leaves the previous profile untouched. The conversation's exclusion flag is read under a shared lock on the conversation row, so
+ * a conversation excluded while this runs cannot slip evidence in behind the removal (see lockConversationAndReadExclusion).
  */
 @Injectable()
 export class DigitalSelfLearningService {
@@ -22,9 +28,15 @@ export class DigitalSelfLearningService {
   async learnFromMessage(tenantId: string, messageId: string): Promise<LearnOutcome> {
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, tenantId },
-      select: { tenantId: true, direction: true, type: true, senderId: true, templateId: true, content: true, metadata: true, sender: { select: { isAiAgent: true } } },
+      select: {
+        tenantId: true, conversationId: true, direction: true, type: true, senderId: true, templateId: true, content: true, metadata: true,
+        sender: { select: { isAiAgent: true } },
+        conversation: { select: { digitalSelfLearningExcluded: true } },
+      },
     });
     if (!msg?.senderId) return 'ineligible';
+    // Cheap early exit; the authoritative check is repeated under lock below.
+    if (msg.conversation.digitalSelfLearningExcluded) return 'excluded';
     if (!isEligibleHumanMessage({ ...msg, senderIsAiAgent: msg.sender?.isAiAgent ?? null }, tenantId, msg.senderId)) return 'ineligible';
 
     const self = await provisionDigitalSelf(this.prisma, tenantId, msg.senderId);
@@ -32,14 +44,13 @@ export class DigitalSelfLearningService {
     if (!self.enabled || self.learningPaused) return 'paused';
 
     const text = msg.content ?? '';
-    // A saved reply pasted verbatim is the business's wording, not the agent's own style.
-    const canned = await this.prisma.cannedResponse.findFirst({ where: { tenantId, content: { in: [text, text.trim()] } }, select: { id: true } });
-    if (canned) return 'ineligible';
+    if (await this.isSavedText(tenantId, text)) return 'ineligible';
     const features = extractFeatures(text);
     if (!features) return 'ineligible';
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM digital_selves WHERE id = ${self.id} FOR UPDATE`);
+      if (await lockConversationAndReadExclusion(tx, tenantId, msg.conversationId)) return 'excluded' as const;
+      await lockDigitalSelf(tx, self.id);
       if (await tx.digitalSelfLearningEvent.findUnique({ where: { messageId }, select: { id: true } })) return 'duplicate' as const;
 
       const current = await tx.digitalSelf.findUniqueOrThrow({ where: { id: self.id } });
@@ -47,7 +58,9 @@ export class DigitalSelfLearningService {
       const evidenceCount = current.evidenceCount + 1;
       const now = new Date();
 
-      await tx.digitalSelfLearningEvent.create({ data: { tenantId, digitalSelfId: self.id, messageId } });
+      await tx.digitalSelfLearningEvent.create({
+        data: { tenantId, digitalSelfId: self.id, messageId, source: REPLY_SOURCE, conversationId: msg.conversationId, features: features as unknown as Prisma.InputJsonValue, weight: 1 },
+      });
       await tx.digitalSelf.update({
         where: { id: self.id },
         data: {
@@ -61,6 +74,16 @@ export class DigitalSelfLearningService {
       });
       return 'learned' as const;
     });
+  }
+
+  /** True when the text is one of the workspace's saved replies or template bodies, with or without variables filled in. */
+  private async isSavedText(tenantId: string, text: string): Promise<boolean> {
+    const [canned, templates] = await Promise.all([
+      this.prisma.cannedResponse.findMany({ where: { tenantId }, select: { content: true }, orderBy: { updatedAt: 'desc' }, take: MAX_SAVED_TEXTS }),
+      this.prisma.template.findMany({ where: { tenantId }, select: { components: true }, orderBy: { updatedAt: 'desc' }, take: MAX_SAVED_TEXTS }),
+    ]);
+    const known = [...canned.map((c) => c.content), ...templates.map((t) => templateBodyText(t.components)).filter((t): t is string => !!t)];
+    return matchesSavedReply(text, known);
   }
 
   /** Records that learning failed, without any message content, so the profile view can show it. The profile itself is not touched. */

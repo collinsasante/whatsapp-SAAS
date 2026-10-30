@@ -3,6 +3,7 @@ import { DigitalSelf, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OVERRIDE_OPTIONS } from './digital-self.constants';
 import { deriveStatus, emptyProfile, parseProfile, summarizeProfile, type ProfileOverrides, type StyleSummary } from './profile.util';
+import { CORRECTION_SOURCE, lockDigitalSelf, rebuildFromEvents } from './evidence.util';
 
 /** Roles that reply to customers. VIEWER (read-only) and the synthetic Verz AI user are not agents and get no Digital Self. */
 export const AGENT_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.AGENT];
@@ -81,7 +82,9 @@ export class DigitalSelfService {
     const assignable = new Set(
       (await this.prisma.user.findMany({ where: { ...DigitalSelfService.assignableUserWhere(tenantId), id: { in: rows.map((r) => r.userId) } }, select: { id: true } })).map((u) => u.id),
     );
-    return rows.map((r) => toView(r, r.user, assignable.has(r.userId)));
+    const corrections = await this.prisma.digitalSelfLearningEvent.groupBy({ by: ['digitalSelfId'], where: { tenantId, source: CORRECTION_SOURCE }, _count: { _all: true } });
+    const correctionsBy = new Map(corrections.map((c) => [c.digitalSelfId, c._count._all]));
+    return rows.map((r) => toView(r, correctionsBy.get(r.id) ?? 0, r.user, assignable.has(r.userId)));
   }
 
   async get(tenantId: string, id: string): Promise<DigitalSelfView> {
@@ -91,7 +94,18 @@ export class DigitalSelfService {
     });
     if (!row) throw new NotFoundException('Digital Self not found');
     const assignable = (await this.prisma.user.count({ where: { ...DigitalSelfService.assignableUserWhere(tenantId), id: row.userId } })) > 0;
-    return toView(row, row.user, assignable);
+    const correctionCount = await this.prisma.digitalSelfLearningEvent.count({ where: { tenantId, digitalSelfId: row.id, source: CORRECTION_SOURCE } });
+    return toView(row, correctionCount, row.user, assignable);
+  }
+
+  /** Like get(), but a Digital Self that does not exist (deleted since it was assigned) is null. Any other failure still propagates. */
+  private async getOrNull(tenantId: string, id: string): Promise<DigitalSelfView | null> {
+    try {
+      return await this.get(tenantId, id);
+    } catch (err) {
+      if (err instanceof NotFoundException) return null;
+      throw err;
+    }
   }
 
   setLearningPaused(tenantId: string, id: string, paused: boolean) {
@@ -124,14 +138,18 @@ export class DigitalSelfService {
 
   /** The Digital Self a conversation uses, and why: the one assigned explicitly, else its human owner's, else none. */
   async getForConversation(tenantId: string, conversationId: string): Promise<ConversationDigitalSelf> {
-    const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { digitalSelfId: true, assignedToId: true } });
+    const conv = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { digitalSelfId: true, assignedToId: true, digitalSelfLearningExcluded: true, digitalSelfLearningExcludedAt: true },
+    });
     if (!conv) throw new NotFoundException('Conversation not found');
-    const assigned = conv.digitalSelfId ? await this.get(tenantId, conv.digitalSelfId).catch(() => null) : null;
-    if (assigned) return { source: 'assigned', digitalSelf: assigned };
+    const learning = { excluded: conv.digitalSelfLearningExcluded, excludedAt: conv.digitalSelfLearningExcludedAt };
+    const assigned = conv.digitalSelfId ? await this.getOrNull(tenantId, conv.digitalSelfId) : null;
+    if (assigned) return { source: 'assigned', digitalSelf: assigned, learning };
     // Default: a conversation a human agent owns is naturally represented by that agent's Digital Self.
     const owner = conv.assignedToId ? await this.prisma.digitalSelf.findFirst({ where: { tenantId, userId: conv.assignedToId }, select: { id: true } }) : null;
-    const inherited = owner ? await this.get(tenantId, owner.id).catch(() => null) : null;
-    return inherited ? { source: 'owner', digitalSelf: inherited } : { source: null, digitalSelf: null };
+    const inherited = owner ? await this.getOrNull(tenantId, owner.id) : null;
+    return inherited ? { source: 'owner', digitalSelf: inherited, learning } : { source: null, digitalSelf: null, learning };
   }
 
   /**
@@ -140,12 +158,7 @@ export class DigitalSelfService {
    * exactly as before. Admins may assign on any conversation; an agent only on one they own.
    */
   async assignToConversation(tenantId: string, conversationId: string, digitalSelfId: string | null, actor: { id: string; role: string }): Promise<ConversationDigitalSelf> {
-    const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { id: true, assignedToId: true } });
-    if (!conv) throw new NotFoundException('Conversation not found');
-    const isAdmin = actor.role === UserRole.ADMIN || actor.role === 'SUPER_ADMIN';
-    if (!isAdmin && !(actor.role === UserRole.AGENT && conv.assignedToId === actor.id)) {
-      throw new ForbiddenException('Only an admin, or the agent who owns this conversation, can change its Digital Self');
-    }
+    await this.assertCanChangeConversation(tenantId, conversationId, actor);
 
     if (digitalSelfId !== null) {
       const target = await this.prisma.digitalSelf.findFirst({ where: { id: digitalSelfId, tenantId }, select: { id: true, userId: true, enabled: true } });
@@ -161,10 +174,49 @@ export class DigitalSelfService {
     return this.getForConversation(tenantId, conversationId);
   }
 
+  /** Admins may change any conversation in the workspace; an agent only one they own. Everyone else, and any other tenant's conversation, is refused. */
+  private async assertCanChangeConversation(tenantId: string, conversationId: string, actor: { id: string; role: string }): Promise<void> {
+    const conv = await this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { id: true, assignedToId: true } });
+    if (!conv) throw new NotFoundException('Conversation not found');
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === 'SUPER_ADMIN';
+    if (!isAdmin && !(actor.role === UserRole.AGENT && conv.assignedToId === actor.id)) {
+      throw new ForbiddenException('Only an admin, or the agent who owns this conversation, can change this');
+    }
+  }
+
+  /**
+   * Excludes a conversation from Digital Self learning, or lifts the exclusion. Excluding does two things, in this order: it sets the
+   * flag (so no learner that starts afterwards can add evidence, and the exclusive row lock makes this wait for learners already
+   * running), then it removes everything already learned from that conversation and rebuilds each affected profile from what is
+   * left. Lifting the exclusion only allows FUTURE replies to be learned from; removed evidence is not brought back.
+   */
+  async setConversationLearningExcluded(tenantId: string, conversationId: string, excluded: boolean, actor: { id: string; role: string }): Promise<{ excluded: boolean; excludedAt: Date | null; evidenceRemoved: number; profilesRebuilt: number }> {
+    await this.assertCanChangeConversation(tenantId, conversationId, actor);
+    const excludedAt = excluded ? new Date() : null;
+    const res = await this.prisma.conversation.updateMany({
+      where: { id: conversationId, tenantId },
+      data: { digitalSelfLearningExcluded: excluded, digitalSelfLearningExcludedAt: excludedAt, digitalSelfLearningExcludedById: excluded ? actor.id : null },
+    });
+    if (res.count === 0) throw new NotFoundException('Conversation not found');
+    if (!excluded) return { excluded, excludedAt, evidenceRemoved: 0, profilesRebuilt: 0 };
+
+    const affected = await this.prisma.digitalSelfLearningEvent.findMany({ where: { tenantId, conversationId }, distinct: ['digitalSelfId'], select: { digitalSelfId: true } });
+    let evidenceRemoved = 0;
+    for (const { digitalSelfId } of affected) {
+      await this.prisma.$transaction(async (tx) => {
+        await lockDigitalSelf(tx, digitalSelfId);
+        const deleted = await tx.digitalSelfLearningEvent.deleteMany({ where: { tenantId, digitalSelfId, conversationId } });
+        evidenceRemoved += deleted.count;
+        if (deleted.count > 0) await rebuildFromEvents(tx, tenantId, digitalSelfId);
+      });
+    }
+    return { excluded, excludedAt, evidenceRemoved, profilesRebuilt: affected.length };
+  }
+
   /** Read-modify-write under the same row lock the learner takes, so an admin edit and a learning job cannot overwrite each other. */
   private async mutate(tenantId: string, id: string, build: (row: DigitalSelf) => Prisma.DigitalSelfUpdateInput, clearLedger = false): Promise<DigitalSelfView> {
     await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM digital_selves WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+      await lockDigitalSelf(tx, id);
       const row = await tx.digitalSelf.findFirst({ where: { id, tenantId } });
       if (!row) throw new NotFoundException('Digital Self not found');
       const patch = build(row);
@@ -180,6 +232,8 @@ export class DigitalSelfService {
 }
 
 export interface ConversationDigitalSelf {
+  /** Whether this conversation is excluded from Digital Self learning (a privacy control, separate from which style is used). */
+  learning: { excluded: boolean; excludedAt: Date | null };
   /** 'assigned' = chosen for this conversation; 'owner' = inherited from its human owner; null = none (existing AI behaviour). */
   source: 'assigned' | 'owner' | null;
   digitalSelf: DigitalSelfView | null;
@@ -200,10 +254,12 @@ export interface DigitalSelfView {
   lastLearnedAt: Date | null;
   lastError: string | null;
   profileVersion: number;
+  /** Approved style corrections currently applied to this Digital Self. */
+  correctionCount: number;
   summary: StyleSummary;
 }
 
-function toView(row: DigitalSelf, user: { name: string; role: string; avatarUrl: string | null; isActive: boolean }, memberAssignable: boolean): DigitalSelfView {
+function toView(row: DigitalSelf, correctionCount: number, user: { name: string; role: string; avatarUrl: string | null; isActive: boolean }, memberAssignable: boolean): DigitalSelfView {
   return {
     id: row.id,
     userId: row.userId,
@@ -219,6 +275,7 @@ function toView(row: DigitalSelf, user: { name: string; role: string; avatarUrl:
     lastLearnedAt: row.lastLearnedAt,
     lastError: row.lastError,
     profileVersion: row.profileVersion,
+    correctionCount,
     summary: summarizeProfile(parseProfile(row.profile)),
   };
 }

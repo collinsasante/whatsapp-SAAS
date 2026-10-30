@@ -24,3 +24,9 @@ export class AssignDigitalSelfDto {
   @ValidateIf((_, value) => value !== null) @IsUUID()
   digitalSelfId: string | null;
 }
+
+export class SetLearningExclusionDto {
+  @ApiProperty({ description: 'true excludes the conversation from Digital Self learning and removes what was already learned from it.' })
+  @IsBoolean()
+  excluded: boolean;
+}

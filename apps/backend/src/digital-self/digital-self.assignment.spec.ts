@@ -8,7 +8,7 @@ const ds = (id: string, userId: string, over: Record<string, unknown> = {}) => (
 
 function build(opts: { conv?: Record<string, unknown> | null; selves?: Array<Record<string, unknown>>; assignable?: boolean } = {}) {
   const selves = opts.selves ?? [ds('dsAma', 'ama'), ds('dsKofi', 'kofi')];
-  const conv = opts.conv === undefined ? { id: 'c1', assignedToId: 'kofi', digitalSelfId: null } : opts.conv;
+  const conv = opts.conv === undefined ? { id: 'c1', assignedToId: 'kofi', digitalSelfId: null, digitalSelfLearningExcluded: false, digitalSelfLearningExcludedAt: null } : opts.conv ? { digitalSelfLearningExcluded: false, digitalSelfLearningExcludedAt: null, ...opts.conv } : opts.conv;
   const prisma = {
     conversation: {
       findFirst: jest.fn(async ({ where }) => (conv && where.id === conv['id'] && where.tenantId === 't1' ? { ...conv } : null)),
@@ -21,6 +21,7 @@ function build(opts: { conv?: Record<string, unknown> | null; selves?: Array<Rec
       }),
     },
     user: { count: jest.fn().mockResolvedValue(opts.assignable === false ? 0 : 1) },
+    digitalSelfLearningEvent: { count: jest.fn().mockResolvedValue(0), groupBy: jest.fn().mockResolvedValue([]) },
   };
   return { svc: new DigitalSelfService(prisma as never), prisma, conv };
 }
@@ -73,7 +74,7 @@ describe('getForConversation', () => {
     expect((await build({ conv: { id: 'c1', assignedToId: 'kofi', digitalSelfId: 'dsAma' } }).svc.getForConversation('t1', 'c1')).source).toBe('assigned');
     const owner = await build({ conv: { id: 'c1', assignedToId: 'kofi', digitalSelfId: null } }).svc.getForConversation('t1', 'c1');
     expect(owner).toMatchObject({ source: 'owner', digitalSelf: { id: 'dsKofi' } });
-    expect(await build({ conv: { id: 'c1', assignedToId: null, digitalSelfId: null } }).svc.getForConversation('t1', 'c1')).toEqual({ source: null, digitalSelf: null });
+    expect(await build({ conv: { id: 'c1', assignedToId: null, digitalSelfId: null } }).svc.getForConversation('t1', 'c1')).toMatchObject({ source: null, digitalSelf: null, learning: { excluded: false } });
   });
   it('treats an AI-owned conversation as having no default (no random pick)', async () => {
     expect((await build({ conv: { id: 'c1', assignedToId: 'verz-ai', digitalSelfId: null } }).svc.getForConversation('t1', 'c1')).source).toBeNull();

@@ -11,7 +11,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { DIGITAL_SELF_FLAG_KEY } from './digital-self-learning.trigger';
 import { DigitalSelfService } from './digital-self.service';
 import { MIN_ATTRIBUTE_SAMPLES, READY_SAMPLES } from './digital-self.constants';
-import { AssignDigitalSelfDto, SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
+import { AssignDigitalSelfDto, SetLearningExclusionDto, SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
 
 /** Every query is scoped by the authenticated tenant; the tenant id is never taken from the request. Reads: agents and up (the conversation selector needs the list). Changes: admins. */
 @ApiTags('Digital Self')
@@ -47,6 +47,18 @@ export class DigitalSelfController {
   async assign(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('conversationId') conversationId: string, @Body() dto: AssignDigitalSelfDto) {
     const result = await this.service.assignToConversation(tenantId, conversationId, dto.digitalSelfId ?? null, { id: user.sub, role: user.role });
     await this.audit.log({ tenantId, userId: user.sub, action: AuditAction.UPDATE, resource: 'conversation_digital_self', resourceId: conversationId, metadata: { digitalSelfId: dto.digitalSelfId ?? null } });
+    return result;
+  }
+
+  @Put('conversations/:conversationId/learning-exclusion')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Exclude a conversation from Digital Self learning (removing what was learned from it), or lift the exclusion' })
+  async setLearningExclusion(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('conversationId') conversationId: string, @Body() dto: SetLearningExclusionDto) {
+    const result = await this.service.setConversationLearningExcluded(tenantId, conversationId, dto.excluded, { id: user.sub, role: user.role });
+    await this.audit.log({
+      tenantId, userId: user.sub, action: AuditAction.UPDATE, resource: 'conversation_digital_self_learning', resourceId: conversationId,
+      metadata: { excluded: dto.excluded, evidenceRemoved: result.evidenceRemoved, profilesRebuilt: result.profilesRebuilt },
+    });
     return result;
   }
 
