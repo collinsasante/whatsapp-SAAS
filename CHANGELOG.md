@@ -9,6 +9,11 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 Nothing yet.
 
+## [2.8.3] - 2026-10-30
+
+### Fixed
+- **Large images failed to send on WhatsApp with "Media upload error".** WhatsApp refuses any image over 5 MB, and a 7.6 MB PNG hit that limit twice. Images over the limit are now converted to JPEG and, only if still too large, scaled down, keeping their proportions. Images under 5 MB that are already JPEG or PNG are sent exactly as before. This, and not the image format fixed in 2.8.2, is the confirmed cause of the reported failure (found from the stored file's size on production).
+
 ## [2.8.2] - 2026-10-30
 
 ### Fixed
