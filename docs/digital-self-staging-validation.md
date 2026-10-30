@@ -13,8 +13,10 @@ No single run was green under the final rules; each check passed in the run desi
 | 1 | price ("How much is the red shirt?") | Digital Self reached the reply; ownership unchanged; 7 of 7 real answers; facts correct for both agents and the no-agent run; both used `search_products` | style differed on emoji only (a one-line price answer leaves little room for style) |
 | 2 | conversational ("a gift for my brother") | Digital Self reached the reply; 7 of 7 real answers; no invented prices or promises; style differed on emoji and energy | the tools check does not apply to an open question |
 
+| 3 | conversational, after the stronger precedence wording (build 044ef45) | Digital Self reached the reply; 7 of 7 real answers; no invented prices or promises; style differed on **length, emoji, energy and follow-up questions** (four dimensions, up from two) | The ownership check flagged Verz AI claiming the unowned conversation after replying. That is existing auto-reply behaviour and it also happened in the no-Digital-Self run, so the check now allows it and still fails if a person becomes the owner |
+
 What the replies showed: Ama's use an acknowledgement opener, exclamations and emoji (😊 🙂 🎁); Kofi's open with a formal greeting
-("Good evening."), use no emoji, and are plainer; the no-agent reply sits between them. This is a modest, real effect on tone, not a
+("Good evening.") or a plain "Happy to help.", use no emoji, and are shorter; the no-agent reply sits close to Kofi's. This is a modest, real effect on tone, not a
 different writer. Earlier runs on the same environment failed for reasons that were not about Digital Self and are why the checks above
 exist: the legacy responder returns empty answers intermittently (also before Digital Self existed) and does not isolate history per
 conversation, so use the commerce path; and the Test Chat answered in a different conversation than the one it handed out (fixed in

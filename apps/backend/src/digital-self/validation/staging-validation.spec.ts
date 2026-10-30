@@ -17,6 +17,10 @@ interface FakeOpts {
   rateLimit?: { times: number; scope?: string; retryAfterSeconds?: number };
   /** The Test Chat answers in a different conversation than the one it handed out (the bug this guards against). */
   answerInOtherConversation?: boolean;
+  /** After the reply, Verz AI claims the (unowned) conversation, as auto-reply mode does. */
+  aiClaimsConversation?: boolean;
+  /** After the reply, a HUMAN ends up as the owner (something that must never happen). */
+  humanClaimsConversation?: boolean;
 }
 const REPLIES = {
   dsAma: 'Sure! The red shirt is GH₵50 😊 Which size would you like?',
@@ -55,6 +59,9 @@ function fakeApi(opts: FakeOpts = {}) {
     if (method === 'POST' && path === '/ai/test-chat') {
       if (opts.rateLimit && limited < opts.rateLimit.times) { limited++; return json({ statusCode: 429, scope: opts.rateLimit.scope, retryAfterSeconds: opts.rateLimit.retryAfterSeconds }, false, 429); }
       const last = [...convs.values()].pop()!;
+      const used = convs.get([...convs.keys()].pop()!)!;
+      if (opts.aiClaimsConversation) used.assignedTo = { id: 'verz-ai', isAiAgent: true } as never;
+      if (opts.humanClaimsConversation) used.assignedTo = { id: 'a-person', isAiAgent: false } as never;
       return json({ conversationId: opts.answerInOtherConversation ? 'some-other-conversation' : [...convs.keys()].pop(), message: { content: reply(last.ds ?? 'none') } });
     }
     if (method === 'GET' && path.startsWith('/ai/executions')) {
@@ -150,6 +157,22 @@ describe('which checks apply to which question', () => {
     expect(check.status).toBe('skipped');
     expect(check.detail).toMatch(/skipped by the operator/);
     expect(failed(await runValidation(cfg(), fakeApi({ replyFor: { dsAma: same, dsKofi: same } }).fetchFn))).toContain("The two agents' replies are distinguishable in style");
+  });
+});
+
+describe('ownership', () => {
+  const NAME = 'Assigning a Digital Self never changed ownership, status or AI handling';
+  it('allows Verz AI to claim an unowned conversation after replying, which it does with no Digital Self too', async () => {
+    const report = await runValidation(cfg(), fakeApi({ aiClaimsConversation: true }).fetchFn);
+    expect(report.checks.find((c) => c.name === NAME)!.status).toBe('pass');
+    expect(report.ok).toBe(true);
+  });
+  it('still fails if a person ends up as the owner', async () => {
+    const report = await runValidation(cfg(), fakeApi({ humanClaimsConversation: true }).fetchFn);
+    expect(failed(report)).toContain(NAME);
+  });
+  it('still fails if assigning the Digital Self itself changes the owner', async () => {
+    expect(failed(await runValidation(cfg(), fakeApi({ assignChangesOwner: true }).fetchFn))).toContain(NAME);
   });
 });
 
