@@ -22,6 +22,17 @@ export const CUSTOMER_LANGUAGE_RULE =
 export const REPLY_LENGTH_RULE =
   `- Keep replies short and conversational, because this is WhatsApp, not email. That is usually 1-3 sentences, but include everything needed to answer: a question about several items or steps may need more. Do not use markdown formatting.`;
 
+/**
+ * Two knowledge-base entries, or an entry and what a tool returned, can disagree (a fee that was changed in one place and not the
+ * other). Picking one silently gives the customer a confident wrong answer half the time, and averaging invents a figure.
+ */
+export const CONFLICTING_INFORMATION_RULE =
+  `- If two pieces of business information disagree (for example two different prices, fees or hours for the same thing), do not pick one silently and do not average them. Say that you cannot confirm which is right and suggest they ask a team member to confirm, unless the text itself says which one is newer or applies.`;
+
+/** Legacy responder's version of the frustrated-customer rule: the shared one ends with a handoff instruction, and this responder has no handoff to perform. */
+export const FRUSTRATED_CUSTOMER_RULE_LEGACY =
+  `- If a customer is frustrated, hostile, or insulting, don't mirror it and don't repeat a generic apology. If you made a mistake, own it briefly and move on. If they ask for a person, tell them to ask for a team member.`;
+
 /** Legacy responder: it has no tools and no way to arrange a follow-up, so it must not promise one. */
 export const KNOWLEDGE_GAP_RULE_LEGACY =
   `- If the knowledge base only partly covers the question, answer the part it covers and say plainly which part you do not have. If one missing detail from the customer would let you answer (which product, which size, which area), ask for just that. If you simply do not have the information, say so in one natural sentence and tell the customer they can ask for a team member if they would like to speak to a person. Never say that the team will follow up, or that someone will get back to them: nothing here arranges that. Use a confidence below 50 whenever you had to say you do not have the information.`;

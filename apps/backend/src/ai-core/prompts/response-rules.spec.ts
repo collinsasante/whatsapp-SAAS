@@ -3,8 +3,8 @@ import { AiResponderService } from '../../ai/ai-responder.service';
 import { RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_VERSION } from './seed/responder-system.v1';
 import { renderPromptTemplate } from './prompt-render.util';
 import { buildIdentityAndSafetyBlock } from './shared-identity-block';
-import { SHARED_STYLE_RULES } from './shared-style-rules';
-import { CUSTOMER_NAME_RULE, KNOWLEDGE_GAP_RULE_LEGACY, KNOWLEDGE_GAP_RULE_V2 } from './response-rules';
+import { NATURAL_TONE_RULES, SHARED_STYLE_RULES } from './shared-style-rules';
+import { CUSTOMER_NAME_RULE, FRUSTRATED_CUSTOMER_RULE_LEGACY, KNOWLEDGE_GAP_RULE_LEGACY, KNOWLEDGE_GAP_RULE_V2 } from './response-rules';
 
 jest.mock('axios');
 
@@ -54,6 +54,17 @@ describe('legacy responder prompt (D11)', () => {
     expect(system).toMatch(/Reply in the language the customer is writing in/);
     expect(system).toContain(CUSTOMER_NAME_RULE);
     expect(system).toMatch(/not in every reply/);
+  });
+
+  it('carries the same tone rules as the other two paths (emoji, generic closings, frustrated customers), and none that assume tools', async () => {
+    const { system } = await sentRequest();
+    for (const rule of NATURAL_TONE_RULES) expect(system).toContain(rule);
+    expect(system).toMatch(/Use emoji rarely/);
+    expect(system).toMatch(/Don't end every reply with a generic closing/);
+    // The legacy responder has no tools, so it must not be told about tool calls or a handoff capability.
+    expect(system).not.toMatch(/tool call|handoff capability|Before handing off|hand off naturally/i);
+    // A frustrated customer is handled calmly, without telling a tool-less model to perform a handoff it cannot do.
+    expect(system).toContain(FRUSTRATED_CUSTOMER_RULE_LEGACY);
   });
 
   it('keeps every business and security rule', async () => {

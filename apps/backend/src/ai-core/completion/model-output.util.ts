@@ -167,3 +167,27 @@ export function parseStructuredReply(raw: string | null | undefined): ParsedRepl
   // The model ignored the format and wrote plain prose. That is acceptable only if it is clean prose.
   return accept(text, null, false);
 }
+
+/**
+ * A one-line, content-free description of a model response, for the log line written when its output is rejected: why it ended, how
+ * many tokens it spent, and how long each text field was. Never the text itself. An 'empty' rejection can mean the model stopped
+ * early, spent its budget on reasoning, or really returned nothing, and only these numbers tell them apart.
+ */
+export function describeModelResponse(data: unknown): string {
+  const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const choice = Array.isArray(body['choices']) && body['choices'][0] && typeof body['choices'][0] === 'object' ? (body['choices'][0] as Record<string, unknown>) : null;
+  if (!choice) return 'no choices in the response';
+  const message = choice['message'] && typeof choice['message'] === 'object' ? (choice['message'] as Record<string, unknown>) : {};
+  const usage = body['usage'] && typeof body['usage'] === 'object' ? (body['usage'] as Record<string, unknown>) : {};
+  const details = usage['completion_tokens_details'] && typeof usage['completion_tokens_details'] === 'object' ? (usage['completion_tokens_details'] as Record<string, unknown>) : {};
+  const len = (v: unknown): string => (typeof v === 'string' ? String(v.length) : v === null || v === undefined ? 'absent' : typeof v);
+  const num = (v: unknown): string => (typeof v === 'number' ? String(v) : 'n/a');
+  return [
+    `finish_reason=${typeof choice['finish_reason'] === 'string' ? choice['finish_reason'] : 'n/a'}`,
+    `completion_tokens=${num(usage['completion_tokens'])}`,
+    `reasoning_tokens=${num(details['reasoning_tokens'])}`,
+    `content_chars=${len(message['content'])}`,
+    `reasoning_chars=${len(message['reasoning_content'])}`,
+    `tool_calls=${Array.isArray(message['tool_calls']) ? message['tool_calls'].length : 0}`,
+  ].join(' ');
+}
