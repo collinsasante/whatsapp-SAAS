@@ -6,7 +6,7 @@ import {
   Tag, Sliders, Webhook, MessageSquare, Clock, PhoneOff, Globe, QrCode,
   Plus, Trash2, Edit2, Check, X, Copy, RefreshCw, ToggleLeft, ToggleRight,
   Users, UserPlus, UserMinus, UserCog, Star, Hash, Search, Folder, FolderPlus,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Timer,
 } from 'lucide-react';
 import { cn, getApiError } from '@/lib/utils';
 import { tagsApi, attributesApi, webhooksApi, manageSettingsApi, teamsApi, cannedResponsesApi } from '@/lib/api';
@@ -20,6 +20,7 @@ interface Attribute { id: string; key: string; label: string; type: string; opti
 interface WebhookItem { id: string; name: string; url: string; events: string[]; hasSecret: boolean; headerNames?: string[]; isActive: boolean; failureCount: number; lastTriggeredAt?: string }
 interface ManageSettings {
   welcomeEnabled?: boolean; welcomeMessage?: string;
+  replyDeadlineMinutes?: number | null;
   offHoursEnabled?: boolean; offHoursMessage?: string; offHoursSchedule?: Record<string, { enabled: boolean; start: string; end: string }>;
   optOutKeywords?: string[]; optInKeywords?: string[]; optOutReply?: string; optInReply?: string;
   widgetEnabled?: boolean; widgetConfig?: Record<string, unknown>;
@@ -32,6 +33,7 @@ const SECTIONS = [
   { id: 'tags', icon: Tag, label: 'Tags' },
   { id: 'attributes', icon: Sliders, label: 'Attributes' },
   { id: 'welcome', icon: MessageSquare, label: 'Welcome Message' },
+  { id: 'replydeadline', icon: Timer, label: 'Reply Deadline' },
   { id: 'offhours', icon: Clock, label: 'Off-Hours' },
   { id: 'optinout', icon: PhoneOff, label: 'Opt-In / Opt-Out' },
   { id: 'webhooks', icon: Webhook, label: 'Webhooks' },
@@ -894,6 +896,100 @@ function WelcomeSection({ settings, reload }: { settings: ManageSettings; reload
   );
 }
 
+// ─────────────────── Reply Deadline ───────────────────
+const DEADLINE_PRESETS = [5, 15, 30, 60];
+/** Mirrors the server: whole minutes from 1 to 1440. */
+const DEADLINE_MIN = 1;
+const DEADLINE_MAX = 1440;
+const DEFAULT_DEADLINE = 15;
+
+function ReplyDeadlineSection({ settings, reload }: { settings: ManageSettings; reload: () => void }) {
+  // No saved value yet means the 15 minute default; an explicit null means the owner turned the deadline off.
+  const saved = settings.replyDeadlineMinutes === undefined ? DEFAULT_DEADLINE : settings.replyDeadlineMinutes;
+  const [enabled, setEnabled] = useState(saved !== null);
+  const [minutes, setMinutes] = useState(String(saved ?? DEFAULT_DEADLINE));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const v = settings.replyDeadlineMinutes === undefined ? DEFAULT_DEADLINE : settings.replyDeadlineMinutes;
+    setEnabled(v !== null);
+    setMinutes(String(v ?? DEFAULT_DEADLINE));
+  }, [settings]);
+
+  const parsed = Number(minutes);
+  const valid = Number.isInteger(parsed) && parsed >= DEADLINE_MIN && parsed <= DEADLINE_MAX;
+  const dirty = enabled ? !(saved === parsed) : saved !== null;
+
+  const save = async () => {
+    if (enabled && !valid) return;
+    setSaving(true);
+    try {
+      await manageSettingsApi.updateReplyDeadline(enabled ? parsed : null);
+      toast.success(enabled ? `Reply deadline set to ${parsed} ${parsed === 1 ? 'minute' : 'minutes'}` : 'Reply deadline turned off');
+      reload();
+    } catch (err) {
+      toast.error(getApiError(err, 'Could not save the reply deadline'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-xl">
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900">Reply Deadline</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          How long a customer may wait for a person after asking for one. When it passes, the request is counted as
+          overdue on your dashboard and in your Analytics response targets, and everyone who has VerzChat open is
+          alerted.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <div>
+          <p className="text-sm font-medium text-gray-900">Use a reply deadline</p>
+          <p className="text-xs text-gray-500">Turn it off if you do not want requests marked overdue.</p>
+        </div>
+        <button onClick={() => setEnabled(!enabled)} className="text-teal-600" role="switch" aria-checked={enabled} aria-label="Use a reply deadline">
+          {enabled ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8 text-gray-400" />}
+        </button>
+      </div>
+
+      {enabled && (
+        <div>
+          <label htmlFor="reply-deadline" className="block text-sm font-medium text-gray-700 mb-2">Deadline in minutes</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="reply-deadline" type="number" inputMode="numeric" min={DEADLINE_MIN} max={DEADLINE_MAX} step={1} value={minutes}
+              onChange={(e) => setMinutes(e.target.value)} aria-invalid={!valid} aria-describedby="reply-deadline-help"
+              className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+            {DEADLINE_PRESETS.map((p) => (
+              <button key={p} type="button" onClick={() => setMinutes(String(p))}
+                className={cn('px-3 py-2 text-sm rounded-lg border', parsed === p ? 'border-teal-600 bg-teal-50 text-teal-700 font-medium' : 'border-gray-300 text-gray-700 hover:bg-gray-50')}>
+                {p} min
+              </button>
+            ))}
+          </div>
+          <p id="reply-deadline-help" className={cn('text-xs mt-1.5', valid ? 'text-gray-500' : 'text-red-700')}>
+            {valid ? 'Enter a whole number from 1 to 1,440 (24 hours).' : 'Enter a whole number of minutes from 1 to 1,440.'}
+          </p>
+        </div>
+      )}
+
+      <p className="text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-3">
+        The new deadline applies to new requests and to requests that are waiting right now. Requests already marked
+        overdue stay overdue.
+      </p>
+
+      <button onClick={save} disabled={saving || !dirty || (enabled && !valid)}
+        className="px-5 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:opacity-60">
+        {saving ? 'Saving…' : 'Save Changes'}
+      </button>
+    </div>
+  );
+}
+
 // ─────────────────── Off-Hours ───────────────────
 const DEFAULT_SCHEDULE = Object.fromEntries(DAYS.map(d => [d, { enabled: d !== 'saturday' && d !== 'sunday', start: '09:00', end: '18:00' }]));
 
@@ -1430,6 +1526,7 @@ function ManagePageInner() {
       case 'tags': return <TagsSection />;
       case 'attributes': return <AttributesSection />;
       case 'welcome': return <WelcomeSection settings={settings} reload={loadSettings} />;
+      case 'replydeadline': return <ReplyDeadlineSection settings={settings} reload={loadSettings} />;
       case 'offhours': return <OffHoursSection settings={settings} reload={loadSettings} />;
       case 'optinout': return <OptInOutSection settings={settings} reload={loadSettings} />;
       case 'webhooks': return <WebhooksSection />;
@@ -1446,7 +1543,7 @@ function ManagePageInner() {
       {/* Sidebar — desktop only */}
       <aside className="hidden md:block w-56 bg-white border-r border-gray-200 flex-shrink-0 overflow-y-auto">
         <div className="p-4 border-b border-gray-100">
-          <h1 className="text-base font-bold text-gray-900">Manage</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Manage</h1>
           <p className="text-xs text-gray-400 mt-0.5">Operational controls</p>
         </div>
         <nav className="p-2 space-y-0.5">
@@ -1469,7 +1566,7 @@ function ManagePageInner() {
         {/* Mobile header + horizontally scrollable section switcher */}
         <div className="md:hidden sticky top-0 z-10 bg-gray-50">
           <div className="px-4 pt-3 pb-1">
-            <h1 className="text-base font-bold text-gray-900">Manage</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Manage</h1>
             <p className="text-xs text-gray-400 mt-0.5">{activeSection?.label ?? 'Operational controls'}</p>
           </div>
           <div className="flex items-center gap-1.5 px-4 py-2 overflow-x-auto scrollbar-hide border-b border-gray-200">

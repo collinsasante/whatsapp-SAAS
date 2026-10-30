@@ -49,9 +49,9 @@ const CHANNELS: ChannelDef[] = [
     description: 'Reach customers where they are. Send campaigns, automate support, and close deals at scale via the Meta Cloud API.',
     badge: 'Popular',
     connectType: 'api',
-    accentClass: 'border-l-emerald-500',
-    accentBg: 'bg-emerald-500',
-    btnClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+    accentClass: 'border-l-green-500',
+    accentBg: 'bg-green-500',
+    btnClass: 'bg-green-600 hover:bg-green-700 text-white',
     btnLabel: 'Connect via API',
     features: ['Broadcast campaigns to thousands', 'Automate replies with keywords', 'Rich media & template messages'],
   },
@@ -113,7 +113,7 @@ const CHANNELS: ChannelDef[] = [
     badge: 'Beta',
     connectType: 'qr',
     accentClass: 'border-l-amber-500',
-    accentBg: 'bg-gradient-to-br from-emerald-500 to-teal-600',
+    accentBg: 'bg-gradient-to-br from-green-500 to-teal-600',
     btnClass: 'bg-gray-900 hover:bg-black text-white',
     btnLabel: 'Connect via QR Code',
     features: ['Scan with your phone in seconds', 'Uses the same inbox, AI & automation', 'Unofficial, real ban risk, no SLA'],
@@ -190,7 +190,7 @@ function ChannelIcon({ ch, size = 'md' }: { ch: ChannelDef; size?: 'sm' | 'md' |
 
 function LiveDot({ color = 'emerald' }: { color?: 'emerald' | 'amber' | 'red' | 'gray' }) {
   const colors = {
-    emerald: 'bg-emerald-500',
+    emerald: 'bg-green-500',
     amber: 'bg-amber-500',
     red: 'bg-red-500',
     gray: 'bg-gray-400',
@@ -418,7 +418,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div className="px-6 pb-6 space-y-2">
             <button
               onClick={() => setStep('credentials')}
-              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-emerald-600 hover:bg-emerald-700 text-white transition-all"
+              className="w-full flex items-center justify-center gap-2.5 py-3 rounded-xl font-semibold text-sm bg-green-600 hover:bg-green-700 text-white transition-all"
             >
               I&apos;ve configured this, continue
             </button>
@@ -434,7 +434,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
                 <input
                   type={f.secret ? 'password' : 'text'} placeholder={f.placeholder}
                   value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-colors"
                 />
               </div>
             ))}
@@ -446,7 +446,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </div>
           <div className="px-6 pb-6 flex gap-2.5">
             <button onClick={() => setStep('webhook')} className="flex-1 py-2.5 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 font-medium">Back</button>
-            <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
+            <button onClick={() => { void handleSave(); }} disabled={saving} className="flex-1 py-2.5 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
               {saving ? 'Connecting…' : 'Connect'}
             </button>
           </div>
@@ -537,11 +537,36 @@ interface CandidatePage {
   id: string;
   name: string;
   alreadyConnected: boolean;
+  /** Instagram only: the Facebook Page the account is linked through. */
+  pageName?: string;
 }
 
-function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: string; onClose: () => void; onConnected: () => void }) {
+type PickerProvider = 'facebook' | 'instagram';
+
+const PICKER_COPY: Record<PickerProvider, { title: string; hint: string; noun: string; nounPlural: string; empty: string; button: string }> = {
+  facebook: {
+    title: 'Connect Facebook Page',
+    hint: 'Select the Page(s) you want to connect to Verz',
+    noun: 'Page',
+    nounPlural: 'Pages',
+    empty: 'No Facebook Pages found. Make sure your account manages at least one Page.',
+    button: 'bg-[#1877F2] hover:bg-[#166FE5]',
+  },
+  instagram: {
+    title: 'Connect Instagram account',
+    hint: 'Select the Instagram account(s) you want to connect to Verz',
+    noun: 'account',
+    nounPlural: 'accounts',
+    empty: 'No Instagram Business accounts found. Make sure the account is a Professional account linked to a Page you shared with Verz.',
+    button: 'bg-pink-600 hover:bg-pink-700',
+  },
+};
+
+function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { provider: PickerProvider; sessionId: string; onClose: () => void; onConnected: () => void }) {
+  const copy = PICKER_COPY[provider];
   const [pages, setPages] = useState<CandidatePage[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
@@ -564,6 +589,15 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
     return () => { cancelled = true; };
   }, [sessionId]);
 
+  // The list can be long (a workspace may manage dozens of Pages), so it can be filtered by name, and Select all /
+  // Deselect all act on what the filter currently shows.
+  const visible = pages.filter(p => p.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const selectVisible = () => setSelected(prev => new Set([...prev, ...visible.map(p => p.id)]));
+  const deselectVisible = () => setSelected(prev => {
+    const hide = new Set(visible.map(p => p.id));
+    return new Set([...prev].filter(id => !hide.has(id)));
+  });
+
   const toggle = (id: string) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -573,17 +607,24 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
   };
 
   const handleConnect = async () => {
-    if (selected.size === 0) { setError('Select at least one Page.'); return; }
+    if (selected.size === 0) { setError(`Select at least one ${copy.noun}.`); return; }
     setConnecting(true);
     setError('');
     try {
-      await facebookPagesApi.select(sessionId, [...selected]);
-      toast.success(selected.size === 1 ? 'Page connected!' : `${selected.size} Pages connected!`);
+      const res = await facebookPagesApi.select(sessionId, [...selected]);
+      // Instagram only: the account is connected either way, but if Meta refused to send this Page's messages to Verz
+      // nothing will arrive, so say so instead of letting it look finished.
+      const refused = ((res.data as { connected?: Array<{ accountName?: string; webhookSubscription?: { subscribed: boolean; reason?: string } }> } | undefined)?.connected ?? [])
+        .filter(c => c.webhookSubscription && !c.webhookSubscription.subscribed);
+      if (refused.length > 0) {
+        toast.error(`Connected, but Meta did not turn on messages for ${refused.map(c => c.accountName).join(', ')}: ${refused[0]?.webhookSubscription?.reason ?? 'unknown reason'}`, { duration: 10000 });
+      }
+      toast.success(selected.size === 1 ? `${copy.noun.charAt(0).toUpperCase()}${copy.noun.slice(1)} connected!` : `${selected.size} ${copy.nounPlural} connected!`);
       onConnected();
       onClose();
     } catch (e) {
       const msg = e && typeof e === 'object' && 'response' in e ? (e as { response?: { data?: { message?: string } } }).response?.data?.message : undefined;
-      setError(typeof msg === 'string' ? msg : 'Failed to connect the selected Page(s).');
+      setError(typeof msg === 'string' ? msg : `Failed to connect the selected ${copy.nounPlural}.`);
     } finally {
       setConnecting(false);
     }
@@ -594,8 +635,8 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
       <div className="px-6 pt-6 pb-4 border-b border-gray-100">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Connect Facebook Page</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Select the Page(s) you want to connect to Verz</p>
+            <h2 className="text-base font-bold text-gray-900">{copy.title}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{copy.hint}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
         </div>
@@ -604,10 +645,28 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
         {loading ? (
           <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" /></div>
         ) : pages.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">No Facebook Pages found. Make sure your account manages at least one Page.</p>
+          <p className="text-sm text-gray-400 text-center py-6">{copy.empty}</p>
         ) : (
           <div className="space-y-2">
-            {pages.map(p => (
+            <div className="flex items-center gap-2 pb-1">
+              <div className="relative flex-1">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder={`Filter ${copy.nounPlural}…`}
+                  aria-label={`Filter ${copy.nounPlural}`}
+                  className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                />
+              </div>
+              <button type="button" onClick={selectVisible} className="px-2.5 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded-lg whitespace-nowrap">Select all</button>
+              <button type="button" onClick={deselectVisible} className="px-2.5 py-2 text-xs font-semibold text-gray-500 hover:bg-gray-100 rounded-lg whitespace-nowrap">Deselect all</button>
+            </div>
+            <p className="text-xs text-gray-400 pb-1" aria-live="polite">
+              {selected.size} of {pages.length} selected{query.trim() ? ` · showing ${visible.length}` : ''}
+            </p>
+            {visible.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No {copy.nounPlural} match "{query}".</p>}
+            {visible.map(p => (
               <label key={p.id} className={cn(
                 'flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors',
                 selected.has(p.id) ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100 hover:border-gray-200',
@@ -621,11 +680,19 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
                 />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium text-gray-800 truncate block">{p.name}</span>
-                  <span className="text-xs text-gray-400">Facebook Page{p.alreadyConnected ? ' · Already connected' : ''}</span>
+                  <span className="text-xs text-gray-400">
+                    {provider === 'instagram' ? `Instagram${p.pageName ? ` · via ${p.pageName}` : ''}` : 'Facebook Page'}
+                    {p.alreadyConnected ? ' · Already connected' : ''}
+                  </span>
                 </div>
               </label>
             ))}
           </div>
+        )}
+        {provider === 'instagram' && !loading && pages.length > 0 && (
+          <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+            To receive messages, the Instagram account must allow access to messages (Instagram app: Settings, Messages and story replies, Message controls, Connected tools, Allow access to messages).
+          </p>
         )}
         {error && (
           <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 p-3 rounded-xl mt-3">
@@ -638,7 +705,7 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
         <button
           onClick={() => { void handleConnect(); }}
           disabled={connecting || loading || pages.length === 0}
-          className="flex-1 py-2.5 text-sm bg-[#1877F2] hover:bg-[#166FE5] disabled:opacity-60 text-white rounded-xl font-semibold transition-colors"
+          className={cn('flex-1 py-2.5 text-sm disabled:opacity-60 text-white rounded-xl font-semibold transition-colors', copy.button)}
         >
           {connecting ? 'Connecting…' : `Connect ${selected.size > 0 ? `(${selected.size})` : ''}`}
         </button>
@@ -653,9 +720,28 @@ function FacebookPagePicker({ sessionId, onClose, onConnected }: { sessionId: st
 // section mirroring the WhatsApp Numbers row-list pattern (Settings page),
 // the only existing precedent in this codebase for a real multi-account list.
 
-function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: ConnectedChannel[]; onChanged: () => void; onConnectMore: () => void }) {
+function FacebookPagesSection({ platform = 'facebook', pages, onChanged, onConnectMore }: { platform?: PickerProvider; pages: ConnectedChannel[]; onChanged: () => void; onConnectMore: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
-  const fbDef = CHANNELS.find(c => c.id === 'facebook')!;
+  const fbDef = CHANNELS.find(c => c.id === platform)!;
+  const isInstagram = platform === 'instagram';
+  const noun = PICKER_COPY[platform].noun;
+
+  // Instagram accounts can also be removed from the list. The server only deletes one that never had a
+  // conversation; otherwise it stays as a disconnected row so past conversations keep their channel.
+  const handleRemove = async (id: string, name: string) => {
+    if (!window.confirm(`Disconnect ${name}? Verz will stop using it. Past conversations are kept.`)) return;
+    setBusyId(id);
+    try {
+      const res = await channelsApi.delete(id);
+      const removed = (res.data as { removed?: boolean } | undefined)?.removed;
+      toast.success(removed ? `${name} removed.` : `${name} disconnected. Its conversation history is kept.`);
+      onChanged();
+    } catch {
+      toast.error(`Failed to disconnect this ${noun}.`);
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const handleToggle = async (id: string) => {
     setBusyId(id);
@@ -663,7 +749,7 @@ function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: Conn
       await channelsApi.toggle(id);
       onChanged();
     } catch {
-      toast.error('Failed to update this Page.');
+      toast.error(`Failed to update this ${noun}.`);
     } finally {
       setBusyId(null);
     }
@@ -676,17 +762,17 @@ function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: Conn
           <ChannelIcon ch={fbDef} size="md" />
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-gray-900 text-sm">Facebook Messenger</h3>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">New</span>
+              <h3 className="font-bold text-gray-900 text-sm">{fbDef.name}</h3>
+              {fbDef.badge && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border bg-teal-50 text-teal-700 border-teal-200">{fbDef.badge}</span>}
             </div>
-            <p className="text-xs text-gray-500 mt-0.5">{pages.length} Page{pages.length !== 1 ? 's' : ''} connected</p>
+            <p className="text-xs text-gray-500 mt-0.5">{pages.length} {pages.length !== 1 ? PICKER_COPY[platform].nounPlural : noun} connected</p>
           </div>
         </div>
         <button
           onClick={onConnectMore}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1877F2] hover:bg-[#166FE5] text-white text-xs rounded-lg font-semibold transition-colors"
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded-lg font-semibold transition-colors', PICKER_COPY[platform].button)}
         >
-          <Plus size={13} /> Connect another Page
+          <Plus size={13} /> Connect another {noun}
         </button>
       </div>
       <div className="p-3 space-y-2">
@@ -698,7 +784,7 @@ function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: Conn
                 <span className="text-sm font-medium text-gray-800 truncate">{page.name}</span>
                 {!page.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Disconnected</span>}
               </div>
-              <p className="text-xs text-gray-400 mt-0.5">Facebook Page</p>
+              <p className="text-xs text-gray-400 mt-0.5">{isInstagram ? 'Instagram account' : 'Facebook Page'}</p>
             </div>
             <button
               onClick={() => { void handleToggle(page.id); }}
@@ -711,6 +797,16 @@ function FacebookPagesSection({ pages, onChanged, onConnectMore }: { pages: Conn
               {page.isActive ? <PowerOff size={12} /> : <Power size={12} />}
               {page.isActive ? 'Disconnect' : 'Reconnect'}
             </button>
+            {isInstagram && (
+              <button
+                onClick={() => { void handleRemove(page.id, page.name); }}
+                disabled={busyId === page.id}
+                aria-label={`Remove ${page.name}`}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={12} /> Remove
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -920,8 +1016,8 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
 
       {step === 'connected' && (
         <div className="px-6 py-10 flex flex-col items-center gap-3 text-center">
-          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center">
-            <CheckCircle2 size={24} className="text-emerald-600" />
+          <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center">
+            <CheckCircle2 size={24} className="text-green-600" />
           </div>
           <p className="text-sm font-bold text-gray-900">WhatsApp connected!</p>
           {phoneNumber && <p className="text-xs text-gray-500">{phoneNumber}</p>}
@@ -1034,7 +1130,7 @@ function WhatsAppWebSection({ sessions, onChanged, onConnectMore }: { sessions: 
                   <span className="text-sm font-medium text-gray-800 truncate">{s.phoneNumber ?? s.name}</span>
                   <span className={cn(
                     'text-[10px] font-semibold px-1.5 py-0.5 rounded',
-                    meta.dot === 'emerald' && 'bg-emerald-50 text-emerald-700',
+                    meta.dot === 'emerald' && 'bg-green-50 text-green-700',
                     meta.dot === 'amber' && 'bg-amber-50 text-amber-700',
                     meta.dot === 'red' && 'bg-red-50 text-red-700',
                     meta.dot === 'gray' && 'bg-gray-100 text-gray-500',
@@ -1140,8 +1236,8 @@ function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
               </div>
             </div>
             <div className="flex items-center gap-2.5 bg-white/10 backdrop-blur-sm border border-white/10 rounded-2xl px-4 py-3 min-w-[110px]">
-              <div className="w-8 h-8 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                <Activity size={15} className="text-emerald-400" />
+              <div className="w-8 h-8 bg-green-500/20 rounded-xl flex items-center justify-center">
+                <Activity size={15} className="text-green-400" />
               </div>
               <div>
                 <p className="text-xl font-bold text-white leading-none">{activeCount}</p>
@@ -1173,7 +1269,7 @@ function StatsBar({ connected }: { connected: ConnectedChannel[] }) {
   const stats = [
     { label: 'Total Platforms', value: CHANNELS.length, icon: <Shield size={16} className="text-slate-500" />, bg: 'bg-slate-50', border: 'border-slate-200' },
     { label: 'Connected', value: connected.length, icon: <Plug2 size={16} className="text-teal-600" />, bg: 'bg-teal-50', border: 'border-teal-200', highlight: true },
-    { label: 'Active & Syncing', value: activeCount, icon: <Activity size={16} className="text-emerald-600" />, bg: 'bg-emerald-50', border: 'border-emerald-200' },
+    { label: 'Active & Syncing', value: activeCount, icon: <Activity size={16} className="text-green-600" />, bg: 'bg-green-50', border: 'border-green-200' },
     { label: 'Not Connected', value: notConnected, icon: <PlugZap size={16} className="text-amber-600" />, bg: 'bg-amber-50', border: 'border-amber-200' },
   ];
 
@@ -1200,13 +1296,17 @@ function ChannelCard({
   ch,
   connectedData,
   onConnect,
+  onDisconnect,
 }: {
   ch: ChannelDef;
   connectedData?: ConnectedChannel;
   onConnect: () => void;
+  /** Present only for platforms that can be disconnected from this card. */
+  onDisconnect?: (channel: ConnectedChannel) => Promise<void>;
 }) {
   const isConnected = !!connectedData;
   const isActive = connectedData?.isActive ?? false;
+  const [disconnecting, setDisconnecting] = useState(false);
 
   return (
     <div className={cn(
@@ -1278,8 +1378,8 @@ function ChannelCard({
               <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
                 {isConnected ? (
                   <>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                       {isActive ? 'Connected' : 'Inactive'}
                     </span>
                     <button
@@ -1289,6 +1389,16 @@ function ChannelCard({
                       <Settings size={12} />
                       Manage
                     </button>
+                    {onDisconnect && isActive && (
+                      <button
+                        onClick={() => { setDisconnecting(true); void onDisconnect(connectedData).finally(() => setDisconnecting(false)); }}
+                        disabled={disconnecting}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 rounded-xl hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all disabled:opacity-50"
+                      >
+                        <PowerOff size={12} />
+                        {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1355,7 +1465,7 @@ function ChannelsPageInner() {
   const [showTelegram, setShowTelegram] = useState(false);
   const [showWhatsAppWebQr, setShowWhatsAppWebQr] = useState(false);
   const [oauthChannel, setOauthChannel] = useState<ChannelDef | null>(null);
-  const [facebookPickerSession, setFacebookPickerSession] = useState<string | null>(null);
+  const [pickerSession, setPickerSession] = useState<{ provider: PickerProvider; sessionId: string } | null>(null);
 
   const loadConnected = useCallback(async () => {
     try {
@@ -1396,8 +1506,8 @@ function ChannelsPageInner() {
     if (!searchParams) return;
     const picker = searchParams.get('picker');
     const session = searchParams.get('session');
-    if (picker === 'facebook' && session) {
-      setFacebookPickerSession(session);
+    if ((picker === 'facebook' || picker === 'instagram') && session) {
+      setPickerSession({ provider: picker, sessionId: session });
       const url = new URL(window.location.href);
       url.searchParams.delete('picker');
       url.searchParams.delete('session');
@@ -1415,6 +1525,24 @@ function ChannelsPageInner() {
   // Same multi-account shape as Facebook Pages: a workspace can link more
   // than one WhatsApp Web number.
   const whatsAppWebSessions = connected.filter(c => c.type?.toUpperCase() === 'WHATSAPP_WEB');
+  // Instagram too: one Channel row per connected account.
+  const instagramAccounts = connected.filter(c => c.type?.toUpperCase() === 'INSTAGRAM');
+
+  // Platforms whose card offers Disconnect. WhatsApp Business (Cloud API) numbers are managed per number in
+  // Settings, Facebook and Instagram have their own per-account lists, and WhatsApp Web has its own controls.
+  const DISCONNECTABLE_CARDS = new Set(['tiktok', 'telegram']);
+
+  const handleDisconnect = async (channel: ConnectedChannel) => {
+    if (!window.confirm(`Disconnect ${channel.name || 'this channel'}? Verz will stop using it. Past conversations are kept.`)) return;
+    try {
+      const res = await channelsApi.delete(channel.id);
+      const removed = (res.data as { removed?: boolean } | undefined)?.removed;
+      toast.success(removed ? 'Disconnected and removed.' : 'Disconnected. Its conversation history is kept.');
+      await loadConnected();
+    } catch {
+      toast.error('Failed to disconnect. Please try again.');
+    }
+  };
 
   const filtered = CHANNELS.filter(ch => {
     const isConn = !!getConnectedData(ch);
@@ -1510,6 +1638,14 @@ function ChannelsPageInner() {
                   onChanged={() => { void loadConnected(); }}
                   onConnectMore={() => setOauthChannel(ch)}
                 />
+              ) : ch.id === 'instagram' && instagramAccounts.length > 0 ? (
+                <FacebookPagesSection
+                  key={ch.id}
+                  platform="instagram"
+                  pages={instagramAccounts}
+                  onChanged={() => { void loadConnected(); }}
+                  onConnectMore={() => setOauthChannel(ch)}
+                />
               ) : ch.id === 'whatsapp-web' && whatsAppWebSessions.length > 0 ? (
                 <WhatsAppWebSection
                   key={ch.id}
@@ -1523,6 +1659,7 @@ function ChannelsPageInner() {
                   ch={ch}
                   connectedData={getConnectedData(ch)}
                   onConnect={() => handleConnect(ch)}
+                  onDisconnect={DISCONNECTABLE_CARDS.has(ch.id) ? handleDisconnect : undefined}
                 />
               )
             ))
@@ -1535,10 +1672,11 @@ function ChannelsPageInner() {
       {showTelegram && <TelegramModal onClose={() => setShowTelegram(false)} onSaved={() => { void loadConnected(); }} />}
       {showWhatsAppWebQr && <WhatsAppQrModal onClose={() => setShowWhatsAppWebQr(false)} onConnected={() => { void loadConnected(); }} />}
       {oauthChannel && <OAuthModal channel={oauthChannel} onClose={() => setOauthChannel(null)} />}
-      {facebookPickerSession && (
+      {pickerSession && (
         <FacebookPagePicker
-          sessionId={facebookPickerSession}
-          onClose={() => setFacebookPickerSession(null)}
+          provider={pickerSession.provider}
+          sessionId={pickerSession.sessionId}
+          onClose={() => setPickerSession(null)}
           onConnected={() => { void loadConnected(); }}
         />
       )}

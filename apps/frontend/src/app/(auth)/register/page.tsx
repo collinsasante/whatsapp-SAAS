@@ -9,7 +9,7 @@ import { authApi } from '@/lib/api';
 function PasswordStrength({ password }: { password: string }) {
   const checks = [password.length >= 8, /[A-Z]/.test(password), /[0-9]/.test(password), /[^A-Za-z0-9]/.test(password)];
   const score = checks.filter(Boolean).length;
-  const colors = ['bg-gray-200', 'bg-red-400', 'bg-orange-400', 'bg-yellow-400', 'bg-green-500'];
+  const colors = ['bg-gray-200', 'bg-red-400', 'bg-orange-400', 'bg-amber-400', 'bg-green-500'];
   const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
   if (!password) return null;
   return (
@@ -17,7 +17,7 @@ function PasswordStrength({ password }: { password: string }) {
       <div className="flex gap-1 mb-1">
         {[0, 1, 2, 3].map((i) => <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i < score ? colors[score] : 'bg-gray-200'}`} />)}
       </div>
-      <p className={`text-xs ${score <= 1 ? 'text-red-500' : score === 2 ? 'text-orange-500' : score === 3 ? 'text-yellow-600' : 'text-green-600'}`}>{labels[score]}</p>
+      <p className={`text-xs ${score <= 1 ? 'text-red-500' : score === 2 ? 'text-orange-500' : score === 3 ? 'text-amber-600' : 'text-green-600'}`}>{labels[score]}</p>
     </div>
   );
 }

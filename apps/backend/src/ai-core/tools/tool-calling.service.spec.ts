@@ -3,9 +3,16 @@ import { ToolCallingService } from './tool-calling.service';
 
 function buildDeps() {
   const complete = jest.fn();
+  let reservationCounter = 0;
   return {
     registry: { forModel: jest.fn().mockReturnValue({ complete }) },
     complete,
+    meteredProvider: {
+      complete: jest.fn(async (provider: { complete: (request: unknown) => Promise<unknown> }, _tenantId: string, _taskType: string, request: unknown) => ({
+        result: await provider.complete(request),
+        reservationId: `reservation-${++reservationCounter}`,
+      })),
+    },
     tools: { getDefs: jest.fn().mockReturnValue([{ name: 'search_products', description: 'd', parameters: {} }]), execute: jest.fn() },
     executions: { record: jest.fn().mockResolvedValue(null) },
   };
@@ -13,7 +20,7 @@ function buildDeps() {
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new ToolCallingService(deps.registry as any, deps.tools as any, deps.executions as any);
+  return new ToolCallingService(deps.registry as any, deps.tools as any, deps.executions as any, deps.meteredProvider as any);
 }
 
 function baseReq(overrides: Partial<Parameters<ToolCallingService['complete']>[0]> = {}) {
@@ -48,7 +55,7 @@ describe('ToolCallingService', () => {
     expect(deps.complete).toHaveBeenCalledTimes(1);
     expect(deps.executions.record).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: 't1', conversationId: 'c1', taskType: 'RESPONDER' }),
-      expect.objectContaining({ status: 'SUCCESS' }),
+      expect.objectContaining({ status: 'SUCCESS', reservationIds: ['reservation-1'] }),
     );
   });
 
@@ -70,6 +77,10 @@ describe('ToolCallingService', () => {
     expect(result.toolTrace).toEqual([{ name: 'search_products', args: { query: 'labels' }, result: [{ id: 'p1', name: 'Label 95x175' }], durationMs: expect.any(Number) }]);
     expect(deps.tools.execute).toHaveBeenCalledWith('search_products', baseReq().toolContext, { query: 'labels' });
     expect(deps.complete).toHaveBeenCalledTimes(2);
+    expect(deps.executions.record).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reservationIds: ['reservation-1', 'reservation-2'] }),
+    );
 
     // second call must include the assistant tool-call turn and the tool result turn
     const secondCallMessages = deps.complete.mock.calls[1][0].messages;

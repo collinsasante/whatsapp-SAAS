@@ -85,7 +85,7 @@ const TRIGGERS: Record<
   CAMPAIGN_RESPONSE: {
     label: "Campaign Response",
     description: "When contact replies to a campaign",
-    color: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    color: "bg-amber-100 text-amber-700 border-amber-200",
   },
 };
 
@@ -625,7 +625,7 @@ export default function AutomationPage() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Automation</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Automation</h1>
             <p className="text-sm text-gray-500">
               Build rules to automate responses and workflows
             </p>

@@ -29,10 +29,10 @@ export default function MessagingPage() {
   useEffect(() => { void load(range); }, [load, range]);
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messages & Delivery</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Messages & Delivery</h1>
           <p className="text-gray-500 text-sm mt-1">Cross-tenant WhatsApp delivery performance</p>
         </div>
         <DateRangePicker onChange={setRange} />
@@ -48,7 +48,7 @@ export default function MessagingPage() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <KpiCard label="Sent" value={data.totals.sent.toLocaleString()} icon={Send} color="bg-teal-600" />
-            <KpiCard label="Delivered" value={data.totals.delivered.toLocaleString()} icon={CheckCircle2} color="bg-emerald-600" />
+            <KpiCard label="Delivered" value={data.totals.delivered.toLocaleString()} icon={CheckCircle2} color="bg-green-600" />
             <KpiCard label="Failed" value={data.totals.failed.toLocaleString()} icon={XCircle} color="bg-red-500" />
             <KpiCard label="Inbound" value={data.totals.inbound.toLocaleString()} icon={Inbox} color="bg-blue-500" />
           </div>

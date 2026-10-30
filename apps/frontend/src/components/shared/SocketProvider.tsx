@@ -232,6 +232,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on('disconnect', startPolling);
 
     socket.on(SocketEvent.NEW_MESSAGE, (data: { conversationId: string; message: Message }) => {
+      if (data.message?.direction === MessageDirection.OUTBOUND) {
+        console.info(`[verz:socket] outbound message arrived: status=${data.message.status}, type=${data.message.type}`);
+      }
       addMessage(data.conversationId, data.message);
 
       // If the message is for the currently open conversation, clear the unread badge
@@ -422,7 +425,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       toast.custom(
         (t) => (
           <div
-            className={`flex items-center gap-3 bg-white rounded-2xl shadow-xl border border-indigo-100 px-4 py-3 max-w-xs cursor-pointer transition-all ${t.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
+            className={`flex items-center gap-3 bg-white rounded-2xl shadow-xl border border-blue-100 px-4 py-3 max-w-xs cursor-pointer transition-all ${t.visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
             style={{ minWidth: 280 }}
             onClick={() => {
               if (convId) {
@@ -433,7 +436,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
               toast.dismiss(t.id);
             }}
           >
-            <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center flex-shrink-0">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
             </div>
             <div className="flex-1 min-w-0">

@@ -147,11 +147,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       <OutboundCallBar />
       <ConfirmCallModal />
       <ConfirmModal />
-      <div className="flex flex-col h-dvh overflow-hidden bg-gray-50">
+      {/* relative: absolutely positioned descendants (sr-only text, popovers) must be clipped here, or the document itself scrolls into a blank page. overflow-clip rather than hidden: hidden still lets an anchor jump or scrollIntoView slide the whole app (sidebar logo included) out of view. Flex children under overflow-clip keep a min-content minimum size (hidden made it 0), so the column and main need min-w-0 or wide content widens the whole app. */}
+      <div className="relative flex flex-col h-dvh overflow-clip bg-gray-50">
         <OfflineBanner />
-        <div className="flex flex-1 overflow-hidden min-h-0">
+        <div className="flex flex-1 overflow-clip min-h-0">
           <Sidebar />
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <div className="flex-1 flex flex-col overflow-clip min-h-0 min-w-0">
             <header className={cn(
               'h-12 items-center justify-between px-4 bg-white border-b border-gray-100 flex-shrink-0 gap-2',
               isMobileChatOpen ? 'hidden md:flex' : 'flex',
@@ -172,7 +173,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
               </div>
             </header>
             <main className={cn(
-              'flex-1 overflow-hidden min-h-0',
+              'flex-1 overflow-clip min-h-0 min-w-0',
               !isMobileChatOpen && 'pb-[calc(56px+env(safe-area-inset-bottom,0px))] md:pb-0',
             )}>{children}</main>
           </div>

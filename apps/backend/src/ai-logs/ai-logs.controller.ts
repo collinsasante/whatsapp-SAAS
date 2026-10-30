@@ -1,4 +1,5 @@
 import { Controller, ForbiddenException, Get, Patch, Post, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { DevToolsGuard } from '../common/guards/dev-tools.guard';
@@ -56,6 +57,7 @@ export class AiLogsController {
 
   /** POST /ai-logs/test  body: { message }  — sandbox test without saving a real log */
   @Post('test')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @UseGuards(RolesGuard, DevToolsGuard)
   @Roles(UserRole.ADMIN)
   async test(

@@ -13,6 +13,7 @@ import { OrdersController } from './orders/orders.controller';
 import { OrdersService } from './orders/orders.service';
 import { LedgerController } from './ledger/ledger.controller';
 import { CommerceLedgerService } from './ledger/commerce-ledger.service';
+import { RevenueSummaryService } from './ledger/revenue-summary.service';
 import { CommerceWebhookController } from './webhooks/commerce-webhook.controller';
 import { ReconciliationController } from './reconciliation/reconciliation.controller';
 import { ReconciliationService } from './reconciliation/reconciliation.service';
@@ -45,7 +46,7 @@ import { PublicCheckoutService } from './public-checkout/public-checkout.service
     forwardRef(() => AiCoreModule),
   ],
   controllers: [ProductsController, OrdersController, LedgerController, CommerceWebhookController, ReconciliationController, CommerceTestChatController, PublicCheckoutController],
-  providers: [ProductsService, OrdersService, CommerceLedgerService, ReconciliationService, PaystackGateway, CommerceAiService, CommerceTestChatService, PublicCheckoutService],
+  providers: [ProductsService, OrdersService, CommerceLedgerService, RevenueSummaryService, ReconciliationService, PaystackGateway, CommerceAiService, CommerceTestChatService, PublicCheckoutService],
   exports: [CommerceLedgerService, OrdersService, CommerceAiService, ProductsService],
 })
 export class CommerceModule {}

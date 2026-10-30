@@ -177,7 +177,7 @@ export function OutboundDialModal() {
 
   const permBadge = () => {
     if (permission === 'checking') return <span className="text-[10px] text-gray-400 flex items-center gap-1"><span className="w-2 h-2 border border-gray-300 border-t-gray-500 rounded-full animate-spin inline-block" />Checking…</span>;
-    if (permission === 'granted')  return <span className="text-[10px] text-emerald-600 font-bold">✓ Call permission granted</span>;
+    if (permission === 'granted')  return <span className="text-[10px] text-green-600 font-bold">✓ Call permission granted</span>;
     if (permission === 'pending')  return <span className="text-[10px] text-blue-600 font-bold">⏳ Permission request pending</span>;
     if (permission === 'denied')   return <span className="text-[10px] text-red-600 font-bold">✗ Permission denied</span>;
     if (permission === 'expired')  return <span className="text-[10px] text-amber-600 font-bold">⚠ Permission expired, request again</span>;
@@ -242,7 +242,7 @@ export function OutboundDialModal() {
           <div className="flex gap-2">
             <button onClick={handleClose} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
             <button onClick={() => { void handleCall(); }} disabled={calling || !number.trim()}
-              className={cn('flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition-colors')}>
+              className={cn('flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2 transition-colors')}>
               {calling ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />Connecting…</> : <><Phone size={15} />Call</>}
             </button>
           </div>

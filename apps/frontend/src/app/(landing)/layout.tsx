@@ -1,14 +1,14 @@
-import 'bootstrap/dist/css/bootstrap.min.css';
-import '@/styles/landing.css';
-import AOSInit from '@/components/landing/AOSInit';
-import FloatingButtons from '@/components/landing/FloatingButtons';
+import { Bricolage_Grotesque } from 'next/font/google';
+import '@/components/site/site.css';
+
+// Headline face for the marketing site only. The body face is Inter, inherited from the root layout.
+const display = Bricolage_Grotesque({
+  subsets: ['latin'],
+  variable: '--font-display',
+  display: 'swap',
+  axes: ['opsz', 'wdth'],
+});
 
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="lp">
-      <AOSInit />
-      {children}
-      <FloatingButtons />
-    </div>
-  );
+  return <div className={`${display.variable} site`}>{children}</div>;
 }

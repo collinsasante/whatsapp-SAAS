@@ -74,11 +74,11 @@ export default function AiTestPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-4 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-violet-50 rounded-xl flex items-center justify-center">
-            <FlaskConical size={18} className="text-violet-600" />
+          <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center">
+            <FlaskConical size={18} className="text-purple-600" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">AI Testing Center</h1>
+            <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">AI Testing Center</h1>
             <p className="text-xs text-gray-500">Test AI responses in a sandbox, nothing is sent to customers</p>
           </div>
         </div>
@@ -118,12 +118,12 @@ export default function AiTestPage() {
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void runTest(message); } }}
                 rows={3}
                 placeholder="Type a customer message to test…"
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 resize-none transition-colors"
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400 resize-none transition-colors"
               />
               <button
                 onClick={() => void runTest(message)}
                 disabled={!message.trim() || testing}
-                className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0 self-end"
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0 self-end"
               >
                 {testing
                   ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -141,7 +141,7 @@ export default function AiTestPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={downloadHistory}
-                    className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-medium"
+                    className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium"
                   >
                     <Download size={11} /> Download
                   </button>
@@ -212,8 +212,8 @@ export default function AiTestPage() {
 
           {history.length === 0 && (
             <div className="bg-white border border-gray-200 rounded-2xl py-14 text-center">
-              <div className="w-12 h-12 bg-violet-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <FlaskConical size={20} className="text-violet-400" />
+              <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <FlaskConical size={20} className="text-purple-400" />
               </div>
               <p className="text-sm font-medium text-gray-600 mb-1">No tests run yet</p>
               <p className="text-xs text-gray-400">Pick a scenario above or type a custom message to test VerzAI.</p>

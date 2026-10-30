@@ -536,6 +536,11 @@ export class AuthService {
     const isValid = await bcrypt.compare(refreshToken, user.refreshToken);
     if (!isValid) throw new UnauthorizedException('Access denied');
 
+    // A suspended user or workspace cannot keep a session alive by refreshing it.
+    if (!user.isActive) throw new UnauthorizedException('Access denied');
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { isActive: true } });
+    if (!tenant?.isActive) throw new UnauthorizedException('Access denied');
+
     const session = await this.resolveSessionRole(user.id, user.tenantId, user.role);
 
     const tokens = await this.generateTokens(user.id, user.email, user.tenantId, session.role);

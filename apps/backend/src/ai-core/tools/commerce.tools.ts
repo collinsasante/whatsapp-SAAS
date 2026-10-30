@@ -75,10 +75,14 @@ export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const orderId = (args['orderId'] as string | undefined) ?? (await orders.findMostRecentForConversation(ctx.tenantId, ctx.conversationId))?.id;
-        if (!orderId) return { error: 'No order to check' };
-        const order = await orders.getOwned(ctx.tenantId, orderId).catch(() => null);
-        if (!order) return { error: 'Order not found' };
+        // The contact comes from the real conversation (ctx), never from the model's arguments: an order ID the model
+        // supplies is only honoured when that order belongs to this workspace AND this contact.
+        const requested = typeof args['orderId'] === 'string' ? args['orderId'] : undefined;
+        const order = requested
+          ? await orders.findOwnedByContact(ctx.tenantId, ctx.contactId, requested)
+          : await orders.findMostRecentForConversation(ctx.tenantId, ctx.conversationId);
+        if (!order) return { error: requested ? 'Order not found' : 'No order to check' };
+        if (order.contactId !== ctx.contactId) return { error: 'Order not found' };
         return { orderId: order.id, status: order.status, paidAt: order.paidAt, totalMajorUnits: order.totalMajorUnits, currency: order.currency };
       },
     },

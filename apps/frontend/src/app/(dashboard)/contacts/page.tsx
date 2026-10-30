@@ -247,10 +247,10 @@ function CsvImportModal({ onClose, onDone }: { onClose: () => void; onDone: (cou
                 <p className="text-2xl font-bold text-green-700">{result.created}</p>
                 <p className="text-xs text-green-600">Imported</p>
               </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
-                <AlertTriangle className="w-6 h-6 text-yellow-600 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-yellow-700">{result.skipped}</p>
-                <p className="text-xs text-yellow-600">Skipped</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+                <AlertTriangle className="w-6 h-6 text-amber-600 mx-auto mb-1" />
+                <p className="text-2xl font-bold text-amber-700">{result.skipped}</p>
+                <p className="text-xs text-amber-600">Skipped</p>
               </div>
               <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
                 <X className="w-6 h-6 text-red-500 mx-auto mb-1" />
@@ -541,7 +541,9 @@ const DIAL_MAP: Record<string, { name: string; flag: string }> = {
   '998': { name: 'Uzbekistan', flag: '🇺🇿' },
 };
 
-function phoneToCountry(phone: string): { name: string; flag: string } | null {
+// Messenger and Instagram contacts have no phone number, so this must accept null.
+function phoneToCountry(phone: string | null | undefined): { name: string; flag: string } | null {
+  if (!phone) return null;
   const digits = phone.replace(/^\+/, '').replace(/^00/, '');
   for (const len of [3, 2, 1]) {
     const prefix = digits.slice(0, len);
@@ -628,7 +630,7 @@ type ConvPayload = {
 const AVATAR_COLORS = [
   'bg-teal-100 text-teal-700', 'bg-blue-100 text-blue-700',
   'bg-purple-100 text-purple-700', 'bg-orange-100 text-orange-700',
-  'bg-pink-100 text-pink-700', 'bg-emerald-100 text-emerald-700',
+  'bg-pink-100 text-pink-700', 'bg-green-100 text-green-700',
 ];
 function avatarColor(str: string) {
   let h = 0;
@@ -645,7 +647,7 @@ function lifecycleLabel(c: Contact) {
 }
 function convStatusBadge(status: string) {
   if (status === 'OPEN') return 'bg-blue-100 text-blue-700';
-  if (status === 'PENDING') return 'bg-yellow-100 text-yellow-700';
+  if (status === 'PENDING') return 'bg-amber-100 text-amber-700';
   if (status === 'RESOLVED') return 'bg-gray-100 text-gray-500';
   if (status === 'SNOOZED') return 'bg-purple-100 text-purple-600';
   return 'bg-gray-100 text-gray-500';
@@ -957,7 +959,7 @@ export default function ContactsPage() {
         <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-4 flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">{activeSegment ? activeSegment.name : 'All Contacts'}</h1>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">{activeSegment ? activeSegment.name : 'All Contacts'}</h1>
               <p className="text-sm text-gray-500 mt-0.5">{total.toLocaleString()} contacts{activeSegment ? ` · filtered by segment` : ''}</p>
             </div>
             <div className="flex items-center gap-2">

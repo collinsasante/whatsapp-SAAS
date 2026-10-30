@@ -7,6 +7,7 @@ import { AiExecutionsService } from '../executions/ai-executions.service';
 import { ToolRegistryService } from './tool-registry.service';
 import { isToolResultEnvelope, ToolExecutionContext, ToolSideEffect } from './tool-registry.types';
 import { sanitizeToolTrace } from './tool-trace-sanitizer.util';
+import { AiMeteredProviderService } from '../completion/ai-metered-provider.service';
 
 const DEFAULT_MAX_ITERATIONS = 4;
 
@@ -71,6 +72,7 @@ export class ToolCallingService {
     private registry: ProviderRegistryService,
     private tools: ToolRegistryService,
     private executions: AiExecutionsService,
+    private meteredProvider: AiMeteredProviderService,
   ) {}
 
   async complete(req: ToolCallingRequest): Promise<ToolCallingResult> {
@@ -90,15 +92,18 @@ export class ToolCallingService {
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let lastProvider = 'deepseek';
+    const reservationIds: string[] = [];
 
     try {
       for (let iteration = 0; iteration < maxIterations; iteration++) {
-        const completion = await provider.complete({
+        const meteredCompletion = await this.meteredProvider.complete(provider, req.tenantId, req.taskType, {
           modelKey,
           messages,
           maxTokens: req.maxTokens,
           ...(toolDefs.length && { tools: toolDefs }),
         });
+        const completion = meteredCompletion.result;
+        if (meteredCompletion.reservationId) reservationIds.push(meteredCompletion.reservationId);
         totalInputTokens += completion.usage.inputTokens;
         totalOutputTokens += completion.usage.outputTokens;
         lastProvider = completion.provider;
@@ -108,7 +113,7 @@ export class ToolCallingService {
             status: 'SUCCESS', provider: lastProvider, modelKey,
             latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
-          }, toolTrace);
+          }, toolTrace, reservationIds);
           return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects };
         }
 
@@ -133,7 +138,7 @@ export class ToolCallingService {
         status: 'SUCCESS', provider: lastProvider, modelKey,
         latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
         estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
-      }, toolTrace);
+      }, toolTrace, reservationIds);
       return { content: '', toolTrace, failed: false, hitMaxIterations: true, sideEffects };
     } catch (err) {
       const providerErr = err instanceof AiProviderError ? err : new AiProviderError('network', String(err), false, err);
@@ -141,7 +146,7 @@ export class ToolCallingService {
       await this.trace(req, {
         status: 'PROVIDER_ERROR', provider: 'deepseek', modelKey,
         latencyMs: Date.now() - startedAt, errorCode: providerErr.code, errorMessage: providerErr.message,
-      }, toolTrace);
+      }, toolTrace, reservationIds);
       return { content: '', toolTrace, failed: true, hitMaxIterations: false, sideEffects };
     }
   }
@@ -156,11 +161,18 @@ export class ToolCallingService {
     // trace point (empty array on a call that never invoked a tool) -- sanitized here,
     // once, rather than at every call site.
     toolTrace: ToolCallTrace[],
+    reservationIds: string[],
   ) {
     await this.executions
       .record(
         { tenantId: req.tenantId, agentId: req.agentId, conversationId: req.conversationId, taskType: req.taskType },
-        { ...trace, safetyFlags: {}, stageTimings: {}, toolTrace: toolTrace.length > 0 ? sanitizeToolTrace(toolTrace) : undefined },
+        {
+          ...trace,
+          safetyFlags: {},
+          stageTimings: {},
+          toolTrace: toolTrace.length > 0 ? sanitizeToolTrace(toolTrace) : undefined,
+          ...(reservationIds.length > 0 && { reservationIds }),
+        },
       )
       .catch((err) => this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`));
   }

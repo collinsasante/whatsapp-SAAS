@@ -1,730 +1,271 @@
 'use client';
-import { useEffect, useState, useCallback, Fragment } from 'react';
-import {
-  Users, MessageSquare, Send, TrendingUp, TrendingDown, Minus,
-  BarChart3, RefreshCw, Clock, DollarSign, AlertCircle, ShieldAlert,
-  CheckCircle2, XCircle,
-} from 'lucide-react';
-import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { analyticsApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { getPermissions } from '@/lib/permissions';
+import { getApiError } from '@/lib/utils';
+import { channelName, formatRange, toCsv } from '@/lib/analytics/format';
+import { METRICS } from '@/lib/analytics/metrics';
+import type { ChannelFilter, IntelligenceResponse, RangePreset } from '@/lib/analytics/types';
 import { UserRole } from '@whatsapp-platform/shared-types';
-import { cn, getApiError } from '@/lib/utils';
-import toast from 'react-hot-toast';
+import PageHeader from '@/components/ui/PageHeader';
+import Toolbar, { customRangeProblem, PRESETS } from '@/components/analytics/Toolbar';
+import KpiBand from '@/components/analytics/KpiBand';
+import TrendPanel from '@/components/analytics/TrendPanel';
+import { HealthSummary, InsightsPanel } from '@/components/analytics/InsightsPanel';
+import CustomersSection from '@/components/analytics/CustomersSection';
+import ConversationsSection from '@/components/analytics/ConversationsSection';
+import TeamSection from '@/components/analytics/TeamSection';
+import AiSection from '@/components/analytics/AiSection';
+import TopicsSection from '@/components/analytics/TopicsSection';
+import RevenueSection from '@/components/analytics/RevenueSection';
+import { CampaignsPanel, HealthPanel } from '@/components/analytics/MessagingSection';
+import AgentView from '@/components/analytics/AgentView';
+import { ErrorState, Section, Skeleton } from '@/components/analytics/ui';
 
-// ─── Types (mirroring apps/backend/src/analytics response shapes) ────────────
+const CHANNELS: ChannelFilter[] = ['ALL', 'WHATSAPP', 'FACEBOOK_MESSENGER', 'INSTAGRAM'];
+const PRESET_KEYS = [...PRESETS.map((p) => p.key), 'custom'] as RangePreset[];
 
-interface OverviewResponse {
-  from: string; to: string; scope: 'tenant' | 'agent';
-  conversations: { total: number; new: number; returning: number; changePct: number | null };
-  messages: { sent: number; delivered: number; read: number; replied: number; deliveryRate: number; readRate: number; replyRate: number };
-  medianFirstResponseSeconds: number | null;
-  revenue: { amount: number; currency: string; successCount: number; failedCount: number } | null;
-}
-
-interface ConversationsResponse {
-  from: string; to: string; granularity: 'day' | 'hour'; scope: 'tenant' | 'agent';
-  series: Array<{ date: string; new: number; returning: number; opened: number; resolved: number } | { date: string; opened: number }>;
-  byStatus: Array<{ status: string; count: number }>;
-  byTag: Array<{ tag: string; count: number }>;
-  busiestHours: Array<{ dayOfWeek: number; hour: number; count: number }>;
-}
-
-interface AgentRow {
-  agentId: string; name: string; avatarUrl: string | null;
-  conversationsHandled: number; resolvedCount: number;
-  medianFirstResponseSeconds: number | null; medianResolutionSeconds: number | null;
-}
-interface AgentsResponse {
-  from: string; to: string; agents: AgentRow[];
-  teamAverage: { conversationsHandled: number; resolvedCount: number; medianFirstResponseSeconds: number | null; medianResolutionSeconds: number | null };
-}
-
-interface CampaignRow {
-  id: string; name: string; status: string; templateName: string;
-  totalRecipients: number; sentCount: number; deliveredCount: number; readCount: number;
-  repliedCount: number; failedCount: number; clickCount: number;
-  failureBreakdown: Array<{ category: string; label: string; count: number }>;
-}
-interface TemplatePerf {
-  templateId: string; name: string; approvalStatus: string; sentCount: number; deliveryRate: number; readRate: number;
-}
-interface CampaignsResponse {
-  from: string; to: string; campaigns: CampaignRow[]; templatePerformance: TemplatePerf[];
-  meta: { total: number; limit: number; offset: number };
-}
-
-interface HealthResponse {
-  numbers: Array<{ id: string; label: string; phoneNumberId: string; qualityRating: string | null; messagingLimitTier: string | null; qualitySyncedAt: string | null }>;
-  numbersConfigured: boolean;
-  optOuts: { last7Days: number; previous7Days: number; spike: boolean; blocked: number; optedOut: number };
-}
-
-interface RevenueResponse {
-  from: string; to: string; note: string;
-  byGateway: Array<{ gateway: string; successCount: number; failedCount: number; amount: number }>;
-  totalAmount: number; totalSuccessCount: number; totalFailedCount: number;
-}
-
-// ─── Date range helpers ───────────────────────────────────────────────────────
-
-type Preset = 'today' | '7d' | '30d' | '90d' | 'custom';
-const PRESETS: { key: Preset; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: '7d', label: '7d' },
-  { key: '30d', label: '30d' },
-  { key: '90d', label: '90d' },
-  { key: 'custom', label: 'Custom' },
+const NAV = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'next', label: 'What to do next' },
+  { id: 'customers', label: 'Customers' },
+  { id: 'conversations', label: 'Conversations' },
+  { id: 'team', label: 'Team' },
+  { id: 'ai', label: 'Verz AI' },
+  { id: 'topics', label: 'Topics' },
+  { id: 'revenue', label: 'Revenue' },
+  { id: 'messaging', label: 'Campaigns' },
 ];
 
-function fmtDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function isoDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function rangeForPreset(preset: Preset, customFrom: string, customTo: string): { from: string; to: string } {
+/** Calendar range for the agent view, whose endpoints take dates rather than a preset. */
+function rangeForPreset(preset: RangePreset, customFrom: string, customTo: string): { from: string; to: string } {
   const today = new Date();
-  const to = fmtDate(today);
+  const to = isoDate(today);
   if (preset === 'custom') return { from: customFrom || to, to: customTo || to };
-  const daysBack = preset === 'today' ? 0 : preset === '7d' ? 6 : preset === '30d' ? 29 : 89;
+  const back = preset === 'today' ? 0 : preset === '7d' ? 6 : preset === '30d' ? 29 : 89;
   const from = new Date(today);
-  from.setDate(from.getDate() - daysBack);
-  return { from: fmtDate(from), to };
+  from.setDate(from.getDate() - back);
+  return { from: isoDate(from), to };
 }
 
-function formatSeconds(sec: number | null): string {
-  if (sec == null) return '-';
-  if (sec < 60) return `${Math.round(sec)}s`;
-  if (sec < 3600) return `${Math.round(sec / 60)}m`;
-  if (sec < 86400) return `${(sec / 3600).toFixed(1)}h`;
-  return `${(sec / 86400).toFixed(1)}d`;
-}
-
-const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-// ─── Small shared bits ─────────────────────────────────────────────────────────
-
-function ChangeBadge({ pct }: { pct: number | null }) {
-  if (pct == null) return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />-</span>;
-  if (pct === 0) return <span className="text-xs text-gray-400 flex items-center gap-0.5"><Minus size={11} />0%</span>;
-  const up = pct > 0;
-  return (
-    <span className={cn('text-xs font-semibold flex items-center gap-0.5', up ? 'text-teal-600' : 'text-red-500')}>
-      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}{Math.abs(pct)}%
-    </span>
-  );
-}
-
-function StatCard({ icon: Icon, label, value, sub, iconColor }: {
-  icon: React.ElementType; label: string; value: string; sub?: React.ReactNode; iconColor?: string;
-}) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', iconColor ?? 'bg-teal-50 text-teal-600')}>
-          <Icon size={16} />
-        </div>
-        {sub}
-      </div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-400 mt-0.5">{label}</p>
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
-      <BarChart3 size={28} className="text-gray-300" />
-      <p className="text-sm">{message}</p>
-    </div>
-  );
-}
-
-function ErrorState({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
-      <AlertCircle size={28} className="text-red-300" />
-      <p className="text-sm">Failed to load this data.</p>
-      <button onClick={onRetry} className="text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700">Retry</button>
-    </div>
-  );
-}
-
-function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('bg-gray-100 rounded-xl animate-pulse', className)} />;
-}
-
-// ─── Overview cards ────────────────────────────────────────────────────────────
-
-function OverviewCards({ data }: { data: OverviewResponse }) {
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <StatCard icon={Users} label="Conversations" value={data.conversations.total.toLocaleString()}
-        sub={<ChangeBadge pct={data.conversations.changePct} />} />
-      <StatCard icon={Send} label="Messages Sent" value={data.messages.sent.toLocaleString()}
-        sub={<span className="text-xs text-gray-400">{data.messages.deliveryRate}% delivered</span>} iconColor="bg-blue-50 text-blue-600" />
-      <StatCard icon={MessageSquare} label="Replied (inbound)" value={data.messages.replied.toLocaleString()}
-        sub={<span className="text-xs text-gray-400">{data.messages.replyRate}% reply rate</span>} iconColor="bg-purple-50 text-purple-600" />
-      <StatCard icon={Clock} label="Median First Response" value={formatSeconds(data.medianFirstResponseSeconds)} iconColor="bg-amber-50 text-amber-600" />
-      {data.revenue && (
-        <StatCard icon={DollarSign} label="Revenue Collected" value={`$${data.revenue.amount.toLocaleString()}`}
-          sub={<span className="text-xs text-gray-400">{data.revenue.successCount} payments</span>} iconColor="bg-emerald-50 text-emerald-600" />
-      )}
-    </div>
-  );
-}
-
-// ─── Conversations tab ─────────────────────────────────────────────────────────
-
-function ConversationsTab({ from, to }: { from: string; to: string }) {
-  const [data, setData] = useState<ConversationsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [granularity, setGranularity] = useState<'day' | 'hour'>('day');
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try {
-      const res = await analyticsApi.conversations(from, to, granularity);
-      setData(res.data as ConversationsResponse);
-    } catch { setError(true); } finally { setLoading(false); }
-  }, [from, to, granularity]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (loading) return <Skeleton className="h-96" />;
-  if (error) return <ErrorState onRetry={() => void load()} />;
-  if (!data) return null;
-
-  const maxHeat = Math.max(1, ...data.busiestHours.map((h) => h.count));
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 text-sm">Conversation Volume</h3>
-          {data.granularity === 'hour' && <span className="text-xs text-gray-400">Hourly (range ≤ 3 days)</span>}
-        </div>
-        {data.series.length === 0 ? <EmptyState message="No conversation activity in this period" /> : (
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={data.series}>
-              <defs>
-                <linearGradient id="openedGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false}
-                tickFormatter={(v: string) => granularity === 'hour' ? new Date(v).toLocaleTimeString([], { hour: '2-digit' }) : v.slice(5)} />
-              <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #e5e7eb' }} />
-              <Area type="monotone" dataKey="opened" name="Opened" stroke="#0d9488" fill="url(#openedGrad)" strokeWidth={2} />
-              {'resolved' in (data.series[0] ?? {}) && (
-                <Area type="monotone" dataKey="resolved" name="Resolved" stroke="#7c3aed" fillOpacity={0} strokeWidth={2} />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-        <div className="flex justify-end mt-2">
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-            {(['day', 'hour'] as const).map((g) => (
-              <button key={g} onClick={() => setGranularity(g)}
-                className={cn('px-2.5 py-1 text-xs rounded-md font-medium transition-colors', granularity === g ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-500')}>
-                {g === 'day' ? 'Daily' : 'Hourly'}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <h3 className="font-semibold text-gray-900 text-sm mb-4">By Status</h3>
-          {data.byStatus.length === 0 ? <EmptyState message="No data" /> : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.byStatus} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="status" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={80} />
-                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #e5e7eb' }} />
-                <Bar dataKey="count" fill="#0d9488" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        <div className="bg-white rounded-2xl border border-gray-200 p-5">
-          <h3 className="font-semibold text-gray-900 text-sm mb-4">Top Tags</h3>
-          {data.byTag.length === 0 ? <EmptyState message="No tagged conversations yet" /> : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={data.byTag} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} />
-                <YAxis type="category" dataKey="tag" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={80} />
-                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid #e5e7eb' }} />
-                <Bar dataKey="count" fill="#6366f1" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 overflow-x-auto">
-        <h3 className="font-semibold text-gray-900 text-sm mb-4">Busiest Hours</h3>
-        {data.busiestHours.length === 0 ? <EmptyState message="Not enough data yet" /> : (
-          <div className="min-w-[560px]">
-            <div className="grid grid-cols-[40px_repeat(24,1fr)] gap-0.5">
-              <div />
-              {Array.from({ length: 24 }).map((_, h) => (
-                <div key={h} className="text-[9px] text-gray-400 text-center">{h}</div>
-              ))}
-              {DOW_LABELS.map((label, dow) => (
-                <Fragment key={dow}>
-                  <div className="text-[10px] text-gray-500 flex items-center">{label}</div>
-                  {Array.from({ length: 24 }).map((_, hour) => {
-                    const cell = data.busiestHours.find((h) => h.dayOfWeek === dow && h.hour === hour);
-                    const intensity = cell ? cell.count / maxHeat : 0;
-                    return (
-                      <div key={`${dow}-${hour}`} title={`${label} ${hour}:00: ${cell?.count ?? 0} messages`}
-                        className="aspect-square rounded-sm"
-                        style={{ backgroundColor: intensity > 0 ? `rgba(13,148,136,${0.15 + intensity * 0.85})` : '#f3f4f6' }} />
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Agents tab (admin only) ────────────────────────────────────────────────────
-
-type AgentSortKey = keyof Omit<AgentRow, 'agentId' | 'name' | 'avatarUrl'>;
-
-function AgentsTab({ from, to }: { from: string; to: string }) {
-  const [data, setData] = useState<AgentsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [sortKey, setSortKey] = useState<AgentSortKey>('conversationsHandled');
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try {
-      const res = await analyticsApi.agents(from, to);
-      setData(res.data as AgentsResponse);
-    } catch { setError(true); } finally { setLoading(false); }
-  }, [from, to]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (loading) return <Skeleton className="h-72" />;
-  if (error) return <ErrorState onRetry={() => void load()} />;
-  if (!data) return null;
-  if (data.agents.length === 0) return <EmptyState message="No agents with activity in this period" />;
-
-  const sorted = [...data.agents].sort((a, b) => {
-    const av = a[sortKey] ?? -1, bv = b[sortKey] ?? -1;
-    return (bv ?? 0) - (av ?? 0);
-  });
-
-  const columns: { key: AgentSortKey; label: string; format?: (v: number | null) => string }[] = [
-    { key: 'conversationsHandled', label: 'Handled' },
-    { key: 'resolvedCount', label: 'Resolved' },
-    { key: 'medianFirstResponseSeconds', label: 'Median First Response', format: formatSeconds },
-    { key: 'medianResolutionSeconds', label: 'Median Resolution', format: formatSeconds },
+function buildCsv(data: IntelligenceResponse): string {
+  const { current: c, previous: p, meta } = data;
+  const secs = (v: number | null) => (v == null ? '' : v);
+  const rows: Array<Array<string | number | null>> = [
+    ['VerzChat analytics export'],
+    ['Period', `${meta.from} to ${meta.to}`, 'Previous period', `${meta.previousFrom} to ${meta.previousTo}`],
+    ['Channel', channelName(meta.channel), 'Timezone', meta.timezone],
+    [],
+    ['Metric', 'This period', 'Previous period', 'How it is calculated'],
+    [METRICS.conversations.label, c.conversations.total, p.conversations.total, METRICS.conversations.calculation],
+    [METRICS.newContacts.label, c.newContacts, p.newContacts, METRICS.newContacts.calculation],
+    ['Median first reply (seconds)', secs(c.firstResponse.medianSeconds), secs(p.firstResponse.medianSeconds), METRICS.firstReply.calculation],
+    ['Median time to resolve (seconds)', secs(c.resolution.medianSeconds), secs(p.resolution.medianSeconds), METRICS.resolution.calculation],
+    [METRICS.resolved.label, c.resolved, p.resolved, METRICS.resolved.calculation],
+    ['Reopened', c.reopened, p.reopened, 'Conversations reopened after being resolved'],
+    [METRICS.leads.label, c.leads.created, p.leads.created, METRICS.leads.calculation],
+    [METRICS.qualified.label, c.leads.qualified, p.leads.qualified, METRICS.qualified.calculation],
+    [METRICS.aiEngaged.label, c.ai.engagedConversations, p.ai.engagedConversations, METRICS.aiEngaged.calculation],
+    [METRICS.aiResolved.label, c.ai.resolvedWithoutPerson, p.ai.resolvedWithoutPerson, METRICS.aiResolved.calculation],
+    ...c.orders.byCurrency.map((o) => [`Revenue from orders (${o.currency})`, o.revenue, p.orders.byCurrency.find((x) => x.currency === o.currency)?.revenue ?? 0, METRICS.revenue.calculation] as Array<string | number | null>),
+    [],
+    ['Date', 'Opened', 'Resolved', 'New contacts', 'Customer messages', 'Opened in previous period'],
+    ...data.series.map((s) => [s.date, s.opened, s.resolved, s.newContacts, s.inbound, s.previousOpened]),
   ];
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-500">Agent</th>
-              {columns.map((c) => (
-                <th key={c.key} className="text-left px-4 py-3 font-medium text-gray-500 cursor-pointer select-none" onClick={() => setSortKey(c.key)}>
-                  {c.label}{sortKey === c.key && ' ▾'}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {sorted.map((a) => (
-              <tr key={a.agentId} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{a.name}</td>
-                {columns.map((c) => (
-                  <td key={c.key} className="px-4 py-3 text-gray-600">{c.format ? c.format(a[c.key]) : (a[c.key] ?? '-')}</td>
-                ))}
-              </tr>
-            ))}
-            <tr className="bg-teal-50/50 font-semibold">
-              <td className="px-4 py-3 text-teal-700">Team Average</td>
-              <td className="px-4 py-3 text-teal-700">{data.teamAverage.conversationsHandled}</td>
-              <td className="px-4 py-3 text-teal-700">{data.teamAverage.resolvedCount}</td>
-              <td className="px-4 py-3 text-teal-700">{formatSeconds(data.teamAverage.medianFirstResponseSeconds)}</td>
-              <td className="px-4 py-3 text-teal-700">{formatSeconds(data.teamAverage.medianResolutionSeconds)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+  return toCsv(rows);
 }
 
-// ─── Campaigns tab ──────────────────────────────────────────────────────────────
-
-function CampaignFunnel({ campaign }: { campaign: CampaignRow }) {
-  const steps = [
-    { label: 'Sent', value: campaign.sentCount, color: 'bg-blue-400' },
-    { label: 'Delivered', value: campaign.deliveredCount, color: 'bg-teal-400' },
-    { label: 'Read', value: campaign.readCount, color: 'bg-purple-400' },
-    { label: 'Replied', value: campaign.repliedCount, color: 'bg-green-400' },
-    { label: 'Clicked', value: campaign.clickCount, color: 'bg-indigo-400' },
-  ];
-  const total = campaign.totalRecipients || 1;
-  return (
-    <div className="border border-gray-100 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <p className="font-semibold text-gray-900 text-sm">{campaign.name}</p>
-          <p className="text-xs text-gray-400">{campaign.templateName} · {campaign.status}</p>
-        </div>
-      </div>
-      <div className="grid grid-cols-5 gap-2">
-        {steps.map((s) => (
-          <div key={s.label} className="text-center">
-            <div className="relative h-14 bg-gray-100 rounded-lg overflow-hidden flex items-end mb-1">
-              <div className={cn('w-full', s.color)} style={{ height: `${Math.max(2, Math.round((s.value / total) * 100))}%` }} />
-              <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-800">{s.value}</span>
-            </div>
-            <p className="text-[10px] text-gray-500">{s.label}</p>
-          </div>
-        ))}
-      </div>
-      {campaign.failureBreakdown.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {campaign.failureBreakdown.map((f) => (
-            <span key={f.category} className="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded-full font-medium">
-              {f.label}: {f.count}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+function download(filename: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
-
-function CampaignsTab({ from, to }: { from: string; to: string }) {
-  const [data, setData] = useState<CampaignsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try {
-      const res = await analyticsApi.campaigns(from, to);
-      setData(res.data as CampaignsResponse);
-    } catch { setError(true); } finally { setLoading(false); }
-  }, [from, to]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (loading) return <Skeleton className="h-96" />;
-  if (error) return <ErrorState onRetry={() => void load()} />;
-  if (!data) return null;
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5">
-        <h3 className="font-semibold text-gray-900 text-sm mb-4">Campaign Funnels ({data.meta.total})</h3>
-        {data.campaigns.length === 0 ? <EmptyState message="No campaigns sent in this period" /> : (
-          <div className="space-y-3">
-            {data.campaigns.map((c) => <CampaignFunnel key={c.id} campaign={c} />)}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <h3 className="font-semibold text-gray-900 text-sm px-5 pt-5 mb-2">Template Performance</h3>
-        {data.templatePerformance.length === 0 ? <div className="px-5 pb-5"><EmptyState message="No templates used yet" /></div> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[520px]">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">Template</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">Approval</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">Sent</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">Delivery Rate</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">Read Rate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {data.templatePerformance.map((t) => (
-                  <tr key={t.templateId} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{t.name}</td>
-                    <td className="px-4 py-3">
-                      <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium',
-                        t.approvalStatus === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : t.approvalStatus === 'REJECTED' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700')}>
-                        {t.approvalStatus}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{t.sentCount}</td>
-                    <td className="px-4 py-3 text-gray-600">{t.deliveryRate}%</td>
-                    <td className="px-4 py-3 text-gray-600">{t.readRate}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Health tab ─────────────────────────────────────────────────────────────────
-
-const QUALITY_STYLE: Record<string, string> = {
-  GREEN: 'bg-emerald-100 text-emerald-700', YELLOW: 'bg-amber-100 text-amber-700', RED: 'bg-red-100 text-red-600',
-};
-
-function HealthTab() {
-  const [data, setData] = useState<HealthResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try {
-      const res = await analyticsApi.health();
-      setData(res.data as HealthResponse);
-    } catch { setError(true); } finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (loading) return <Skeleton className="h-72" />;
-  if (error) return <ErrorState onRetry={() => void load()} />;
-  if (!data) return null;
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-2xl border border-gray-200 p-5">
-        <h3 className="font-semibold text-gray-900 text-sm mb-4">WhatsApp Number Quality</h3>
-        {!data.numbersConfigured ? <EmptyState message="No WhatsApp numbers configured yet" /> : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {data.numbers.map((n) => (
-              <div key={n.id} className="border border-gray-100 rounded-xl p-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 text-sm">{n.label}</p>
-                  <p className="text-xs text-gray-400">{n.messagingLimitTier ?? 'Tier unknown'}</p>
-                </div>
-                <span className={cn('text-xs px-2.5 py-1 rounded-full font-semibold', QUALITY_STYLE[n.qualityRating ?? ''] ?? 'bg-gray-100 text-gray-500')}>
-                  {n.qualityRating ?? 'Unknown'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 text-sm">Opt-outs &amp; Blocks (last 7 days)</h3>
-          {data.optOuts.spike && (
-            <span className="text-xs px-2.5 py-1 rounded-full bg-red-100 text-red-600 font-semibold flex items-center gap-1">
-              <ShieldAlert size={12} /> Spike detected
-            </span>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{data.optOuts.last7Days}</p>
-            <p className="text-xs text-gray-400">Last 7 days ({data.optOuts.blocked} blocked, {data.optOuts.optedOut} opted out)</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-400">{data.optOuts.previous7Days}</p>
-            <p className="text-xs text-gray-400">Previous 7 days</p>
-          </div>
-        </div>
-        {data.optOuts.spike && (
-          <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-start gap-2">
-            <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
-            Opt-outs/blocks more than doubled compared to the previous week, worth checking recent campaigns or message frequency.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Revenue tab (admin only) ───────────────────────────────────────────────────
-
-function RevenueTab({ from, to }: { from: string; to: string }) {
-  const [data, setData] = useState<RevenueResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true); setError(false);
-    try {
-      const res = await analyticsApi.revenue(from, to);
-      setData(res.data as RevenueResponse);
-    } catch { setError(true); } finally { setLoading(false); }
-  }, [from, to]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  if (loading) return <Skeleton className="h-64" />;
-  if (error) return <ErrorState onRetry={() => void load()} />;
-  if (!data) return null;
-
-  return (
-    <div className="space-y-5">
-      <p className="text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">{data.note}</p>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <StatCard icon={DollarSign} label="Total Revenue" value={`$${data.totalAmount.toLocaleString()}`} iconColor="bg-emerald-50 text-emerald-600" />
-        <StatCard icon={CheckCircle2} label="Successful Payments" value={String(data.totalSuccessCount)} iconColor="bg-teal-50 text-teal-600" />
-        <StatCard icon={XCircle} label="Failed Payments" value={String(data.totalFailedCount)} iconColor="bg-red-50 text-red-600" />
-      </div>
-      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-        <h3 className="font-semibold text-gray-900 text-sm px-5 pt-5 mb-2">By Gateway</h3>
-        {data.byGateway.length === 0 ? <div className="px-5 pb-5"><EmptyState message="No payments in this period" /></div> : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Gateway</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Amount</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Successful</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Failed</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {data.byGateway.map((g) => (
-                <tr key={g.gateway} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{g.gateway}</td>
-                  <td className="px-4 py-3 text-gray-600">${g.amount.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-gray-600">{g.successCount}</td>
-                  <td className="px-4 py-3 text-gray-600">{g.failedCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Main page ─────────────────────────────────────────────────────────────────
-
-type Tab = 'conversations' | 'campaigns' | 'agents' | 'health' | 'revenue';
 
 export default function AnalyticsPage() {
+  const router = useRouter();
+  const pathname = usePathname() ?? '/analytics';
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
-  const perms = getPermissions(user?.role as UserRole | undefined);
+  const isAdmin = getPermissions(user?.role as UserRole | undefined).isAdmin;
 
-  const [preset, setPreset] = useState<Preset>('30d');
-  const [customFrom, setCustomFrom] = useState('');
-  const [customTo, setCustomTo] = useState('');
-  const [tab, setTab] = useState<Tab>('conversations');
+  // The range and channel live in the address, so a view can be shared and the back button works.
+  const rawRange = searchParams?.get('range') as RangePreset | null;
+  const preset: RangePreset = rawRange && PRESET_KEYS.includes(rawRange) ? rawRange : '30d';
+  const customFrom = searchParams?.get('from') ?? '';
+  const customTo = searchParams?.get('to') ?? '';
+  const rawChannel = searchParams?.get('channel') as ChannelFilter | null;
+  const channel: ChannelFilter = rawChannel && CHANNELS.includes(rawChannel) ? rawChannel : 'ALL';
+  const customValid = preset !== 'custom' || customRangeProblem(customFrom, customTo) === null;
 
-  const { from, to } = rangeForPreset(preset, customFrom, customTo);
+  const setParams = useCallback((next: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? '');
+    for (const [k, v] of Object.entries(next)) { if (v == null || v === '') params.delete(k); else params.set(k, v); }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [router, pathname, searchParams]);
 
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(true);
-  const [overviewError, setOverviewError] = useState(false);
+  const [data, setData] = useState<IntelligenceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const requestId = useRef(0);
 
-  const loadOverview = useCallback(async () => {
-    setOverviewLoading(true); setOverviewError(false);
-    try {
-      const res = await analyticsApi.overview(from, to);
-      setOverview(res.data as OverviewResponse);
-    } catch (err) {
-      setOverviewError(true);
-      toast.error(getApiError(err, 'Failed to load analytics overview'));
-    } finally { setOverviewLoading(false); }
-  }, [from, to]);
+  useEffect(() => {
+    if (!isAdmin || !customValid) return;
+    const id = ++requestId.current;
+    setLoading(true); setError(null);
+    const params = preset === 'custom'
+      ? { from: customFrom, to: customTo, preset: 'custom', channel }
+      : { preset, channel };
+    analyticsApi.intelligence(params)
+      .then((res) => { if (id === requestId.current) setData(res.data as IntelligenceResponse); })
+      .catch((err) => {
+        if (id !== requestId.current) return;
+        const message = getApiError(err, 'Please try again in a moment.');
+        setError(message);
+        toast.error(message);
+      })
+      .finally(() => { if (id === requestId.current) setLoading(false); });
+  }, [isAdmin, preset, customFrom, customTo, channel, customValid, refreshKey]);
 
-  useEffect(() => { void loadOverview(); }, [loadOverview]);
+  const agentRange = useMemo(() => rangeForPreset(preset, customFrom, customTo), [preset, customFrom, customTo]);
+  const refresh = () => setRefreshKey((k) => k + 1);
 
-  const tabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
-    { key: 'conversations', label: 'Conversations' },
-    { key: 'campaigns', label: 'Campaigns' },
-    { key: 'agents', label: 'Agents', adminOnly: true },
-    { key: 'health', label: 'WhatsApp Health' },
-    { key: 'revenue', label: 'Revenue', adminOnly: true },
-  ].filter((t) => !t.adminOnly || perms.isAdmin) as { key: Tab; label: string; adminOnly?: boolean }[];
+  // A plain #anchor jump scrolls every scrollable ancestor, which slid the whole app (sidebar logo included) up
+  // out of view. Scroll only this page's own container; the href stays as the fallback.
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
+  const sectionNavRef = useRef<HTMLElement>(null);
+  const jumpToSection = (event: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    const box = scrollBoxRef.current;
+    const target = document.getElementById(id);
+    if (!box || !target) return;
+    event.preventDefault();
+    const top = target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - (sectionNavRef.current?.offsetHeight ?? 0) - 8;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    box.scrollTo({ top: Math.max(top, 0), behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 overflow-auto">
-      <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Analytics</h1>
-            <p className="text-sm text-gray-500">{overview?.scope === 'agent' ? 'Your performance' : 'Business performance'} overview</p>
+    <div ref={scrollBoxRef} className="h-full overflow-auto overscroll-contain bg-gray-50" aria-busy={loading}>
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 pt-5 pb-4">
+        <div className="max-w-7xl mx-auto">
+          <PageHeader
+            title="Analytics"
+            description={isAdmin
+              ? 'How your business is doing, why, and what to do about it.'
+              : 'How your own conversations are going. Workspace-wide analytics are visible to admins.'}
+          />
+          <div className="mt-4">
+            <Toolbar
+              preset={preset} customFrom={customFrom} customTo={customTo} channel={channel} showChannel={isAdmin}
+              loading={loading}
+              onPreset={(p) => setParams({ range: p === '30d' ? null : p, from: null, to: null })}
+              onCustom={(from, to) => setParams({ range: 'custom', from, to })}
+              onChannel={(c) => setParams({ channel: c === 'ALL' ? null : c })}
+              onRefresh={refresh}
+              onExport={isAdmin && data ? () => download(`verzchat-analytics-${data.meta.from}-to-${data.meta.to}.csv`, buildCsv(data)) : undefined}
+            />
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-              {PRESETS.map((p) => (
-                <button key={p.key} onClick={() => setPreset(p.key)}
-                  className={cn('px-3 py-1.5 text-xs font-medium rounded-lg transition-colors', preset === p.key ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-500 hover:text-gray-700')}>
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => void loadOverview()} className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors">
-              <RefreshCw size={16} />
-            </button>
-          </div>
+          {isAdmin && data && (
+            <p className="text-xs text-gray-500 mt-3">
+              {formatRange(data.meta.from, data.meta.to)} compared with {formatRange(data.meta.previousFrom, data.meta.previousTo)}
+              {' · '}{channelName(data.meta.channel)}{' · '}{data.meta.timezone}
+              {loading && <span role="status" className="ml-2 text-teal-700">Updating</span>}
+            </p>
+          )}
         </div>
-        {preset === 'custom' && (
-          <div className="flex items-center gap-2 mt-3">
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
-            <span className="text-gray-400 text-sm">to</span>
-            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
+      </header>
+
+      {isAdmin && (
+        <nav ref={sectionNavRef} aria-label="Sections of this page" className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-200">
+          <ul className="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto">
+            {NAV.map((n) => (
+              <li key={n.id}>
+                <a href={`#${n.id}`} onClick={(e) => jumpToSection(e, n.id)} className="block px-3 py-2.5 text-sm text-gray-600 hover:text-teal-700 whitespace-nowrap focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded">
+                  {n.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-10">
+        {!customValid ? (
+          <p role="alert" className="text-sm text-red-700">Choose a valid custom date range to see analytics.</p>
+        ) : !isAdmin ? (
+          <AgentView from={agentRange.from} to={agentRange.to} refreshKey={refreshKey} />
+        ) : error && !data ? (
+          <ErrorState message={error} onRetry={refresh} />
+        ) : !data ? (
+          <div className="space-y-6"><Skeleton className="h-52" /><Skeleton className="h-80" /><Skeleton className="h-64" /></div>
+        ) : (
+          <div className={loading ? 'opacity-60 transition-opacity space-y-10' : 'space-y-10'}>
+            <Section id="overview" question="What is happening in your business?" description="The numbers that matter most, set against the previous period.">
+              <div className="space-y-4">
+                <KpiBand data={data} />
+                <TrendPanel data={data} />
+              </div>
+            </Section>
+
+            <Section id="next" question="What should you do next?" description="Prioritised from the numbers below. Each item shows the evidence it is based on.">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                <div className="lg:col-span-3"><InsightsPanel insights={data.insights} /></div>
+                <div className="lg:col-span-2 self-start lg:sticky lg:top-14"><HealthSummary areas={data.health} /></div>
+              </div>
+            </Section>
+
+            <Section id="customers" question="Who is reaching you, and where from?" description="Customer sources, channels and the lead pipeline.">
+              <CustomersSection data={data} />
+            </Section>
+
+            <Section id="conversations" question="How well are conversations handled?" description="Who is waiting, how quickly customers get answers, and when the busy times are.">
+              <ConversationsSection data={data} />
+            </Section>
+
+            <Section id="team" question="How is the team doing?" description="Workload and speed for each person on the team.">
+              <TeamSection data={data} />
+            </Section>
+
+            <Section id="ai" question="How is Verz AI helping?" description="What Verz AI handled on its own, and what it passed to a person.">
+              <AiSection data={data} />
+            </Section>
+
+            <Section id="topics" question="What are customers asking about?">
+              <TopicsSection data={data} />
+            </Section>
+
+            <Section id="revenue" question="Is it turning into business?" description="Only what VerzChat can actually measure from orders and leads.">
+              <RevenueSection data={data} />
+            </Section>
           </div>
         )}
-      </div>
 
-      <div className="p-6 space-y-6">
-        {overviewLoading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
-          </div>
-        ) : overviewError ? (
-          <ErrorState onRetry={() => void loadOverview()} />
-        ) : overview ? (
-          <OverviewCards data={overview} />
-        ) : null}
+        {isAdmin && customValid && (
+          <Section id="messaging" question="Campaigns and WhatsApp numbers" description="Template campaign results and the quality of your WhatsApp numbers. These are specific to WhatsApp and ignore the channel filter.">
+            <div className="space-y-4">
+              <CampaignsPanel from={data?.meta.from ?? agentRange.from} to={data?.meta.to ?? agentRange.to} />
+              <HealthPanel />
+            </div>
+          </Section>
+        )}
 
-        <div className="border-b border-gray-200 flex gap-1 overflow-x-auto">
-          {tabs.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={cn('px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors',
-                tab === t.key ? 'border-teal-600 text-teal-600' : 'border-transparent text-gray-500 hover:text-gray-700')}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div>
-          {tab === 'conversations' && <ConversationsTab from={from} to={to} />}
-          {tab === 'campaigns' && <CampaignsTab from={from} to={to} />}
-          {tab === 'agents' && perms.isAdmin && <AgentsTab from={from} to={to} />}
-          {tab === 'health' && <HealthTab />}
-          {tab === 'revenue' && perms.isAdmin && <RevenueTab from={from} to={to} />}
-        </div>
-      </div>
+        {isAdmin && data && (
+          <p className="text-xs text-gray-500 border-t border-gray-200 pt-4 max-w-3xl">
+            Every figure is counted from your workspace records for the dates shown, in {data.meta.timezone}. Evaluation and test conversations are excluded.
+            "n/a" means the figure cannot be calculated, which is different from zero. Revenue is never estimated.
+          </p>
+        )}
+      </main>
     </div>
   );
 }

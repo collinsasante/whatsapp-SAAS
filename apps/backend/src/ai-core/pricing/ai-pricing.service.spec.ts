@@ -75,5 +75,14 @@ describe('AiPricingService', () => {
 
       expect(prisma.aiPricingConfig.findFirst).toHaveBeenCalledTimes(1);
     });
+
+    it('fails closed for reservation quotes when the database pricing lookup fails', async () => {
+      const prisma = buildPrismaMock();
+      prisma.aiPricingConfig.findFirst.mockRejectedValue(new Error('database unavailable'));
+      const service = buildService(prisma);
+
+      await expect(service.getReservationQuote('deepseek', DEEPSEEK_MODEL, 400, 2))
+        .rejects.toThrow('database unavailable');
+    });
   });
 });

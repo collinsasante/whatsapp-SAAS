@@ -81,7 +81,12 @@ export class WebhookEventService {
         orderBy: { createdAt: 'desc' },
         take: Math.min(limit, 100),
         skip: offset,
-        include: { tenant: { select: { id: true, name: true } } },
+        // No payload in the list: it can hold customer message text and is only needed when one event is opened.
+        select: {
+          id: true, source: true, eventType: true, status: true, gatewayEventId: true, tenantId: true,
+          error: true, attempts: true, createdAt: true, processedAt: true,
+          tenant: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.webhookEvent.count({ where }),
     ]);

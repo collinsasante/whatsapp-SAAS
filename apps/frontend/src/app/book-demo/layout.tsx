@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
-import 'bootstrap/dist/css/bootstrap.min.css';
-import '@/styles/landing.css';
-import Footer from '@/components/landing/Footer';
+import { Bricolage_Grotesque } from 'next/font/google';
+import '@/components/site/site.css';
+import SiteFooter from '@/components/site/SiteFooter';
 
 export const metadata: Metadata = {
   title: 'Book a Demo: See VerzChat in Action',
@@ -15,11 +15,13 @@ export const metadata: Metadata = {
   },
 };
 
+const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-display', display: 'swap', axes: ['opsz', 'wdth'] });
+
 export default function BookDemoLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="lp">
+    <div className={`${display.variable} site`}>
       {children}
-      <Footer />
+      <SiteFooter />
     </div>
   );
 }

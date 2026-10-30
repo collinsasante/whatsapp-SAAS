@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppNumbersService } from '../whatsapp-numbers/whatsapp-numbers.service';
@@ -7,7 +7,19 @@ import { AuditService } from '../audit/audit.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
 
+/**
+ * Webhook fields a Messenger Page is subscribed to. message_echoes carries replies a person sent outside VerzChat
+ * (Page inbox, Business Suite, the app on another device); without it those replies never reach the inbox.
+ * message_deliveries and message_reads drive the delivered and read ticks.
+ */
+export const MESSENGER_PAGE_FIELDS = ['messages', 'messaging_postbacks', 'message_echoes', 'message_deliveries', 'message_reads'];
+
 const GRAPH_API_BASE = 'https://graph.facebook.com/v19.0';
+const GRAPH_HOST_PREFIX = 'https://graph.facebook.com/';
+// Meta returns accounts in batches and names the next batch in paging.next. 100 per request, at most 20 requests
+// (2,000 accounts) so a misbehaving response can never loop forever.
+const GRAPH_BATCH_SIZE = 100;
+const GRAPH_MAX_BATCHES = 20;
 
 interface FacebookCandidatePage {
   id: string;
@@ -15,8 +27,17 @@ interface FacebookCandidatePage {
   access_token: string;
 }
 
+interface InstagramCandidate {
+  page: FacebookCandidatePage;
+  igId: string;
+  /** What the person recognises: @username when Meta gives one. */
+  label: string;
+}
+
 @Injectable()
 export class ChannelsService {
+  private readonly logger = new Logger(ChannelsService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
@@ -165,21 +186,29 @@ export class ChannelsService {
     return updated;
   }
 
-  async remove(tenantId: string, id: string, actorId?: string) {
+  async remove(tenantId: string, id: string, actorId?: string): Promise<{ success: true; removed: boolean }> {
     const channel = await this.findOne(tenantId, id);
 
     // Facebook Pages: soft-disconnect, never hard-delete -- Conversation.
     // channelId/Message.channelId (onDelete: SetNull) would otherwise
     // silently erase which Page a conversation's history belongs to the
     // moment the row disappears. Mirrors WhatsAppNumbersService.remove()'s
-    // identical reasoning for WhatsApp numbers. Every other channel type
-    // keeps its existing hard-delete behavior unchanged -- out of scope for
-    // this track to revisit.
+    // identical reasoning for WhatsApp numbers.
+    // Instagram, TikTok and Telegram follow the same rule, but only when there is history to protect: an account
+    // that never had a conversation (for example one connected by mistake) is removed outright, so it does not sit
+    // in the list as a "disconnected" row forever. Every other channel type keeps its existing hard delete.
+    const hasHistory = (
+      channel.type === ChannelType.INSTAGRAM || channel.type === ChannelType.TIKTOK || channel.type === ChannelType.TELEGRAM
+    ) && (await this.prisma.conversation.count({ where: { tenantId, channelId: id } })) > 0;
+    const soft = channel.type === ChannelType.FACEBOOK_MESSENGER || hasHistory;
+
     if (channel.type === ChannelType.FACEBOOK_MESSENGER) {
       await this.prisma.facebookPageConnection.updateMany({
         where: { tenantId, channelId: id },
         data: { isActive: false },
       });
+    }
+    if (soft) {
       await this.prisma.channel.update({ where: { id }, data: { isActive: false } });
     } else {
       await this.prisma.channel.delete({ where: { id } });
@@ -187,15 +216,20 @@ export class ChannelsService {
 
     void this.audit.log({
       tenantId, userId: actorId, action: 'DELETE', resource: 'channel', resourceId: id,
-      metadata: { type: channel.type, name: channel.name, softDisconnect: channel.type === ChannelType.FACEBOOK_MESSENGER },
+      metadata: { type: channel.type, name: channel.name, softDisconnect: soft },
     });
 
-    return { success: true };
+    return { success: true, removed: !soft };
   }
 
   async connectOAuth(provider: string, tenantId: string, code: string, redirectUri: string) {
     if (provider === 'tiktok') {
       return this.connectTikTok(tenantId, code, redirectUri);
+    }
+    // Instagram goes through the account-selection flow (startInstagramAccountSelection). The old code here
+    // connected every Instagram account behind every Page it could see, with no way to choose.
+    if (provider === 'instagram') {
+      throw new BadRequestException('Instagram accounts are connected through the account picker.');
     }
 
     const appId = this.config.get<string>('FACEBOOK_APP_ID');
@@ -242,42 +276,6 @@ export class ChannelsService {
 
       if (!pagesData.data?.length) {
         throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
-      }
-    } else if (provider === 'instagram') {
-      const pagesRes = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?access_token=${userToken}&fields=id,name,access_token,instagram_business_account`,
-      );
-      const pagesData = await pagesRes.json() as {
-        data?: Array<{
-          id: string;
-          name: string;
-          access_token: string;
-          instagram_business_account?: { id: string };
-        }>;
-      };
-
-      let connected = 0;
-      for (const page of pagesData.data ?? []) {
-        if (!page.instagram_business_account) continue;
-        const igId = page.instagram_business_account.id;
-
-        const igRes = await fetch(
-          `https://graph.facebook.com/v19.0/${igId}?fields=name,username&access_token=${page.access_token}`,
-        );
-        const igData = await igRes.json() as { name?: string; username?: string };
-
-        const channelName = igData.username ? `@${igData.username}` : (igData.name ?? page.name);
-        await this.upsertOAuthChannel(tenantId, ChannelType.INSTAGRAM, channelName, {
-          accessToken: page.access_token,
-          pageId: page.id,
-          igAccountId: igId,
-          ...(userTokenExpiresAt && { userTokenExpiresAt }),
-        }, igId);
-        connected++;
-      }
-
-      if (connected === 0) {
-        throw new Error('No Instagram Business accounts found. Make sure your Facebook Page is linked to an Instagram Business account.');
       }
     }
   }
@@ -471,11 +469,63 @@ export class ChannelsService {
     return data.access_token;
   }
 
-  private async fetchFacebookPages(userToken: string): Promise<FacebookCandidatePage[]> {
-    const res = await fetch(`${GRAPH_API_BASE}/me/accounts?access_token=${userToken}&fields=id,name,access_token`);
-    const data = await res.json() as { data?: FacebookCandidatePage[]; error?: { message: string } };
-    if (data.error) throw new Error(`Failed to list Facebook Pages: ${data.error.message}`);
-    return data.data ?? [];
+  /**
+   * Every account the user manages, across all of Meta's batches. Reading only the first batch silently dropped
+   * everything after it for anyone with many Pages.
+   */
+  private async fetchAllAccounts<T>(userToken: string, fields: string): Promise<T[]> {
+    const all: T[] = [];
+    let url: string | undefined = `${GRAPH_API_BASE}/me/accounts?limit=${GRAPH_BATCH_SIZE}&fields=${encodeURIComponent(fields)}&access_token=${userToken}`;
+    for (let batch = 0; url && batch < GRAPH_MAX_BATCHES; batch++) {
+      const res: Response = await fetch(url);
+      const data = await res.json() as { data?: T[]; paging?: { next?: string }; error?: { message: string } };
+      if (data.error) throw new Error(`Failed to list Facebook Pages: ${data.error.message}`);
+      all.push(...(data.data ?? []));
+      const next: string | undefined = data.paging?.next;
+      // paging.next carries the access token; only ever follow it to Meta's own host.
+      url = next && next.startsWith(GRAPH_HOST_PREFIX) ? next : undefined;
+    }
+    // Counts only. When someone connects "fewer accounts than I have", this line says whether Meta sent them all.
+    this.logger.log(`Meta returned ${all.length} account(s) from /me/accounts`);
+    return all;
+  }
+
+  /**
+   * Logs which permissions the person actually granted the app, and for how many Pages each one applies. Meta only
+   * returns the Pages they ticked in its login dialog, so this is what tells "Meta gave us 12" apart from "we dropped
+   * some". Counts and permission names only: never the token, Page names or ids. Never throws.
+   */
+  private async logGrantedAccess(userToken: string): Promise<void> {
+    try {
+      const appId = this.config.get<string>('FACEBOOK_APP_ID');
+      const appSecret = this.config.get<string>('FACEBOOK_APP_SECRET');
+      if (!appId || !appSecret) return;
+      const res = await fetch(`${GRAPH_API_BASE}/debug_token?input_token=${userToken}&access_token=${appId}|${appSecret}`);
+      const data = (await res.json() as { data?: { granular_scopes?: Array<{ scope: string; target_ids?: string[] }>; scopes?: string[] } }).data;
+      if (!data) return;
+      const granted = (data.granular_scopes ?? []).map((g) => `${g.scope}=${g.target_ids?.length ?? 0} target(s)`).join(', ');
+      this.logger.log(`Meta access granted to this login: scopes [${(data.scopes ?? []).join(', ')}]; per-asset: ${granted || 'none listed'}`);
+    } catch (err) {
+      this.logger.warn(`Could not read the granted access for this login: ${err instanceof Error ? err.message : 'unknown error'}`);
+    }
+  }
+
+  private fetchFacebookPages(userToken: string): Promise<FacebookCandidatePage[]> {
+    return this.fetchAllAccounts<FacebookCandidatePage>(userToken, 'id,name,access_token');
+  }
+
+  /** Instagram accounts reachable through the Pages the user granted, with the Page token needed to act for each. */
+  private async fetchInstagramCandidates(userToken: string): Promise<{ candidates: InstagramCandidate[]; pagesChecked: number }> {
+    const pages = await this.fetchAllAccounts<FacebookCandidatePage & { instagram_business_account?: { id: string; username?: string; name?: string } }>(
+      userToken, 'id,name,access_token,instagram_business_account{id,username,name}',
+    );
+    const candidates = pages.flatMap((page) => {
+      const ig = page.instagram_business_account;
+      if (!ig?.id) return [];
+      const label = ig.username ? `@${ig.username}` : (ig.name ?? page.name);
+      return [{ page: { id: page.id, name: page.name, access_token: page.access_token }, igId: ig.id, label }];
+    });
+    return { candidates, pagesChecked: pages.length };
   }
 
   /**
@@ -494,6 +544,7 @@ export class ChannelsService {
     const shortLivedToken = await this.exchangeFacebookCode(code, redirectUri);
     const longLivedToken = await this.exchangeForLongLivedToken(shortLivedToken);
     const pages = await this.fetchFacebookPages(longLivedToken);
+    await this.logGrantedAccess(longLivedToken);
 
     if (pages.length === 0) {
       throw new Error('No Facebook Pages found. Make sure your account manages at least one Page.');
@@ -513,23 +564,122 @@ export class ChannelsService {
     return { sessionId: session.id, pageCount: pages.length };
   }
 
-  /** Candidate Page list for a pending selection session -- never the token. */
-  async getFacebookConnectSession(tenantId: string, sessionId: string) {
+  /**
+   * Called from the OAuth callback for provider=instagram. Same shape as the Facebook flow: list the accounts,
+   * stash them in a short-lived session, let the user choose. Nothing is connected until they do.
+   */
+  async startInstagramAccountSelection(tenantId: string, userId: string, code: string, redirectUri: string): Promise<{ sessionId: string; accountCount: number }> {
+    void this.prisma.oAuthConnectSession.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+
+    const shortLivedToken = await this.exchangeFacebookCode(code, redirectUri);
+    const longLivedToken = await this.exchangeForLongLivedToken(shortLivedToken);
+    const { candidates, pagesChecked } = await this.fetchInstagramCandidates(longLivedToken);
+    this.logger.log(`Instagram: ${candidates.length} account(s) found across ${pagesChecked} Page(s)`);
+    await this.logGrantedAccess(longLivedToken);
+
+    if (candidates.length === 0) {
+      throw new Error(
+        `No Instagram Business accounts found among the ${pagesChecked} Page${pagesChecked === 1 ? '' : 's'} you shared. ` +
+        'Make sure the Instagram account is a Professional account linked to one of those Pages, and tick that Page when Meta asks.',
+      );
+    }
+
+    const session = await this.prisma.oAuthConnectSession.create({
+      data: {
+        tenantId,
+        createdByUserId: userId,
+        provider: 'instagram',
+        userAccessToken: this.encryption.encrypt(longLivedToken),
+        candidatePages: candidates.map((c) => ({ id: c.igId, name: c.label, pageId: c.page.id, pageName: c.page.name })) as Prisma.InputJsonValue,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      },
+    });
+
+    return { sessionId: session.id, accountCount: candidates.length };
+  }
+
+  /** Candidate list for a pending selection session (Facebook Pages or Instagram accounts) -- never the token. */
+  async getConnectSession(tenantId: string, sessionId: string) {
     const session = await this.prisma.oAuthConnectSession.findFirst({
-      where: { id: sessionId, tenantId, provider: 'facebook', expiresAt: { gt: new Date() } },
+      where: { id: sessionId, tenantId, provider: { in: ['facebook', 'instagram'] }, expiresAt: { gt: new Date() } },
     });
     if (!session) throw new NotFoundException('This connection session has expired or does not exist. Please reconnect.');
 
-    const candidatePages = session.candidatePages as unknown as Array<{ id: string; name: string }>;
+    const candidatePages = session.candidatePages as unknown as Array<{ id: string; name: string; pageName?: string }>;
     const existingChannels = await this.prisma.channel.findMany({
-      where: { tenantId, type: ChannelType.FACEBOOK_MESSENGER, externalId: { in: candidatePages.map((p) => p.id) } },
+      where: {
+        tenantId,
+        type: session.provider === 'instagram' ? ChannelType.INSTAGRAM : ChannelType.FACEBOOK_MESSENGER,
+        externalId: { in: candidatePages.map((p) => p.id) },
+      },
       select: { externalId: true },
     });
     const alreadyConnectedIds = new Set(existingChannels.map((c) => c.externalId));
 
     return {
+      provider: session.provider as 'facebook' | 'instagram',
       candidatePages: candidatePages.map((p) => ({ ...p, alreadyConnected: alreadyConnectedIds.has(p.id) })),
     };
+  }
+
+  /** Connects the chosen accounts from a pending session, whichever platform started it. */
+  async selectFromSession(tenantId: string, userId: string, sessionId: string, ids: string[]) {
+    const session = await this.prisma.oAuthConnectSession.findFirst({
+      where: { id: sessionId, tenantId, expiresAt: { gt: new Date() } },
+      select: { provider: true },
+    });
+    if (!session) throw new NotFoundException('This connection session has expired or does not exist. Please reconnect.');
+    if (session.provider === 'instagram') return this.selectInstagramAccounts(tenantId, userId, sessionId, ids);
+    return this.selectFacebookPages(tenantId, userId, sessionId, ids);
+  }
+
+  /**
+   * Asks Meta to deliver this Page's messaging webhooks to the app. Best effort and never throws: the account is
+   * connected either way, and the caller shows the person why messages may not arrive if Meta refused.
+   */
+  private async subscribePageToMessages(page: FacebookCandidatePage): Promise<{ subscribed: boolean; reason?: string }> {
+    try {
+      const res = await fetch(
+        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
+        { method: 'POST' },
+      );
+      const data = await res.json() as { success?: boolean; error?: { message: string } };
+      return data.success ? { subscribed: true } : { subscribed: false, reason: data.error?.message ?? 'Meta did not confirm the subscription.' };
+    } catch (err) {
+      return { subscribed: false, reason: err instanceof Error ? err.message : 'Could not reach Meta.' };
+    }
+  }
+
+  async selectInstagramAccounts(tenantId: string, userId: string, sessionId: string, igIds: string[]) {
+    const session = await this.prisma.oAuthConnectSession.findFirst({
+      where: { id: sessionId, tenantId, provider: 'instagram', expiresAt: { gt: new Date() } },
+    });
+    if (!session) throw new NotFoundException('This connection session has expired or does not exist. Please reconnect.');
+
+    const candidates = session.candidatePages as unknown as Array<{ id: string }>;
+    const validIds = new Set(candidates.map((c) => c.id));
+    if (!igIds.every((id) => validIds.has(id))) {
+      throw new BadRequestException('One or more selected accounts were not in the original list.');
+    }
+
+    // Tokens are fetched fresh from the stored user token at the moment of connecting, as the Facebook flow does.
+    const { candidates: fresh } = await this.fetchInstagramCandidates(this.encryption.decrypt(session.userAccessToken));
+    const selected = fresh.filter((c) => igIds.includes(c.igId));
+    if (selected.length === 0) throw new BadRequestException('No valid accounts selected.');
+
+    const connected: Array<{ channelId: string; accountId: string; accountName: string; webhookSubscription: { subscribed: boolean; reason?: string } }> = [];
+    for (const c of selected) {
+      const channel = await this.upsertOAuthChannel(tenantId, ChannelType.INSTAGRAM, c.label, {
+        // Stored encrypted: GET /channels returns this JSON to the dashboard.
+        accessToken: this.encryption.encrypt(c.page.access_token),
+        pageId: c.page.id,
+        igAccountId: c.igId,
+      }, c.igId, userId);
+      connected.push({ channelId: channel.id, accountId: c.igId, accountName: c.label, webhookSubscription: await this.subscribePageToMessages(c.page) });
+    }
+
+    await this.prisma.oAuthConnectSession.delete({ where: { id: sessionId } });
+    return { connected };
   }
 
   /**
@@ -566,7 +716,7 @@ export class ChannelsService {
     const connected: Array<{ channelId: string; pageId: string; pageName: string }> = [];
     for (const page of selected) {
       const subscribeRes = await fetch(
-        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks&access_token=${page.access_token}`,
+        `${GRAPH_API_BASE}/${page.id}/subscribed_apps?subscribed_fields=${MESSENGER_PAGE_FIELDS.join(',')}&access_token=${page.access_token}`,
         { method: 'POST' },
       );
       const subscribeData = await subscribeRes.json() as { success?: boolean; error?: { message: string } };
@@ -580,13 +730,13 @@ export class ChannelsService {
         where: { tenantId_pageId: { tenantId, pageId: page.id } },
         update: {
           channelId: channel.id, pageName: page.name, pageAccessToken: this.encryption.encrypt(page.access_token),
-          subscribedFields: ['messages', 'messaging_postbacks'], webhookVerified: true, isActive: true,
+          subscribedFields: MESSENGER_PAGE_FIELDS, webhookVerified: true, isActive: true,
           connectedByUserId: userId, lastError: null, lastErrorAt: null,
         },
         create: {
           tenantId, channelId: channel.id, pageId: page.id, pageName: page.name,
           pageAccessToken: this.encryption.encrypt(page.access_token),
-          subscribedFields: ['messages', 'messaging_postbacks'], webhookVerified: true,
+          subscribedFields: MESSENGER_PAGE_FIELDS, webhookVerified: true,
           connectedByUserId: userId,
         },
       });

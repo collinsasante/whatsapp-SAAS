@@ -1,7 +1,8 @@
 'use client';
 import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { channelHasCustomerServiceWindow } from '@/lib/customer-service-window';
-import { channelKindOf, matchesExplicitFilters, serverStatusParam } from '@/lib/inbox-search';
+import { useSearchParams } from 'next/navigation';
+import { channelKindOf, matchesExplicitFilters, parseInboxFilterParams, serverStatusParam } from '@/lib/inbox-search';
 import { overlayLiveConversations } from '@/lib/inbox-merge';
 import { ChannelBadge, CHANNEL_LABELS } from './ChannelBadge';
 import { Search, Edit2, X, Plus, ChevronDown, Check, Tag, Users, FileInput, ChevronRight } from 'lucide-react';
@@ -11,7 +12,7 @@ import { contactsApi, conversationsApi, tagsApi, usersApi } from '@/lib/api';
 import { useInboxStore } from '@/store/inbox.store';
 import { Dropdown, DropdownItem } from '@/components/ui/Dropdown';
 import toast from 'react-hot-toast';
-import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
+import { channelContactLabel, contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
 
 interface Conversation {
   id: string;
@@ -51,6 +52,14 @@ interface Props {
   loadingMore?: boolean;
   onLoadMore?: () => void;
 }
+
+/** Views built from the paged "all conversations" list, so they keep loading more as the user scrolls. */
+const PAGED_FILTERS = ['All', 'ACTIVE', 'UNREPLIED'];
+
+const FILTER_VIEW_LABELS: Record<string, string> = {
+  ACTIVE: 'Open conversations',
+  UNREPLIED: 'Waiting for a reply',
+};
 
 const STATUS_FILTERS = [
   { key: 'All', label: 'All' },
@@ -175,7 +184,7 @@ const ConvRow = memo(function ConvRow({
   };
 
   if (!conv.contact) return null;
-  const name = contactDisplayName(conv.contact);
+  const name = contactDisplayName(conv.contact, undefined, channelContactLabel(conv.channel?.type));
   const lastMsg = conv.messages?.[0];
   const avatarColor = getAvatarColor(name);
   return (
@@ -313,10 +322,13 @@ const ConvRow = memo(function ConvRow({
 
 export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId, hasMore, loadingMore, onLoadMore }: Props) {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [channelFilter, setChannelFilter] = useState('All');
+  const searchParams = useSearchParams();
+  // Links such as the dashboard's "Needs attention" open the inbox already filtered; read once, then the controls own the state.
+  const [initialFilters] = useState(() => parseInboxFilterParams((key) => searchParams?.get(key) ?? null));
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status);
+  const [channelFilter, setChannelFilter] = useState(initialFilters.channel);
   const [labelFilter, setLabelFilter] = useState('All');
-  const [memberFilter, setMemberFilter] = useState('All');
+  const [memberFilter, setMemberFilter] = useState(initialFilters.member);
   const [savedTags, setSavedTags] = useState<{ id: string; name: string; color?: string }[]>([]);
   const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
   const [showSearch, setShowSearch] = useState(false);
@@ -487,11 +499,13 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
           ? (c.status !== 'RESOLVED' && (c.status !== 'INTERVENED' || c.assignedTo?.id === currentUserId))
           : statusFilter === 'UNREPLIED'
             ? c.status !== 'RESOLVED'
-            : c.status === statusFilter;
+            : statusFilter === 'ACTIVE'
+              ? c.status !== 'RESOLVED' && c.status !== 'SNOOZED'
+              : c.status === statusFilter;
         const matchesChannel = channelFilter === 'All' || channelKindOf(c.channel?.type) === channelFilter;
         const matchesLabel = labelFilter === 'All' || (c.labels ?? []).includes(labelFilter);
         // Pending tab: show all agents' unreplied chats regardless of assignment
-        const matchesMember = statusFilter === 'UNREPLIED'
+        const matchesMember = statusFilter === 'UNREPLIED' || (statusFilter === 'ACTIVE' && memberFilter === 'All')
           ? true
           : memberFilter === 'All'
             ? (statusFilter !== 'All' || !currentUserId || c.assignedTo === null || c.assignedTo?.id === currentUserId)
@@ -717,6 +731,17 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
             })}
           </div>
 
+          {FILTER_VIEW_LABELS[statusFilter] && (
+            <div className="flex items-center justify-between gap-2 mt-2 px-2.5 py-1.5 rounded-lg bg-teal-50 text-teal-800 text-[11px] font-medium">
+              <span>Showing: {FILTER_VIEW_LABELS[statusFilter]}</span>
+              <button
+                onClick={() => { setStatusFilter('All'); setMemberFilter('All'); }}
+                className="underline hover:no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600 rounded"
+              >
+                Show all
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -724,7 +749,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
       <div
         className="flex-1 overflow-y-auto"
         onScroll={(e) => {
-          if (statusFilter !== 'All' || search.trim() || !hasMore || loadingMore || !onLoadMore) return;
+          if (!PAGED_FILTERS.includes(statusFilter) || search.trim() || !hasMore || loadingMore || !onLoadMore) return;
           const el = e.currentTarget;
           if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) onLoadMore();
         }}
@@ -759,7 +784,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
                 ))}
               </AnimatePresence>
 
-              {statusFilter === 'All' && !search.trim() && loadingMore && (
+              {PAGED_FILTERS.includes(statusFilter) && !search.trim() && loadingMore && (
                 <div className="flex items-center justify-center py-3">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-teal-600" />
                 </div>

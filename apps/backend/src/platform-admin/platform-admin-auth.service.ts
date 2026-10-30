@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../common/email.service';
 import { AdminLoginDto, AdminSetupDto, InviteAdminDto } from './dto/platform-admin.dto';
+import { PlatformAuditService } from './platform-audit.service';
 
 /** How long an invite link stays valid -- longer than the 1h password-reset
  * window since an invitee may not see the email right away. */
@@ -20,6 +21,7 @@ export class PlatformAdminAuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private emailService: EmailService,
+    private audit: PlatformAuditService,
   ) {}
 
   async setup(dto: AdminSetupDto) {
@@ -40,12 +42,29 @@ export class PlatformAdminAuthService {
     return { message: 'Admin account created', admin };
   }
 
-  async login(dto: AdminLoginDto, ip?: string) {
+  /**
+   * Signs an admin in. Every outcome is audited: a failure is recorded against the admin it targeted when the email
+   * belongs to one, and otherwise with no admin and no email (an unknown address may be a mistyped password).
+   * The caller always sees the same "Invalid credentials" so the response does not reveal which case it was.
+   */
+  async login(dto: AdminLoginDto, ip?: string, userAgent?: string) {
     const admin = await this.prisma.platformAdmin.findUnique({ where: { email: dto.email } });
-    if (!admin?.isActive) throw new UnauthorizedException('Invalid credentials');
+    const meta = { ipAddress: ip, userAgent };
+
+    if (!admin) {
+      await this.audit.log({ adminId: null, action: 'auth.login_failed', metadata: { reason: 'unknown_account' }, ...meta });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (!admin.isActive) {
+      await this.audit.log({ adminId: admin.id, action: 'auth.login_failed', metadata: { reason: 'account_disabled' }, ...meta });
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const valid = await bcrypt.compare(dto.password, admin.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    if (!valid) {
+      await this.audit.log({ adminId: admin.id, action: 'auth.login_failed', metadata: { reason: 'wrong_password' }, ...meta });
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     await this.prisma.platformAdmin.update({
       where: { id: admin.id },
@@ -56,6 +75,7 @@ export class PlatformAdminAuthService {
       { sub: admin.id, role: 'platform_admin', adminRole: admin.role, email: admin.email },
       { secret: this.config.get<string>('JWT_SECRET'), expiresIn: '12h' },
     );
+    await this.audit.log({ adminId: admin.id, action: 'auth.login', metadata: { role: admin.role }, ...meta });
 
     return { token, admin: { id: admin.id, email: admin.email, name: admin.name, role: admin.role } };
   }
@@ -79,7 +99,8 @@ export class PlatformAdminAuthService {
     // (see common/email.service.ts), which throws away this URL entirely -- making
     // password reset a dead end on any environment without real SMTP creds set.
     // Logging it here so it's recoverable from `docker logs` in the meantime.
-    this.logger.log(`Password reset requested for ${email} -- reset URL: ${resetUrl}`);
+    // The link contains the live reset token, so it is never written to the logs.
+    this.logger.log(`Password reset requested for admin ${admin.id}`);
 
     await this.emailService.sendRaw({
       to: email,
@@ -93,7 +114,7 @@ export class PlatformAdminAuthService {
     });
   }
 
-  async resetPassword(token: string, newPassword: string) {
+  async resetPassword(token: string, newPassword: string, ip?: string, userAgent?: string) {
     const admin = await this.prisma.platformAdmin.findFirst({
       where: { resetToken: token, resetTokenExpiresAt: { gt: new Date() } },
     });
@@ -105,6 +126,7 @@ export class PlatformAdminAuthService {
       data: { passwordHash, resetToken: null, resetTokenExpiresAt: null },
     });
 
+    await this.audit.log({ adminId: admin.id, action: 'auth.password_reset', ipAddress: ip, userAgent });
     return { message: 'Password updated successfully' };
   }
 
@@ -132,7 +154,7 @@ export class PlatformAdminAuthService {
 
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'https://verzchat.com');
     const inviteUrl = `${frontendUrl}/platform-admin/reset-password?token=${token}`;
-    this.logger.log(`Admin invite created for ${dto.email} (role ${dto.role}) -- invite URL: ${inviteUrl}`);
+    this.logger.log(`Admin invite created for admin ${admin.id} (role ${dto.role})`);
 
     await this.emailService.sendRaw({
       to: dto.email,

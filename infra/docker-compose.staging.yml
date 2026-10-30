@@ -1,6 +1,9 @@
 # Standalone staging compose — run with a single -f flag (no merge with production).
-# Usage:
-#   docker compose --env-file .env.staging -f infra/docker-compose.staging.yml up -d --build
+# Staging reads infra/.env.staging, never the production infra/.env (they would share every secret). To recreate
+# containers use infra/scripts/staging-recreate.sh, which refuses to run if a secret matches production's.
+# Application releases must use infra/scripts/staging-release-deploy.sh. It builds immutable revision-tagged images,
+# verifies a disposable restore of the snapshot, applies Prisma migrations explicitly, then rolls out all app services.
+# Direct `up --build` remains for local bootstrap only; it is not a release or migration procedure.
 # Access: http://VPS_IP:8080, or https://staging.verzchat.com:8443 once
 # STAGING_PUBLIC_URL is set in .env.staging (needed for Meta OAuth/webhook
 # config, which requires HTTPS) -- see infra/nginx/nginx.staging.conf.
@@ -98,10 +101,13 @@ services:
       - staging-network
 
   backend:
+    image: verzchat-staging/backend:${RELEASE_TAG:-local}
     build:
       context: ..
       dockerfile: apps/backend/Dockerfile
     container_name: wa_staging_backend
+    # Migrations are an explicit, backed-up release step, not an application startup side effect.
+    command: ["node", "dist/main"]
     restart: always
     environment:
       NODE_ENV: production
@@ -178,6 +184,7 @@ services:
       - staging-network
 
   realtime:
+    image: verzchat-staging/realtime:${RELEASE_TAG:-local}
     build:
       context: ..
       dockerfile: apps/realtime/Dockerfile
@@ -199,6 +206,7 @@ services:
       - staging-network
 
   worker:
+    image: verzchat-staging/worker:${RELEASE_TAG:-local}
     build:
       context: ..
       dockerfile: apps/worker/Dockerfile
@@ -226,6 +234,7 @@ services:
   # equivalent block in docker-compose.yml for the full rationale. Never
   # exposed through nginx.
   whatsapp-web:
+    image: verzchat-staging/whatsapp-web:${RELEASE_TAG:-local}
     build:
       context: ..
       dockerfile: apps/whatsapp-web/Dockerfile
@@ -245,6 +254,7 @@ services:
       - staging-network
 
   frontend:
+    image: verzchat-staging/frontend:${RELEASE_TAG:-local}
     build:
       context: ..
       dockerfile: apps/frontend/Dockerfile

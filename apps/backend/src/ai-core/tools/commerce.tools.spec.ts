@@ -7,6 +7,7 @@ function buildOrdersMock() {
     addItem: jest.fn(),
     submitForPayment: jest.fn(),
     findMostRecentForConversation: jest.fn(),
+    findOwnedByContact: jest.fn(),
     getOwned: jest.fn(),
   };
 }
@@ -89,15 +90,73 @@ describe('commerce.tools', () => {
   });
 
   describe('get_order_status', () => {
-    it('defaults to the conversation\'s most recent order when no orderId is given', async () => {
+    const paid = { id: 'order-recent', contactId: 'ct1', status: 'PAID', paidAt: new Date(), totalMajorUnits: 90, currency: 'GHS' };
+
+    it("defaults to the conversation's most recent order when no orderId is given", async () => {
       const orders = buildOrdersMock();
-      orders.findMostRecentForConversation.mockResolvedValue({ id: 'order-recent' });
-      orders.getOwned.mockResolvedValue({ id: 'order-recent', status: 'PAID', paidAt: new Date(), totalMajorUnits: 90, currency: 'GHS' });
+      orders.findMostRecentForConversation.mockResolvedValue(paid);
 
       const result = await tool(orders, 'get_order_status').execute(ctx, {});
 
-      expect(orders.getOwned).toHaveBeenCalledWith('t1', 'order-recent');
+      expect(orders.findMostRecentForConversation).toHaveBeenCalledWith('t1', 'c1');
       expect(result).toMatchObject({ orderId: 'order-recent', status: 'PAID' });
+    });
+
+    it('returns an explicitly requested order only through the workspace + contact lookup', async () => {
+      const orders = buildOrdersMock();
+      orders.findOwnedByContact.mockResolvedValue({ ...paid, id: 'order-7' });
+
+      const result = await tool(orders, 'get_order_status').execute(ctx, { orderId: 'order-7' });
+
+      expect(orders.findOwnedByContact).toHaveBeenCalledWith('t1', 'ct1', 'order-7');
+      expect(orders.getOwned).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ orderId: 'order-7', status: 'PAID' });
+    });
+
+    it("gives the same safe answer for another contact's order, another workspace's order, and an order that does not exist", async () => {
+      const orders = buildOrdersMock();
+      orders.findOwnedByContact.mockResolvedValue(null); // a miss is a miss, whatever the reason
+      const run = (orderId: string) => tool(orders, 'get_order_status').execute(ctx, { orderId });
+
+      const sameWorkspaceOtherContact = await run('order-of-someone-else');
+      const otherWorkspace = await run('order-in-workspace-t2');
+      const missing = await run('no-such-order');
+
+      expect(sameWorkspaceOtherContact).toEqual({ error: 'Order not found' });
+      expect(otherWorkspace).toEqual({ error: 'Order not found' });
+      expect(missing).toEqual({ error: 'Order not found' });
+      expect(JSON.stringify([sameWorkspaceOtherContact, otherWorkspace])).not.toMatch(/PAID|totalMajorUnits|ct2|status/);
+    });
+
+    it('takes the contact from the conversation context, never from model-supplied arguments', async () => {
+      const orders = buildOrdersMock();
+      orders.findOwnedByContact.mockResolvedValue(null);
+
+      await tool(orders, 'get_order_status').execute(ctx, { orderId: 'order-7', contactId: 'ct-attacker', tenantId: 't-attacker' });
+
+      expect(orders.findOwnedByContact).toHaveBeenCalledWith('t1', 'ct1', 'order-7');
+    });
+
+    it("refuses even the conversation's most recent order if it belongs to a different contact", async () => {
+      const orders = buildOrdersMock();
+      orders.findMostRecentForConversation.mockResolvedValue({ ...paid, contactId: 'ct2' });
+
+      const result = await tool(orders, 'get_order_status').execute(ctx, {});
+
+      expect(result).toEqual({ error: 'Order not found' });
+    });
+
+    it('says there is nothing to check when the conversation has no order', async () => {
+      const orders = buildOrdersMock();
+      orders.findMostRecentForConversation.mockResolvedValue(null);
+      expect(await tool(orders, 'get_order_status').execute(ctx, {})).toEqual({ error: 'No order to check' });
+    });
+
+    it('ignores a non-string orderId instead of passing it to the database', async () => {
+      const orders = buildOrdersMock();
+      orders.findMostRecentForConversation.mockResolvedValue(null);
+      await tool(orders, 'get_order_status').execute(ctx, { orderId: { contains: '' } });
+      expect(orders.findOwnedByContact).not.toHaveBeenCalled();
     });
   });
 });

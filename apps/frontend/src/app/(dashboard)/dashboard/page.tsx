@@ -1,588 +1,174 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  Building2, Users, MessageSquare, CheckCircle, RefreshCw,
-  Wifi, WifiOff, Shield, TrendingUp, TrendingDown,
-  CalendarDays, Plus, ArrowUp, ArrowDown, Clock,
-  Phone, Megaphone, ChevronRight, Zap,
-} from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { AlertCircle, ArrowRight, Table2 } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { dashboardApi } from '@/lib/api';
-import { cn } from '@/lib/utils';
-import { getSocket, SocketEvent } from '@/lib/socket';
+import { useAuthStore } from '@/store/auth.store';
+import { getPermissions } from '@/lib/permissions';
+import { UserRole } from '@whatsapp-platform/shared-types';
+import { useWidget } from '@/lib/dashboard/useWidget';
+import {
+  DASHBOARD_MAX_DAYS, DEFAULT_PRESET, PRESET_KEYS, rangeKey, rangeQuery,
+} from '@/lib/dashboard/format';
+import type {
+  DashboardAttention, DashboardBusiness, DashboardPreset, DashboardRange, DashboardSummary,
+  DashboardTrend, DashboardWhatsAppStatus,
+} from '@/lib/dashboard/types';
+import { customRangeProblem } from '@/components/analytics/Toolbar';
+import { EmptyNote, Skeleton } from '@/components/analytics/ui';
+import Header from '@/components/dashboard/Header';
+import WidgetCard from '@/components/dashboard/WidgetCard';
+import KpiCards from '@/components/dashboard/KpiCards';
+import TrendCard from '@/components/dashboard/TrendCard';
+import AlertTiles from '@/components/dashboard/AlertTiles';
+import BusinessCard from '@/components/dashboard/BusinessCard';
+import WhatsAppCard, { whatsappHeadline } from '@/components/dashboard/WhatsAppCard';
+import StatusBadge from '@/components/ui/StatusBadge';
+import { Button } from '@/components/ui/Button';
+import { SelectInput } from '@/components/ui/fields';
 
-interface Overview {
-  contacts: { total: number; open: number; assigned: number; unassigned: number };
-  conversations: { total: number; open: number; pending: number; resolved: number };
-  messages: number;
-  campaigns: number;
-  business: {
-    name: string; phone: string; email: string; address: string;
-    website: string; description: string; wabaId: string | null;
-    phoneNumberId: string | null; plan: string;
-  };
-}
-
-interface TeamMember {
-  id: string; name: string; email: string; avatarUrl: string | null;
-  assignedConversations: number; activeConversations: number;
-  resolvedToday: number; isOnline: boolean;
-}
-
-interface WaStatus {
-  isConfigured: boolean; isConnected: boolean; phoneNumberId: string | null;
-  qualityRating: string; messagingLimit: string; verificationStatus: string;
-}
-
-interface MetaBusinessProfile {
-  phone: {
-    verified_name?: string;
-    display_phone_number?: string;
-    quality_rating?: string;
-    messaging_limit_tier?: string;
-    code_verification_status?: string;
-  };
-  profile: {
-    about?: string;
-    address?: string;
-    description?: string;
-    email?: string;
-    profile_picture_url?: string;
-    websites?: string[];
-    vertical?: string;
-  };
-}
-
-interface ConvStats { opened: number; closed: number }
-interface TrendPoint { date: string; opened: number; resolved: number }
-
-type DatePreset = 'today' | '7d' | '30d' | 'custom';
-
-function todayISO() { return new Date().toISOString().split('T')[0]!; }
-function daysAgoISO(n: number) {
-  const d = new Date(); d.setDate(d.getDate() - n);
-  return d.toISOString().split('T')[0]!;
-}
-function qualityColor(rating: string) {
-  if (rating === 'GREEN') return 'text-green-600';
-  if (rating === 'YELLOW') return 'text-yellow-600';
-  return 'text-red-600';
-}
-function fmtDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-const DATE_PRESETS: { key: DatePreset; label: string; from: () => string; to: () => string }[] = [
-  { key: 'today', label: 'Today', from: todayISO, to: todayISO },
-  { key: '7d',    label: '7 Days', from: () => daysAgoISO(7), to: todayISO },
-  { key: '30d',   label: '30 Days', from: () => daysAgoISO(30), to: todayISO },
-];
-
-function Section({ title, icon: Icon, children, className }: {
-  title: string; icon: React.ElementType; children: React.ReactNode; className?: string;
-}) {
-  return (
-    <div className={cn('bg-white border border-gray-200 rounded-2xl p-5', className)}>
-      <div className="flex items-center gap-2 mb-4">
-        <Icon size={15} className="text-teal-600" />
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function InfoRow({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm text-gray-500 flex-shrink-0">{label}</span>
-      <span className={cn('text-sm font-medium text-gray-800 text-right truncate max-w-48', mono && 'font-mono')}>
-        {value || <span className="text-gray-400 italic">Not set</span>}
-      </span>
-    </div>
-  );
-}
-
-function KpiCard({ label, value, sub, icon: Icon, trend, trendLabel, color = 'teal', urgent }: {
-  label: string; value: string | number; sub?: string;
-  icon: React.ElementType; trend?: number; trendLabel?: string;
-  color?: 'teal' | 'blue' | 'green' | 'purple' | 'orange';
-  urgent?: boolean;
-}) {
-  const colorMap = {
-    teal:   { bg: 'bg-teal-50',   icon: 'text-teal-600',   ring: 'bg-teal-100' },
-    blue:   { bg: 'bg-blue-50',   icon: 'text-blue-600',   ring: 'bg-blue-100' },
-    green:  { bg: 'bg-green-50',  icon: 'text-green-600',  ring: 'bg-green-100' },
-    purple: { bg: 'bg-purple-50', icon: 'text-purple-600', ring: 'bg-purple-100' },
-    orange: { bg: 'bg-orange-50', icon: 'text-orange-600', ring: 'bg-orange-100' },
-  };
-  const c = colorMap[color];
-  return (
-    <div className={cn('bg-white border rounded-2xl p-5 flex items-start gap-4 transition-colors', urgent ? 'border-orange-200 bg-orange-50/30' : 'border-gray-200')}>
-      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0', c.ring)}>
-        <Icon size={18} className={c.icon} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
-        <p className={cn('text-2xl font-bold mt-0.5', urgent && typeof value === 'number' && value > 0 ? 'text-orange-600' : 'text-gray-900')}>
-          {typeof value === 'number' ? value.toLocaleString() : value}
-        </p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-        {trend !== undefined && (
-          <div className={cn('flex items-center gap-0.5 text-xs font-medium mt-1', trend >= 0 ? 'text-green-600' : 'text-red-500')}>
-            {trend >= 0 ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
-            {Math.abs(trend)}% {trendLabel}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string; color: string }[]; label?: string }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-xs">
-      <p className="font-semibold text-gray-700 mb-1.5">{label}</p>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
-          <span className="text-gray-500 capitalize">{p.name}:</span>
-          <span className="font-semibold text-gray-800">{p.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
+/** How often the page refreshes itself while it is open and visible. */
+const AUTO_REFRESH_MS = 5 * 60_000;
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [team, setTeam] = useState<TeamMember[]>([]);
-  const [waStatus, setWaStatus] = useState<WaStatus | null>(null);
-  const [convStats, setConvStats] = useState<ConvStats | null>(null);
-  const [trend, setTrend] = useState<TrendPoint[]>([]);
-  const [metaBiz, setMetaBiz] = useState<MetaBusinessProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [preset, setPreset] = useState<DatePreset>('30d');
-  const [dateFrom, setDateFrom] = useState(daysAgoISO(30));
-  const [dateTo, setDateTo] = useState(todayISO());
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [statsError, setStatsError] = useState(false);
-  const [loadIssue, setLoadIssue] = useState(false);
-  // Only the latest stats request may update the screen (a slow older response must not overwrite a newer one).
-  const statsRequestId = useRef(0);
+  const pathname = usePathname() ?? '/dashboard';
+  const searchParams = useSearchParams();
+  const user = useAuthStore((s) => s.user);
+  const permissions = getPermissions(user?.role as UserRole | undefined);
+  const canView = permissions.showDashboard;
 
-  const load = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true); else setLoading(true);
-    try {
-      const [ovRes, teamRes, waRes, trendRes, bizRes] = await Promise.allSettled([
-        dashboardApi.overview(),
-        dashboardApi.teamStats(),
-        dashboardApi.whatsappStatus(),
-        dashboardApi.conversationTrend(30),
-        dashboardApi.businessProfile(),
-      ]);
-      // The business profile is optional (it needs a live Meta connection); the rest is core dashboard data.
-      const coreFailed = [ovRes, teamRes, waRes, trendRes].filter((r) => r.status === 'rejected');
-      if (coreFailed.length > 0) console.error(`[dashboard] ${coreFailed.length} dashboard request(s) failed`);
-      setLoadIssue(coreFailed.length > 0);
-      if (ovRes.status === 'fulfilled') setOverview(ovRes.value.data as Overview);
-      if (teamRes.status === 'fulfilled') setTeam(teamRes.value.data as TeamMember[]);
-      if (waRes.status === 'fulfilled') setWaStatus(waRes.value.data as WaStatus);
-      if (trendRes.status === 'fulfilled') setTrend((trendRes.value.data as TrendPoint[]) ?? []);
-      if (bizRes.status === 'fulfilled' && bizRes.value.data) setMetaBiz(bizRes.value.data as MetaBusinessProfile);
-    } finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  // The range lives in the address, so a view can be shared and the back button works.
+  const rawPreset = searchParams?.get('range');
+  const preset: DashboardPreset = PRESET_KEYS.includes(rawPreset as DashboardPreset) ? (rawPreset as DashboardPreset) : DEFAULT_PRESET;
+  const from = searchParams?.get('from') ?? '';
+  const to = searchParams?.get('to') ?? '';
+  const customProblem = preset === 'custom' ? customRangeProblem(from, to, DASHBOARD_MAX_DAYS) : null;
+  const range: DashboardRange = useMemo(() => ({ preset, from, to }), [preset, from, to]);
+  const key = rangeKey(range);
+  const enabled = canView && customProblem === null;
 
-  const loadStats = useCallback(async (from: string, to: string) => {
-    const requestId = ++statsRequestId.current;
-    setStatsLoading(true);
-    try {
-      const res = await dashboardApi.conversationStats(from, to);
-      if (requestId !== statsRequestId.current) return;
-      setConvStats(res.data as ConvStats);
-      setStatsError(false);
-    } catch (err) {
-      if (requestId !== statsRequestId.current) return;
-      console.error('[dashboard] conversation stats failed', err instanceof Error ? err.message : err);
-      setConvStats(null);
-      setStatsError(true);
-    } finally {
-      if (requestId === statsRequestId.current) setStatsLoading(false);
-    }
-  }, []);
+  const setParams = useCallback((next: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? '');
+    for (const [k, v] of Object.entries(next)) { if (v == null || v === '') params.delete(k); else params.set(k, v); }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [router, pathname, searchParams]);
 
-  const applyPreset = useCallback((p: DatePreset) => {
-    const found = DATE_PRESETS.find((d) => d.key === p);
-    if (found) {
-      const from = found.from();
-      const to = found.to();
-      setDateFrom(from);
-      setDateTo(to);
-      setPreset(p);
-      void loadStats(from, to);
-    } else {
-      setPreset('custom');
-    }
-  }, [loadStats]);
-
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { void loadStats(dateFrom, dateTo); }, [loadStats, dateFrom, dateTo]);
-
-  // Real-time KPI updates via socket
-  const refreshOverviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const refreshTeamTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const refreshOverview = useCallback(() => {
-    if (refreshOverviewTimer.current) clearTimeout(refreshOverviewTimer.current);
-    refreshOverviewTimer.current = setTimeout(() => {
-      void dashboardApi.overview().then((res) => setOverview(res.data as Overview)).catch(() => null);
-    }, 500);
-  }, []);
-
-  const refreshTeam = useCallback(() => {
-    if (refreshTeamTimer.current) clearTimeout(refreshTeamTimer.current);
-    refreshTeamTimer.current = setTimeout(() => {
-      void dashboardApi.teamStats().then((res) => setTeam(res.data as TeamMember[])).catch(() => null);
-    }, 800);
-  }, []);
-
+  const [showTrendTable, setShowTrendTable] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = useCallback(() => setRefreshKey((n) => n + 1), []);
   useEffect(() => {
-    const socket = getSocket();
-    socket.on(SocketEvent.NEW_MESSAGE, refreshOverview);
-    socket.on(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
-    socket.on(SocketEvent.CONVERSATION_STATE_CHANGED, refreshOverview);
-    socket.on(SocketEvent.CONVERSATION_STATE_CHANGED, refreshTeam);
-    socket.on(SocketEvent.CONVERSATION_UPDATED, refreshTeam);
-    return () => {
-      socket.off(SocketEvent.NEW_MESSAGE, refreshOverview);
-      socket.off(SocketEvent.CONVERSATION_UPDATED, refreshOverview);
-      socket.off(SocketEvent.CONVERSATION_STATE_CHANGED, refreshOverview);
-      socket.off(SocketEvent.CONVERSATION_STATE_CHANGED, refreshTeam);
-      socket.off(SocketEvent.CONVERSATION_UPDATED, refreshTeam);
-      if (refreshOverviewTimer.current) clearTimeout(refreshOverviewTimer.current);
-      if (refreshTeamTimer.current) clearTimeout(refreshTeamTimer.current);
-    };
-  }, [refreshOverview, refreshTeam]);
+    if (!enabled) return;
+    const id = setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, AUTO_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [enabled, refresh]);
 
-  if (loading) {
+  const query = rangeQuery(range);
+  const opts = { enabled, refreshKey };
+  const summary = useWidget<DashboardSummary>(key, (s) => dashboardApi.summary(query, s).then((r) => r.data), opts);
+  const trend = useWidget<DashboardTrend>(key, (s) => dashboardApi.trend(query, s).then((r) => r.data), opts);
+  const attention = useWidget<DashboardAttention>(key, (s) => dashboardApi.attention(query, s).then((r) => r.data), opts);
+  // These three describe the workspace as it is now, so they do not depend on the date range.
+  const [metaChecks, setMetaChecks] = useState(0);
+  const workspaceOpts = { enabled, refreshKey: refreshKey + metaChecks };
+  const business = useWidget<DashboardBusiness>('workspace', (s) => dashboardApi.business(s).then((r) => r.data), workspaceOpts);
+  const whatsapp = useWidget<DashboardWhatsAppStatus>('workspace', (s) => dashboardApi.whatsappStatus(metaChecks > 0, s).then((r) => r.data), workspaceOpts);
+
+  const reloadAll = () => { refresh(); };
+  const anyLoading = summary.loading || trend.loading || attention.loading;
+  const firstName = user?.name?.split(' ')[0] ?? '';
+
+  if (!canView) {
     return (
-      <div className="flex-1 flex items-center justify-center h-full bg-gray-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600" />
+      <div className="max-w-xl mx-auto p-6">
+        <EmptyNote title="The dashboard is for workspace owners and admins" href="/inbox" hrefLabel="Go to your inbox">
+          Ask an admin if you need access to these numbers.
+        </EmptyNote>
       </div>
     );
   }
 
-  const biz = overview?.business;
-  const contacts = overview?.contacts;
-  const conv = overview?.conversations;
-  const trendData = trend.map((p) => ({ ...p, date: fmtDate(p.date) }));
-  const pendingChats = conv?.pending ?? 0;
-
   return (
-    <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
+    <div className="h-full overflow-y-auto overscroll-contain bg-gray-50">
+    <div className="p-4 sm:p-6 max-w-[1280px] mx-auto space-y-5 sm:space-y-6">
+      <Header
+        firstName={firstName}
+        meta={summary.data?.meta ?? null}
+        range={range}
+        loading={anyLoading}
+        onPreset={(p) => setParams({ range: p === DEFAULT_PRESET ? null : p, from: null, to: null })}
+        onCustom={(f, t) => setParams({ range: 'custom', from: f, to: t })}
+        onRefresh={reloadAll}
+      />
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
-            {biz?.plan && (
-              <span
-                onClick={() => router.push('/billing')}
-                className={cn(
-                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors',
-                  biz.plan.toLowerCase() === 'pro' || biz.plan.toLowerCase() === 'enterprise'
-                    ? 'bg-teal-100 text-teal-700 hover:bg-teal-200'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
-                )}
-              >
-                <Zap size={10} className={biz.plan.toLowerCase() === 'pro' || biz.plan.toLowerCase() === 'enterprise' ? 'text-teal-600' : 'text-gray-400'} />
-                {biz.plan} Plan
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => { void load(true); }}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 text-gray-600"
-          >
-            <RefreshCw size={12} className={cn(refreshing && 'animate-spin')} />
-            Refresh
-          </button>
-        </div>
+      {customProblem && (
+        <p role="alert" className="text-sm text-red-700">{customProblem} Pick a different range to see your numbers.</p>
+      )}
 
-        {/* No channel banner */}
-        {waStatus && !waStatus.isConnected && (
-          <div className="bg-teal-50 border border-teal-200 rounded-2xl p-5 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center flex-shrink-0">
-                <svg viewBox="0 0 24 24" className="w-7 h-7 fill-white">
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">No channel connected</p>
-                <p className="text-xs text-gray-600 mt-0.5">Connect WhatsApp Business API to start receiving conversations</p>
-              </div>
-            </div>
-            <button onClick={() => router.push('/channels')}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-xl transition-colors">
-              <Plus size={14} />Add Channel
-            </button>
-          </div>
-        )}
-
-        {loadIssue && !loading && (
-          <div role="alert" className="flex items-center justify-between gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
-            <span>Some dashboard data could not be loaded, so numbers below may be out of date.</span>
-            <button type="button" onClick={() => { void load(true); }} className="font-medium underline whitespace-nowrap">Try again</button>
-          </div>
-        )}
-
-        {/* Mobile: KPI horizontal carousel */}
-        <div
-          className="md:hidden -mx-4 overflow-x-auto px-4 pb-1"
-          style={{ scrollbarWidth: 'none' }}
-        >
-          <div className="flex gap-3 w-max snap-x snap-mandatory">
-            {[
-              { label: 'Contacts',  value: contacts?.total ?? 0,                                     icon: Users,         bg: 'bg-teal-50',   iconCls: 'text-teal-600' },
-              { label: 'Open Chats',value: conv?.open ?? 0,                                          icon: MessageSquare, bg: 'bg-blue-50',   iconCls: 'text-blue-600' },
-              { label: 'Resolved',  value: team.reduce((a, m) => a + m.resolvedToday, 0),            icon: CheckCircle,   bg: 'bg-green-50',  iconCls: 'text-green-600' },
-              { label: 'Pending',   value: pendingChats,                                             icon: Clock,         bg: 'bg-orange-50', iconCls: pendingChats > 0 ? 'text-orange-600' : 'text-orange-300' },
-            ].map(({ label, value, icon: Icon, bg, iconCls }) => (
-              <div key={label} className="flex-shrink-0 w-40 bg-white border border-gray-100 rounded-2xl p-4 shadow-sm snap-start">
-                <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center mb-3 flex-shrink-0', bg)}>
-                  <Icon size={16} className={iconCls} />
-                </div>
-                <p className="text-xl font-bold text-gray-900 leading-none">
-                  {typeof value === 'number' ? value.toLocaleString() : value}
-                </p>
-                <p className="text-xs text-gray-400 mt-1.5">{label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Mobile: Quick Actions */}
-        <div className="md:hidden">
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: 'Inbox',     icon: MessageSquare, href: '/inbox',     bg: 'bg-teal-50',   iconCls: 'text-teal-600' },
-              { label: 'Campaigns', icon: Megaphone,     href: '/campaigns', bg: 'bg-purple-50', iconCls: 'text-purple-600' },
-              { label: 'Contacts',  icon: Users,         href: '/contacts',  bg: 'bg-blue-50',   iconCls: 'text-blue-600' },
-              { label: 'Calls',     icon: Phone,         href: '/calls',     bg: 'bg-emerald-50',iconCls: 'text-emerald-600' },
-            ].map(({ label, icon: Icon, href, bg, iconCls }) => (
-              <button
-                key={label}
-                onClick={() => router.push(href)}
-                className="flex flex-col items-center gap-2 active:scale-95 transition-transform"
-              >
-                <div className={cn('w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border border-white', bg)}>
-                  <Icon size={22} className={iconCls} />
-                </div>
-                <span className="text-[11px] font-medium text-gray-600">{label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Desktop: KPI 4-col grid */}
-        <div className="hidden md:grid grid-cols-4 gap-4">
-          <KpiCard label="Total Contacts"     value={contacts?.total ?? 0}    icon={Users}         color="teal"   />
-          <KpiCard label="Open Conversations" value={conv?.open ?? 0}         icon={MessageSquare} color="blue"   />
-          <KpiCard label="Resolved Today"     value={team.reduce((a, m) => a + m.resolvedToday, 0)} icon={CheckCircle} color="green" />
-          <KpiCard
-            label="Pending Chats"
-            value={pendingChats}
-            sub="Requesting support"
-            icon={Clock}
-            color="orange"
-            urgent={pendingChats > 0}
-          />
-        </div>
-
-        {/* Conversation Stats with Date Filter */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <div className="flex items-center gap-2">
-              <TrendingUp size={15} className="text-teal-600" />
-              <h2 className="text-sm font-semibold text-gray-900">Conversation Activity</h2>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Quick preset buttons */}
-              <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
-                {DATE_PRESETS.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => applyPreset(p.key)}
-                    className={cn(
-                      'px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors',
-                      preset === p.key ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-500 hover:text-gray-700',
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              {/* Custom date range */}
-              <div className="hidden sm:flex items-center gap-1.5">
-                <CalendarDays size={13} className="text-gray-400" />
-                <input type="date" value={dateFrom} max={dateTo}
-                  onChange={e => { setDateFrom(e.target.value); setPreset('custom'); void loadStats(e.target.value, dateTo); }}
-                  className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                <span className="text-xs text-gray-400">-</span>
-                <input type="date" value={dateTo} min={dateFrom} max={todayISO()}
-                  onChange={e => { setDateTo(e.target.value); setPreset('custom'); void loadStats(dateFrom, e.target.value); }}
-                  className="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
-              </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: 'Opened', val: convStats?.opened ?? 0, icon: TrendingUp, color: 'text-teal-600', bg: 'bg-teal-50 border-teal-100' },
-              { label: 'Resolved', val: convStats?.closed ?? 0, icon: TrendingDown, color: 'text-green-600', bg: 'bg-green-50 border-green-100' },
-            ].map(({ label, val, icon: Icon, color, bg }) => (
-              <div key={label} className={cn('border rounded-2xl p-5 text-center', bg)}>
-                <Icon size={18} className={cn('mx-auto mb-2', color)} />
-                {statsLoading
-                  ? <div className="animate-pulse h-9 bg-gray-200 rounded w-14 mx-auto" />
-                  : statsError
-                    ? <p className="text-3xl font-bold text-gray-300" aria-label="Unavailable">--</p>
-                    : <p className="text-3xl font-bold text-gray-900">{val.toLocaleString()}</p>
-                }
-                <p className="text-xs text-gray-500 mt-1 font-medium">{label}</p>
-              </div>
-            ))}
-          </div>
-          {statsError && (
-            <p role="alert" className="mt-3 text-xs text-red-600">
-              Could not load conversation stats.{' '}
-              <button type="button" onClick={() => { void loadStats(dateFrom, dateTo); }} className="underline font-medium">Try again</button>
-            </p>
-          )}
-        </div>
-
-        {/* Business Info */}
-        <Section title="Business Information" icon={Building2}>
-          <p className="text-xs text-gray-400 mb-3">Live data from Meta Business API</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-            <div>
-              <InfoRow label="Business Name"   value={metaBiz?.phone?.verified_name ?? biz?.name} />
-              <InfoRow label="Phone Number"    value={metaBiz?.phone?.display_phone_number ?? biz?.phone} mono />
-              <InfoRow label="Description"     value={metaBiz?.profile?.description ?? biz?.description} />
-              <InfoRow label="About"           value={metaBiz?.profile?.about} />
-              <InfoRow label="Industry"        value={metaBiz?.profile?.vertical} />
-            </div>
-            <div>
-              <InfoRow label="Address"         value={metaBiz?.profile?.address ?? biz?.address} />
-              <InfoRow label="Email"           value={metaBiz?.profile?.email ?? biz?.email} />
-              <InfoRow label="Quality Rating"  value={metaBiz?.phone?.quality_rating} />
-              <InfoRow label="Messaging Limit" value={metaBiz?.phone?.messaging_limit_tier} />
-              <InfoRow label="Current Plan"    value={biz?.plan ? `${biz.plan} Plan` : undefined} />
-              <InfoRow label="Website"         value={
-                (metaBiz?.profile?.websites?.[0] ?? biz?.website)
-                  ? <a href={metaBiz?.profile?.websites?.[0] ?? biz?.website} target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline">
-                      {metaBiz?.profile?.websites?.[0] ?? biz?.website}
-                    </a>
-                  : null
-              } />
-            </div>
-          </div>
-        </Section>
-
-        {/* Row: WA Status + Team */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* WhatsApp Status */}
-          <Section title="WhatsApp Business API" icon={waStatus?.isConnected ? Wifi : WifiOff}>
-            <div className="space-y-3">
-              {[
-                { label: 'Connection', value: waStatus?.isConnected ? 'Connected' : 'Disconnected', dot: waStatus?.isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500', vcolor: waStatus?.isConnected ? 'text-green-600' : 'text-red-600' },
-                { label: 'Quality Rating', value: waStatus?.qualityRating ?? '-', dot: waStatus?.qualityRating === 'GREEN' ? 'bg-green-500' : waStatus?.qualityRating === 'YELLOW' ? 'bg-yellow-500' : 'bg-red-400', vcolor: qualityColor(waStatus?.qualityRating ?? '') },
-                { label: 'Verification', value: waStatus?.verificationStatus ?? '-', dot: waStatus?.verificationStatus === 'VERIFIED' ? 'bg-green-500' : 'bg-yellow-400', vcolor: waStatus?.verificationStatus === 'VERIFIED' ? 'text-green-600' : 'text-yellow-600' },
-                { label: 'Messaging Limit', value: waStatus?.messagingLimit ?? '-', dot: 'bg-teal-400', vcolor: 'text-gray-800' },
-              ].map(({ label, value, dot, vcolor }) => (
-                <div key={label} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-                  <div className="flex items-center gap-2">
-                    <div className={cn('w-2 h-2 rounded-full flex-shrink-0', dot)} />
-                    <span className="text-xs text-gray-700 font-medium">{label}</span>
-                  </div>
-                  <span className={cn('text-xs font-semibold', vcolor)}>{value}</span>
-                </div>
-              ))}
-            </div>
-          </Section>
-
-          {/* Team stats */}
-          <Section title="Team Performance" icon={Users}>
-            {team.length === 0 ? (
-              <p className="text-xs text-gray-400 text-center py-6">No team members</p>
-            ) : (
-              <div className="space-y-3">
-                {team.slice(0, 5).map((m) => (
-                  <div key={m.id} className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-semibold">
-                        {m.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
-                      </div>
-                      <div className={cn('absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white', m.isOnline ? 'bg-green-500' : 'bg-gray-300')} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-800 truncate">{m.name}</p>
-                      <p className="text-xs text-gray-400">{m.assignedConversations} assigned · {m.resolvedToday} resolved today</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
-        </div>
-
-        {/* Conversation Trend Chart */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={15} className="text-teal-600" />
-            <h2 className="text-sm font-semibold text-gray-900">30-Day Trend</h2>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Last 30 days</span>
-          </div>
-          {trendData.length === 0 ? (
-            <div className="h-56 flex items-center justify-center text-gray-400 text-sm">
-              No conversation data yet
-            </div>
+      {enabled && (
+        <>
+          {summary.data ? (
+            <KpiCards data={summary.data} range={range} />
+          ) : summary.error ? (
+            <WidgetCard id="kpis" title="Key numbers" widget={summary}>{() => null}</WidgetCard>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gradOpened" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#0d9488" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gradClosed" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#22c55e" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: '#9ca3af' }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-                <Area type="monotone" dataKey="opened" name="Opened" stroke="#0d9488" strokeWidth={2} fill="url(#gradOpened)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-                <Area type="monotone" dataKey="resolved" name="Resolved" stroke="#22c55e" strokeWidth={2} fill="url(#gradClosed)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-busy="true" aria-label="Loading key numbers">
+              {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-36" />)}
+            </div>
           )}
-        </div>
 
-      </div>
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            <div className="min-w-0 space-y-5">
+              <WidgetCard
+                id="attention"
+                title={<span className="flex items-center gap-2.5"><span aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-50 text-red-600"><AlertCircle size={18} /></span>Needs attention</span>}
+                description="Things waiting on you right now"
+                aside={<Link href="/inbox" className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-teal-700 hover:underline">View all<ArrowRight size={14} aria-hidden="true" /></Link>}
+                widget={attention} skeletonClassName="h-32"
+              >
+                {(data) => <AlertTiles data={data} />}
+              </WidgetCard>
+
+              <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                <WidgetCard
+                  id="trend" title="Conversation trend" widget={trend} skeletonClassName="h-80"
+                  aside={
+                    <div className="flex items-center gap-2">
+                      {preset !== 'custom' && (
+                        <SelectInput
+                          label="Period" value={preset} className="w-28 py-1.5"
+                          onChange={(v) => setParams({ range: v === DEFAULT_PRESET ? null : v, from: null, to: null })}
+                          options={[{ value: 'today', label: 'Today' }, { value: '7d', label: '7 days' }, { value: '30d', label: '30 days' }]}
+                        />
+                      )}
+                      <Button variant="secondary" size="sm" onClick={() => setShowTrendTable((v) => !v)} aria-pressed={showTrendTable}>
+                        <Table2 size={14} aria-hidden="true" />{showTrendTable ? 'View chart' : 'View table'}
+                      </Button>
+                    </div>
+                  }
+                >
+                  {(data) => <TrendCard data={data} showTable={showTrendTable} />}
+                </WidgetCard>
+
+                <WidgetCard
+                  id="whatsapp" title="WhatsApp account status" widget={whatsapp}
+                  description={<span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="text-sm font-bold text-blue-600">&infin;</span>As reported by Meta</span>}
+                  aside={whatsapp.data && whatsappHeadline(whatsapp.data) ? <StatusBadge tone={whatsappHeadline(whatsapp.data)!.tone}>{whatsappHeadline(whatsapp.data)!.label}</StatusBadge> : undefined}
+                >
+                  {(data) => <WhatsAppCard data={data} refreshing={whatsapp.loading} onRefresh={() => setMetaChecks((n) => n + 1)} />}
+                </WidgetCard>
+              </div>
+            </div>
+
+            <WidgetCard id="business" title="Business and subscription" description="Your business details and plan" widget={business}>
+              {(data) => <BusinessCard data={data} />}
+            </WidgetCard>
+          </div>
+        </>
+      )}
+    </div>
     </div>
   );
 }

@@ -299,7 +299,7 @@ export default function ContactProfilePage() {
               ) : (
                 <>
                   <div className="flex items-center gap-3 flex-wrap">
-                    <h1 className="text-xl font-bold text-gray-900">{displayName}</h1>
+                    <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">{displayName}</h1>
                     {contact.isBlocked && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Blocked</span>}
                     {contact.optedOut && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">Opted Out</span>}
                   </div>

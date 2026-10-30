@@ -1,0 +1,140 @@
+name: Validate release images
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full commit SHA to build and validate (no deployment)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-image-validation-${{ inputs.revision || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build-staging-images:
+    name: Build pinned staging images
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate requested revision
+        env:
+          REVISION: ${{ inputs.revision || github.sha }}
+        run: |
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::revision must be a full 40-character commit SHA"
+            exit 1
+          }
+
+      - name: Check out exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+          fetch-depth: 1
+
+      - name: Confirm checked-out commit
+        env:
+          REVISION: ${{ inputs.revision || github.sha }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          [[ "$actual" == "$REVISION" ]] || {
+            echo "::error::checkout does not match requested revision"
+            exit 1
+          }
+
+      - name: Create non-secret Compose validation settings
+        run: |
+          umask 077
+          cat > "$RUNNER_TEMP/staging-validation.env" <<'EOF'
+          POSTGRES_USER=releasecheck
+          POSTGRES_PASSWORD=local-only-validation-password
+          POSTGRES_DB=releasecheck
+          REDIS_PASSWORD=local-only-validation-password
+          JWT_SECRET=local-only-validation-jwt-secret-012345678901234567890123456789
+          JWT_REFRESH_SECRET=local-only-validation-refresh-secret-012345678901234567890123456789
+          MINIO_ACCESS_KEY=releasecheck
+          MINIO_SECRET_KEY=local-only-validation-minio-secret
+          VPS_IP=127.0.0.1
+          STAGING_PUBLIC_URL=https://staging.invalid
+          EOF
+
+      - name: Run deployment safety contract tests
+        run: |
+          bash -n infra/scripts/staging-release-deploy.sh
+          bash -n infra/scripts/staging-verify-backup-restore.sh
+          bash infra/scripts/tests/staging-release-contract.test.sh
+          bash infra/scripts/tests/staging-recreate.test.sh
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Compose configuration without starting services
+        env:
+          RELEASE_TAG: ${{ inputs.revision || github.sha }}
+        run: |
+          docker compose \
+            --project-name verzchat-staging \
+            --env-file "$RUNNER_TEMP/staging-validation.env" \
+            -f infra/docker-compose.staging.yml \
+            config --quiet
+
+      - name: Build every changed runtime image
+        env:
+          RELEASE_TAG: ${{ inputs.revision || github.sha }}
+        run: |
+          docker compose \
+            --project-name verzchat-staging \
+            --env-file "$RUNNER_TEMP/staging-validation.env" \
+            -f infra/docker-compose.staging.yml \
+            build backend worker realtime whatsapp-web frontend
+
+      - name: Confirm all image tags use the requested revision
+        env:
+          REVISION: ${{ inputs.revision || github.sha }}
+        run: |
+          for service in backend worker realtime whatsapp-web frontend; do
+            docker image inspect "verzchat-staging/$service:$REVISION" >/dev/null
+          done
+
+      - name: Verify backend Prisma client and migration payload
+        env:
+          REVISION: ${{ inputs.revision || github.sha }}
+        run: |
+          set -euo pipefail
+          migration_dir=apps/backend/prisma/migrations
+          test -s "$migration_dir/20261025190000_ai_credit_reservations/migration.sql"
+          test -s "$migration_dir/20261026120000_preserve_legacy_schema_values/migration.sql"
+          expected_migrations=$(
+            cd apps/backend/prisma
+            find migrations -type f -name migration.sql | sort |
+              while IFS= read -r file; do
+                printf '%s ' "$file"
+                sha256sum "$file" | awk '{print $1}'
+              done | sha256sum | awk '{print $1}'
+          )
+          expected_schema=$(sha256sum apps/backend/prisma/schema.prisma | awk '{print $1}')
+          image_metadata=$(
+            docker run --rm --entrypoint sh "verzchat-staging/backend:$REVISION" -c '
+              set -e
+              test -s /app/node_modules/@prisma/client/package.json
+              node -e "if (typeof require(\"@prisma/client\").PrismaClient !== \"function\") process.exit(1)"
+              cd /app/prisma
+              find migrations -type f -name migration.sql | sort |
+                while IFS= read -r file; do
+                  printf "%s " "$file"
+                  sha256sum "$file" | awk "{print \$1}"
+                done | sha256sum | awk "{print \$1}"
+              sha256sum schema.prisma | awk "{print \$1}"
+            '
+          )
+          image_migrations=$(printf '%s\n' "$image_metadata" | sed -n '1p')
+          image_schema=$(printf '%s\n' "$image_metadata" | sed -n '2p')
+          [[ "$expected_migrations" == "$image_migrations" ]]
+          [[ "$expected_schema" == "$image_schema" ]]

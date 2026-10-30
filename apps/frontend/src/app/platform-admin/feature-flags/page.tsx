@@ -6,8 +6,9 @@ import { adminApi, type FeatureFlagRow } from '@/lib/admin-api';
 import { DataTable, type DataTableColumn } from '@/components/admin/DataTable';
 import { Badge } from '@/components/admin/Badge';
 import { showConfirm } from '@/store/confirm.store';
+import { SuperAdminOnly } from '@/components/admin/RoleGate';
 
-export default function FeatureFlagsPage() {
+function FeatureFlagsPageContent() {
   const [rows, setRows] = useState<FeatureFlagRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -84,10 +85,10 @@ export default function FeatureFlagsPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Feature Flags</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Feature Flags</h1>
           <p className="text-gray-500 text-sm mt-1">Platform-wide and per-tenant feature rollout control</p>
         </div>
         <button
@@ -125,5 +126,13 @@ export default function FeatureFlagsPage() {
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} loading={loading} emptyMessage="No feature flags yet" />
       </div>
     </div>
+  );
+}
+
+export default function FeatureFlagsPage() {
+  return (
+    <SuperAdminOnly>
+      <FeatureFlagsPageContent />
+    </SuperAdminOnly>
   );
 }

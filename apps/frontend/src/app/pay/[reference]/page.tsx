@@ -33,7 +33,7 @@ const POLL_TIMEOUT_MS = 90_000;
 
 export default function PublicCheckoutPage() {
   const params = useParams<{ reference: string }>();
-  const reference = params.reference;
+  const reference = params?.reference;
 
   const [summary, setSummary] = useState<CheckoutSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -44,6 +44,11 @@ export default function PublicCheckoutPage() {
 
   const load = useCallback(async () => {
     setLoadError(null);
+    if (!reference) {
+      setSummary(null);
+      setLoadError("We couldn't find this payment link. It may have expired or the link may be incorrect.");
+      return null;
+    }
     try {
       const res = await axios.get<CheckoutSummary>(`${API_URL}/pay/${reference}`);
       setSummary(res.data);
@@ -57,6 +62,7 @@ export default function PublicCheckoutPage() {
   useEffect(() => { void load(); }, [load]);
 
   const pollStatus = useCallback(() => {
+    if (!reference) return;
     setPolling(true);
     pollDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS;
 

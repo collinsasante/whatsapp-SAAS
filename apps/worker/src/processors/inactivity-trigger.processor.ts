@@ -1,5 +1,5 @@
 import { Worker, Queue, Job } from 'bullmq';
-import { PrismaClient } from '@prisma/client';
+import { ActivityAction, AutomationTrigger, PrismaClient } from '@prisma/client';
 import { QueueName } from '@whatsapp-platform/shared-types';
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000; // every 30 minutes
@@ -57,7 +57,7 @@ export class InactivityTriggerWorker {
   private async process() {
     // Find all active INACTIVITY rules across all tenants
     const rules = await this.prisma.automationRule.findMany({
-      where: { trigger: 'INACTIVITY' as never, isActive: true },
+      where: { trigger: AutomationTrigger.INACTIVITY, isActive: true },
       select: { id: true, tenantId: true, conditions: true },
     });
 
@@ -91,7 +91,7 @@ export class InactivityTriggerWorker {
             where: {
               tenantId: rule.tenantId,
               conversationId: conv.id,
-              action: 'AUTOMATION_TRIGGERED',
+              action: ActivityAction.AUTOMATION_TRIGGERED,
               metadata: { path: ['ruleId'], equals: rule.id },
               createdAt: { gte: cutoff },
             },
@@ -104,6 +104,18 @@ export class InactivityTriggerWorker {
             conversationId: conv.id,
             contactId: conv.contactId,
           }, { attempts: 2, backoff: { type: 'fixed', delay: 5000 } });
+
+          // Record the firing that the de-duplication check above looks for. Written after the
+          // job is queued, so a failure here can at worst cause one repeat, never a lost event.
+          await this.prisma.activityLog.create({
+            data: {
+              tenantId: rule.tenantId,
+              conversationId: conv.id,
+              contactId: conv.contactId,
+              action: ActivityAction.AUTOMATION_TRIGGERED,
+              metadata: { ruleId: rule.id, trigger: AutomationTrigger.INACTIVITY },
+            },
+          });
         }
       } catch (err) {
         console.error(`[InactivityTrigger] Error processing rule ${rule.id}:`, err instanceof Error ? err.message : String(err));

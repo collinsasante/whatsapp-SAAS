@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsNumber, IsBoolean, IsArray, IsIn, IsInt, Matches, Max, Min } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsNumber, IsBoolean, IsArray, IsIn, IsInt, Matches, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -29,8 +29,16 @@ export type TenantTableFilter = (typeof TENANT_TABLE_FILTERS)[number];
 export const TENANT_TABLE_SORTS = ['name', 'createdAt', 'mrr', 'healthScore'] as const;
 export type TenantTableSort = (typeof TENANT_TABLE_SORTS)[number];
 
+export const TENANT_STATUS_FILTERS = ['active', 'trial', 'past_due', 'suspended', 'churned', 'no_subscription'] as const;
+
 export class TenantsQueryDto {
-  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  /** Plan slug. */
+  @IsOptional() @IsString() @MaxLength(60) plan?: string;
+  @IsOptional() @IsIn(TENANT_STATUS_FILTERS) status?: (typeof TENANT_STATUS_FILTERS)[number];
+  @IsOptional() @IsIn(['true', 'false']) active?: 'true' | 'false';
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'createdFrom must be a YYYY-MM-DD date' }) createdFrom?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'createdTo must be a YYYY-MM-DD date' }) createdTo?: string;
   @IsOptional() @IsIn(TENANT_TABLE_FILTERS) filter?: TenantTableFilter;
   @IsOptional() @IsIn(TENANT_TABLE_SORTS) sort?: TenantTableSort;
   @IsOptional() @IsIn(['asc', 'desc']) order?: 'asc' | 'desc';
@@ -83,9 +91,33 @@ export class CreatePlanDto {
   @IsOptional() @IsNumber()  sortOrder?: number;
 }
 
+/** Why a privileged action is being taken. Stored in the audit trail, so it must say something. */
+export class ReasonDto {
+  @IsString() @MinLength(3) @MaxLength(300) reason: string;
+}
+
+export class OptionalReasonDto {
+  @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+
+export class ForcePlanDto {
+  @IsString() @MinLength(1) @MaxLength(60) planSlug: string;
+  @IsString() @MinLength(3) @MaxLength(300) reason: string;
+}
+
+export class ForgotPasswordDto {
+  @IsEmail() email: string;
+}
+
+/** 72 is bcrypt's input limit: a longer password would be silently truncated, so it is refused instead. */
+export class ResetPasswordDto {
+  @IsString() @MinLength(20) @MaxLength(200) token: string;
+  @IsString() @MinLength(12) @MaxLength(72) password: string;
+}
+
 export class UpdateWorkspaceDto {
-  @IsOptional() @IsString() name?: string;
-  @IsOptional() @IsString() billingEmail?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) name?: string;
+  @IsOptional() @IsEmail() @MaxLength(254) billingEmail?: string;
 }
 
 export class UpdatePlanDto {
@@ -148,9 +180,12 @@ export class UpdateCommerceFeeDefaultDto {
   @IsNumber() @Min(0) @Max(100) defaultCommerceFeePct: number;
 }
 
+/** Upper bound on a single manual grant: large enough for any real top-up, small enough that a typo cannot add millions. */
+export const MAX_CREDIT_GRANT = 1_000_000;
+
 export class GrantCreditsDto {
-  @IsInt() @Min(1) credits: number;
-  @IsString() description: string;
+  @IsInt() @Min(1) @Max(MAX_CREDIT_GRANT) credits: number;
+  @IsString() @MinLength(3) @MaxLength(200) description: string;
   @IsOptional() @IsIn(['BONUS', 'ADJUSTMENT']) type?: 'BONUS' | 'ADJUSTMENT';
 }
 
@@ -172,6 +207,7 @@ export class ErrorLogsQueryDto {
   @IsOptional() @IsIn(['OPEN', 'RESOLVED', 'IGNORED']) status?: string;
   @IsOptional() @IsIn(['WARN', 'ERROR', 'CRITICAL']) severity?: string;
   @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsString() @MaxLength(60) service?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
@@ -191,8 +227,13 @@ export class WebhookEventsQueryDto {
 
 // ── Analytics: AI / Commerce / Messaging / Payments / Audit ────────────────
 
+/** A balance under this many credits is shown as running low. Fixed, so the page can say exactly what "low" means. */
+export const LOW_CREDIT_THRESHOLD = 100;
+
 export class AiCreditWalletsQueryDto {
-  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  /** out = active tenants with no credits left; low = active tenants under LOW_CREDIT_THRESHOLD. */
+  @IsOptional() @IsIn(['out', 'low']) filter?: 'out' | 'low';
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
 }
@@ -216,6 +257,8 @@ export class OrdersQueryDto {
 
 export class PaymentsQueryDto {
   @IsOptional() @IsString() tenantId?: string;
+  /** Matches the payment ID or the provider's reference. */
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
   @IsOptional() @IsIn(['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED', 'DISPUTED']) status?: string;
   @IsOptional() @IsIn(['STRIPE', 'PAYSTACK']) gateway?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
@@ -224,10 +267,26 @@ export class PaymentsQueryDto {
 
 export class AuditLogsQueryDto {
   @IsOptional() @IsString() adminId?: string;
-  @IsOptional() @IsString() action?: string;
+  @IsOptional() @IsString() @MaxLength(100) action?: string;
   @IsOptional() @IsString() resourceType?: string;
+  @IsOptional() @IsString() @MaxLength(100) resourceId?: string;
+  /** Matches the admin's name or email. */
+  @IsOptional() @IsString() @MaxLength(100) q?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'from must be a YYYY-MM-DD date' }) from?: string;
+  @IsOptional() @IsString() @Matches(DATE_PATTERN, { message: 'to must be a YYYY-MM-DD date' }) to?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) offset?: number;
+}
+
+export class UsersQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  @IsOptional() @IsString() @MaxLength(60) tenantId?: string;
+  @IsOptional() @IsIn(['ADMIN', 'AGENT', 'VIEWER', 'SUPER_ADMIN']) role?: string;
+  @IsOptional() @IsIn(['active', 'suspended']) status?: 'active' | 'suspended';
+  @IsOptional() @IsIn(['createdAt', 'lastLoginAt', 'name']) sort?: 'createdAt' | 'lastLoginAt' | 'name';
+  @IsOptional() @IsIn(['asc', 'desc']) order?: 'asc' | 'desc';
 }
 
 export class SearchQueryDto {

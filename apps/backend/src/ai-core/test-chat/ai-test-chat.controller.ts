@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { UserRole, JwtPayload } from '@whatsapp-platform/shared-types';
 import { AiTestChatService } from './ai-test-chat.service';
@@ -33,6 +34,7 @@ export class AiTestChatController {
   }
 
   @Post()
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOperation({ summary: 'Send a message as the test customer through the real inbound message pipeline' })
   send(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: TestChatMessageDto) {
     return this.testChat.sendMessage(tenantId, user.sub, dto.message);

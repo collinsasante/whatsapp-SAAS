@@ -35,14 +35,14 @@ export default function CommerceFeeLedgerPage() {
     { key: 'tenant', header: 'Tenant', render: (r) => <Link href={`/platform-admin/workspaces/${r.tenantId}`} className="text-teal-600 hover:underline">{r.tenant.name}</Link> },
     { key: 'orderId', header: 'Order', render: (r) => <Link href={`/platform-admin/orders/${r.orderId}`} className="font-mono text-xs text-gray-500 hover:underline">{r.orderId.slice(0, 8)}</Link> },
     { key: 'type', header: 'Type', render: (r) => <StatusBadge status={r.type} map={TYPE_TONES} /> },
-    { key: 'amount', header: 'Amount', render: (r) => <span className={r.amountMajorUnits < 0 ? 'text-red-600' : 'text-emerald-600'}>{r.amountMajorUnits > 0 ? '+' : ''}{r.amountMajorUnits.toFixed(2)} {r.currency}</span> },
+    { key: 'amount', header: 'Amount', render: (r) => <span className={r.amountMajorUnits < 0 ? 'text-red-600' : 'text-green-600'}>{r.amountMajorUnits > 0 ? '+' : ''}{r.amountMajorUnits.toFixed(2)} {r.currency}</span> },
   ];
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="flex items-start justify-between mb-6 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Commerce Fee Ledger</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Commerce Fee Ledger</h1>
           <p className="text-gray-500 text-sm mt-1">Cross-tenant GMV/fee/refund entries, most recent 200</p>
         </div>
         <DateRangePicker onChange={setRange} />

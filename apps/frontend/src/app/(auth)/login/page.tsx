@@ -267,7 +267,7 @@ function LoginPage() {
                 key={ws.id}
                 onClick={() => void handleSelectWorkspace(ws.id)}
                 disabled={loading}
-                className="w-full flex items-center gap-3.5 px-4 py-3.5 border border-gray-200 rounded-xl hover:border-teal-400 hover:bg-teal-50/40 transition-all text-left disabled:opacity-50 group"
+                className="w-full flex items-center gap-3.5 px-4 py-3.5 border border-gray-200 rounded-xl hover:border-teal-400 hover:bg-teal-50 transition-all text-left disabled:opacity-50 group"
               >
                 <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center flex-shrink-0 group-hover:bg-teal-200 transition-colors overflow-hidden">
                   {ws.logoUrl

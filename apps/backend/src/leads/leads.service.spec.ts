@@ -136,6 +136,22 @@ describe('LeadsService', () => {
       expect(aiCompletion.complete).not.toHaveBeenCalled();
       expect(result).toBe(existing);
     });
+
+    it('skips the AI call when the tenant credit balance cannot be checked', async () => {
+      const existing = { id: 'lead-1', lastScoredAt: null, score: 10, status: 'NEW' };
+      const prisma = buildPrismaMock({ lead: { findUnique: jest.fn().mockResolvedValue(existing), upsert: jest.fn(), updateMany: jest.fn() } });
+      const orders = buildOrdersMock();
+      const aiCompletion = { complete: jest.fn() };
+      const unavailableCredits = { hasSufficientBalance: jest.fn().mockRejectedValue(new Error('database unavailable')) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const service = new LeadsService(prisma as any, orders as any, aiCompletion as any, unavailableCredits as any);
+
+      const result = await service.scoreConversation('t1', 'c1', 'ct1');
+
+      expect(aiCompletion.complete).not.toHaveBeenCalled();
+      expect(prisma.lead.upsert).not.toHaveBeenCalled();
+      expect(result).toBe(existing);
+    });
   });
 
   describe('markConverted', () => {

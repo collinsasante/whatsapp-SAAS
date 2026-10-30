@@ -27,9 +27,9 @@ export default function SystemHealthPage() {
   useEffect(() => { void load(); }, [load]);
 
   return (
-    <div className="p-4 sm:p-8">
+    <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">System Health</h1>
+        <h1 className="text-xl font-semibold tracking-tight text-gray-900">System Health</h1>
         <p className="text-gray-500 text-sm mt-1">Real infrastructure signals, no synthetic uptime numbers</p>
       </div>
 
@@ -84,7 +84,7 @@ export default function SystemHealthPage() {
 
             <Panel title="WhatsApp quality" icon={Activity}>
               <div className="grid grid-cols-4 gap-3 text-center">
-                <div><div className="text-xl font-bold text-emerald-600">{health.whatsappQuality.GREEN}</div><div className="text-xs text-gray-400">Green</div></div>
+                <div><div className="text-xl font-bold text-green-600">{health.whatsappQuality.GREEN}</div><div className="text-xs text-gray-400">Green</div></div>
                 <div><div className="text-xl font-bold text-amber-600">{health.whatsappQuality.YELLOW}</div><div className="text-xs text-gray-400">Yellow</div></div>
                 <div><div className="text-xl font-bold text-red-600">{health.whatsappQuality.RED}</div><div className="text-xs text-gray-400">Red</div></div>
                 <div><div className="text-xl font-bold text-gray-400">{health.whatsappQuality.UNKNOWN}</div><div className="text-xs text-gray-400">Unknown</div></div>
@@ -99,7 +99,7 @@ export default function SystemHealthPage() {
               {health.costEstimatePerTenant.map((t) => (
                 <Link key={t.tenantId} href={`/platform-admin/workspaces/${t.tenantId}`} className="flex items-center justify-between text-sm hover:bg-gray-50 rounded px-1 py-1 -mx-1">
                   <span className="text-gray-700 hover:text-teal-600 hover:underline truncate">{t.tenantName}</span>
-                  <span className={t.estimatedGrossMargin < 0 ? 'text-red-600' : 'text-emerald-600'}>${t.estimatedGrossMargin.toFixed(2)}</span>
+                  <span className={t.estimatedGrossMargin < 0 ? 'text-red-600' : 'text-green-600'}>${t.estimatedGrossMargin.toFixed(2)}</span>
                 </Link>
               ))}
             </div>

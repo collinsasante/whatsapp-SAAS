@@ -1,108 +1,96 @@
 import type { Metadata } from 'next';
-import Navbar from '@/components/landing/Navbar';
-import Hero from '@/components/landing/Hero';
-import TrustBar from '@/components/landing/TrustBar';
-import Channels from '@/components/landing/Channels';
-import Features from '@/components/landing/Features';
-import Proof from '@/components/landing/Proof';
-import Pricing from '@/components/landing/Pricing';
-import BottomCTA from '@/components/landing/BottomCTA';
-import Footer from '@/components/landing/Footer';
+import Channels from '@/components/site/Channels';
+import Faq from '@/components/site/Faq';
+import FinalCta from '@/components/site/FinalCta';
+import Hero from '@/components/site/Hero';
+import Inside from '@/components/site/Inside';
+import OwnerSection from '@/components/site/Owner';
+import Pricing from '@/components/site/Pricing';
+import ScrollReveal from '@/components/site/ScrollReveal';
+import Problems from '@/components/site/Problems';
+import SiteFooter from '@/components/site/SiteFooter';
+import SiteNav from '@/components/site/SiteNav';
+import Steps from '@/components/site/Steps';
+import Trust from '@/components/site/Trust';
+import { FAQ, PLANS, SUPPORT_EMAIL } from '@/components/site/data';
+
+const TITLE = 'VerzChat: one shared inbox for WhatsApp, with Verz AI when you want it';
+const DESCRIPTION =
+  'Every customer conversation in one shared inbox, each with a visible owner: an agent or Verz AI. Take over or hand back with one click. Free plan available.';
 
 export const metadata: Metadata = {
-  title: 'VerzChat: WhatsApp Business Inbox for Teams',
-  description: 'Handle every customer WhatsApp message from one shared inbox. Official Meta API. Teams live in under 20 minutes.',
-  openGraph: {
+  title: { absolute: TITLE },
+  description: DESCRIPTION,
+  alternates: { canonical: '/' },
+  openGraph: { type: 'website', url: 'https://verzchat.com', siteName: 'VerzChat', title: TITLE, description: DESCRIPTION },
+  twitter: { card: 'summary_large_image', title: TITLE, description: DESCRIPTION },
+};
+
+const structuredData = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'VerzChat',
     url: 'https://verzchat.com',
+    logo: 'https://verzchat.com/logo.png',
+    contactPoint: { '@type': 'ContactPoint', contactType: 'customer support', email: SUPPORT_EMAIL },
   },
-  twitter: {
-    card: 'summary_large_image',
-    site: '@verzchat',
+  { '@context': 'https://schema.org', '@type': 'WebSite', name: 'VerzChat', url: 'https://verzchat.com' },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'VerzChat',
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web',
+    description: DESCRIPTION,
+    offers: PLANS.map((p) => ({
+      '@type': 'Offer',
+      name: p.name,
+      price: p.price.replace('$', ''),
+      priceCurrency: 'USD',
+    })),
   },
-  alternates: {
-    canonical: '/',
+  // Generated from the same list the page renders, so the markup can never describe an answer the page does not show.
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: FAQ.map((f) => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
   },
-};
-
-const organizationSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'Organization',
-  name: 'VerzChat',
-  url: 'https://verzchat.com',
-  logo: 'https://verzchat.com/logo.png',
-  sameAs: [],
-  contactPoint: {
-    '@type': 'ContactPoint',
-    contactType: 'sales',
-    url: 'https://verzchat.com/book-demo',
-  },
-};
-
-const softwareApplicationSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: 'VerzChat',
-  applicationCategory: 'BusinessApplication',
-  operatingSystem: 'Web',
-  offers: {
-    '@type': 'Offer',
-    price: '0',
-    priceCurrency: 'USD',
-    description: 'Free trial available',
-  },
-  description:
-    'Multi-channel business messaging platform. Handle every customer WhatsApp message from one shared inbox.',
-};
-
-const webSiteSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'WebSite',
-  name: 'VerzChat',
-  url: 'https://verzchat.com',
-};
-
-const faqSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'FAQPage',
-  mainEntity: [
-    { '@type': 'Question', name: 'How much does VerzChat cost?', acceptedAnswer: { '@type': 'Answer', text: 'VerzChat is $25 per month, all-inclusive. No per-message fees, no per-seat charges, no surprise bills. Cancel anytime.' } },
-    { '@type': 'Question', name: 'Can I use my existing WhatsApp Business number?', acceptedAnswer: { '@type': 'Answer', text: 'Yes. You can port your existing WhatsApp Business number to VerzChat. The process takes about 10 minutes and we guide you through every step.' } },
-    { '@type': 'Question', name: 'Is there a per-message fee?', acceptedAnswer: { '@type': 'Answer', text: 'No. VerzChat charges a flat monthly fee of $25. Standard WhatsApp conversation fees from Meta may apply depending on your usage volume.' } },
-    { '@type': 'Question', name: 'How many team members can I add?', acceptedAnswer: { '@type': 'Answer', text: 'Your $25 plan supports unlimited agents. Invite your entire team, support staff, sales reps, managers, all from the same workspace.' } },
-    { '@type': 'Question', name: 'Can I cancel at any time?', acceptedAnswer: { '@type': 'Answer', text: 'Yes, cancel anytime with no penalties. Your workspace stays active until the end of the current billing period, then closes.' } },
-    { '@type': 'Question', name: 'Is my customer data secure?', acceptedAnswer: { '@type': 'Answer', text: 'All data is encrypted at rest and in transit using AES-256 and TLS 1.3. We are fully compliant with GDPR and NDPR. Your data is never sold or shared with third parties.' } },
-    { '@type': 'Question', name: 'How quickly can my team get started?', acceptedAnswer: { '@type': 'Answer', text: 'Most teams are live in under 20 minutes. Connect your WhatsApp number, invite your agents, and you\'re handling conversations immediately.' } },
-  ],
-};
+];
 
 export default function LandingPage() {
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(webSiteSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-      />
-      <Navbar />
-      <Hero />
-      <TrustBar />
-      <Channels />
-      <Features />
-      <Proof />
-      <Pricing />
-      <BottomCTA />
-      <Footer />
+      {structuredData.map((d, i) => (
+        <script
+          key={i}
+          type="application/ld+json"
+          // "<" is escaped so no string in the data can close the script tag.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(d).replace(/</g, '\\u003c') }}
+        />
+      ))}
+      <a href="#main" className="skip">
+        Skip to content
+      </a>
+      <ScrollReveal />
+      <SiteNav />
+      <main id="main">
+        <Hero />
+        <Problems />
+        <OwnerSection />
+        <Inside />
+        <Channels />
+        <Steps />
+        <Trust />
+        <Pricing />
+        <Faq />
+        <FinalCta />
+      </main>
+      <SiteFooter />
     </>
   );
 }

@@ -36,7 +36,7 @@ const MAX_PENDING_FILES = 10;
 import { MessageStatus, MessageDirection } from '@whatsapp-platform/shared-types';
 import type { Message } from '@whatsapp-platform/shared-types';
 import type { ActivityEntry } from '@/store/inbox.store';
-import { contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
+import { channelContactLabel, contactDisplayName, contactMatchesSearch } from '@/lib/contact-display';
 import { describeAiHandling, type AiHandling } from '@/lib/ai-handling';
 import { ChannelBadge } from './ChannelBadge';
 import { VoiceNotePlayer } from './VoiceNotePlayer';
@@ -73,6 +73,9 @@ interface Props {
   onClose?: () => void;
   onMobileBack?: () => void;
 }
+
+/** A request is abandoned after 30s (see lib/api.ts), so a bubble still sending after this long is no longer in flight. */
+const STALE_SENDING_MS = 40_000;
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   [MessageStatus.QUEUED]: <Clock size={11} className="text-white/60" />,
@@ -177,7 +180,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const isOnline = useNetworkStatus();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
-  const { setQueuedCounts } = useOfflineStore();
+  const { setQueuedCounts, queuedMessages } = useOfflineStore();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   // Files pasted into the composer wait here (with a preview) until the agent presses Send.
@@ -339,7 +342,14 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   const typing = typingUsers[conversation.id] ?? [];
   const isResolved = localStatus === 'RESOLVED';
   const isArchived = localStatus === 'ARCHIVED';
-  const name = contactDisplayName(conversation.contact, undefined, '');
+  // Keep the old blank fallback for WhatsApp; only Messenger/Instagram contacts get a channel label.
+  const channelLabel = channelContactLabel(conversation.channel?.type);
+  // Meta's Messenger and Instagram APIs have no location pins or contact cards, and Instagram takes no documents.
+  // Hide what is guaranteed to fail instead of letting an agent pick it.
+  const chatChannelType = (conversation.channel?.type ?? 'WHATSAPP').toUpperCase();
+  const isInstagramChat = chatChannelType === 'INSTAGRAM';
+  const isMetaSocialChat = isInstagramChat || chatChannelType === 'FACEBOOK_MESSENGER';
+  const name = contactDisplayName(conversation.contact, undefined, channelLabel === 'Unknown' ? '' : channelLabel);
   const avatarColor = getAvatarColor(name);
 
   const lastInboundMsg = [...convMessages].reverse().find((m) => m.direction === MessageDirection.INBOUND);
@@ -464,6 +474,23 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, [conversation.id, setMessages, updateConversation, setActivityLogs]);
 
   useEffect(() => { void loadMessages(); }, [loadMessages]);
+
+  // A text bubble still showing the sending clock long after the 30s request limit is not in flight any more: the
+  // server has already decided its fate (it may well have been delivered). Reload the thread so the bubble shows
+  // what the server holds instead of staying on the clock. Messages waiting in the offline queue are left alone.
+  useEffect(() => {
+    if (!isOnline || queuedMessages > 0) return;
+    const timer = setInterval(() => {
+      const stale = (useInboxStore.getState().messages[conversation.id] ?? []).some((m) =>
+        m.id.startsWith('temp-') && m.status === MessageStatus.QUEUED && m.type === 'TEXT'
+        && Date.now() - parseInt(m.id.slice(5), 10) > STALE_SENDING_MS);
+      if (!stale) return;
+      messagesApi.list(conversation.id, { limit: 100 })
+        .then((res) => setMessages(conversation.id, (res.data as { data: Message[] }).data))
+        .catch((err: unknown) => console.warn('[verz:send] could not reload the thread to settle a sending bubble', getApiError(err, 'unknown error')));
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [isOnline, queuedMessages, conversation.id, setMessages]);
 
   // Client-side search — compute matching message IDs whenever query or messages change
   useEffect(() => {
@@ -933,15 +960,21 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     }
 
     setSending(true);
+    const sendStartedAt = Date.now();
+    const channelLabel = conversation.channel?.type ?? 'WHATSAPP';
     try {
       const res = await messagesApi.send(conversation.id, { content, type: 'TEXT', clientMessageId: tempId, ...(replyToId ? { replyToId } : {}) });
       // Replace temp immediately from API response — don't wait for socket (socket may be down)
       const real = res.data as Message;
+      // Lifecycle trace for "sent but stuck on sending" reports (status and timing only, never the text).
+      console.info(`[verz:send] ${channelLabel} text: API replied in ${Date.now() - sendStartedAt}ms, status=${real?.status ?? 'none'}, id=${real?.id ? 'present' : 'MISSING'}`);
+      if (real?.status === 'QUEUED') console.warn('[verz:send] the server returned this message still QUEUED; it will keep showing as sending until a status update arrives');
       if (real?.id) {
         removeMessage(conversation.id, tempId);
         addMessage(conversation.id, real);
       }
     } catch (err) {
+      console.warn(`[verz:send] ${channelLabel} text: request failed after ${Date.now() - sendStartedAt}ms`, getApiError(err, 'unknown error'));
       removeMessage(conversation.id, tempId);
       setText(content);
       toast.error(getApiError(err, 'Failed to send message'));
@@ -2165,18 +2198,24 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
             {/* Attachment popup */}
             {showAttachMenu && (
               <div className="fixed z-50 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden w-52" style={{ bottom: popupPos.bottom, left: popupPos.left }} onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => { closeMenus(); fileInputRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
-                  <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center"><FileText size={14} className="text-blue-600" /></div>Document / File
-                </button>
+                {!isInstagramChat && (
+                  <button onClick={() => { closeMenus(); fileInputRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
+                    <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center"><FileText size={14} className="text-blue-600" /></div>Document / File
+                  </button>
+                )}
                 <button onClick={() => { closeMenus(); photoInputRef.current?.click(); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
                   <div className="w-7 h-7 bg-teal-100 rounded-lg flex items-center justify-center"><ImageIcon size={14} className="text-teal-600" /></div>Photos &amp; Videos
                 </button>
-                <button onClick={() => { closeMenus(); setShowLocationPicker(true); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
-                  <div className="w-7 h-7 bg-red-100 rounded-lg flex items-center justify-center"><MapPin size={14} className="text-red-500" /></div>Location
-                </button>
-                <button onClick={() => { void openContactPicker(); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
-                  <div className="w-7 h-7 bg-purple-100 rounded-lg flex items-center justify-center"><User size={14} className="text-purple-600" /></div>Contact
-                </button>
+                {!isMetaSocialChat && (
+                  <>
+                    <button onClick={() => { closeMenus(); setShowLocationPicker(true); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
+                      <div className="w-7 h-7 bg-red-100 rounded-lg flex items-center justify-center"><MapPin size={14} className="text-red-500" /></div>Location
+                    </button>
+                    <button onClick={() => { void openContactPicker(); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
+                      <div className="w-7 h-7 bg-purple-100 rounded-lg flex items-center justify-center"><User size={14} className="text-purple-600" /></div>Contact
+                    </button>
+                  </>
+                )}
                 <button onClick={() => { closeMenus(); setShowLibraryPicker(true); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 text-sm text-gray-700">
                   <div className="w-7 h-7 bg-violet-100 rounded-lg flex items-center justify-center"><Images size={14} className="text-violet-600" /></div>File Library
                 </button>

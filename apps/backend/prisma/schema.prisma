@@ -98,6 +98,7 @@ model Tenant {
   internalTasks                   InternalTask[]
   leads                           Lead[]
   aiCreditTransactions            AiCreditTransaction[]
+  aiCreditReservations            AiCreditReservation[]
   errorLogs                       ErrorLog[]
   webhookEvents                   WebhookEvent[]
   facebookPageConnections         FacebookPageConnection[]
@@ -251,6 +252,9 @@ model TenantSettings {
   maxAgents                   Int       @default(10) @map("max_agents")
   welcomeEnabled              Boolean   @default(false) @map("welcome_enabled")
   welcomeMessage              String?   @map("welcome_message")
+  // Minutes a customer may wait for a person after asking for one (conversation status REQUESTED) before the
+  // request counts as overdue. Null turns the deadline off. Applies to new requests; see ManageSettingsService.
+  replyDeadlineMinutes        Int?      @default(15) @map("reply_deadline_minutes")
   offHoursEnabled             Boolean   @default(false) @map("off_hours_enabled")
   offHoursMessage             String?   @map("off_hours_message")
   offHoursSchedule            Json      @default("{}") @map("off_hours_schedule")
@@ -1176,6 +1180,7 @@ enum AutomationTrigger {
   CONVERSATION_CREATED
   CONVERSATION_RESOLVED
   LABEL_ADDED
+  INACTIVITY
 }
 
 model MediaAsset {
@@ -2691,6 +2696,7 @@ model AiExecution {
   agent                 AiAgent?                 @relation(fields: [agentId], references: [id], onDelete: SetNull)
   promptVersion         AiPromptVersion?         @relation(fields: [promptVersionId], references: [id], onDelete: SetNull)
   creditTransaction     AiCreditTransaction?
+  creditReservations    AiCreditReservation[]
   interactionEvaluation AiInteractionEvaluation?
 
   @@index([tenantId, createdAt])
@@ -3047,6 +3053,13 @@ enum AiCreditTransactionType {
   ADJUSTMENT
 }
 
+enum AiCreditReservationStatus {
+  RESERVED
+  SETTLED
+  RELEASED
+  EXPIRED
+}
+
 // Append-only ledger -- Tenant.aiCredits is the fast-read cached balance,
 // this is the source of truth for how it got there. aiExecutionId/
 // creditPurchaseId are each @unique (Postgres allows multiple NULLs on a
@@ -3062,6 +3075,7 @@ model AiCreditTransaction {
   balanceAfter     Int                     @map("balance_after")
   aiExecutionId    String?                 @unique @map("ai_execution_id")
   creditPurchaseId String?                 @unique @map("credit_purchase_id")
+  reservationId    String?                 @unique @map("reservation_id")
   description      String
   metadata         Json?
   createdAt        DateTime                @default(now()) @map("created_at")
@@ -3069,9 +3083,36 @@ model AiCreditTransaction {
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   aiExecution    AiExecution?    @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
   creditPurchase CreditPurchase? @relation(fields: [creditPurchaseId], references: [id], onDelete: SetNull)
+  reservation    AiCreditReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@map("ai_credit_transactions")
+}
+
+model AiCreditReservation {
+  id                            String                    @id @default(uuid())
+  tenantId                      String                    @map("tenant_id")
+  aiExecutionId                 String?                   @map("ai_execution_id")
+  idempotencyKey                String                    @map("idempotency_key")
+  reservedCredits               Int                       @map("reserved_credits")
+  settledCredits                Int?                      @map("settled_credits")
+  maxCreditsPerAttempt          Int                       @map("max_credits_per_attempt")
+  pricingCreditsPerUsd          Float                     @map("pricing_credits_per_usd")
+  pricingInputCostPerMillionUsd Float                     @map("pricing_input_cost_per_million_usd")
+  pricingOutputCostPerMillionUsd Float                    @map("pricing_output_cost_per_million_usd")
+  status                        AiCreditReservationStatus @default(RESERVED)
+  expiresAt                     DateTime                  @map("expires_at")
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiExecution AiExecution? @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  transaction AiCreditTransaction?
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status])
+  @@index([status, expiresAt])
+  @@map("ai_credit_reservations")
 }
 
 // Admin-configurable AI provider/model pricing -- the only place cost-per-
