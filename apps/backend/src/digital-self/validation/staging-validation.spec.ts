@@ -4,7 +4,7 @@ const TOKEN = 'secret-token-do-not-print';
 const cfg = (over: Partial<ValidationConfig> = {}): ValidationConfig => ({
   apiUrl: 'https://staging.example.test:8443/api/v1', token: TOKEN, digitalSelfA: 'dsAma', digitalSelfB: 'dsKofi', question: 'How much is the red shirt?',
   facts: { mustContain: ['red shirt', 'GH₵50'], mustNotContain: ['discount', 'free delivery'], allowedPrices: ['GH₵50'] }, runs: 3, confirmSyntheticData: true,
-  requestGapMs: 0, sleep: async () => undefined, ...over,
+  requestGapMs: 0, sleep: async () => undefined, maxEmptyRetries: 0, ...over,
 });
 
 interface FakeOpts {
@@ -128,7 +128,7 @@ describe('provider failures are reported as such, not as wrong answers', () => {
     expect(report.ok).toBe(false);
     expect(failed(report)).toEqual(['The AI gave real answers (no provider failures or hand-offs)']);
     expect(report.checks.filter((c) => c.status === 'skipped').map((c) => c.detail)).toEqual(expect.arrayContaining([expect.stringContaining('inconclusive')]));
-    expect(report.checks.find((c) => c.name.startsWith('The AI gave real answers'))!.detail).toMatch(/\d+ of \d+ replies/);
+    expect(report.checks.find((c) => c.name.startsWith('The AI gave real answers'))!.detail).toMatch(/\d+ of \d+ final replies/);
   });
   it('still judges the real replies when only some are fallbacks, and still fails overall', async () => {
     const report = await runValidation(cfg(), fakeApi({ replyFor: { dsKofi: FALLBACK } }).fetchFn);
@@ -138,6 +138,37 @@ describe('provider failures are reported as such, not as wrong answers', () => {
   });
   it('does not mistake a normal reply for a fallback', async () => {
     expect((await runValidation(cfg(), fakeApi().fetchFn)).checks.find((c) => c.name.startsWith('The AI gave real answers'))!.status).toBe('pass');
+  });
+});
+
+describe('intermittent empty answers', () => {
+  const FALLBACK = "Give me a moment -- I'm having a little trouble on my end. Let me get someone to pick this up.";
+  it('retries a fallback in a fresh conversation, keeps the real answer, and reports how many retries it took', async () => {
+    let n = 0;
+    const base = fakeApi();
+    // Every other test-chat send returns the fallback, as staging's model did.
+    const fetchFn: typeof base.fetchFn = async (url, init) => {
+      const res = await base.fetchFn(url, init);
+      if (init?.method === 'POST' && url.endsWith('/ai/test-chat') && n++ % 2 === 0) return { ...res, json: async () => ({ message: { content: FALLBACK } }) };
+      return res;
+    };
+    const report = await runValidation(cfg({ maxEmptyRetries: 2 }), fetchFn);
+    const check = report.checks.find((c) => c.name.startsWith('The AI gave real answers'))!;
+    expect(check.status).toBe('pass');
+    expect(check.detail).toMatch(/needed \d+ retr/);
+    expect(check.detail).toMatch(/pre-dates Digital Self/);
+    expect(report.replies.A.every((r) => r !== FALLBACK)).toBe(true);
+  });
+  it('fails, and says so, when retries are exhausted', async () => {
+    const report = await runValidation(cfg({ maxEmptyRetries: 1 }), fakeApi({ replyFor: { dsAma: FALLBACK, dsKofi: FALLBACK, none: FALLBACK } }).fetchFn);
+    const check = report.checks.find((c) => c.name.startsWith('The AI gave real answers'))!;
+    expect(check.status).toBe('fail');
+    expect(check.detail).toMatch(/after 1 retry/);
+  });
+  it('does not retry when retries are disabled', async () => {
+    const { fetchFn, calls } = fakeApi({ replyFor: { dsAma: FALLBACK, dsKofi: FALLBACK, none: FALLBACK } });
+    await runValidation(cfg({ maxEmptyRetries: 0 }), fetchFn);
+    expect(calls.filter((c) => c === 'POST /ai/test-chat')).toHaveLength(3 * 2 + 1);
   });
 });
 
