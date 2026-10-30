@@ -121,6 +121,26 @@ describe('runValidation', () => {
   });
 });
 
+describe('provider failures are reported as such, not as wrong answers', () => {
+  const FALLBACK = "Give me a moment -- I'm having a little trouble on my end. Let me get someone to pick this up.";
+  it('marks facts and style inconclusive (not failed) when every reply is the canned fallback', async () => {
+    const report = await runValidation(cfg(), fakeApi({ replyFor: { dsAma: FALLBACK, dsKofi: FALLBACK, none: FALLBACK } }).fetchFn);
+    expect(report.ok).toBe(false);
+    expect(failed(report)).toEqual(['The AI gave real answers (no provider failures or hand-offs)']);
+    expect(report.checks.filter((c) => c.status === 'skipped').map((c) => c.detail)).toEqual(expect.arrayContaining([expect.stringContaining('inconclusive')]));
+    expect(report.checks.find((c) => c.name.startsWith('The AI gave real answers'))!.detail).toMatch(/\d+ of \d+ replies/);
+  });
+  it('still judges the real replies when only some are fallbacks, and still fails overall', async () => {
+    const report = await runValidation(cfg(), fakeApi({ replyFor: { dsKofi: FALLBACK } }).fetchFn);
+    expect(report.ok).toBe(false);
+    expect(failed(report)).toContain('The AI gave real answers (no provider failures or hand-offs)');
+    expect(report.checks.find((c) => c.name.includes('(agent A)'))!.status).toBe('pass');
+  });
+  it('does not mistake a normal reply for a fallback', async () => {
+    expect((await runValidation(cfg(), fakeApi().fetchFn)).checks.find((c) => c.name.startsWith('The AI gave real answers'))!.status).toBe('pass');
+  });
+});
+
 describe('rate limits on the test chat', () => {
   it('waits the time the server asks for and retries, instead of failing', async () => {
     const sleeps: number[] = [];
