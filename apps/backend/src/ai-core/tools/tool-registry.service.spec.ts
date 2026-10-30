@@ -59,7 +59,7 @@ describe('ToolRegistryService', () => {
 
       const result = await service.execute('search_products', { tenantId: 't1', conversationId: 'c1', contactId: 'ct1', customerPhone: '+233' }, {});
 
-      expect(result).toEqual([{ id: 'p1', name: 'Wallet', priceMajorUnits: 90, currency: 'GHS', inStock: true, hasImage: false }]);
+      expect(result).toEqual([{ id: 'p1', name: 'Wallet', description: null, priceMajorUnits: 90, currency: 'GHS', inStock: true, variants: null, hasImage: false }]);
     });
 
     it('returns an error object for an unknown tool name instead of throwing', async () => {

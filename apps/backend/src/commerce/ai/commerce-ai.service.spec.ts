@@ -360,6 +360,31 @@ describe('commerce prompt wording (D11)', () => {
     expect(system).toMatch(/AWAITING_APPROVAL/);
   });
 
+  it('tells the model to say a product was not found and ask for clarification, never to repeat or substitute it', async () => {
+    const { system } = await systemPrompt();
+    expect(system).toMatch(/Only talk about a product .* if a tool result this turn returned it/);
+    expect(system).toMatch(/could not find it, ask the customer to clarify/);
+    expect(system).toMatch(/never state a price or stock level for it, and never offer a different product as if it were the one they asked for/);
+  });
+
+  it('teaches selling from the catalogue: discover the need, recommend with real reasons, handle price and stock objections, move to the next step', async () => {
+    const { system } = await systemPrompt();
+    expect(system).toMatch(/Work out what the customer needs before you list things/);
+    expect(system).toMatch(/ask ONE short question/);
+    expect(system).toMatch(/Do not invent features, materials, quality claims or benefits the result does not state/);
+    expect(system).toMatch(/sort price_asc or a maxPrice/);
+    expect(system).toMatch(/You cannot discount, bargain or invent a promotion/);
+    expect(system).toMatch(/When a product the customer wants is out of stock, say so first/);
+    expect(system).toMatch(/one concrete next step/);
+  });
+
+  it('forbids false urgency and limits use of the customer name and stock greetings', async () => {
+    const { system } = await systemPrompt();
+    expect(system).toMatch(/never create urgency or scarcity/);
+    expect(system).toMatch(/Use the customer's name at most once in the conversation/);
+    expect(system).toMatch(/Don't open every message with a greeting/);
+  });
+
   it('shares the style rules (no filler closers, no repeated apology, no claimed-but-untaken actions) and has no forced name rule', async () => {
     const { system } = await systemPrompt();
     expect(system).toMatch(/Never describe an action as done, in progress, or arranged unless you actually took it this turn/);
