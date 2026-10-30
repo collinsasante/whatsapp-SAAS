@@ -2,14 +2,20 @@
 
 export interface DigitalSelfSummary {
   hasLearnedTraits: boolean;
+  /** The agent's own replies behind the traits (approved corrections are counted separately). */
   samples: number;
+  correctionSamples: number;
   replyLength?: 'short' | 'medium' | 'detailed';
   averageWords?: number;
+  sentenceLength?: 'short' | 'medium' | 'long';
   emoji?: 'none' | 'occasional' | 'frequent';
   formality?: 'formal' | 'balanced' | 'casual';
   warmth?: 'enthusiastic' | 'moderate' | 'reserved';
   followUps?: 'often' | 'sometimes' | 'rarely';
+  empathy?: 'often' | 'sometimes' | 'rarely';
+  acknowledges?: 'often' | 'sometimes' | 'rarely';
   contractions?: 'often' | 'rarely';
+  codeSwitching?: 'often' | 'rarely';
   opening?: string;
   closing?: string;
   languages: string[];
@@ -30,6 +36,8 @@ export interface DigitalSelf {
   lastLearnedAt: string | null;
   lastError: string | null;
   profileVersion: number;
+  /** Approved style corrections currently applied. */
+  correctionCount: number;
   summary: DigitalSelfSummary;
 }
 
@@ -40,6 +48,8 @@ export interface DigitalSelfList {
 }
 
 export interface ConversationDigitalSelf {
+  /** Whether this conversation is excluded from Digital Self learning. */
+  learning: { excluded: boolean; excludedAt: string | null };
   source: 'assigned' | 'owner' | null;
   digitalSelf: DigitalSelf | null;
 }
@@ -64,7 +74,8 @@ const LENGTH = { short: 'Short and to the point', medium: 'A few sentences', det
 const EMOJI = { none: 'No emoji', occasional: 'Occasional emoji', frequent: 'Frequent emoji' } as const;
 const FORMALITY = { formal: 'Formal', balanced: 'Balanced', casual: 'Casual' } as const;
 const WARMTH = { enthusiastic: 'Enthusiastic', moderate: 'Moderate energy', reserved: 'Reserved' } as const;
-const FOLLOW_UPS = { often: 'Often asks follow-up questions', sometimes: 'Sometimes asks follow-up questions', rarely: 'Rarely asks follow-up questions' } as const;
+const SENTENCES = { short: 'Short sentences', medium: 'Medium-length sentences', long: 'Longer sentences' } as const;
+const FOLLOW_UPS = { often: 'Often ends with a question', sometimes: 'Sometimes ends with a question', rarely: 'Rarely ends with a question' } as const;
 const OPENING: Record<string, string> = { time_of_day: 'Opens with a time-of-day greeting', dear: 'Opens with "Dear"', welcome: 'Opens with a welcome', hello: 'Opens with "Hello"', hi_hey: 'Opens with "Hi" or "Hey"' };
 const CLOSING: Record<string, string> = { thanks: 'Closes with a thank-you', offer_help: 'Closes with an offer of more help', well_wishes: 'Closes with well-wishes' };
 const LANGUAGE: Record<string, string> = { pidgin: 'Pidgin', twi: 'Twi', ghanaian_english: 'Ghanaian English', english: 'English' };
@@ -76,7 +87,11 @@ export function describeStyle(s: DigitalSelfSummary): string[] {
   if (s.formality) out.push(FORMALITY[s.formality]);
   if (s.warmth) out.push(WARMTH[s.warmth]);
   if (s.emoji) out.push(EMOJI[s.emoji]);
+  if (s.sentenceLength) out.push(SENTENCES[s.sentenceLength]);
   if (s.followUps) out.push(FOLLOW_UPS[s.followUps]);
+  if (s.acknowledges === 'often') out.push('Often acknowledges the request first');
+  if (s.empathy === 'often') out.push('Acknowledges the customer\'s situation');
+  if (s.codeSwitching === 'often') out.push('Mixes in local expressions');
   if (s.opening) out.push(OPENING[s.opening] ?? s.opening);
   if (s.closing) out.push(CLOSING[s.closing] ?? s.closing);
   if (s.languages.length > 0) out.push(`Language: ${s.languages.map((l) => LANGUAGE[l] ?? l).join(', ')}`);

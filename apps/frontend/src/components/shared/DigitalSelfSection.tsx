@@ -39,8 +39,8 @@ export function DigitalSelfSection() {
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">AI Digital Selves</p>
       </div>
       <p className="text-xs text-gray-500 mb-3 max-w-2xl">
-        Each agent has a Digital Self that learns how they write from the replies they send. It sets the style of Verz AI&apos;s replies when you choose it for a conversation.
-        It never changes prices, stock or policies, and it does not turn AI replies on.
+        Each agent has a Digital Self that learns how they write (tone, length, emoji, greetings, language) from the replies they type themselves. It sets the style of Verz AI&apos;s replies when you choose it for a conversation.
+        It does not learn sales techniques, never changes prices, stock or policies, and does not turn AI replies on. Saved replies, templates, automated and AI-written messages are never learned from.
       </p>
 
       {data && !data.featureEnabled && (
@@ -83,12 +83,19 @@ function Row({ ds, thresholds, onChange }: { ds: DigitalSelf; thresholds: Digita
   };
 
   const reset = async () => {
-    if (!(await showConfirm(`Reset ${ds.name}'s Digital Self?`, { subtext: 'It forgets everything learned and starts again. Style corrections you set are kept.', confirmLabel: 'Reset', danger: true }))) return;
+    if (!(await showConfirm(`Reset ${ds.name}'s Digital Self?`, { subtext: 'It forgets what it learned from their replies and starts again. Style corrections you set and approved corrections are kept.', confirmLabel: 'Reset', danger: true }))) return;
     await run(() => digitalSelfApi.reset(ds.id), 'Learning reset');
   };
 
   const traits = describeStyle(ds.summary);
-  const remaining = Math.max(0, thresholds.minAttributeSamples - ds.summary.samples);
+  const { minAttributeSamples, readySamples } = thresholds;
+  const own = ds.evidenceCount;
+  const progress = Math.min(100, Math.round((own / readySamples) * 100));
+  const progressLabel =
+    own === 0 ? 'No replies learned from yet'
+      : own < minAttributeSamples ? `${own} of ${minAttributeSamples} replies needed before a style is shown`
+      : own < readySamples ? `${own} of ${readySamples} replies to reach Ready`
+      : `${own} replies learned from`;
 
   return (
     <div className="p-4 space-y-3">
@@ -100,9 +107,19 @@ function Row({ ds, thresholds, onChange }: { ds: DigitalSelf; thresholds: Digita
             {!ds.assignable && <span className="text-[11px] text-gray-500">Not available to assign</span>}
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
-            {ds.evidenceCount === 0 ? 'No replies learned from yet' : `Learned from ${ds.evidenceCount} ${ds.evidenceCount === 1 ? 'reply' : 'replies'}`}
+            {progressLabel}
             {ds.lastLearnedAt ? `, last on ${new Date(ds.lastLearnedAt).toLocaleDateString()}` : ''}
           </p>
+          <div
+            role="progressbar"
+            aria-label={`${ds.name}'s learning progress`}
+            aria-valuemin={0}
+            aria-valuemax={readySamples}
+            aria-valuenow={Math.min(own, readySamples)}
+            className="mt-1.5 h-1.5 w-40 max-w-full rounded-full bg-gray-100 overflow-hidden"
+          >
+            <div className={cn('h-full rounded-full', own >= readySamples ? 'bg-green-500' : 'bg-teal-500')} style={{ width: `${progress}%` }} />
+          </div>
         </div>
         <div className="flex items-center gap-4 text-xs text-gray-600">
           <Switch label="Learning" checked={!ds.learningPaused} disabled={busy} onChange={(on) => run(() => digitalSelfApi.setLearningPaused(ds.id, !on), on ? 'Learning resumed' : 'Learning paused')} />
@@ -115,11 +132,14 @@ function Row({ ds, thresholds, onChange }: { ds: DigitalSelf; thresholds: Digita
           {traits.map((t) => <li key={t} className="text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded-full px-2.5 py-1">{t}</li>)}
         </ul>
       ) : (
-        <p className="text-xs text-gray-400">
-          Not enough replies to describe a style yet{remaining > 0 && ds.evidenceCount < thresholds.minAttributeSamples ? ` (${remaining} more needed)` : ''}. Until then Verz AI uses its usual voice.
+        <p className="text-xs text-gray-400">Not enough of their own replies to describe a style yet. Until then Verz AI uses its usual voice for this agent.</p>
+      )}
+      {ds.correctionCount > 0 && (
+        <p className="text-[11px] text-gray-500">
+          {ds.correctionCount} approved style {ds.correctionCount === 1 ? 'correction is' : 'corrections are'} applied. They refine the style but do not count as replies.
         </p>
       )}
-      {ds.status === 'READY' && <p className="text-[11px] text-gray-400">Ready means at least {thresholds.readySamples} replies have been learned from, not that the style is perfect.</p>}
+      {ds.status === 'READY' && <p className="text-[11px] text-gray-400">Ready means at least {readySamples} replies have been learned from, not that the style is perfect. Check it in Test Chat.</p>}
       {ds.lastError && <p role="alert" className="text-xs text-red-600">Last learning attempt failed: {ds.lastError}</p>}
 
       <div className="flex items-center gap-3 flex-wrap text-xs">

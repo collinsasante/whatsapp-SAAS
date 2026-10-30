@@ -1,9 +1,10 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Loader2, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, EyeOff, Loader2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { digitalSelfApi } from '@/lib/api';
 import { getApiError, cn } from '@/lib/utils';
+import { showConfirm } from '@/store/confirm.store';
 import { STATUS_LABEL, type ConversationDigitalSelf, type DigitalSelfList } from '@/lib/digital-self';
 
 interface Props {
@@ -61,11 +62,31 @@ export function DigitalSelfPicker({ conversationId, canEdit }: Props) {
     }
   };
 
+  const setExclusion = async (excluded: boolean) => {
+    if (excluded && !(await showConfirm('Exclude this conversation from Digital Self learning?', {
+      subtext: 'Anything already learned from it is removed from the agents\' profiles. Lifting the exclusion later only affects new replies.',
+      confirmLabel: 'Exclude',
+      danger: true,
+    }))) return;
+    setSaving(true);
+    try {
+      const res = await digitalSelfApi.setLearningExclusion(conversationId, excluded);
+      const done = res.data as { evidenceRemoved: number };
+      await load();
+      toast.success(excluded ? (done.evidenceRemoved > 0 ? `Excluded. ${done.evidenceRemoved} learned ${done.evidenceRemoved === 1 ? 'reply was' : 'replies were'} removed.` : 'Excluded from learning') : 'Learning allowed again for new replies');
+    } catch (err) {
+      toast.error(getApiError(err, 'Could not change learning for this conversation'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (failed) return <span className="hidden sm:inline text-[11px] text-gray-400" title="Digital Self choices could not be loaded">Style unavailable</span>;
   if (!list || !current) return null;
 
   const active = current.digitalSelf;
   const label = active ? active.name : 'Default';
+  const excluded = current.learning.excluded;
 
   return (
     <div ref={rootRef} className="relative">
@@ -74,11 +95,18 @@ export function DigitalSelfPicker({ conversationId, canEdit }: Props) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Choose whose writing style Verz AI uses in this conversation"
+        title={excluded ? 'Choose whose writing style Verz AI uses. Digital Self learning is off for this conversation.' : 'Choose whose writing style Verz AI uses in this conversation'}
         className="h-8 px-2.5 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors flex items-center gap-1.5"
       >
         <Sparkles size={13} />
         <span className="hidden sm:inline max-w-[8rem] truncate">Style: {label}</span>
+        {excluded && (
+          <>
+            <EyeOff size={12} className="text-amber-600" aria-hidden="true" />
+            <span className="hidden md:inline text-[11px] font-medium text-amber-700">Not learning</span>
+            <span className="sr-only md:hidden">Learning is off for this conversation</span>
+          </>
+        )}
         <ChevronDown size={12} />
       </button>
 
@@ -107,6 +135,25 @@ export function DigitalSelfPicker({ conversationId, canEdit }: Props) {
               detail={ds.assignable ? STATUS_LABEL[ds.status] : 'Not available (deactivated or not active in this workspace)'}
             />
           ))}
+          <div className="mt-1 pt-1.5 border-t border-gray-100 px-2.5 pb-1">
+            <label className={cn('flex items-start gap-2 text-[12px] text-gray-700', (!canEdit || saving) && 'opacity-60')}>
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-teal-600"
+                checked={excluded}
+                disabled={!canEdit || saving}
+                onChange={(e) => void setExclusion(e.target.checked)}
+              />
+              <span>
+                <span className="block font-medium">Don&apos;t learn from this conversation</span>
+                <span className="block text-[11px] text-gray-500">
+                  {excluded
+                    ? current.learning.excludedAt ? `Excluded on ${new Date(current.learning.excludedAt).toLocaleDateString()}. Agents\' replies here are not learned from.` : 'Agents\' replies here are not learned from.'
+                    : 'Keeps agents\' replies here out of every Digital Self, and removes anything already learned from them.'}
+                </span>
+              </span>
+            </label>
+          </div>
           {!canEdit && <p className="px-2.5 py-1.5 text-[11px] text-gray-400">Only an admin or the conversation owner can change this.</p>}
           {saving && <div className="flex justify-center py-1"><Loader2 size={14} className="animate-spin text-gray-400" /></div>}
         </div>

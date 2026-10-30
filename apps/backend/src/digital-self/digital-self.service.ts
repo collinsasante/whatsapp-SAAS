@@ -3,7 +3,7 @@ import { DigitalSelf, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OVERRIDE_OPTIONS } from './digital-self.constants';
 import { deriveStatus, emptyProfile, parseProfile, summarizeProfile, type ProfileOverrides, type StyleSummary } from './profile.util';
-import { CORRECTION_SOURCE, lockDigitalSelf, rebuildFromEvents } from './evidence.util';
+import { CORRECTION_SOURCE, lockDigitalSelf, REPLY_SOURCE, rebuildFromEvents } from './evidence.util';
 
 /** Roles that reply to customers. VIEWER (read-only) and the synthetic Verz AI user are not agents and get no Digital Self. */
 export const AGENT_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.AGENT];
@@ -131,9 +131,19 @@ export class DigitalSelfService {
     });
   }
 
-  /** Forgets everything learned (accumulators, evidence count and the dedupe ledger). Business-set overrides are kept. */
+  /**
+   * Forgets what was learned from the agent's own replies (the counters, the evidence count and their dedupe entries). What people
+   * decided is kept: business style overrides and approved style corrections, which the profile is rebuilt from.
+   */
   async reset(tenantId: string, id: string) {
-    return this.mutate(tenantId, id, (row) => ({ profile: { ...emptyProfile(), overrides: parseProfile(row.profile).overrides } as unknown as Prisma.InputJsonValue, evidenceCount: 0, lastLearnedAt: null, lastError: null }), true);
+    await this.prisma.$transaction(async (tx) => {
+      await lockDigitalSelf(tx, id);
+      if (!(await tx.digitalSelf.findFirst({ where: { id, tenantId }, select: { id: true } }))) throw new NotFoundException('Digital Self not found');
+      await tx.digitalSelfLearningEvent.deleteMany({ where: { digitalSelfId: id, tenantId, source: REPLY_SOURCE } });
+      await rebuildFromEvents(tx, tenantId, id);
+      await tx.digitalSelf.update({ where: { id }, data: { lastError: null } });
+    });
+    return this.get(tenantId, id);
   }
 
   /** The Digital Self a conversation uses, and why: the one assigned explicitly, else its human owner's, else none. */
@@ -214,14 +224,13 @@ export class DigitalSelfService {
   }
 
   /** Read-modify-write under the same row lock the learner takes, so an admin edit and a learning job cannot overwrite each other. */
-  private async mutate(tenantId: string, id: string, build: (row: DigitalSelf) => Prisma.DigitalSelfUpdateInput, clearLedger = false): Promise<DigitalSelfView> {
+  private async mutate(tenantId: string, id: string, build: (row: DigitalSelf) => Prisma.DigitalSelfUpdateInput): Promise<DigitalSelfView> {
     await this.prisma.$transaction(async (tx) => {
       await lockDigitalSelf(tx, id);
       const row = await tx.digitalSelf.findFirst({ where: { id, tenantId } });
       if (!row) throw new NotFoundException('Digital Self not found');
       const patch = build(row);
       const next = { ...row, ...(patch as Partial<DigitalSelf>) };
-      if (clearLedger) await tx.digitalSelfLearningEvent.deleteMany({ where: { digitalSelfId: id, tenantId } });
       await tx.digitalSelf.update({
         where: { id },
         data: { ...patch, profileVersion: { increment: 1 }, status: deriveStatus({ evidenceCount: next.evidenceCount, enabled: next.enabled, learningPaused: next.learningPaused, lastLearnedAt: next.lastLearnedAt }) },

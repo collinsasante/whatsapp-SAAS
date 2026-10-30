@@ -670,6 +670,8 @@ export const digitalSelfApi = {
   forConversation: (conversationId: string) => api.get(`/digital-self/conversations/${conversationId}`),
   /** `null` removes the assignment. Never changes who owns the conversation or whether AI replies. */
   assign: (conversationId: string, digitalSelfId: string | null) => api.put(`/digital-self/conversations/${conversationId}`, { digitalSelfId }),
+  /** `true` excludes the conversation from learning and removes what was already learned from it. */
+  setLearningExclusion: (conversationId: string, excluded: boolean) => api.put(`/digital-self/conversations/${conversationId}/learning-exclusion`, { excluded }),
   setLearningPaused: (id: string, paused: boolean) => api.patch(`/digital-self/${id}/learning`, { paused }),
   setEnabled: (id: string, enabled: boolean) => api.patch(`/digital-self/${id}/enabled`, { enabled }),
   /** Each field optional; `null` clears that correction and goes back to what was learned. */

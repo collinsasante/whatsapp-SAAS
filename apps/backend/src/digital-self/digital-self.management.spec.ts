@@ -72,12 +72,17 @@ describe('DigitalSelfService management', () => {
     expect(view.summary.overridden).toEqual(['warmth']);
   });
 
-  it('reset forgets learning and the dedupe ledger but keeps business overrides', async () => {
-    const { svc, tx, store } = build([row()]);
+  it('reset forgets the agent\'s own replies and rebuilds from what people decided (overrides and approved corrections)', async () => {
+    const { svc, tx } = build([row()]);
+    const events = tx.digitalSelfLearningEvent as unknown as Record<string, jest.Mock>;
+    events['findMany'] = jest.fn().mockResolvedValue([]);
+    events['count'] = jest.fn().mockResolvedValue(0);
+    events['findFirst'] = jest.fn().mockResolvedValue(null);
+    (tx.digitalSelf as unknown as Record<string, jest.Mock>)['findFirstOrThrow'] = jest.fn().mockResolvedValue({ id: 'ds1', enabled: true, learningPaused: false, profile: { v: 2, overrides: { emoji: 'none' } } });
     const view = await svc.reset('t1', 'ds1');
-    expect(tx.digitalSelfLearningEvent.deleteMany).toHaveBeenCalledWith({ where: { digitalSelfId: 'ds1', tenantId: 't1' } });
+    expect(tx.digitalSelfLearningEvent.deleteMany).toHaveBeenCalledWith({ where: { digitalSelfId: 'ds1', tenantId: 't1', source: 'REPLY' } }); // corrections are not deleted
     expect(view).toMatchObject({ evidenceCount: 0, status: 'INITIALIZING' });
-    expect((store[0]!['profile'] as { samples: number; overrides: object })).toMatchObject({ samples: 0, overrides: { emoji: 'none' } });
+    expect(view.summary.overridden).toEqual(['emoji']);
   });
 });
 
