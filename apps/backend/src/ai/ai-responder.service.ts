@@ -9,10 +9,11 @@ import { PromptRedactionSession, describeErrorForLog } from '../common/privacy/p
 import { buildHistoryWhere } from '../ai-core/context/history-scope.util';
 import { detectInjection } from '../ai-core/guards/injection-patterns';
 import { loadHistory } from '../ai-core/context/history-loader.util';
-import { parseStructuredReply } from '../ai-core/completion/model-output.util';
+import { describeModelResponse, parseStructuredReply } from '../ai-core/completion/model-output.util';
 import { formatHandoffBlock, HandoffOutcome } from '../ai-core/prompts/handoff-context';
 import { buildIdentityAndSafetyBlock } from '../ai-core/prompts/shared-identity-block';
-import { ANSWER_DIRECTLY_RULE, CONVERSATION_CONTINUITY_RULE, CUSTOMER_LANGUAGE_RULE, CUSTOMER_NAME_RULE, KNOWLEDGE_GAP_RULE_LEGACY, REPLY_LENGTH_RULE } from '../ai-core/prompts/response-rules';
+import { ANSWER_DIRECTLY_RULE, CONFLICTING_INFORMATION_RULE, CONVERSATION_CONTINUITY_RULE, CUSTOMER_LANGUAGE_RULE, CUSTOMER_NAME_RULE, FRUSTRATED_CUSTOMER_RULE_LEGACY, KNOWLEDGE_GAP_RULE_LEGACY, REPLY_LENGTH_RULE } from '../ai-core/prompts/response-rules';
+import { NATURAL_TONE_RULES } from '../ai-core/prompts/shared-style-rules';
 
 interface OffHoursDay { enabled?: boolean; start?: string; end?: string }
 
@@ -236,6 +237,9 @@ export class AiResponderService {
       CUSTOMER_LANGUAGE_RULE,
       CUSTOMER_NAME_RULE,
       REPLY_LENGTH_RULE,
+      ...NATURAL_TONE_RULES,
+      FRUSTRATED_CUSTOMER_RULE_LEGACY,
+      CONFLICTING_INFORMATION_RULE,
       styleContext,
       ``,
       // The same identity and safety rules v2 and Commerce carry: speak as a member of the team, never volunteer being an AI,
@@ -287,7 +291,7 @@ export class AiResponderService {
       // answer" (a real handoff and the standard fallback text), so no new behaviour is invented.
       const parsed = parseStructuredReply(raw);
       if (!parsed.ok) {
-        this.logger.warn(`AI responder output rejected (${parsed.reason}) for conversation ${conversationId}; nothing sent to the customer`);
+        this.logger.warn(`AI responder output rejected (${parsed.reason}) for conversation ${conversationId}; nothing sent to the customer (${describeModelResponse(res.data)})`);
         return { response: '', confidence: null, blocked: false };
       }
       const { response } = parsed;
