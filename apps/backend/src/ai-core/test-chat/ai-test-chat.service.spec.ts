@@ -237,6 +237,53 @@ describe('AiTestChatService', () => {
     });
   });
 
+  describe('which conversation a send uses', () => {
+    beforeEach(() => {
+      prisma.tenantSettings.findUnique.mockResolvedValue({ aiEnabled: true });
+      prisma.contact.findFirst.mockResolvedValue({ id: 'contact-1', name: 'Test Customer (you)' });
+      prisma.aiInteractionLog.findFirst.mockResolvedValue({ id: 'log-1', status: 'SIMULATED', aiResponse: 'Hi!' });
+      prisma.message.findFirst.mockResolvedValue({ id: 'msg-1', content: 'Hi!', metadata: { simulated: true } });
+    });
+
+    it('reuses the conversation reset() just created (resolved) instead of creating a second one, so what was done to it applies to the reply', async () => {
+      prisma.conversation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'reset-conv' }); // none open, then the most recent resolved
+      const result = await service.sendMessage('t1', 'u1', 'How much is the red shirt?');
+
+      expect(prisma.conversation.create).not.toHaveBeenCalled();
+      expect(result.conversationId).toBe('reset-conv');
+      expect(prisma.conversation.findFirst).toHaveBeenNthCalledWith(2, { where: { tenantId: 't1', contactId: 'contact-1', status: 'RESOLVED' }, orderBy: { updatedAt: 'desc' } });
+    });
+
+    it('prefers an open conversation over a resolved one, as the message pipeline does', async () => {
+      prisma.conversation.findFirst.mockResolvedValueOnce({ id: 'open-conv' });
+      const result = await service.sendMessage('t1', 'u1', 'hi');
+      expect(result.conversationId).toBe('open-conv');
+      expect(prisma.conversation.findFirst).toHaveBeenCalledTimes(1);
+    });
+
+    it('only creates a conversation when the contact has none at all', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(null);
+      prisma.conversation.create.mockResolvedValue({ id: 'brand-new' });
+      const result = await service.sendMessage('t1', 'u1', 'hi');
+      expect(prisma.conversation.create).toHaveBeenCalledTimes(1);
+      expect(result.conversationId).toBe('brand-new');
+    });
+
+    it('the conversation reset() hands out is the one the next send answers in (the Digital Self preview depends on it)', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(null); // nothing open, nothing resolved yet
+      prisma.conversation.create.mockResolvedValue({ id: 'reset-conv' });
+      const { conversationId: handedOut } = await service.reset('t1', 'u1');
+
+      prisma.conversation.findFirst.mockReset();
+      prisma.conversation.create.mockReset();
+      prisma.conversation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: handedOut }); // it is now the most recent resolved
+      const sent = await service.sendMessage('t1', 'u1', 'hi');
+
+      expect(sent.conversationId).toBe(handedOut);
+      expect(prisma.conversation.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe('simulated-AI limits', () => {
     const FIXED = () => new Date('2026-10-29T10:00:30.000Z');
     const build = (env: Record<string, string> = {}, tenantStore = new MemorySimulationStore()) => {

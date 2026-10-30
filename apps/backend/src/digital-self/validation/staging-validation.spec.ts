@@ -15,6 +15,8 @@ interface FakeOpts {
   tools?: Record<string, string[]>;
   /** The first `times` test-chat sends are refused with 429. */
   rateLimit?: { times: number; scope?: string; retryAfterSeconds?: number };
+  /** The Test Chat answers in a different conversation than the one it handed out (the bug this guards against). */
+  answerInOtherConversation?: boolean;
 }
 const REPLIES = {
   dsAma: 'Sure! The red shirt is GH₵50 😊 Which size would you like?',
@@ -53,7 +55,7 @@ function fakeApi(opts: FakeOpts = {}) {
     if (method === 'POST' && path === '/ai/test-chat') {
       if (opts.rateLimit && limited < opts.rateLimit.times) { limited++; return json({ statusCode: 429, scope: opts.rateLimit.scope, retryAfterSeconds: opts.rateLimit.retryAfterSeconds }, false, 429); }
       const last = [...convs.values()].pop()!;
-      return json({ message: { content: reply(last.ds ?? 'none') } });
+      return json({ conversationId: opts.answerInOtherConversation ? 'some-other-conversation' : [...convs.keys()].pop(), message: { content: reply(last.ds ?? 'none') } });
     }
     if (method === 'GET' && path.startsWith('/ai/executions')) {
       const last = [...convs.values()].pop()!;
@@ -118,6 +120,20 @@ describe('runValidation', () => {
     expect(JSON.stringify(report) + formatReport(report)).not.toContain(TOKEN);
     await expect(runValidation(cfg(), async () => ({ ok: false, status: 500, json: async () => ({ secret: TOKEN, customer: 'Abena 0244000000' }) }))).rejects.toThrow('GET /digital-self failed with HTTP 500');
     await expect(runValidation(cfg(), async () => ({ ok: false, status: 500, json: async () => ({ secret: TOKEN }) }))).rejects.not.toThrow(TOKEN);
+  });
+});
+
+describe('harness mismatch', () => {
+  it('fails clearly when the AI answered in a different conversation than the one the Digital Self was assigned to', async () => {
+    const report = await runValidation(cfg(), fakeApi({ answerInOtherConversation: true }).fetchFn);
+    expect(report.ok).toBe(false);
+    const check = report.checks.find((c) => c.name.startsWith('The Digital Self was assigned to the conversation the AI actually answered in'))!;
+    expect(check.status).toBe('fail');
+    expect(check.detail).toMatch(/mismatch, not a result about style/);
+  });
+  it('passes when the reply comes from the assigned conversation', async () => {
+    const report = await runValidation(cfg(), fakeApi().fetchFn);
+    expect(report.checks.find((c) => c.name.startsWith('The Digital Self was assigned to the conversation'))!.status).toBe('pass');
   });
 });
 

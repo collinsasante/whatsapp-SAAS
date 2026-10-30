@@ -126,6 +126,7 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const replies = { A: [] as string[], B: [] as string[], none: [] as string[], insufficient: [] as string[] };
   const tools: Record<string, string[][]> = { A: [], B: [], none: [], insufficient: [] };
   const ownership: string[] = [];
+  const wrongConversation: string[] = [];
   const attemptStats = { firstAttemptFallbacks: 0, retries: 0, runs: 0 };
   const maxEmptyRetries = cfg.maxEmptyRetries ?? 2;
 
@@ -149,7 +150,10 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
     if ((before.assignedTo?.id ?? null) !== (after.assignedTo?.id ?? null)) ownership.push(`${label}: assignedToId changed`);
     if (before.status !== after.status) ownership.push(`${label}: status changed ${before.status} -> ${after.status}`);
 
-    const res = await call<{ message?: { content?: string } | null; suggestion?: { aiResponse?: string; executionId?: string } | null }>('POST', '/ai/test-chat', { message: cfg.question, clientMessageId: `ds-validate-${Date.now()}-${attemptStats.runs}-${attemptStats.retries}` }, true);
+    const res = await call<{ conversationId?: string; message?: { content?: string } | null; suggestion?: { aiResponse?: string; executionId?: string } | null }>('POST', '/ai/test-chat', { message: cfg.question, clientMessageId: `ds-validate-${Date.now()}-${attemptStats.runs}-${attemptStats.retries}` }, true);
+    // The reply must come from the conversation the Digital Self was assigned to. If the Test Chat answered in a different one the
+    // assignment never applied, and 'the styles look the same' would be a harness failure mistaken for a feature failure.
+    if (digitalSelfId && res.conversationId !== undefined && res.conversationId !== conversationId) wrongConversation.push(label);
     const reply = (res.message?.content ?? res.suggestion?.aiResponse ?? '').trim();
 
     const final = await call<{ assignedTo?: { id: string } | null }>('GET', `/conversations/${conversationId}`);
@@ -171,6 +175,8 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
 
   // ---- Checks
   add('Assigning a Digital Self never changed ownership, status or AI handling', ownership);
+  add('The Digital Self was assigned to the conversation the AI actually answered in', wrongConversation.length === 0,
+    `${wrongConversation.length} run(s) were answered in a different conversation than the one the Digital Self was assigned to, so it was never applied. This is a Test Chat conversation mismatch, not a result about style.`);
   const nonEmpty = (xs: string[]) => xs.length > 0 && xs.every((x) => x.length > 0);
   add('Every run produced a reply', nonEmpty(replies.A) && nonEmpty(replies.B) && nonEmpty(replies.none), 'a run returned nothing: check AI is enabled and the test allowance');
 
