@@ -20,7 +20,18 @@ export interface ValidationConfig {
   runs: number;
   /** The operator's statement that the target workspace holds synthetic data only. */
   confirmSyntheticData: boolean;
+  /** Minimum time between test-chat sends. The endpoint allows 3 per minute per user, so the default keeps just under that. */
+  requestGapMs?: number;
+  /** Replaceable so tests do not really wait. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Progress lines for the operator (the run takes a few minutes because of the rate limit). */
+  onProgress?: (message: string) => void;
 }
+
+/** 3 sends per minute => one every 20 s; one second of margin. */
+export const DEFAULT_REQUEST_GAP_MS = 21_000;
+const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_RATE_LIMIT_WAIT_S = 120;
 
 export interface Check {
   name: string;
@@ -34,7 +45,7 @@ export interface ValidationReport {
   replies: Record<'A' | 'B' | 'none' | 'insufficient', string[]>;
 }
 
-type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; headers?: { get(name: string): string | null } }>;
 
 /** Only staging or a local environment. A production-looking host is refused even with the confirmation flag. */
 export function assertSafeTarget(apiUrl: string, confirmSyntheticData: boolean): void {
@@ -59,10 +70,34 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   };
   const skip = (name: string, detail: string) => checks.push({ name, status: 'skipped', detail });
 
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetchFn(`${base}${path}`, { method, headers: { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-    if (!res.ok) throw new Error(`${method} ${path} failed with HTTP ${res.status}`); // the body is not echoed: it may carry workspace data
-    return (await res.json()) as T;
+  const sleep = cfg.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const gap = cfg.requestGapMs ?? DEFAULT_REQUEST_GAP_MS;
+  let lastPacedAt = 0;
+
+  /** `paced` calls are the rate-limited test-chat sends: spaced out, and retried after the wait the server asks for. */
+  async function call<T>(method: string, path: string, body?: unknown, paced = false): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      if (paced && gap > 0 && lastPacedAt > 0) {
+        const wait = gap - (Date.now() - lastPacedAt);
+        if (wait > 0) { cfg.onProgress?.(`Waiting ${Math.ceil(wait / 1000)}s for the test-chat rate limit...`); await sleep(wait); }
+      }
+      if (paced) lastPacedAt = Date.now();
+      const res = await fetchFn(`${base}${path}`, { method, headers: { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      if (res.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+        // Only the limit's scope and wait are read from the body; nothing else is kept or printed.
+        const info = (await res.json().catch(() => ({}))) as { scope?: string; retryAfterSeconds?: number };
+        if (info.scope === 'tenant_daily' || info.scope === 'eval_runs_daily') {
+          throw new Error(`${method} ${path}: this workspace has used its daily test allowance; it resets at 00:00 UTC. Nothing was retried.`);
+        }
+        const asked = Number(info.retryAfterSeconds ?? res.headers?.get('retry-after') ?? 61);
+        const seconds = Math.min(MAX_RATE_LIMIT_WAIT_S, Math.max(1, Number.isFinite(asked) ? asked : 61)) + 1;
+        cfg.onProgress?.(`Rate limited (HTTP 429). Waiting ${seconds}s, then retrying (${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})...`);
+        await sleep(seconds * 1000);
+        continue;
+      }
+      if (!res.ok) throw new Error(`${method} ${path} failed with HTTP ${res.status}`); // the body is not echoed: it may carry workspace data
+      return (await res.json()) as T;
+    }
   }
 
   // ---- Preconditions
@@ -89,7 +124,7 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
     if ((before.assignedTo?.id ?? null) !== (after.assignedTo?.id ?? null)) ownership.push(`${label}: assignedToId changed`);
     if (before.status !== after.status) ownership.push(`${label}: status changed ${before.status} -> ${after.status}`);
 
-    const res = await call<{ message?: { content?: string } | null; suggestion?: { aiResponse?: string; executionId?: string } | null }>('POST', '/ai/test-chat', { message: cfg.question, clientMessageId: `ds-validate-${Date.now()}-${replies[label].length}` });
+    const res = await call<{ message?: { content?: string } | null; suggestion?: { aiResponse?: string; executionId?: string } | null }>('POST', '/ai/test-chat', { message: cfg.question, clientMessageId: `ds-validate-${Date.now()}-${replies[label].length}` }, true);
     replies[label].push((res.message?.content ?? res.suggestion?.aiResponse ?? '').trim());
 
     const final = await call<{ assignedTo?: { id: string } | null }>('GET', `/conversations/${conversationId}`);
@@ -101,6 +136,7 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   }
 
   for (let i = 0; i < cfg.runs; i++) {
+    cfg.onProgress?.(`Run ${i + 1} of ${cfg.runs}...`);
     await ask('A', a.id);
     await ask('B', b.id);
   }

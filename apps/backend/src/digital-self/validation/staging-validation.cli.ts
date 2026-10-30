@@ -26,6 +26,7 @@ async function main(): Promise<void> {
       digitalSelfInsufficient: env['DS_INSUFFICIENT'], question: need('QUESTION'), runs,
       facts: { mustContain: list(env['MUST_CONTAIN']), mustNotContain: list(env['MUST_NOT_CONTAIN']), allowedPrices: list(env['ALLOWED_PRICES']) },
       confirmSyntheticData: env['CONFIRM_SYNTHETIC_DATA'] === 'yes',
+      onProgress: (m) => console.log(m),
     },
     (url, init) => fetch(url, init),
   );
