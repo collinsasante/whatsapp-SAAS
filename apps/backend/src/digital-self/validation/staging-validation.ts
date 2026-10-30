@@ -25,6 +25,12 @@ export interface ValidationConfig {
   requestGapMs?: number;
   /** Replaceable so tests do not really wait. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * How many times to ask again, in a fresh conversation, when the AI returns its canned fallback instead of an answer. Staging's
+   * model has been seen to return empty answers intermittently (also before Digital Self existed), which would otherwise hide what
+   * is being measured. Retries are counted and reported, never hidden. Default 2.
+   */
+  maxEmptyRetries?: number;
   /** Progress lines for the operator (the run takes a few minutes because of the rate limit). */
   onProgress?: (message: string) => void;
 }
@@ -120,8 +126,22 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const replies = { A: [] as string[], B: [] as string[], none: [] as string[], insufficient: [] as string[] };
   const tools: Record<string, string[][]> = { A: [], B: [], none: [], insufficient: [] };
   const ownership: string[] = [];
+  const attemptStats = { firstAttemptFallbacks: 0, retries: 0, runs: 0 };
+  const maxEmptyRetries = cfg.maxEmptyRetries ?? 2;
 
+  /** One run: a fresh conversation, retried (also fresh) if the AI only produced its canned fallback. The last attempt's reply is kept. */
   async function ask(label: keyof typeof replies, digitalSelfId: string | null): Promise<void> {
+    attemptStats.runs++;
+    for (let attempt = 0; ; attempt++) {
+      const reply = await askOnce(label, digitalSelfId);
+      if (!isFallbackReply(reply) || attempt >= maxEmptyRetries) { replies[label].push(reply); return; }
+      if (attempt === 0) attemptStats.firstAttemptFallbacks++;
+      attemptStats.retries++;
+      cfg.onProgress?.(`The AI returned its fallback instead of an answer; asking again (${attempt + 1}/${maxEmptyRetries})...`);
+    }
+  }
+
+  async function askOnce(label: keyof typeof replies, digitalSelfId: string | null): Promise<string> {
     const { conversationId } = await call<{ conversationId: string }>('POST', '/ai/test-chat/reset');
     const before = await call<{ assignedTo?: { id: string } | null; status: string }>('GET', `/conversations/${conversationId}`);
     if (digitalSelfId) await call('PUT', `/digital-self/conversations/${conversationId}`, { digitalSelfId });
@@ -129,8 +149,8 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
     if ((before.assignedTo?.id ?? null) !== (after.assignedTo?.id ?? null)) ownership.push(`${label}: assignedToId changed`);
     if (before.status !== after.status) ownership.push(`${label}: status changed ${before.status} -> ${after.status}`);
 
-    const res = await call<{ message?: { content?: string } | null; suggestion?: { aiResponse?: string; executionId?: string } | null }>('POST', '/ai/test-chat', { message: cfg.question, clientMessageId: `ds-validate-${Date.now()}-${replies[label].length}` }, true);
-    replies[label].push((res.message?.content ?? res.suggestion?.aiResponse ?? '').trim());
+    const res = await call<{ message?: { content?: string } | null; suggestion?: { aiResponse?: string; executionId?: string } | null }>('POST', '/ai/test-chat', { message: cfg.question, clientMessageId: `ds-validate-${Date.now()}-${attemptStats.runs}-${attemptStats.retries}` }, true);
+    const reply = (res.message?.content ?? res.suggestion?.aiResponse ?? '').trim();
 
     const final = await call<{ assignedTo?: { id: string } | null }>('GET', `/conversations/${conversationId}`);
     if ((before.assignedTo?.id ?? null) !== (final.assignedTo?.id ?? null)) ownership.push(`${label}: assignedToId changed after the reply`);
@@ -138,6 +158,7 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
       const executions = await call<{ items?: Array<{ toolTrace?: unknown }> }>('GET', `/ai/executions?conversationId=${encodeURIComponent(conversationId)}&limit=5`);
       tools[label]!.push(toolNames(executions.items?.[0]?.toolTrace));
     } catch { tools[label]!.push([]); }
+    return reply;
   }
 
   for (let i = 0; i < cfg.runs; i++) {
@@ -156,7 +177,12 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const real = (label: keyof typeof replies): string[] => replies[label].filter((r) => r.length > 0 && !isFallbackReply(r));
   const fallbacks = (['A', 'B', 'none', 'insufficient'] as const).reduce((n, l) => n + replies[l].filter(isFallbackReply).length, 0);
   const total = (['A', 'B', 'none', 'insufficient'] as const).reduce((n, l) => n + replies[l].length, 0);
-  add('The AI gave real answers (no provider failures or hand-offs)', fallbacks === 0, `${fallbacks} of ${total} replies were the canned "trouble on my end" or hand-off text: the model call failed or gave up, so those replies say nothing about style or facts. Check the staging provider key and the backend logs.`);
+  const retryNote = attemptStats.retries > 0
+    ? ` ${attemptStats.firstAttemptFallbacks} of ${attemptStats.runs} runs returned the canned fallback on the first try and needed ${attemptStats.retries} retr${attemptStats.retries === 1 ? 'y' : 'ies'}: the staging model returns empty answers intermittently (this pre-dates Digital Self; see ai_executions history). It is a finding in its own right.`
+    : '';
+  add('The AI gave real answers (no provider failures or hand-offs)', fallbacks === 0, fallbacks === 0
+    ? `all ${total} final replies were real answers.${retryNote}`
+    : `${fallbacks} of ${total} final replies were still the canned "trouble on my end" or hand-off text after ${maxEmptyRetries} retr${maxEmptyRetries === 1 ? 'y' : 'ies'}: the model call failed or gave up, so those replies say nothing about style or facts. Check the staging provider and the backend logs.${retryNote}`);
 
   for (const label of ['A', 'B', 'none', 'insufficient'] as const) {
     if (replies[label].length === 0) continue;
