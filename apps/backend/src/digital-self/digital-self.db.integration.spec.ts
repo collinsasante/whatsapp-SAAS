@@ -20,6 +20,9 @@ import { DigitalSelfCorrectionsService } from './digital-self-corrections.servic
 import { AiLearningService } from '../ai-learning/ai-learning.service';
 import { ApprovedCorrectionsService } from '../ai-learning/corrections/approved-corrections.service';
 import { lockConversationAndReadExclusion } from './evidence.util';
+import { cleanupSynthetic, seedSynthetic } from './validation/seed-synthetic';
+import { AMA, KOFI } from './validation/synthetic-personas';
+import { compareStyles, measureReply } from './validation/style-compare.util';
 import { extractFeatures } from './message-features.util';
 import { emptyProfile, mergeFeatures, parseProfile } from './profile.util';
 
@@ -328,6 +331,32 @@ suite('Digital Self against a real database', () => {
     expect((await prisma.digitalSelf.findFirstOrThrow({ where: { tenantId: t } })).evidenceCount).toBe(1);
   });
 
+  // ------------------------------------------------------------------ the staging validation's synthetic history
+  it('synthetic seeding makes two agents READY with different styles, refuses a real-looking workspace, and cleans up completely', async () => {
+    const real = await tenant('Acme Prints');
+    const realAgent = await user(real, 'ama');
+    await expect(seedSynthetic(prisma, real, [{ userId: realAgent.id, persona: AMA }], 3)).rejects.toThrow(/Refusing to seed/);
+    expect(await prisma.message.count({ where: { tenantId: real } })).toBe(0);
+
+    const t = await tenant('synthetic-seed');
+    const [ama, kofi] = [await user(t, 'ama'), await user(t, 'kofi')];
+    expect(await seedSynthetic(prisma, t, [{ userId: ama.id, persona: AMA }, { userId: kofi.id, persona: KOFI }], 36)).toEqual({ created: 72, learned: 72 });
+    const [a, k] = await Promise.all([svc.ensureForUser(t, ama.id), svc.ensureForUser(t, kofi.id)]);
+    const [va, vk] = await Promise.all([svc.get(t, a!.id), svc.get(t, k!.id)]);
+    expect(va).toMatchObject({ status: 'READY', evidenceCount: 36 });
+    expect(vk).toMatchObject({ status: 'READY', evidenceCount: 36 });
+    expect(va.summary).toMatchObject({ warmth: 'enthusiastic', hasLearnedTraits: true });
+    expect(vk.summary).toMatchObject({ warmth: 'reserved', formality: 'formal' });
+    const ctx = new DigitalSelfContextService(prisma as never, flagsOn as never);
+    expect(await ctx.getStyleBlockFor(t, a!.id)).not.toEqual(await ctx.getStyleBlockFor(t, k!.id));
+    expect(compareStyles(AMA.map((x) => measureReply(x)!), KOFI.map((x) => measureReply(x)!)).distinguishable).toBe(true);
+
+    const removed = await cleanupSynthetic(prisma, t);
+    expect(removed).toEqual({ conversations: 2, evidenceRemoved: 72 });
+    expect((await svc.get(t, a!.id))).toMatchObject({ status: 'INITIALIZING', evidenceCount: 0 });
+    expect(await prisma.message.count({ where: { tenantId: t } })).toBe(0);
+  });
+
   // ------------------------------------------------------------------ approved style corrections
   describe('approved style corrections', () => {
     const corrections = new DigitalSelfCorrectionsService(prisma as never, flagsOn as never);
@@ -400,6 +429,21 @@ suite('Digital Self against a real database', () => {
       self = await prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } });
       expect(parseProfile(self.profile)).toMatchObject({ samples: 0, correctionSamples: 0 });
       expect(await prisma.digitalSelfLearningEvent.count({ where: { tenantId: t } })).toBe(0);
+    });
+
+    it('resetting a profile forgets the agent\'s own replies but keeps approved corrections and overrides', async () => {
+      const { t, ama, dsAma, conversation, contact, example } = await scene('corr-reset');
+      await learnSequentially(t, conversation.id, contact.id, ama.id, texts('R', 11));
+      const ex = await example(['TOO_SHORT']);
+      await workflow.setTrainingExampleStatus(t, ex.id, 'APPROVED', ama.id);
+      await svc.setOverrides(t, dsAma.id, { emoji: 'none' });
+
+      const view = await svc.reset(t, dsAma.id);
+      expect(view).toMatchObject({ evidenceCount: 0, status: 'INITIALIZING', correctionCount: 1 });
+      const profile = parseProfile((await prisma.digitalSelf.findUniqueOrThrow({ where: { id: dsAma.id } })).profile);
+      expect(profile).toMatchObject({ samples: 3, correctionSamples: 3, overrides: { emoji: 'none' } });
+      expect(await prisma.digitalSelfLearningEvent.count({ where: { digitalSelfId: dsAma.id, source: 'REPLY' } })).toBe(0);
+      expect((await prisma.aiTrainingExample.findUniqueOrThrow({ where: { id: ex.id } })).digitalSelfId).toBe(dsAma.id); // still applied, still out of workspace guidance
     });
 
     it('is tenant-scoped: another tenant cannot cause a correction to be applied', async () => {
