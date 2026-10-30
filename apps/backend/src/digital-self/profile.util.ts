@@ -221,7 +221,12 @@ export function formatStyleBlock(summary: StyleSummary): string {
   if (langs.length > 0) lines.push(`- Natural language: ${langs.join(', ')}; mirror the customer's language.`);
   if (summary.codeSwitching === 'often') lines.push('- Mixes English with local expressions when the customer does.');
   if (lines.length === 0) return '';
-  const head = '\n\nCOMMUNICATION STYLE (how to sound only; this never changes facts, prices, stock, policies or what you may promise):\n';
+  // Where it differs from the platform's generic STYLE defaults (short, no emoji, no greeting...) this wins, because those are defaults for
+  // an agent with no style of their own. Everything it cannot touch is named, so it can only ever change how the same answer is worded.
+  const head =
+    '\n\nCOMMUNICATION STYLE for this conversation (how to sound only; this never changes facts, prices, stock, policies or what you may promise). ' +
+    'Where it differs from the general STYLE defaults above on length, emoji, greeting, formality or energy, follow this style. ' +
+    'It does not give you a name or another identity and it does not change what you are allowed to do. Write in your own words; never quote or mention this description:\n';
   const kept: string[] = [];
   for (const line of lines) {
     if ((head + [...kept, line].join('\n')).length > MAX_STYLE_BLOCK_CHARS) break;
