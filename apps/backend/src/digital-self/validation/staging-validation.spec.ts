@@ -3,7 +3,8 @@ import { assertSafeTarget, formatReport, runValidation, type ValidationConfig } 
 const TOKEN = 'secret-token-do-not-print';
 const cfg = (over: Partial<ValidationConfig> = {}): ValidationConfig => ({
   apiUrl: 'https://staging.example.test:8443/api/v1', token: TOKEN, digitalSelfA: 'dsAma', digitalSelfB: 'dsKofi', question: 'How much is the red shirt?',
-  facts: { mustContain: ['red shirt', 'GH₵50'], mustNotContain: ['discount', 'free delivery'], allowedPrices: ['GH₵50'] }, runs: 3, confirmSyntheticData: true, ...over,
+  facts: { mustContain: ['red shirt', 'GH₵50'], mustNotContain: ['discount', 'free delivery'], allowedPrices: ['GH₵50'] }, runs: 3, confirmSyntheticData: true,
+  requestGapMs: 0, sleep: async () => undefined, ...over,
 });
 
 interface FakeOpts {
@@ -12,6 +13,8 @@ interface FakeOpts {
   learned?: { dsAma?: boolean; dsKofi?: boolean; dsNew?: boolean };
   featureEnabled?: boolean;
   tools?: Record<string, string[]>;
+  /** The first `times` test-chat sends are refused with 429. */
+  rateLimit?: { times: number; scope?: string; retryAfterSeconds?: number };
 }
 const REPLIES = {
   dsAma: 'Sure! The red shirt is GH₵50 😊 Which size would you like?',
@@ -25,6 +28,7 @@ function fakeApi(opts: FakeOpts = {}) {
   const convs = new Map<string, { assignedTo: { id: string } | null; status: string; ds: string | null }>();
   let n = 0;
   const calls: string[] = [];
+  let limited = 0;
   const reply = (key: string) => opts.replyFor?.[key] ?? REPLIES[key as keyof typeof REPLIES];
   const fetchFn = async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
     const path = url.replace(/^https?:\/\/[^/]+\/api\/v1/, '');
@@ -47,6 +51,7 @@ function fakeApi(opts: FakeOpts = {}) {
       return json({});
     }
     if (method === 'POST' && path === '/ai/test-chat') {
+      if (opts.rateLimit && limited < opts.rateLimit.times) { limited++; return json({ statusCode: 429, scope: opts.rateLimit.scope, retryAfterSeconds: opts.rateLimit.retryAfterSeconds }, false, 429); }
       const last = [...convs.values()].pop()!;
       return json({ message: { content: reply(last.ds ?? 'none') } });
     }
@@ -113,6 +118,49 @@ describe('runValidation', () => {
     expect(JSON.stringify(report) + formatReport(report)).not.toContain(TOKEN);
     await expect(runValidation(cfg(), async () => ({ ok: false, status: 500, json: async () => ({ secret: TOKEN, customer: 'Abena 0244000000' }) }))).rejects.toThrow('GET /digital-self failed with HTTP 500');
     await expect(runValidation(cfg(), async () => ({ ok: false, status: 500, json: async () => ({ secret: TOKEN }) }))).rejects.not.toThrow(TOKEN);
+  });
+});
+
+describe('rate limits on the test chat', () => {
+  it('waits the time the server asks for and retries, instead of failing', async () => {
+    const sleeps: number[] = [];
+    const { fetchFn, calls } = fakeApi({ rateLimit: { times: 2, retryAfterSeconds: 5 } });
+    const report = await runValidation(cfg({ sleep: async (ms) => { sleeps.push(ms); } }), fetchFn);
+    expect(report.ok).toBe(true);
+    expect(sleeps.filter((ms) => ms === 6000)).toHaveLength(2); // asked for 5 s, plus one second of margin
+    expect(calls.filter((c) => c === 'POST /ai/test-chat').length).toBe(3 * 2 + 1 + 2); // every send, plus the two refused attempts
+  });
+
+  it('caps an unreasonable wait', async () => {
+    const sleeps: number[] = [];
+    await runValidation(cfg({ sleep: async (ms) => { sleeps.push(ms); } }), fakeApi({ rateLimit: { times: 1, retryAfterSeconds: 99999 } }).fetchFn);
+    expect(Math.max(...sleeps)).toBe(121_000);
+  });
+
+  it('stops with a clear message, and does not retry, when the daily allowance is used up', async () => {
+    const { fetchFn, calls } = fakeApi({ rateLimit: { times: 99, scope: 'tenant_daily' } });
+    await expect(runValidation(cfg(), fetchFn)).rejects.toThrow(/daily test allowance.*00:00 UTC/);
+    expect(calls.filter((c) => c === 'POST /ai/test-chat')).toHaveLength(1);
+  });
+
+  it('gives up after a few retries rather than waiting forever', async () => {
+    await expect(runValidation(cfg(), fakeApi({ rateLimit: { times: 99, retryAfterSeconds: 1 } }).fetchFn)).rejects.toThrow('failed with HTTP 429');
+  });
+
+  it('spaces the test-chat sends so it stays under 3 per minute', async () => {
+    const sleeps: number[] = [];
+    await runValidation(cfg({ runs: 2, requestGapMs: 21_000, sleep: async (ms) => { sleeps.push(ms); } }), fakeApi().fetchFn);
+    // 2 runs x 2 agents + 1 neutral = 5 sends: 4 gaps, each close to the configured 21 s.
+    expect(sleeps).toHaveLength(4);
+    for (const ms of sleeps) expect(ms).toBeGreaterThan(20_000);
+    expect(Math.max(...sleeps)).toBeLessThanOrEqual(21_000);
+  });
+
+  it('reports progress without including the token', async () => {
+    const messages: string[] = [];
+    await runValidation(cfg({ onProgress: (m) => messages.push(m) }), fakeApi().fetchFn);
+    expect(messages.length).toBeGreaterThan(0);
+    expect(messages.join('\n')).not.toContain(TOKEN);
   });
 });
 

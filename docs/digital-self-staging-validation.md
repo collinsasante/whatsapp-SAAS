@@ -50,6 +50,17 @@ CONFIRM_SYNTHETIC_DATA=yes STAGING_API_URL=https://staging.verzchat.com:8443/api
 CONFIRM_SYNTHETIC_DATA=yes DATABASE_URL='<staging url>' SEED_TENANT_ID=<tenant> pnpm digital-self:seed-synthetic --cleanup
 ```
 
+The Test Chat endpoint allows 3 sends per minute per user, so the validator spaces its sends about 21 seconds apart (a default run takes
+roughly 3 minutes) and, if it is still refused with HTTP 429, waits the time the server asks for and retries. If the workspace's
+daily test allowance (200 requests by default) is used up it stops and says so rather than waiting until tomorrow.
+
+The validator only needs HTTPS access to the staging API, so it can run from any machine that has this repository, not only inside the
+backend container. On macOS (zsh, whose `read` syntax differs from bash):
+
+```bash
+cd apps/backend && read -rs "TOKEN?Paste token: "; echo; CONFIRM_SYNTHETIC_DATA=yes STAGING_API_URL=https://staging.verzchat.com:8443/api/v1 STAGING_TOKEN="$TOKEN" DS_A=<id> DS_B=<id> QUESTION='How much is the red shirt?' MUST_CONTAIN='red shirt,GH₵50' ALLOWED_PRICES='GH₵50' MUST_NOT_CONTAIN='discount,free delivery' RUNS=3 REPORT_FILE=./ds-validation.json pnpm digital-self:validate; unset TOKEN
+```
+
 Digital Self ids are on the Team page (and in `GET /digital-self`). The validator refuses any host that is not `staging.*`, `localhost`
 or `127.0.0.1`, refuses to run without `CONFIRM_SYNTHETIC_DATA=yes`, never prints the token, and never echoes response bodies.
 `pnpm digital-self:seed-synthetic` refuses a workspace whose name does not look synthetic.
