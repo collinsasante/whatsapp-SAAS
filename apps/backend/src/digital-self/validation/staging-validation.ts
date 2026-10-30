@@ -57,6 +57,8 @@ export interface ValidationReport {
   replies: Record<'A' | 'B' | 'none' | 'insufficient', string[]>;
 }
 
+type Owner = { id: string; isAiAgent?: boolean } | null | undefined;
+
 type Fetch = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown>; headers?: { get(name: string): string | null } }>;
 
 /** Only staging or a local environment. A production-looking host is refused even with the confirmation flag. */
@@ -156,9 +158,9 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
 
   async function askOnce(label: keyof typeof replies, digitalSelfId: string | null): Promise<string> {
     const { conversationId } = await call<{ conversationId: string }>('POST', '/ai/test-chat/reset');
-    const before = await call<{ assignedTo?: { id: string } | null; status: string }>('GET', `/conversations/${conversationId}`);
+    const before = await call<{ assignedTo?: Owner; status: string }>('GET', `/conversations/${conversationId}`);
     if (digitalSelfId) await call('PUT', `/digital-self/conversations/${conversationId}`, { digitalSelfId });
-    const after = await call<{ assignedTo?: { id: string } | null; status: string }>('GET', `/conversations/${conversationId}`);
+    const after = await call<{ assignedTo?: Owner; status: string }>('GET', `/conversations/${conversationId}`);
     if ((before.assignedTo?.id ?? null) !== (after.assignedTo?.id ?? null)) ownership.push(`${label}: assignedToId changed`);
     if (before.status !== after.status) ownership.push(`${label}: status changed ${before.status} -> ${after.status}`);
 
@@ -168,8 +170,14 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
     if (digitalSelfId && res.conversationId !== undefined && res.conversationId !== conversationId) wrongConversation.push(label);
     const reply = (res.message?.content ?? res.suggestion?.aiResponse ?? '').trim();
 
-    const final = await call<{ assignedTo?: { id: string } | null }>('GET', `/conversations/${conversationId}`);
-    if ((before.assignedTo?.id ?? null) !== (final.assignedTo?.id ?? null)) ownership.push(`${label}: assignedToId changed after the reply`);
+    // After replying in auto-reply mode, Verz AI claims a conversation that nobody owns (existing behaviour, and it happens with no
+    // Digital Self too). That is allowed; any other change of owner is not. The claim lands just after the reply is stored, so a look
+    // taken too early may not see it: it is never required, only tolerated.
+    const final = await call<{ assignedTo?: Owner }>('GET', `/conversations/${conversationId}`);
+    const ownerBefore = before.assignedTo?.id ?? null;
+    const ownerAfter = final.assignedTo?.id ?? null;
+    const aiClaimedUnownedConversation = ownerBefore === null && final.assignedTo?.isAiAgent === true;
+    if (ownerBefore !== ownerAfter && !aiClaimedUnownedConversation) ownership.push(`${label}: assignedToId changed after the reply`);
     try {
       const executions = await call<{ items?: Array<{ toolTrace?: unknown }> }>('GET', `/ai/executions?conversationId=${encodeURIComponent(conversationId)}&limit=5`);
       tools[label]!.push(toolNames(executions.items?.[0]?.toolTrace));
@@ -186,7 +194,8 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   if (c) await ask('insufficient', c.id);
 
   // ---- Checks
-  add('Assigning a Digital Self never changed ownership, status or AI handling', ownership);
+  add('Assigning a Digital Self never changed ownership, status or AI handling', ownership,
+    'a human owner was never replaced; Verz AI claiming an unowned conversation after it replies is existing behaviour (it happens with no Digital Self too) and is allowed');
   add('The Digital Self was assigned to the conversation the AI actually answered in', wrongConversation.length === 0,
     `${wrongConversation.length} run(s) were answered in a different conversation than the one the Digital Self was assigned to, so it was never applied. This is a Test Chat conversation mismatch, not a result about style.`);
   const nonEmpty = (xs: string[]) => xs.length > 0 && xs.every((x) => x.length > 0);
