@@ -9,7 +9,7 @@ export const STALE_AFTER_DAYS = 30;
 /** Longest message that is analysed. Longer text is almost certainly pasted material, not the agent's conversational style. */
 export const MAX_ANALYSED_CHARS = 2000;
 /** Upper bound on the style block added to a prompt. */
-export const MAX_STYLE_BLOCK_CHARS = 700;
+export const MAX_STYLE_BLOCK_CHARS = 1000;
 /** Sentinel for the profile JSON shape, so a future shape (semantic learning) can be migrated rather than guessed. */
 export const PROFILE_SCHEMA_VERSION = 2;
 
