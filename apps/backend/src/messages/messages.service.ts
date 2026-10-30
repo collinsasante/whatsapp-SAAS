@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenEx
 import axios from 'axios';
 import { Prisma, Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { WhatsAppService, metaError } from '../whatsapp/whatsapp.service';
 import { FacebookMessengerService } from '../facebook-messenger/facebook-messenger.service';
 import { WhatsAppWebService } from '../whatsapp-web/whatsapp-web.service';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -28,6 +28,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { notify } from '../common/notifier';
 import { MessageType, MessageDirection, MessageStatus, ActivityAction, UserRole } from '@whatsapp-platform/shared-types';
 import { shouldApplyStatus } from './message-status.util';
+import { sniffImageKind } from '../common/media/image.util';
 import { isMetaPlayableAudio, isOggBuffer, isWebmBuffer, transcodeToM4a, transcodeWebmToOgg } from '../common/media/audio.util';
 import type { OutboundFile } from '../facebook-messenger/facebook-messenger.service';
 import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
@@ -102,6 +103,11 @@ const WHATSAPP_WEB_MEDIA_TYPE_MAP: Record<string, MessageType> = {
 // Total worst-case wait ~1.7s: covers the gap between provider accept and the DB write of its id.
 const CLIENT_SEND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 export const RECEIPT_LOOKUP_RETRY_DELAYS_MS: readonly number[] = [150, 400, 1200];
+
+/** Scheme, host and port of a media link, for logs: enough to judge whether Meta can reach it, without the storage key in the path. */
+function safeOrigin(mediaUrl: string): string {
+  try { return new URL(mediaUrl).origin; } catch { return 'an unparseable URL'; }
+}
 
 @Injectable()
 export class MessagesService {
@@ -591,13 +597,16 @@ export class MessagesService {
     };
     try {
       const { buffer: mediaBuffer, mimeType } = await this.loadMediaBuffer(mediaUrl, defaultMime[type as string] ?? 'application/octet-stream');
+      this.logger.log(`Media send ${type}: stored as ${mimeType}, ${mediaBuffer.length} bytes, actual format ${type === MessageType.IMAGE ? sniffImageKind(mediaBuffer) : 'n/a'}`);
 
       const ext = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
       const metaMediaId = await this.whatsappService.uploadMediaToMeta(tenantId, mediaBuffer, mimeType, `media.${ext}`, whatsappNumberId);
       return await this.whatsappService.sendMediaMessageById(tenantId, toPhone, type.toLowerCase(), metaMediaId, caption, replyToWaMessageId, whatsappNumberId);
     } catch (err) {
       // Fall back to a link-based send, but say why: this used to hide every upload failure.
-      this.logger.warn(`Media upload to Meta failed for ${type}; falling back to a link send: ${err instanceof Error ? err.message : String(err)}`);
+      // metaError carries Meta's own reason (e.g. unsupported file type) where err.message is only "status code 400". The link's
+      // origin is logged because Meta must be able to fetch it; the full link holds a storage key and is left out.
+      this.logger.warn(`Media upload to Meta failed for ${type}; falling back to a link send (Meta fetches ${safeOrigin(mediaUrl)}): ${metaError(err)}`);
       return this.whatsappService.sendMediaMessage(tenantId, toPhone, type.toLowerCase(), mediaUrl, caption, replyToWaMessageId, whatsappNumberId);
     }
   }
@@ -2312,6 +2321,7 @@ export class MessagesService {
     if (status === MessageStatus.READ) updateData['readAt'] = new Date();
     if (status === MessageStatus.FAILED) {
       updateData['failedAt'] = new Date();
+      this.logger.warn(`Meta reported FAILED for ${message.type} message ${message.id}: ${errors?.[0] ? `${errors[0].code} ${errors[0].title}` : 'no error given'}`);
       if (errors?.[0]) {
         updateData['errorCode'] = errors[0].code;
         updateData['failureReason'] = errors[0].title;
