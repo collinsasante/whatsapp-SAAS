@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { DigitalSelf, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { emptyProfile } from './profile.util';
+import { OVERRIDE_OPTIONS } from './digital-self.constants';
+import { deriveStatus, emptyProfile, parseProfile, summarizeProfile, type ProfileOverrides, type StyleSummary } from './profile.util';
 
 /** Roles that reply to customers. VIEWER (read-only) and the synthetic Verz AI user are not agents and get no Digital Self. */
 export const AGENT_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.AGENT];
@@ -68,4 +69,111 @@ export class DigitalSelfService {
     this.logger.log(`Provisioned ${res.count} Digital Self(ves) for tenant ${tenantId}`);
     return res.count;
   }
+
+  /** Every Digital Self of the tenant (provisioning any that are missing), with the agent's name. No raw profile data. */
+  async list(tenantId: string): Promise<DigitalSelfView[]> {
+    await this.ensureForTenant(tenantId);
+    const rows = await this.prisma.digitalSelf.findMany({
+      where: { tenantId, user: { isAiAgent: false } },
+      include: { user: { select: { name: true, role: true, avatarUrl: true, isActive: true } } },
+      orderBy: { user: { name: 'asc' } },
+    });
+    const assignable = new Set(
+      (await this.prisma.user.findMany({ where: { ...DigitalSelfService.assignableUserWhere(tenantId), id: { in: rows.map((r) => r.userId) } }, select: { id: true } })).map((u) => u.id),
+    );
+    return rows.map((r) => toView(r, r.user, assignable.has(r.userId)));
+  }
+
+  async get(tenantId: string, id: string): Promise<DigitalSelfView> {
+    const row = await this.prisma.digitalSelf.findFirst({
+      where: { id, tenantId },
+      include: { user: { select: { name: true, role: true, avatarUrl: true, isActive: true } } },
+    });
+    if (!row) throw new NotFoundException('Digital Self not found');
+    const assignable = (await this.prisma.user.count({ where: { ...DigitalSelfService.assignableUserWhere(tenantId), id: row.userId } })) > 0;
+    return toView(row, row.user, assignable);
+  }
+
+  setLearningPaused(tenantId: string, id: string, paused: boolean) {
+    return this.mutate(tenantId, id, () => ({ learningPaused: paused }));
+  }
+
+  setEnabled(tenantId: string, id: string, enabled: boolean) {
+    return this.mutate(tenantId, id, () => ({ enabled }));
+  }
+
+  /** Controlled corrections: only the enumerated values, `null` removes an override. Free text is deliberately not accepted, so a profile can never carry instructions. */
+  setOverrides(tenantId: string, id: string, patch: { [K in keyof ProfileOverrides]?: ProfileOverrides[K] | null }) {
+    return this.mutate(tenantId, id, (row) => {
+      const profile = parseProfile(row.profile);
+      const overrides: ProfileOverrides = { ...profile.overrides };
+      for (const key of Object.keys(OVERRIDE_OPTIONS) as Array<keyof ProfileOverrides>) {
+        if (!(key in patch)) continue;
+        const value = patch[key];
+        if (value === null) delete overrides[key];
+        else if (value !== undefined && (OVERRIDE_OPTIONS[key] as readonly string[]).includes(value)) (overrides as Record<string, string>)[key] = value;
+      }
+      return { profile: { ...profile, overrides } as unknown as Prisma.InputJsonValue };
+    });
+  }
+
+  /** Forgets everything learned (accumulators, evidence count and the dedupe ledger). Business-set overrides are kept. */
+  async reset(tenantId: string, id: string) {
+    return this.mutate(tenantId, id, (row) => ({ profile: { ...emptyProfile(), overrides: parseProfile(row.profile).overrides } as unknown as Prisma.InputJsonValue, evidenceCount: 0, lastLearnedAt: null, lastError: null }), true);
+  }
+
+  /** Read-modify-write under the same row lock the learner takes, so an admin edit and a learning job cannot overwrite each other. */
+  private async mutate(tenantId: string, id: string, build: (row: DigitalSelf) => Prisma.DigitalSelfUpdateInput, clearLedger = false): Promise<DigitalSelfView> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM digital_selves WHERE id = ${id} AND tenant_id = ${tenantId} FOR UPDATE`);
+      const row = await tx.digitalSelf.findFirst({ where: { id, tenantId } });
+      if (!row) throw new NotFoundException('Digital Self not found');
+      const patch = build(row);
+      const next = { ...row, ...(patch as Partial<DigitalSelf>) };
+      if (clearLedger) await tx.digitalSelfLearningEvent.deleteMany({ where: { digitalSelfId: id, tenantId } });
+      await tx.digitalSelf.update({
+        where: { id },
+        data: { ...patch, profileVersion: { increment: 1 }, status: deriveStatus({ evidenceCount: next.evidenceCount, enabled: next.enabled, learningPaused: next.learningPaused, lastLearnedAt: next.lastLearnedAt }) },
+      });
+    });
+    return this.get(tenantId, id);
+  }
+}
+
+export interface DigitalSelfView {
+  id: string;
+  userId: string;
+  name: string;
+  role: string;
+  avatarUrl: string | null;
+  /** False when the agent is inactive, suspended, or otherwise cannot be represented right now. */
+  assignable: boolean;
+  status: string;
+  enabled: boolean;
+  learningPaused: boolean;
+  evidenceCount: number;
+  lastLearnedAt: Date | null;
+  lastError: string | null;
+  profileVersion: number;
+  summary: StyleSummary;
+}
+
+function toView(row: DigitalSelf, user: { name: string; role: string; avatarUrl: string | null; isActive: boolean }, memberAssignable: boolean): DigitalSelfView {
+  return {
+    id: row.id,
+    userId: row.userId,
+    name: user.name,
+    role: user.role,
+    avatarUrl: user.avatarUrl,
+    assignable: memberAssignable && user.isActive && row.enabled,
+    // Derived now, not read from the column: staleness changes with time, not only with events.
+    status: deriveStatus({ evidenceCount: row.evidenceCount, enabled: row.enabled, learningPaused: row.learningPaused, lastLearnedAt: row.lastLearnedAt }),
+    enabled: row.enabled,
+    learningPaused: row.learningPaused,
+    evidenceCount: row.evidenceCount,
+    lastLearnedAt: row.lastLearnedAt,
+    lastError: row.lastError,
+    profileVersion: row.profileVersion,
+    summary: summarizeProfile(parseProfile(row.profile)),
+  };
 }
