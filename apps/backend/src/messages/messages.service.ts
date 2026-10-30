@@ -39,6 +39,7 @@ import { HANDOFF_FAILED_TEXT, HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEX
 import { isUnsupportedFollowUpPromise } from '../ai-core/pipeline/follow-up-promise.util';
 import { buildLegacyTrace, describeProviderError, LegacyCallObservation, readProviderUsage } from './legacy-ai-execution.util';
 import { detectHumanRequest } from '../ai-core/pipeline/escalation-detector.util';
+import { shouldSkipBeforeGeneration, shouldSkipBeforeSending } from './superseded-reply.util';
 import { isAgentAway } from './ai-takeover.util';
 
 /**
@@ -142,14 +143,29 @@ export class MessagesService {
   // (no raw Redis client is wired into this app today, only BullMQ) if the backend
   // is ever horizontally scaled to multiple replicas.
   private readonly conversationAiLocks = new Map<string, Promise<void>>();
+  /** AI turns queued or running per conversation (a turn counts from the moment it is queued). Same single-replica limit as the lock. */
+  private readonly conversationAiTurns = new Map<string, number>();
 
   private runExclusiveForConversation(conversationId: string, fn: () => Promise<void>): Promise<void> {
+    this.conversationAiTurns.set(conversationId, (this.conversationAiTurns.get(conversationId) ?? 0) + 1);
     const previous = this.conversationAiLocks.get(conversationId) ?? Promise.resolve();
     const next = previous.then(fn, fn).finally(() => {
+      const remaining = (this.conversationAiTurns.get(conversationId) ?? 1) - 1;
+      if (remaining <= 0) this.conversationAiTurns.delete(conversationId);
+      else this.conversationAiTurns.set(conversationId, remaining);
       if (this.conversationAiLocks.get(conversationId) === next) this.conversationAiLocks.delete(conversationId);
     });
     this.conversationAiLocks.set(conversationId, next);
     return next;
+  }
+
+  /**
+   * True when another AI turn for this conversation is waiting behind the one that is running, i.e. the customer has sent a newer
+   * message that will be answered with the whole burst in view. Only meaningful from inside a turn run by runExclusiveForConversation
+   * (the running turn counts itself). See superseded-reply.util.ts for when it is safe to act on this.
+   */
+  private hasNewerAiTurnQueued(conversationId: string): boolean {
+    return (this.conversationAiTurns.get(conversationId) ?? 0) > 1;
   }
 
   constructor(
@@ -1916,6 +1932,13 @@ export class MessagesService {
       return;
     }
 
+    // The customer has sent a newer message that is already queued behind this one: it will read the whole burst and answer it once.
+    // Nothing has been spent yet, so stand aside (a request for a person is never skipped).
+    if (shouldSkipBeforeGeneration({ customerMessage: content, newerTurnQueued: this.hasNewerAiTurnQueued(conversation.id) })) {
+      this.logger.log(`AI suggestion for conversation ${conversation.id} skipped before generation: a newer customer message is queued and will be answered with the whole burst in view.`);
+      return;
+    }
+
     // Lead scoring is itself a paid (throttled) LLM call, so it runs only after the
     // ownership check above -- never for a human-handled conversation or on a failed lookup.
     const simulated = isSimulatedPhone(contact.phone);
@@ -1941,6 +1964,13 @@ export class MessagesService {
       // the AI couldn't produce a suggestion at all. Escalate for real instead.
       this.logger.warn(`AI suggestion generation produced no response at all for conversation ${conversation.id} -- escalating`);
       await this.requestHandoff(simulated, tenantId, conversation.id, 'AI escalation: suggestion generation threw before returning a response');
+      return;
+    }
+
+    // A newer customer message arrived while this was being generated and its turn is queued: surface only the suggestion that answers
+    // the whole burst, not one for half of it. Never when the turn decided to hand over to a person.
+    if (shouldSkipBeforeSending({ newerTurnQueued: this.hasNewerAiTurnQueued(conversation.id), shouldEscalate: !!result.shouldEscalate, toolTrace: result.toolTrace, hasMediaToSend: !!result.mediaToSend?.length })) {
+      this.logger.log(`AI suggestion for conversation ${conversation.id} generated but NOT surfaced: superseded by a newer customer message that is queued.`);
       return;
     }
 
@@ -2005,6 +2035,13 @@ export class MessagesService {
     // isConversationHumanHandled's doc comment.
     if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
       this.logger.log(`AI auto-reply suppressed for conversation ${conversation.id}: a human agent is now handling this conversation (ownership recheck) -- no provider call made.`);
+      return;
+    }
+
+    // The customer has sent a newer message that is already queued behind this one: it will read the whole burst and answer it once.
+    // Nothing has been spent yet, so stand aside (a request for a person is never skipped).
+    if (shouldSkipBeforeGeneration({ customerMessage: content, newerTurnQueued: this.hasNewerAiTurnQueued(conversation.id) })) {
+      this.logger.log(`AI auto-reply for conversation ${conversation.id} skipped before generation: a newer customer message is queued and will be answered with the whole burst in view.`);
       return;
     }
 
@@ -2108,6 +2145,14 @@ export class MessagesService {
         this.logger.log(`AI escalation reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
         return;
       }
+    }
+
+    // A newer customer message arrived while this was being generated and its turn is queued behind this one. Sending now would answer
+    // half of what the customer said, and the newer turn answers all of it. Only when dropping this reply loses nothing: the turn did
+    // not hand over to a person and used only lookups (see superseded-reply.util.ts).
+    if (shouldSkipBeforeSending({ newerTurnQueued: this.hasNewerAiTurnQueued(conversation.id), shouldEscalate: !!result.shouldEscalate, toolTrace: result.toolTrace, hasMediaToSend: !!result.mediaToSend?.length })) {
+      this.logger.log(`AI auto-reply for conversation ${conversation.id} generated but NOT sent: superseded by a newer customer message that is queued and will answer the whole burst.`);
+      return;
     }
 
     // Verz AI Credits: the flat -1-per-send decrement that used to live here is gone --
