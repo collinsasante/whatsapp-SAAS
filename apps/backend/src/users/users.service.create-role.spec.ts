@@ -6,6 +6,7 @@ function build() {
   const tx = {
     user: { create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'new-user', ...data })) },
     workspaceMember: { upsert: jest.fn().mockResolvedValue({}) },
+    digitalSelf: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma = {
     subscription: { findUnique: jest.fn().mockResolvedValue(null) },
@@ -23,6 +24,8 @@ describe('UsersService.create -- the persisted workspace role matches the reques
     await service.create('t1', dto(role), actor(UserRole.SUPER_ADMIN));
     expect(tx.user.create.mock.calls[0][0].data.role).toBe(role);
     expect(tx.workspaceMember.upsert.mock.calls[0][0].create).toMatchObject({ workspaceId: 't1', role: expected, status: 'ACTIVE' });
+    // Every reply-capable user gets a Digital Self in the same transaction; a view-only user does not.
+    expect(tx.digitalSelf.createMany).toHaveBeenCalledTimes(role === UserRole.VIEWER ? 0 : 1);
   });
 
   it('defaults to Agent when no role is given', async () => {

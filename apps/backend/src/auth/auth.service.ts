@@ -1,3 +1,4 @@
+import { provisionDigitalSelfForNewUser } from '../digital-self/digital-self.service';
 import {
   Injectable,
   UnauthorizedException,
@@ -788,6 +789,7 @@ export class AuthService {
             emailVerified: true, // invited via email — already verified
           },
         });
+        await provisionDigitalSelfForNewUser(tx, inv.workspaceId, newUser);
         await tx.workspaceMember.create({
           data: {
             workspaceId: inv.workspaceId,

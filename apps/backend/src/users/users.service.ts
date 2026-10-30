@@ -1,3 +1,4 @@
+import { provisionDigitalSelfForNewUser } from '../digital-self/digital-self.service';
 import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -61,6 +62,7 @@ export class UsersService {
         },
         select: USER_SELECT,
       });
+      await provisionDigitalSelfForNewUser(tx, tenantId, user);
 
       // Register as workspace member so JWT validation picks up the correct role
       await tx.workspaceMember.upsert({

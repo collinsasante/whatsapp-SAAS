@@ -93,6 +93,7 @@ model Tenant {
   aiInteractionEvaluations        AiInteractionEvaluation[]
   aiEvaluationFeedback            AiEvaluationFeedback[]
   aiTrainingExamples              AiTrainingExample[]
+  digitalSelves                   DigitalSelf[]
   aiCustomerCorrections           AiCustomerCorrection[]
   aiLearningAuditLogs             AiLearningAuditLog[]
   internalTasks                   InternalTask[]
@@ -374,6 +375,7 @@ model User {
   resolvedTasks                    InternalTask[]            @relation("TaskResolvedBy")
   aiEvaluationFeedbackGiven        AiEvaluationFeedback[]    @relation("AiEvaluationFeedbackReviewer")
   aiTrainingExamplesApproved       AiTrainingExample[]       @relation("AiTrainingExamplesApproved")
+  digitalSelf                      DigitalSelf?
   aiCorrectionsReviewed            AiCustomerCorrection[]    @relation("AiCorrectionsReviewed")
 
   @@unique([tenantId, email])
@@ -512,6 +514,9 @@ model Conversation {
   // prompt as a compact summary, never branched on by application code. Nullable/
   // additive; absence just means "no state tracked yet," not an error.
   aiState          Json?              @map("ai_state")
+  // AI Digital Self: which agent's communication style the AI uses for this conversation. Style only -- it never
+  // changes assignedToId (human ownership) and never enables AI replies. Tenant match is enforced in DigitalSelfService.
+  digitalSelfId    String?            @map("digital_self_id")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
 
@@ -529,8 +534,10 @@ model Conversation {
   internalTasks            InternalTask[]
   lead                     Lead?
   aiInteractionEvaluations AiInteractionEvaluation[]
+  digitalSelf              DigitalSelf?              @relation("ConversationDigitalSelf", fields: [digitalSelfId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([tenantId, digitalSelfId])
   @@index([tenantId, status])
   @@index([tenantId, contactId])
   @@index([tenantId, contactId, whatsappNumberId])
@@ -3153,4 +3160,55 @@ model AiCreditPackage {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("ai_credit_packages")
+}
+
+// AI Digital Self: one per human agent (User), created automatically. Holds a compact, structured description of HOW the agent
+// writes -- never raw conversations and never business facts. `profile` is versioned JSON of incremental accumulators
+// (see digital-self/profile.util.ts); the readable summary is derived from it on read, and only for attributes with enough evidence.
+enum DigitalSelfStatus {
+  INITIALIZING
+  LEARNING
+  READY
+  NEEDS_MORE_EXAMPLES
+  PAUSED
+}
+
+model DigitalSelf {
+  id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
+  userId         String            @unique @map("user_id")
+  status         DigitalSelfStatus @default(INITIALIZING)
+  enabled        Boolean           @default(true)
+  learningPaused Boolean           @default(false) @map("learning_paused")
+  profile        Json              @default("{}")
+  profileVersion Int               @default(1) @map("profile_version")
+  evidenceCount  Int               @default(0) @map("evidence_count")
+  lastLearnedAt  DateTime?         @map("last_learned_at")
+  lastError      String?           @map("last_error")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events        DigitalSelfLearningEvent[]
+  conversations Conversation[]             @relation("ConversationDigitalSelf")
+
+  @@index([tenantId, status])
+  @@map("digital_selves")
+}
+
+// Dedupe ledger: one row per human message already learned from, so a redelivered job or a retry can never count a message
+// twice. `messageId` is deliberately not a foreign key -- deleting a message under a retention rule must not cascade here, and
+// the row holds no message content.
+model DigitalSelfLearningEvent {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  digitalSelfId String   @map("digital_self_id")
+  messageId     String   @unique @map("message_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  digitalSelf DigitalSelf @relation(fields: [digitalSelfId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, digitalSelfId])
+  @@map("digital_self_learning_events")
 }
