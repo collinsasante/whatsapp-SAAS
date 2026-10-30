@@ -9,6 +9,14 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 Nothing yet.
 
+## [2.8.2] - 2026-10-30
+
+### Fixed
+- **Images in WebP or GIF format could fail to send on WhatsApp** with "Media upload error". WhatsApp accepts only JPEG and PNG images, so these are now converted to JPEG before sending (GIFs go out as a still image, and transparent areas become white). JPEG and PNG images are sent unchanged. This is the likely cause of the reported failure, not yet confirmed against the original message.
+
+### Changed
+- Media sends now write clearer log lines: the file's real format and size, WhatsApp's own reason when an upload is refused, and the failure code WhatsApp reports for a message. No phone numbers, message text or storage keys are logged.
+
 ## [2.8.1] - 2026-10-26
 
 ### Changed
