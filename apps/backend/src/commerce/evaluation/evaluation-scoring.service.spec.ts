@@ -1,4 +1,4 @@
-import { EvaluationScoringService, EvalTurnRecord } from './evaluation-scoring.service';
+import { EvaluationScoringService, EvalTurnRecord, PRODUCT_CLAIM_FIELDS } from './evaluation-scoring.service';
 import { COMMERCE_EVAL_SCENARIOS } from './scenarios/commerce-eval-scenarios';
 import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 
@@ -151,5 +151,56 @@ describe('EvaluationScoringService -- Verz-AI unification, Phase K deterministic
         'reasoning_advice_request_not_escalated', 'reasoning_bare_confirmation_after_proposal', 'reasoning_delivery_location_flow', 'reasoning_multi_item_order_no_premature_escalation',
       ]);
     });
+  });
+});
+
+describe('EvaluationScoringService -- product_accuracy (invented products)', () => {
+  const catalogue = [{ id: 'p1', name: 'Blue Denim Jacket', isActive: true }];
+  const scenario = { key: 'k', description: '', criteria: ['product_accuracy' as const], products: {}, turns: [] };
+
+  function serviceWith(claims: Array<{ productMentioned: string }>) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new EvaluationScoringService({ product: { findMany: jest.fn().mockResolvedValue(catalogue) } } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const extract = jest.spyOn(service as any, 'extractClaims').mockResolvedValue(claims);
+    // The other judges are not under test here.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    jest.spyOn(service as any, 'judgeClaimsPaymentSuccess').mockResolvedValue(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    jest.spyOn(service as any, 'judgeResponseQuality').mockResolvedValue({ score: 5, notes: '' });
+    return { service, extract };
+  }
+
+  it('fails when the reply presents a product that is not in the active catalogue', async () => {
+    const { service } = serviceWith([{ productMentioned: 'Titanium Deluxe Widget Pro' }]);
+    const result = await service.scoreCase('t1', scenario, [buildTurn({ aiResponse: 'Yes, the Titanium Deluxe Widget Pro is GH₵50.' })], [], []);
+    expect(result.scores['product_accuracy']?.pass).toBe(false);
+    expect(result.scores['product_accuracy']?.details[0]).toContain('Titanium Deluxe Widget Pro');
+  });
+
+  it('passes when the reply names only a product that exists', async () => {
+    const { service } = serviceWith([{ productMentioned: 'Blue Denim Jacket' }]);
+    const result = await service.scoreCase('t1', scenario, [buildTurn({ aiResponse: 'The Blue Denim Jacket is GH₵120.' })], [], []);
+    expect(result.scores['product_accuracy']?.pass).toBe(true);
+  });
+
+  it('does not accept a similar but different name as the real product', async () => {
+    const { service } = serviceWith([{ productMentioned: 'Red Denim Jacket' }]);
+    const result = await service.scoreCase('t1', scenario, [buildTurn({ aiResponse: 'Yes, we have the Red Denim Jacket.' })], [], []);
+    expect(result.scores['product_accuracy']?.pass).toBe(false);
+  });
+
+  it('passes a plain "could not find it" reply when the extractor returns no claim', async () => {
+    const { service } = serviceWith([]);
+    const result = await service.scoreCase('t1', scenario, [buildTurn({ aiResponse: "I couldn't find that product. Could you tell me more about what you need?" })], [], []);
+    expect(result.scores['product_accuracy']?.pass).toBe(true);
+  });
+
+  it('instructs the extractor to leave out names the reply says it cannot find, and to keep names it presents as for sale', async () => {
+    const { service, extract } = serviceWith([]);
+    await service.scoreCase('t1', scenario, [buildTurn({ aiResponse: 'x' })], [], []);
+    expect(extract).toHaveBeenCalledWith('x', PRODUCT_CLAIM_FIELDS);
+    expect(PRODUCT_CLAIM_FIELDS).toMatch(/Do NOT include a name the message says it cannot find/);
+    expect(PRODUCT_CLAIM_FIELDS).toMatch(/presents as real, available for sale or priced/);
   });
 });

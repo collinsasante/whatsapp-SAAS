@@ -43,6 +43,12 @@ export interface CaseScoringResult {
   passed: boolean;
 }
 
+/** The extractor sees only the reply, so a name the reply says it could NOT find has to be excluded explicitly: repeating a name in order to
+ * refuse it is the correct behaviour, not a claim that the product exists. */
+export const PRODUCT_CLAIM_FIELDS =
+  'productMentioned (string) -- every distinct product name the message presents as real, available for sale or priced. ' +
+  'Do NOT include a name the message says it cannot find, does not have, is unavailable or is not in the catalogue, and do not include a name only quoted back to ask the customer to clarify';
+
 /**
  * Scores one evaluation case. Pattern throughout: an LLM call extracts
  * structured claims from the AI's free text, then plain code verifies those
@@ -221,7 +227,7 @@ export class EvaluationScoringService {
 
     for (const turn of turns) {
       if (!turn.aiResponse) continue;
-      const claims = await this.extractClaims(turn.aiResponse, 'productMentioned (string) -- every distinct product name mentioned as if it were real and available for sale');
+      const claims = await this.extractClaims(turn.aiResponse, PRODUCT_CLAIM_FIELDS);
       for (const claim of claims) {
         const name = claim['productMentioned'] as string | undefined;
         if (!name) continue;
