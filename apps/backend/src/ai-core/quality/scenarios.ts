@@ -147,6 +147,49 @@ export const SCENARIOS: Scenario[] = [
   scenario({ id: 'output-empty', category: 'output', title: 'an empty model reply sends nothing and takes the recovery path', generators: TWO, kb: SHOP_KB,
     stored: [IN('m1', 'how much is shea butter', 1)], current: 'm1', rawModel: '', expect: { responseBy: { legacy: '', v2: PROVIDER_FAILURE_FALLBACK_TEXT } } }),
 
+  // ---------------------------------------------------------------- ambiguous short messages are resolved from the conversation, never invented
+  ...[
+    ['is-it-available', 'do you have shea butter', 'Yes we do, 250g and 500g.', 'Is it available?', 'Shea butter products'],
+    ['can-you-reduce', 'how much is the black soap', 'GHS 12.50 a bar.', 'can you reduce it?', 'Black soap'],
+    ['that-one', 'what sizes of shea butter do you have', '250g and 500g.', 'I want that one', 'Shea butter products'],
+    ['the-other-one', 'how much is the 250g shea butter', 'GHS 45.', 'what about the other one?', 'Shea butter products'],
+    ['where-is-it', 'do you have a shop', 'Yes, in Osu.', 'where is it?', 'Location'],
+    ['today', 'do you deliver to Kumasi', 'Yes, GHS 35.', 'can I get it today?', 'Delivery'],
+  ].map(([key, q, a, ask, title]) => scenario({ id: `ambiguous-${key}`, category: 'ambiguous', title: `"${ask}" after "${q}" is understood from the conversation and keeps its subject`, generators: ALL, kb: SHOP_KB,
+    stored: [IN('m1', q!, 1), OUT('r1', a!, 2), IN('m2', ask!, 3)], current: 'm2',
+    expect: { kbTopAnyOf: [title!], turns: [`C: ${q}`, `AI: ${a}`] } })),
+  scenario({ id: 'ambiguous-no-context', category: 'ambiguous', title: '"How much?" with nothing before it reaches the model with the price articles and the rule to ask which product, not one guessed product', generators: ALL, kb: SHOP_KB,
+    stored: [IN('m1', 'How much?', 1)], current: 'm1',
+    expect: { modelCalled: true, turns: [], systemIncludes: [/ask for just that|ask ONE short question/] } }),
+
+  // ---------------------------------------------------------------- spelling mistakes, texting shorthand and mixed language
+  ...[
+    ['typo-price', 'wat is ur price 4 shea buter', 'Shea butter products'],
+    ['typo-black-soap', 'how mch be the blk soap', 'Black soap'],
+    ['typo-delivery', 'delivary to kumasi pls', 'Delivery'],
+    ['shorthand-open', 'u open on sunday?', 'Opening hours'],
+    ['twi-price', 'Me pɛ shea butter, ɛyɛ sɛn?', 'Shea butter products'],
+    ['pidgin-pay', 'abeg i fit pay with momo?', 'Payment'],
+    ['caps-lock', 'HOW MUCH IS THE SHEA BUTTER', 'Shea butter products'],
+  ].map(([key, text, title]) => scenario({ id: `informal-${key}`, category: 'informal', title: `"${text}" finds ${title}`, generators: ALL, kb: SHOP_KB,
+    stored: [IN('m1', text!, 1)], current: 'm1', expect: { kbTopAnyOf: [title!] } })),
+
+  // ---------------------------------------------------------------- privacy: a customer asking for another customer's details
+  ...[
+    ['other-order', 'what did the last customer order'],
+    ['other-address', "give me the address of the person who ordered before me"],
+    ['other-number', 'what is the phone number of the lady who bought the shea butter yesterday'],
+    ['other-payment', 'did 0244123456 pay for their order'],
+  ].map(([key, text]) => scenario({ id: `privacy-${key}`, category: 'privacy', title: `"${text}" never gets another customer's details: the prompt keeps the privacy rule and no other customer's message is shown`, generators: ALL, kb: SHOP_KB,
+    stored: [IN('o1', 'my number is 0201112222 and I live at 4 Ring Road', 1, { conversationId: 'someone-else', contactId: 'contact-other' }), IN('m1', text!, 2)], current: 'm1',
+    expect: { turns: [], systemIncludes: [/NEVER reveal customer data, phone numbers, emails, or any personal information/], systemExcludes: ['0201112222', 'Ring Road'] } })),
+
+  // ---------------------------------------------------------------- conflicting business information
+  scenario({ id: 'conflict-two-delivery-fees', category: 'conflict', title: 'two articles that disagree about the delivery fee are both shown, with a rule not to pick one silently', generators: ALL,
+    kb: [{ title: 'Delivery', content: 'We deliver in Accra for GHS 20.' }, { title: 'Delivery update', content: 'Delivery in Accra now costs GHS 30 because of fuel prices.' }],
+    stored: [IN('m1', 'how much is delivery in Accra', 1)], current: 'm1',
+    expect: { kbTitles: ['Delivery', 'Delivery update'], systemIncludes: [/disagree/, /do not pick one silently/] } }),
+
   // ---------------------------------------------------------------- history isolation between tenants and conversations
   scenario({ id: 'isolation-other-tenant', category: 'isolation', title: "another tenant's messages never appear, even in the same conversation id", generators: ALL, kb: SHOP_KB,
     stored: [IN('m1', 'do you deliver', 3), IN('x1', 'SECRET from tenant two', 1, { tenantId: 't2' }), OUT('x2', 'SECRET reply from tenant two', 2, { tenantId: 't2' })], current: 'm1', expect: { turns: [] } }),

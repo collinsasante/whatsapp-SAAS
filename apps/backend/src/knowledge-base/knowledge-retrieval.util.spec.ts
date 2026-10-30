@@ -1,4 +1,4 @@
-import { buildRetrievalQuery, contentTerms, scoreArticles, stem } from './knowledge-retrieval.util';
+import { buildRetrievalQuery, contentTerms, scoreArticles, stem, withinOneEdit } from './knowledge-retrieval.util';
 
 describe('stem', () => {
   it.each([['prices', 'price'], ['delivering', 'deliver'], ['delivered', 'deliver'], ['batteries', 'battery'], ['glass', 'glass'], ['500g', '500g']])('%s -> %s', (w, s) => {
@@ -110,5 +110,72 @@ describe('intent hints do not outrank what the customer named', () => {
     expect(q.terms.get('order')).toBe(1);
     expect(q.terms.has('location')).toBe(false);
     expect(q.hintTerms.has('location')).toBe(true);
+  });
+});
+
+describe('follow-ups that point back at the subject', () => {
+  const prior = ['do you have shea butter', 'how much is the 250g'];
+  const subject = (current: string, previous = prior) => [...buildRetrievalQuery(current, previous).terms.keys()];
+
+  it.each(['I want that one', 'what about the other one?', 'can I get it today?', 'is it available?', 'I will take it', 'give me the same', 'can I see those?'])(
+    '"%s" borrows the subject of the customer\'s earlier messages',
+    (message) => expect(subject(message)).toEqual(expect.arrayContaining(['shea'])),
+  );
+
+  it.each(['ok', 'thanks', 'thank you so much', 'ok thanks that is fine', 'thanks for that', '👍', 'good morning', 'great'])(
+    'the acknowledgement "%s" still retrieves nothing: it asks for nothing',
+    (message) => expect(buildRetrievalQuery(message, prior).terms.size).toBe(0),
+  );
+
+  it('has nothing to borrow when the customer has said nothing before, so no subject is invented', () => {
+    expect(buildRetrievalQuery('I want that one', []).terms.size).toBe(0);
+    expect(buildRetrievalQuery('I want that one', ['hi', 'ok']).terms.size).toBe(0); // earlier messages with no content give no subject
+  });
+
+  it.each(['is it available', 'can I get it today', 'what about the other one', 'and is that one in stock'])(
+    '"%s" (no question mark) is still recognised as asking',
+    (message) => expect(subject(message)).toEqual(expect.arrayContaining(['shea'])),
+  );
+
+  it('prefers the customer\'s own words when they name something', () => {
+    const terms = subject('I want that black soap');
+    expect(terms).toContain('black');
+    expect(terms).not.toContain('shea');
+  });
+});
+
+describe('withinOneEdit', () => {
+  it.each([['delivary', 'delivery'], ['recieve', 'receive'], ['paymnt', 'payment'], ['pricee', 'price'], ['shea', 'shee']])('%s ~ %s', (a, b) => {
+    expect(withinOneEdit(a, b)).toBe(true);
+    expect(withinOneEdit(b, a)).toBe(true);
+  });
+  it.each([['delivary', 'deliveries'], ['order', 'border '], ['soap', 'shea'], ['price', 'prize1'], ['same', 'same']])('%s !~ %s', (a, b) => {
+    expect(withinOneEdit(a, b)).toBe(false);
+  });
+});
+
+describe('typo tolerance in ranking', () => {
+  const ARTICLES = [
+    { title: 'Delivery', content: 'We deliver in Accra for GHS 20 through a dispatch rider.' },
+    { title: 'Opening hours', content: 'We open Monday to Saturday from 8am to 6pm.' },
+    { title: 'Returns', content: 'You can return an unopened product within 7 days.' },
+  ];
+  const best = (message: string) => {
+    const scores = scoreArticles(ARTICLES, buildRetrievalQuery(message, []));
+    return scores.every((s) => s === 0) ? null : ARTICLES[scores.indexOf(Math.max(...scores))]!.title;
+  };
+
+  it('finds the article for a misspelt word that matches nothing exactly', () => {
+    expect(best('delivary to kumasi')).toBe('Delivery');
+    expect(best('what are your opning hours')).toBe('Opening hours');
+  });
+  it('does not guess for short words, words with digits, or a different first letter', () => {
+    expect(best('oper')).toBeNull(); // one edit from "open", but only 4 letters: too short to guess
+    expect(best('elivery')).toBeNull(); // first letter dropped: not the same first letter, so not matched
+    expect(best('xyzzy plugh')).toBeNull();
+  });
+  it('an exact match is never replaced by a near one', () => {
+    const scores = scoreArticles([{ title: 'Delivery', content: 'x' }, { title: 'Delivered goods', content: 'y' }], buildRetrievalQuery('delivery', []));
+    expect(scores[0]).toBeGreaterThan(scores[1]!);
   });
 });
