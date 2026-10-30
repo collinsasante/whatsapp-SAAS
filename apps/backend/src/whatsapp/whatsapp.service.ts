@@ -12,6 +12,7 @@ import { CredentialsEncryptionService } from '../common/crypto/credentials-encry
 import { TemplateComponent } from '@whatsapp-platform/shared-types';
 import { buildTemplateComponents } from '@whatsapp-platform/shared-utils';
 import { isWebmBuffer, transcodeWebmToOgg } from '../common/media/audio.util';
+import { needsImageTranscode, transcodeImageToJpeg } from '../common/media/image.util';
 import { recipientField } from './recipient.util';
 import { readCallingStatus } from '../calls/calling-errors.util';
 
@@ -47,7 +48,7 @@ function needsVideoTranscode(mimeType: string): boolean {
   return mimeType.startsWith('video/') && !supported.some((m) => mimeType.startsWith(m));
 }
 
-function metaError(error: unknown): string {
+export function metaError(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
     const data = error.response.data as { error?: { message?: string; error_user_msg?: string } };
     return data?.error?.error_user_msg ?? data?.error?.message ?? JSON.stringify(data);
@@ -386,6 +387,19 @@ export class WhatsAppService {
       }
     }
 
+    // WhatsApp accepts only JPEG and PNG as an image. The platform also stores WebP and GIF as images; uploaded as they are, Meta
+    // rejects them, and the link fallback then fails later with "Media upload error". Decided on the file signature, not the label.
+    if (needsImageTranscode(effectiveMime, effectiveBuffer)) {
+      try {
+        effectiveBuffer = await transcodeImageToJpeg(effectiveBuffer);
+        effectiveMime = 'image/jpeg';
+        effectiveFilename = filename.replace(/\.[^.]+$/, '') + '.jpg';
+        this.logger.log(`Converted ${mimeType} image to JPEG for Meta upload`);
+      } catch (transcodeErr) {
+        this.logger.warn(`ffmpeg image conversion failed, uploading as-is: ${transcodeErr}`);
+      }
+    }
+
     // Transcode non-MP4 video to MP4 (Meta only accepts video/mp4, video/3gpp)
     if (needsVideoTranscode(effectiveMime)) {
       try {
@@ -399,6 +413,7 @@ export class WhatsAppService {
       }
     }
 
+    this.logger.log(`Uploading media to Meta: ${effectiveMime}, ${effectiveBuffer.length} bytes, as ${effectiveFilename} (received ${mimeType}, ${buffer.length} bytes)`);
     const form = new FormData();
     form.append('messaging_product', 'whatsapp');
     form.append('file', effectiveBuffer, { filename: effectiveFilename, contentType: effectiveMime });
