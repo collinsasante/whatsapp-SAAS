@@ -73,3 +73,84 @@ check_applied_migrations() {
     fi
   done < "$remote_file"
 }
+
+# check_prisma_migrate_status <status output file> <exit code> <candidate migrations dir> <file of "name|checksum" rows>
+#
+# `prisma migrate status` exits 1 whenever the candidate has migrations the database has not applied yet, which is exactly what a
+# release that ships a migration looks like, and whenever the database holds a migration the candidate lacks. Treating every non-zero
+# exit as a failure made it impossible to release a candidate with a migration. This accepts a non-zero exit ONLY when every line of
+# the output is understood and describes one of two expected things:
+#   1. pending migrations: each must exist in the candidate and must not already be recorded as applied;
+#   2. migrations only in the database: each must be a permitted, explicitly named extra that check_applied_migrations already
+#      excused for this release (ALLOWED_EXTRA_APPLIED).
+# Anything else (a failed or rolled-back migration, a modified one, an unknown line, an empty report, another exit code) is refused
+# and the reason is placed in MIGRATION_GATE_ERROR. Pending migrations are applied later by `prisma migrate deploy`, behind the
+# backup and restore rehearsal; this function only decides that the history is in an expected shape.
+check_prisma_migrate_status() {
+  local status_file=$1 exit_code=$2 migration_dir=$3 applied_file=$4
+  local line id is_id section="" recognised=false known allowed
+
+  if [[ "$exit_code" == 0 ]]; then
+    return 0
+  fi
+  if [[ "$exit_code" != 1 ]]; then
+    MIGRATION_GATE_ERROR="prisma migrate status exited with code $exit_code"
+    return 1
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line=${line%$'\r'}
+    # Words that mean something went wrong. Not applied to a migration ID inside a recognised list: names are free text
+    # (this repository has 20260903190000_error_and_webhook_logs), so an ID must never be mistaken for a report of an error.
+    is_id=false
+    if [[ -n "$section" && "$line" =~ ^[0-9]{14}_[A-Za-z0-9_]+$ ]]; then is_id=true; fi
+    if [[ "$is_id" != true ]] && printf '%s' "$line" | grep -Eiq 'fail|rolled|modified|checksum|drift|error|P[0-9]{4}|cannot|unable'; then
+      MIGRATION_GATE_ERROR="prisma migrate status reported a problem: ${line:0:120}"
+      return 1
+    fi
+    case "$line" in
+      "")
+        section="" ;;
+      "The migrations have not yet been applied:" | "The migration has not yet been applied:" | \
+      "Following migration have not yet been applied:" | "Following migrations have not yet been applied:")
+        section=pending; recognised=true ;;
+      "The migration from the database are not found locally in prisma/migrations:" | \
+      "The migrations from the database are not found locally in prisma/migrations:")
+        section=extra; recognised=true ;;
+      *" Container "* | "Container "* | "Prisma schema loaded from "* | "Datasource "* | *" migrations found in prisma/migrations" | \
+      "Your local migration history and the migrations table from your database are different:" | \
+      "The last common migration is: "* | "Database schema is not up to date" | "To apply migrations in "*)
+        section="" ;;
+      *)
+        if [[ -z "$section" || ! "$line" =~ ^[0-9]{14}_[A-Za-z0-9_]+$ ]]; then
+          MIGRATION_GATE_ERROR="prisma migrate status printed something unexpected: ${line:0:120}"
+          return 1
+        fi
+        id=$line
+        if [[ "$section" == pending ]]; then
+          if [[ ! -s "$migration_dir/$id/migration.sql" ]]; then
+            MIGRATION_GATE_ERROR="prisma reports pending migration $id, which is not in the candidate"
+            return 1
+          fi
+          if cut -d'|' -f1 "$applied_file" | grep -qxF "$id"; then
+            MIGRATION_GATE_ERROR="prisma reports $id as pending but the database records it as applied"
+            return 1
+          fi
+        else
+          allowed=false
+          for known in ${ALLOWED_EXTRA_APPLIED[@]+"${ALLOWED_EXTRA_APPLIED[@]}"}; do
+            [[ "$known" == "$id" ]] && allowed=true
+          done
+          if [[ "$allowed" != true ]]; then
+            MIGRATION_GATE_ERROR="database has migration $id that is absent from the candidate and was not explicitly permitted for this release"
+            return 1
+          fi
+        fi ;;
+    esac
+  done < "$status_file"
+
+  if [[ "$recognised" != true ]]; then
+    MIGRATION_GATE_ERROR="prisma migrate status failed without describing pending or database-only migrations"
+    return 1
+  fi
+}

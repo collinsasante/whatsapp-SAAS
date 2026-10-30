@@ -47,3 +47,22 @@ the release that the app works end to end.
 
 Remove the entry once the objects are dropped through a reviewed migration or the feature
 branch is merged.
+
+## Releasing a candidate that ships a migration
+
+`prisma migrate status` exits 1 whenever the candidate has migrations the database has not applied yet (and whenever the database
+holds a migration the candidate lacks, such as the exception above). The first release of a candidate with a new migration therefore
+looks like a failure to a script that only checks the exit code. The release script instead reads the output with
+`check_prisma_migrate_status` (`infra/scripts/lib/staging-migration-gate.sh`) and accepts a non-zero exit only when every line is
+understood and is one of:
+
+- a **pending** migration that exists in the candidate and is not recorded as applied (it is applied later by `prisma migrate deploy`,
+  after the backup and the isolated restore rehearsal), or
+- a **database-only** migration that was explicitly permitted for this release with `STAGING_ALLOWED_EXTRA_MIGRATIONS`.
+
+A failed or rolled-back migration, a modified one, a connection error, an unrecognised line, an empty report or any exit code other
+than 0 or 1 still aborts, and the abort message quotes the reason and the saved `prisma-migrate-status.txt`.
+
+Checked on a scratch database in the exact staging shape (extra migration applied, two migrations pending): the status output matches
+what staging printed, `migrate deploy` applies the pending migrations and exits 0, and afterwards `migrate status` is clean.
+

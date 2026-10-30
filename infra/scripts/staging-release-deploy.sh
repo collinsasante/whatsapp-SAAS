@@ -354,8 +354,13 @@ complete_step "database identity rechecked before preflight"
 CURRENT_STEP="migration history and data preflight"
 echo "Checking migration history and legacy-data preconditions (read-only)"
 verify_migration_checksums "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma/migrations" "$BACKUP_DIR/applied-migration-checksums.txt"
+STATUS_RC=0
 "${COMPOSE[@]}" run --rm --no-deps backend prisma migrate status --schema /app/prisma/schema.prisma \
-  > "$BACKUP_DIR/prisma-migrate-status.txt" 2>&1 || fail "Prisma migration history check failed"
+  > "$BACKUP_DIR/prisma-migrate-status.txt" 2>&1 || STATUS_RC=$?
+# Prisma exits 1 for pending migrations (what a release with a migration looks like). Accept that, and the permitted extra
+# migration, and nothing else: see check_prisma_migrate_status.
+check_prisma_migrate_status "$BACKUP_DIR/prisma-migrate-status.txt" "$STATUS_RC" "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma/migrations" "$BACKUP_DIR/applied-migration-checksums.txt" ||
+  fail "Prisma migration history check failed: $MIGRATION_GATE_ERROR (details: $BACKUP_DIR/prisma-migrate-status.txt)"
 docker exec -i wa_staging_postgres psql -X -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f - \
   < "$CANDIDATE_ROOT/$REVISION/infra/scripts/staging-migration-preflight.sql" \
   > "$BACKUP_DIR/preflight-before.txt" || fail "read-only migration preflight found a blocking conflict"
