@@ -14,6 +14,19 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 - A reply from the AI that is cut off, malformed, or an internal error is never sent to a customer. It is handled like any other failed AI reply: a team member is asked to pick the conversation up.
 - Customers who ask for a person in everyday wording ("I need to talk to someone", "can someone call me", "abeg make I talk to somebody") are handed to the team, including on workspaces using the original Verz AI responder, which did not detect this before.
 
+## [2.8.3] - 2026-10-30
+
+### Fixed
+- **Large images failed to send on WhatsApp with "Media upload error".** WhatsApp refuses any image over 5 MB, and a 7.6 MB PNG hit that limit twice. Images over the limit are now converted to JPEG and, only if still too large, scaled down, keeping their proportions. Images under 5 MB that are already JPEG or PNG are sent exactly as before. This, and not the image format fixed in 2.8.2, is the confirmed cause of the reported failure (found from the stored file's size on production).
+
+## [2.8.2] - 2026-10-30
+
+### Fixed
+- **Images in WebP or GIF format could fail to send on WhatsApp** with "Media upload error". WhatsApp accepts only JPEG and PNG images, so these are now converted to JPEG before sending (GIFs go out as a still image, and transparent areas become white). JPEG and PNG images are sent unchanged. This is the likely cause of the reported failure, not yet confirmed against the original message.
+
+### Changed
+- Media sends now write clearer log lines: the file's real format and size, WhatsApp's own reason when an upload is refused, and the failure code WhatsApp reports for a message. No phone numbers, message text or storage keys are logged.
+
 ## [2.8.1] - 2026-10-26
 
 ### Changed
