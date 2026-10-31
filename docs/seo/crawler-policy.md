@@ -16,7 +16,7 @@ Private routes are deliberately **not** disallowed in robots.txt. A crawler that
 Two independent guards keep non-production out of search:
 
 1. **Build switch** (below): robots.txt `Disallow: /`, empty sitemap, noindex meta and `X-Robots-Tag` on every response.
-2. **Host guard** (`middleware.ts`): any request whose Host is not `verzchat.com` / `www.verzchat.com` gets `X-Robots-Tag: noindex, nofollow`, even if the build switch is missing. It only ever adds noindex. Any new production hostname must be added to `PRODUCTION_HOSTS` in `src/lib/seo/site.ts`, or it will be served noindex. After deploying, confirm `curl -sI https://verzchat.com/ | grep -i x-robots-tag` prints nothing.
+2. **Host guard** (`middleware.ts`): any request whose Host is not `verzchat.com` / `www.verzchat.com` gets `X-Robots-Tag: noindex, nofollow`, even if the build switch is missing. It only ever adds noindex. Any new production hostname must be added to `PRODUCTION_HOSTS` in `src/lib/seo/site.ts`, or it will be served noindex. Hostnames reviewed: nginx serves only `verzchat.com`, `www.verzchat.com` (301 to the apex) and `staging.verzchat.com`. `app.verzchat.com` and `api.verzchat.com` appear only as a code fallback and in the API docs; nginx has no server block for them, and if one is ever added for the signed-in app it should stay noindex, so they are deliberately not listed. Host matching ignores case, a port and a trailing dot. After deploying, confirm `curl -sI https://verzchat.com/ | grep -i x-robots-tag` prints nothing.
 
 The build switch:
 

@@ -23,7 +23,7 @@ const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) =>
 const BASE = (args.base ?? 'http://localhost:3000').replace(/\/$/, '');
 const MODE = args.mode ?? 'production';
 /** The Host sent with every request. Production mode pretends to be the real site; the other modes use whatever the base URL gives (localhost). */
-const HOST = args.host ?? (MODE === 'production' ? 'verzchat.com' : MODE === 'wrong-host' ? 'staging.verzchat.com' : undefined);
+let HOST = args.host ?? (MODE === 'production' ? 'verzchat.com' : MODE === 'wrong-host' ? 'staging.verzchat.com' : undefined);
 const SITE = 'https://verzchat.com';
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'app');
 
@@ -148,8 +148,17 @@ async function production() {
     const cs = canonicals(r.body);
     check(`${path}: ${r.status}, noindex, and no canonical to the homepage`, [200, 307].includes(r.status) && /noindex/i.test(robotsMeta(r.body) ?? '') && !cs.includes(SITE) && !cs.includes(SITE + '/') && cs.length === 0, `final ${r.url.replace(BASE, '')} ${r.status} robots=${robotsMeta(r.body)} canonical=${cs.join(',')}`);
   }
+  await hostGuard();
   const nf = await get('/this-page-does-not-exist');
   check('unknown URL: real 404 with noindex', nf.status === 404 && /noindex/i.test(robotsMeta(nf.body) ?? ''));
+}
+
+/** Spellings of the production host that must stay indexable, and hosts that must be noindex. Each probe sends that exact Host. */
+async function hostGuard() {
+  console.log('\nhost guard');
+  const probe = async (host) => { const save = HOST; HOST = host; try { return (await get('/privacy')).headers.get('x-robots-tag') ?? ''; } finally { HOST = save; } };
+  for (const h of ['verzchat.com', 'VERZCHAT.COM', 'verzchat.com:443', 'verzchat.com.', 'www.verzchat.com']) check(`Host ${h}: no X-Robots-Tag`, (await probe(h)) === '');
+  for (const h of ['staging.verzchat.com', 'app.verzchat.com', 'api.verzchat.com', 'preview.example.vercel.app', '203.0.113.7', 'localhost', 'verzchat.com.evil.example', 'notverzchat.com']) check(`Host ${h}: X-Robots-Tag noindex`, /noindex/i.test(await probe(h)));
 }
 
 async function wrongHost() {

@@ -11,7 +11,8 @@ import { PRODUCTION_HOSTS } from '@/lib/seo/site';
  * It only ever ADDS the noindex header. It never makes a response indexable, and it never touches robots.txt or page metadata.
  */
 export function middleware(request: NextRequest) {
-  const host = (request.headers.get('host') ?? '').split(':')[0].toLowerCase();
+  // Port and a trailing dot (a fully-qualified `verzchat.com.`) are not part of the name.
+  const host = (request.headers.get('host') ?? '').split(':')[0].toLowerCase().replace(/\.$/, '');
   const response = NextResponse.next();
   if (!PRODUCTION_HOSTS.includes(host)) response.headers.set('X-Robots-Tag', 'noindex, nofollow');
   return response;
