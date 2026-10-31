@@ -14,7 +14,8 @@ export default function Pricing() {
         </h2>
         <p className={`lede ${styles.lede}`}>
           Plans are priced per workspace, not per message. Prices are in US dollars. Payment inside the app is taken in
-          Ghana cedis through Paystack, and the amount is shown at checkout.
+          Ghana cedis through Paystack, and the amount is shown at checkout. Billing and cancellation are covered in the{' '}
+          <Link href="/terms">terms of service</Link>.
         </p>
 
         <div {...reveal(1)} className={styles.scroll} tabIndex={0} role="region" aria-label="Plan comparison, scrolls sideways on small screens">

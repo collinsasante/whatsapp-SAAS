@@ -173,7 +173,11 @@ export default function BookDemoPage() {
         {/* Title */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Book a demo</h1>
-          <p className="text-gray-500">See how VerzChat can transform your customer conversations.</p>
+          <p className="text-gray-500">
+            A personalised walkthrough of the VerzChat shared inbox, team workflow and Verz AI. Prefer to explore on your own?{' '}
+            <Link href="/#pricing" className="underline hover:text-gray-700">See the plans</Link> or{' '}
+            <Link href="/auth/register" className="underline hover:text-gray-700">start free</Link>.
+          </p>
         </div>
 
         {/* Step indicator */}
