@@ -51,20 +51,19 @@ const LEGACY_HISTORY_WINDOW = 200;
 export type ProviderCallWrapper = <T>(providerCall: () => Promise<T>) => Promise<T>;
 
 /**
- * The request body of the legacy responder's single DeepSeek call. Thinking is switched off here and nowhere else: the call asks for a
- * short JSON reply, and with thinking on (DeepSeek's default) most replies came back blank on staging. DeepSeek replaces output it cannot
- * read as JSON with spaces, so the content looked empty even though tokens were spent and finish_reason was "stop". Documented on
- * api-docs.deepseek.com (create-chat-completion: `thinking.type` is `enabled` or `disabled`; the JSON Output guide describes the blanking).
+ * The request body of the legacy responder's DeepSeek call: thinking off, and NO JSON mode. Both matter, and both were found on staging.
+ * With JSON mode on, DeepSeek replaces any output it cannot read as JSON with spaces, so the content arrives blank even though tokens
+ * were spent and finish_reason is "stop": every first attempt was blanked in the staging runs (12 of 12), while the same request without
+ * JSON mode returned a usable reply each time. The reply is read by parseStructuredReply, which accepts a JSON object, fenced or
+ * slightly broken JSON, and plain prose, so JSON mode adds failures and no safety. Thinking is switched off because it only added
+ * hidden reasoning tokens and latency to a short reply. Documented on api-docs.deepseek.com (create-chat-completion: `thinking.type`
+ * is `enabled` or `disabled`; the JSON Output guide describes the blanking).
  */
-export function buildLegacyRequestBody(messages: Array<{ role: string; content: string }>, options: { jsonMode?: boolean } = {}) {
-  const { jsonMode = true } = options;
+export function buildLegacyRequestBody(messages: Array<{ role: string; content: string }>) {
   return {
     model: DEEPSEEK_MODEL,
     max_tokens: 400,
     messages,
-    // The retry omits this: JSON mode is what blanks output DeepSeek cannot read as JSON, and parseStructuredReply already copes with
-    // plain, fenced and slightly broken replies.
-    ...(jsonMode && { response_format: { type: 'json_object' as const } }),
     thinking: { type: 'disabled' as const },
   };
 }
@@ -299,28 +298,29 @@ export class AiResponderService {
     ];
 
     try {
-      const callDeepSeek = (jsonMode: boolean) => axios.post(
+      const callDeepSeek = () => axios.post(
         DEEPSEEK_API_URL,
-        buildLegacyRequestBody(chatMessages, { jsonMode }),
+        buildLegacyRequestBody(chatMessages),
         {
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           timeout: 20_000,
         },
       );
-      // A blank answer is asked for once more, this time without JSON mode. The retry sits INSIDE the call the wrapper brackets, so the
-      // credit reservation and its settlement (and the execution record built from the returned response) happen once per customer
-      // message, whatever the number of HTTP calls. Two attempts at most; an error thrown by either one is not retried and reaches the
-      // catch below as before. The log lines describe sizes and shapes only, never the conversation or the reply text.
+      // One call per customer message. An answer that comes back blank anyway is asked for once more (a safety net; the common blanking
+      // came from JSON mode, which is no longer used). The retry sits INSIDE the call the wrapper brackets, so the credit reservation and
+      // its settlement (and the execution record built from the returned response) happen once per customer message, whatever the number of
+      // HTTP calls. Two attempts at most; an error thrown by either one is not retried and reaches the catch below as before. The log lines
+      // describe sizes and shapes only, never the conversation or the reply text.
       const providerCall = async () => {
-        const first = await callDeepSeek(true);
+        const first = await callDeepSeek();
         if (!isBlankProviderReply(first)) return first;
         this.logger.warn(
-          `AI responder: blank content for conversation ${conversationId}; asking once more without JSON mode ` +
+          `AI responder: blank content for conversation ${conversationId}; asking once more ` +
           `(${describeModelResponse(first.data)}; request: system_chars=${systemPrompt.length} turns=${history.turns.length} kb_articles=${articles.length} style_chars=${styleContext.length} user_chars=${userContent.length})`,
         );
-        const second = await callDeepSeek(false);
+        const second = await callDeepSeek();
         this.logger.warn(
-          `AI responder: retry without JSON mode for conversation ${conversationId} (${describeModelResponse(second.data)}; reply shape: ${describeReplyShape(second.data?.choices?.[0]?.message?.content)})`,
+          `AI responder: retry after blank content for conversation ${conversationId} (${describeModelResponse(second.data)}; reply shape: ${describeReplyShape(second.data?.choices?.[0]?.message?.content)})`,
         );
         return second;
       };

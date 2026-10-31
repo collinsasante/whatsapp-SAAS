@@ -14,7 +14,7 @@ const reply = (content: unknown, extra: Record<string, unknown> = {}) => ({
 const GOOD = reply('{"response":"We deliver to Kumasi in one to two days.","confidence":90}');
 const BLANK = reply('      ');
 
-describe('AiResponderService.generateSuggestion -- thinking off and one retry on blank content', () => {
+describe('AiResponderService.generateSuggestion -- thinking off, no JSON mode, one retry on blank content', () => {
   const OLD_KEY = process.env.DEEPSEEK_API_KEY;
   beforeEach(() => {
     process.env.DEEPSEEK_API_KEY = 'unit-test-placeholder'; // axios is mocked: no network call is possible
@@ -40,7 +40,7 @@ describe('AiResponderService.generateSuggestion -- thinking off and one retry on
   }
 
   describe('the request', () => {
-    it('turns thinking off and keeps every other setting of the legacy request', async () => {
+    it('turns thinking off, sends NO JSON mode, and keeps every other setting of the legacy request', async () => {
       post.mockResolvedValueOnce(GOOD);
       await build().generateSuggestion('t1', 'c1', 'do you deliver?');
 
@@ -50,24 +50,39 @@ describe('AiResponderService.generateSuggestion -- thinking off and one retry on
         model: DEEPSEEK_MODEL,
         max_tokens: 400,
         messages: expect.any(Array),
-        response_format: { type: 'json_object' },
         thinking: { type: 'disabled' },
       });
+      expect(body).not.toHaveProperty('response_format');
       expect(body.messages[0].role).toBe('system');
       expect(body.messages[body.messages.length - 1]).toEqual({ role: 'user', content: 'do you deliver?' });
       expect(config.timeout).toBe(20_000);
       expect(config.headers.Authorization).toBe('Bearer unit-test-placeholder');
     });
 
-    it('asks the retry WITHOUT JSON mode but still with thinking off, and keeps every other setting', async () => {
+    it('sends the retry exactly like the first attempt: no JSON mode on either call, thinking off on both', async () => {
       post.mockResolvedValueOnce(BLANK).mockResolvedValueOnce(GOOD);
       await build().generateSuggestion('t1', 'c1', 'do you deliver?');
-      const first = post.mock.calls[0][1];
-      const retry = post.mock.calls[1][1];
-      expect(first.response_format).toEqual({ type: 'json_object' });
-      expect(retry).not.toHaveProperty('response_format');
-      expect(retry.thinking).toEqual({ type: 'disabled' });
-      expect({ ...retry, response_format: first.response_format }).toEqual(first);
+      expect(post).toHaveBeenCalledTimes(2);
+      for (const call of post.mock.calls) {
+        expect(call[1]).not.toHaveProperty('response_format');
+        expect(call[1].thinking).toEqual({ type: 'disabled' });
+      }
+      expect(post.mock.calls[1][1]).toEqual(post.mock.calls[0][1]);
+    });
+
+    it('uses one call per message when the answer is usable, and reads a plain prose reply (no confidence)', async () => {
+      post.mockResolvedValueOnce(reply('Yes, we deliver to Kumasi in one to two days.'));
+      const result = await build().generateSuggestion('t1', 'c1', 'do you deliver?');
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ response: 'Yes, we deliver to Kumasi in one to two days.', confidence: null, blocked: false });
+    });
+
+    it('still reads a JSON reply, with or without a code fence, when the model chooses to write one', async () => {
+      post.mockResolvedValueOnce(reply('{"response":"Hello!","confidence":88}'));
+      expect(await build().generateSuggestion('t1', 'c1', 'hi')).toEqual({ response: 'Hello!', confidence: 88, blocked: false });
+      post.mockResolvedValueOnce(reply('```json\n{"response":"Hello again","confidence":70}\n```'));
+      expect(await build().generateSuggestion('t1', 'c1', 'hi')).toEqual({ response: 'Hello again', confidence: 70, blocked: false });
+      expect(post).toHaveBeenCalledTimes(2);
     });
 
     it('accepts a retry answer that has a real line break inside the reply string', async () => {
@@ -81,7 +96,8 @@ describe('AiResponderService.generateSuggestion -- thinking off and one retry on
       post.mockResolvedValueOnce(BLANK).mockResolvedValueOnce(reply('{"response":"UNIQUE-REPLY-TEXT-77","confidence":80}'));
       await build().generateSuggestion('t1', 'c1', 'UNIQUE-CUSTOMER-TEXT-42');
       const logged = warn.mock.calls.map((c) => String(c[0])).join('\n');
-      expect(logged).toContain('asking once more without JSON mode');
+      expect(logged).toContain('asking once more');
+      expect(logged).toContain('retry after blank content');
       expect(logged).toContain('system_chars=');
       expect(logged).toContain('reply shape:');
       expect(logged).not.toContain('UNIQUE-REPLY-TEXT-77');
