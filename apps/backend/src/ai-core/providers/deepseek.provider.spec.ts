@@ -149,3 +149,22 @@ describe('DeepSeekProvider', () => {
     });
   });
 });
+
+describe('DeepSeekProvider request body -- thinking configuration is left as it was', () => {
+  const originalEnv = process.env.DEEPSEEK_API_KEY;
+  beforeEach(() => {
+    process.env.DEEPSEEK_API_KEY = 'test-key';
+    jest.clearAllMocks();
+  });
+  afterEach(() => {
+    process.env.DEEPSEEK_API_KEY = originalEnv;
+  });
+
+  it('does not send a thinking option (only the legacy responder switches thinking off)', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: '{"response":"hi"}' }, finish_reason: 'stop' }], usage: {} } });
+    await new DeepSeekProvider().complete({ modelKey: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'hi' }], jsonMode: true });
+    const body = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('thinking');
+    expect(body).toHaveProperty('response_format', { type: 'json_object' });
+  });
+});

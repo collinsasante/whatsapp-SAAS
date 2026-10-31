@@ -50,6 +50,33 @@ const LEGACY_HISTORY_WINDOW = 200;
 
 export type ProviderCallWrapper = <T>(providerCall: () => Promise<T>) => Promise<T>;
 
+/**
+ * The request body of the legacy responder's single DeepSeek call. Thinking is switched off here and nowhere else: the call asks for a
+ * short JSON reply, and with thinking on (DeepSeek's default) most replies came back blank on staging. DeepSeek replaces output it cannot
+ * read as JSON with spaces, so the content looked empty even though tokens were spent and finish_reason was "stop". Documented on
+ * api-docs.deepseek.com (create-chat-completion: `thinking.type` is `enabled` or `disabled`; the JSON Output guide describes the blanking).
+ */
+export function buildLegacyRequestBody(messages: Array<{ role: string; content: string }>) {
+  return {
+    model: DEEPSEEK_MODEL,
+    max_tokens: 400,
+    messages,
+    response_format: { type: 'json_object' as const },
+    thinking: { type: 'disabled' as const },
+  };
+}
+
+/**
+ * True when the provider answered (there is a first choice) but its content is blank after trimming. Only this case is retried:
+ * no choices at all, a provider error, or a reply that has text but is not usable (cut off, malformed) is not.
+ */
+export function isBlankProviderReply(res: { data?: { choices?: Array<{ message?: { content?: unknown } }> } } | null | undefined): boolean {
+  const choice = res?.data?.choices?.[0];
+  if (!choice) return false;
+  const content = choice.message?.content;
+  return typeof content !== 'string' || content.trim() === '';
+}
+
 @Injectable()
 export class AiResponderService {
   private readonly logger = new Logger(AiResponderService.name);
@@ -269,19 +296,23 @@ export class AiResponderService {
     ];
 
     try {
-      const providerCall = () => axios.post(
+      const callDeepSeek = () => axios.post(
         DEEPSEEK_API_URL,
-        {
-          model: DEEPSEEK_MODEL,
-          max_tokens: 400,
-          messages: chatMessages,
-          response_format: { type: 'json_object' },
-        },
+        buildLegacyRequestBody(chatMessages),
         {
           headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           timeout: 20_000,
         },
       );
+      // A blank answer is asked for once more. The retry sits INSIDE the call the wrapper brackets, so the credit reservation and its
+      // settlement (and the execution record built from the returned response) happen once per customer message, whatever the number of
+      // HTTP calls. Two attempts at most; an error thrown by either one is not retried and reaches the catch below as before.
+      const providerCall = async () => {
+        const first = await callDeepSeek();
+        if (!isBlankProviderReply(first)) return first;
+        this.logger.warn(`AI responder: blank content for conversation ${conversationId}; asking once more (${describeModelResponse(first.data)})`);
+        return callDeepSeek();
+      };
       const res = await (providerCallWrapper ? providerCallWrapper(providerCall) : providerCall());
 
       const raw = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim() ?? '';
