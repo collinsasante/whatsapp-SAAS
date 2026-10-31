@@ -8,8 +8,20 @@ import { ToolRegistryService } from './tool-registry.service';
 import { isToolResultEnvelope, ToolExecutionContext, ToolSideEffect } from './tool-registry.types';
 import { sanitizeToolTrace } from './tool-trace-sanitizer.util';
 import { AiMeteredProviderService } from '../completion/ai-metered-provider.service';
+import { checkCustomerText, ReplyProblem } from '../completion/model-output.util';
 
 const DEFAULT_MAX_ITERATIONS = 4;
+
+/**
+ * Why a run's final (tool-free) answer cannot be sent, or undefined when it can. Only `finish_reason=length` is treated as
+ * truncation: it means the provider stopped at the token limit. It is checked first because a reply that spent its whole
+ * budget before writing anything is better diagnosed as cut off than as blank.
+ */
+function finalAnswerProblem(content: string, finishReason: string): ReplyProblem | undefined {
+  if (finishReason === 'length') return 'truncated';
+  const check = checkCustomerText(content);
+  return check.safe ? undefined : check.reason;
+}
 
 export interface ToolCallingRequest {
   tenantId: string;
@@ -58,6 +70,12 @@ export interface ToolCallingResult {
   sideEffects: ToolSideEffect[];
   /** The AiExecution this run recorded (undefined if recording failed), so the caller can link it to its interaction log. */
   executionId?: string;
+  /**
+   * Set when the model's final answer must not reach the customer: cut off at the token limit, blank, machine output and so on.
+   * `content` still holds exactly what the provider returned, for diagnosis; callers must not send it. The execution this run
+   * recorded already carries the matching failure status, so the caller does not record it again.
+   */
+  outputProblem?: ReplyProblem;
 }
 
 /**
@@ -113,12 +131,17 @@ export class ToolCallingService {
         lastProvider = completion.provider;
 
         if (!completion.toolCalls.length) {
+          // The final answer is judged before the execution is written, so the stored status is the real outcome. Tokens are
+          // kept either way: the provider call happened and was settled by its own reservation.
+          const outputProblem = finalAnswerProblem(completion.content, completion.finishReason);
+          if (outputProblem) this.logger.warn(`Tool-calling final answer rejected (${outputProblem}, finish_reason=${completion.finishReason}) for conversation ${req.conversationId ?? 'unknown'}`);
           const executionId = await this.trace(req, {
-            status: 'SUCCESS', provider: lastProvider, modelKey,
+            status: outputProblem ? 'PROVIDER_ERROR' : 'SUCCESS', provider: lastProvider, modelKey,
             latencyMs: Date.now() - startedAt, inputTokens: totalInputTokens, outputTokens: totalOutputTokens,
             estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
+            ...(outputProblem && { errorCode: 'parse_error', errorMessage: `Model output rejected: ${outputProblem}` }),
           }, toolTrace, reservationIds);
-          return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects, executionId };
+          return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects, executionId, ...(outputProblem && { outputProblem }) };
         }
 
         messages.push({ role: 'assistant', content: completion.content ?? '', toolCalls: completion.toolCalls });

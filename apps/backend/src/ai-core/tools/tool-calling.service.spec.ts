@@ -183,4 +183,103 @@ describe('ToolCallingService', () => {
     expect(result.content).toBe('done');
     expect(deps.tools.execute).toHaveBeenCalledWith('search_products', expect.anything(), {});
   });
+  describe('the final answer is judged before the execution is recorded', () => {
+    const lastRecordedTrace = (deps: ReturnType<typeof buildDeps>) => deps.executions.record.mock.calls[deps.executions.record.mock.calls.length - 1][1];
+
+    it.each([
+      ['an empty answer', '', 'empty'],
+      ['a whitespace-only answer', '   \n\t ', 'empty'],
+      ['a JSON-like answer', '{"response":"Hello Kwame! Our shea butter comes in two sizes', 'malformed'],
+      ['an error-like answer', 'Error: connect ETIMEDOUT 10.0.0.1:443', 'internal_error'],
+    ])('records %s as a failed execution, not SUCCESS, and flags it for the caller', async (_name, content, reason) => {
+      const deps = buildDeps();
+      deps.complete.mockResolvedValue(mockCompletion({ content, finishReason: 'stop' }));
+
+      const result = await buildService(deps).complete(baseReq());
+
+      expect(result.outputProblem).toBe(reason);
+      expect(result.failed).toBe(false);
+      expect(deps.executions.record).toHaveBeenCalledTimes(1);
+      expect(lastRecordedTrace(deps)).toEqual(expect.objectContaining({ status: 'PROVIDER_ERROR', errorCode: 'parse_error', errorMessage: `Model output rejected: ${reason}` }));
+    });
+
+    it('treats finish_reason=length as truncation even when what was written reads as a clean sentence', async () => {
+      const deps = buildDeps();
+      deps.complete.mockResolvedValue(mockCompletion({ content: 'Our shea butter comes in two sizes, 250g for GHS 45 and', finishReason: 'length' }));
+
+      const result = await buildService(deps).complete(baseReq());
+
+      expect(result.outputProblem).toBe('truncated');
+      expect(result.content).toBe('Our shea butter comes in two sizes, 250g for GHS 45 and'); // kept for diagnosis; callers must not send it
+      expect(lastRecordedTrace(deps)).toEqual(expect.objectContaining({ status: 'PROVIDER_ERROR', errorCode: 'parse_error', errorMessage: 'Model output rejected: truncated' }));
+    });
+
+    it('calls a reply that used its whole budget before writing anything truncated, not blank', async () => {
+      const deps = buildDeps();
+      deps.complete.mockResolvedValue(mockCompletion({ content: '', finishReason: 'length' }));
+
+      expect((await buildService(deps).complete(baseReq())).outputProblem).toBe('truncated');
+    });
+
+    it('keeps the evidence of a rejected answer: tokens, reservation, tool trace and execution id', async () => {
+      const deps = buildDeps();
+      deps.executions.record.mockResolvedValue({ id: 'exec-9' });
+      deps.complete
+        .mockResolvedValueOnce(mockCompletion({ toolCalls: [{ id: 'call-1', name: 'search_products', arguments: '{"query":"labels"}' }], finishReason: 'tool_calls' }))
+        .mockResolvedValueOnce(mockCompletion({ content: 'Yes, we have labels at', finishReason: 'length', usage: { inputTokens: 20, outputTokens: 400 } }));
+      deps.tools.execute.mockResolvedValue([{ id: 'p1' }]);
+
+      const result = await buildService(deps).complete(baseReq());
+
+      expect(result.executionId).toBe('exec-9');
+      expect(deps.executions.record).toHaveBeenCalledTimes(1);
+      expect(lastRecordedTrace(deps)).toEqual(expect.objectContaining({
+        status: 'PROVIDER_ERROR', inputTokens: 30, outputTokens: 405, reservationIds: ['reservation-1', 'reservation-2'],
+        toolTrace: [expect.objectContaining({ name: 'search_products' })],
+      }));
+    });
+
+    it('does not judge a tool-call turn: an intermediate response (even one that stopped at the limit) is not a customer answer', async () => {
+      const deps = buildDeps();
+      deps.complete
+        .mockResolvedValueOnce(mockCompletion({ content: '', toolCalls: [{ id: 'call-1', name: 'search_products', arguments: '{}' }], finishReason: 'tool_calls' }))
+        .mockResolvedValueOnce(mockCompletion({ content: 'Yes, we have labels.', finishReason: 'stop' }));
+      deps.tools.execute.mockResolvedValue([]);
+
+      const result = await buildService(deps).complete(baseReq());
+
+      expect(result.outputProblem).toBeUndefined();
+      expect(result.content).toBe('Yes, we have labels.');
+      expect(deps.executions.record).toHaveBeenCalledTimes(1);
+      expect(lastRecordedTrace(deps)).toEqual(expect.objectContaining({ status: 'SUCCESS' }));
+      expect(lastRecordedTrace(deps).errorCode).toBeUndefined();
+    });
+
+    it('a valid answer is still SUCCESS, and a finish reason other than length is not treated as truncation', async () => {
+      for (const finishReason of ['stop', 'content_filter', 'other']) {
+        const deps = buildDeps();
+        deps.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.', finishReason }));
+
+        const result = await buildService(deps).complete(baseReq());
+
+        expect(result.outputProblem).toBeUndefined();
+        expect(lastRecordedTrace(deps)).toEqual(expect.objectContaining({ status: 'SUCCESS' }));
+      }
+    });
+
+    it('does not touch the iteration-limit and provider-failure outcomes', async () => {
+      const limit = buildDeps();
+      limit.complete.mockResolvedValue(mockCompletion({ toolCalls: [{ id: 'c', name: 'search_products', arguments: '{}' }], finishReason: 'tool_calls' }));
+      limit.tools.execute.mockResolvedValue({});
+      const limited = await buildService(limit).complete(baseReq({ maxIterations: 2 }));
+      expect(limited).toEqual(expect.objectContaining({ hitMaxIterations: true, failed: false }));
+      expect(limited.outputProblem).toBeUndefined();
+
+      const down = buildDeps();
+      down.complete.mockRejectedValue(new AiProviderError('timeout', 'slow', true));
+      const failed = await buildService(down).complete(baseReq());
+      expect(failed).toEqual(expect.objectContaining({ failed: true }));
+      expect(failed.outputProblem).toBeUndefined();
+    });
+  });
 });

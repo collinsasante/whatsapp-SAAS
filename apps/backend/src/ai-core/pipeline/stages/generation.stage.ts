@@ -8,7 +8,7 @@ import { ConversationStateService } from '../../../conversations/conversation-st
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../prompts/escalation-messages.util';
 import { AiMeteredProviderService } from '../../completion/ai-metered-provider.service';
-import { checkCustomerText, parseStructuredReply } from '../../completion/model-output.util';
+import { parseStructuredReply } from '../../completion/model-output.util';
 
 @Injectable()
 export class GenerationStage implements PipelineStage {
@@ -59,9 +59,9 @@ export class GenerationStage implements PipelineStage {
         // ran this turn regardless of the outcome below. Never throws.
         void this.conversationState.mergeState(ctx.input.tenantId, ctx.input.conversationId, deriveStateFromToolTrace(result.toolTrace));
 
-        const toolText = result.failed || result.hitMaxIterations ? null : checkCustomerText(result.content);
-        if (result.failed || (toolText && !toolText.safe)) {
-          if (toolText && !toolText.safe) this.logger.warn(`Generation (tool-calling) output rejected (${toolText.reason}) for conversation ${ctx.input.conversationId}; nothing sent to the customer`);
+        // ToolCallingService has already judged the final answer and recorded the matching execution (see outputProblem).
+        if (result.failed || result.outputProblem) {
+          if (result.outputProblem) this.logger.warn(`Generation (tool-calling) output rejected (${result.outputProblem}) for conversation ${ctx.input.conversationId}; nothing sent to the customer`);
           // Verz-AI unification, Phase L: previously this left response empty with no
           // shouldEscalate -- messages.service.ts's `if (!result?.response) return;`
           // then silently dropped the turn, so a genuine provider failure (the provider
@@ -74,6 +74,10 @@ export class GenerationStage implements PipelineStage {
             confidence: null, blocked: false, shouldEscalate: true,
           };
           ctx.trace.status = 'PROVIDER_ERROR';
+          if (result.outputProblem) {
+            ctx.trace.errorCode = 'parse_error';
+            ctx.trace.errorMessage = `Model output rejected: ${result.outputProblem}`;
+          }
         } else if (result.hitMaxIterations) {
           // Verz-AI unification, Phase I: previously this branch returned an empty
           // response with no escalation signal at all -- worse than Commerce's own
@@ -128,6 +132,8 @@ export class GenerationStage implements PipelineStage {
 
       // Only a clean reply is used. Cut-off or malformed JSON, provider error text and the like take the same
       // recovery path as a provider failure below (standard fallback text and a real handoff), never the customer.
+      // A reply the provider stopped at the token limit is cut off even when what it wrote happens to parse.
+      if (completion.finishReason === 'length') throw new AiProviderError('parse_error', 'Model output rejected: truncated', false);
       const parsed = parseStructuredReply(completion.content);
       if (!parsed.ok) throw new AiProviderError('parse_error', `Model output rejected: ${parsed.reason}`, false);
       ctx.result = { response: parsed.response, confidence: parsed.confidence, blocked: false };

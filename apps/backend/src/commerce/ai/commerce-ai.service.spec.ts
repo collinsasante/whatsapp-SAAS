@@ -1,7 +1,7 @@
 import { HISTORY_ROW_FILTER } from '../../ai-core/context/history-scope.util';
 import { HISTORY_FETCH_BUFFER } from '../../ai-core/context/history-select.util';
 import { CommerceAiService } from './commerce-ai.service';
-import { HUMAN_HANDOFF_REPLY } from '../../ai-core/prompts/escalation-messages.util';
+import { HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 
 function buildPrismaMock() {
   return {
@@ -225,6 +225,28 @@ describe('CommerceAiService', () => {
       expect(result.response).not.toBe('');
       expect(result.blocked).toBe(false);
       expect(result.shouldEscalate).toBe(true);
+    });
+
+    it('gives the fallback and a handoff, never the half-written text, when the provider stopped at the token limit', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: 'The 500ml bottles are GHS 12 each, and the', outputProblem: 'truncated', executionId: 'exec-1' }));
+      const service = buildService(deps);
+
+      const result = await service.handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'how much are the bottles?');
+
+      expect(result.response).toBe(PROVIDER_FAILURE_FALLBACK_TEXT);
+      expect(result.shouldEscalate).toBe(true);
+      expect(result.executionId).toBe('exec-1');
+    });
+
+    it('leaves a blank answer exactly as before: no text, for the caller\'s own no-response recovery', async () => {
+      const deps = buildDeps();
+      deps.toolCalling.complete.mockResolvedValue(mockCompletion({ content: '', outputProblem: 'empty' }));
+
+      const result = await buildService(deps).handleMessage('t1', 'conv1', 'contact1', '+233555000111', 'hi');
+
+      expect(result.response).toBe('');
+      expect(result.shouldEscalate).toBeUndefined();
     });
 
     it('forwards mediaToSend side effects from the tool loop', async () => {

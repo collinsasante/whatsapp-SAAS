@@ -274,6 +274,12 @@ export class CommerceAiService {
       };
     }
 
+    if (result.outputProblem === 'truncated') {
+      // The provider stopped at the token limit: a half-finished quote or price is never shown. Same recovery as a rejected reply.
+      this.logger.warn(`Commerce AI output truncated at the token limit for conversation ${conversationId}; nothing sent to the customer`);
+      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
+    }
+
     const content = result.content.trim();
     const textCheck = checkCustomerText(content);
     if (content && !textCheck.safe) {
