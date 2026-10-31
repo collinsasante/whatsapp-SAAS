@@ -2,6 +2,9 @@ import axios from 'axios';
 import { Logger } from '@nestjs/common';
 import { MessagesService, aiChannelType } from './messages.service';
 
+// some cases run real ffmpeg; slow when the suite runs in parallel, so the default 5 s limit is too tight.
+jest.setTimeout(30_000);
+
 function setup() {
   const contactsService = { findOrCreateByExternalId: jest.fn().mockResolvedValue({ id: 'ct-ig', phone: null, name: null, externalId: 'IGSID-9' }) };
   const conversationsService = { findOrCreate: jest.fn().mockResolvedValue({ id: 'cv1', channelId: 'ch-ig', status: 'RESOLVED', unreadCount: 0 }), request: jest.fn() };

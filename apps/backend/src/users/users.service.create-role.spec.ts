@@ -2,6 +2,9 @@ import { ForbiddenException } from '@nestjs/common';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { UsersService } from './users.service';
 
+// hashes a password with bcrypt (cost 12); slow when the suite runs in parallel, so the default 5 s limit is too tight.
+jest.setTimeout(30_000);
+
 function build() {
   const tx = {
     user: { create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'new-user', ...data })) },

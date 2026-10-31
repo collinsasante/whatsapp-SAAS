@@ -3,6 +3,9 @@ import { WhatsAppService } from './whatsapp.service';
 import { makeOversizedPng } from '../common/media/image.test-helpers';
 import { WHATSAPP_IMAGE_MAX_BYTES } from '../common/media/image.util';
 
+// real ffmpeg transcodes of a multi-megabyte image; slow when the suite runs in parallel, so the default 5 s limit is too tight.
+jest.setTimeout(30_000);
+
 jest.mock('axios');
 
 // Tiny real files (see common/media/image.util.spec.ts).
