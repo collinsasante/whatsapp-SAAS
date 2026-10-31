@@ -3,6 +3,7 @@ import Channels from '@/components/site/Channels';
 import Faq from '@/components/site/Faq';
 import FinalCta from '@/components/site/FinalCta';
 import Hero from '@/components/site/Hero';
+import Overview from '@/components/site/Overview';
 import Inside from '@/components/site/Inside';
 import OwnerSection from '@/components/site/Owner';
 import Pricing from '@/components/site/Pricing';
@@ -14,9 +15,9 @@ import Steps from '@/components/site/Steps';
 import Trust from '@/components/site/Trust';
 import { FAQ, PLANS, SUPPORT_EMAIL } from '@/components/site/data';
 
-const TITLE = 'VerzChat: one shared inbox for WhatsApp, with Verz AI when you want it';
+const TITLE = 'VerzChat: WhatsApp shared inbox with AI for teams';
 const DESCRIPTION =
-  'Every customer conversation in one shared inbox, each with a visible owner: an agent or Verz AI. Take over or hand back with one click. Free plan available.';
+  'Every WhatsApp conversation in one shared inbox, each with a visible owner: an agent or Verz AI. Take over or hand back with one click. Free plan available.';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },
@@ -85,6 +86,7 @@ export default function LandingPage() {
       <SiteNav />
       <main id="main">
         <Hero />
+        <Overview />
         <Problems />
         <OwnerSection />
         <Inside />

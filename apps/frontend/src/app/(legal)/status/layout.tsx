@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'System Status: VerzChat',
+  title: 'System status',
   description: 'VerzChat real-time system status, check uptime, incidents, and service health.',
   alternates: { canonical: '/status' },
 };

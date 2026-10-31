@@ -15,6 +15,19 @@
   margin-top: var(--space-1);
 }
 
+/* Supporting heading under the H1: says in plain words what the product is. */
+.sub {
+  max-width: 34ch;
+  font-family: var(--font-head);
+  font-variation-settings: 'wdth' 92;
+  font-size: clamp(1.15rem, 1rem + 0.7vw, 1.5rem);
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--green-700);
+  text-wrap: balance;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -67,6 +80,7 @@
 }
 
 .title span,
+.sub,
 .copy .lede,
 .actions,
 .fine,
@@ -81,6 +95,9 @@
 }
 .title span:nth-child(4) {
   animation-delay: 0.24s;
+}
+.sub {
+  animation-delay: 0.28s;
 }
 .copy .lede {
   animation-delay: 0.32s;

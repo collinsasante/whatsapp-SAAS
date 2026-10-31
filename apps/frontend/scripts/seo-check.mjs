@@ -78,6 +78,7 @@ async function get(path, follow = true, hops = 0) {
   }
   return { ...res, headers: { get: (k) => res.headers.get(k.toLowerCase()) ?? null }, url: BASE + path };
 }
+const decodeEntities = (t) => t.replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
 const meta = (html, name) => (html.match(new RegExp(`<meta (?:name|property)="${name}" content="([^"]*)"`, 'i')) ?? [])[1];
 const canonicals = (html) => [...html.matchAll(/<link rel="canonical" href="([^"]*)"/gi)].map((m) => m[1]);
 const robotsMeta = (html) => meta(html, 'robots');
@@ -135,6 +136,36 @@ async function production() {
     check(`${path}: title, description, og:image and twitter:image`, !!(r.body.match(/<title[^>]*>([^<]+)</) ?? [])[1] && !!meta(r.body, 'description') && !!meta(r.body, 'og:image') && !!meta(r.body, 'twitter:image'));
     check(`${path}: exactly one h1`, h1 === 1, `${h1} h1`);
   }
+  console.log('\ntitles, headings and internal links');
+  const titles = new Map();
+  const outgoing = new Map();
+  for (const path of [...EXPECTED_PUBLIC, ...INDEXABLE_NOT_IN_SITEMAP]) {
+    const r = await get(path);
+    const title = decodeEntities((r.body.match(/<title[^>]*>([^<]+)</) ?? [])[1] ?? '');
+    titles.set(path, title);
+    check(`${path}: the brand appears once in the title "${title}"`, (title.match(/verzchat/gi) ?? []).length === 1);
+    check(`${path}: title is 15 to 65 characters`, title.length >= 15 && title.length <= 65, String(title.length));
+    outgoing.set(path, [...new Set([...r.body.matchAll(/<a [^>]*href="(\/[^"#?]*)/g)].map((m) => m[1]))].filter((h) => !h.startsWith('/_next') && !/\.(png|svg|ico|jpg|xml|txt)$/.test(h)));
+  }
+  check('every public page has a different title', new Set(titles.values()).size === titles.size);
+  const homeHtml = (await get('/')).body;
+  const h2s = [...homeHtml.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => decodeEntities(m[1].replace(/<[^>]+>/g, '').trim()));
+  check('homepage keeps its H1', /A customer\s+messages\s+at 9(\s|&nbsp;|\u00a0)+pm\.\s+Who answers\?/.test(homeHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ')));
+  check('homepage has a supporting H2 that names the WhatsApp shared inbox', h2s.some((h) => /WhatsApp shared inbox/i.test(h)), h2s.slice(0, 3).join(' | '));
+  check('homepage has an H2 that explains the WhatsApp team inbox', h2s.some((h) => /WhatsApp team inbox/i.test(h)));
+  const homeLinks = outgoing.get('/');
+  for (const target of ['/book-demo', '/api-docs', '/changelog', '/privacy', '/terms', '/gdpr', '/data-deletion', '/status']) check(`homepage links to ${target}`, homeLinks.includes(target));
+  const bookLinks = outgoing.get('/book-demo');
+  check('book-demo links to the registration page and back to pricing', bookLinks.includes('/auth/register') && bookLinks.includes('/'));
+  const AUTH_OK = ['/auth/login', '/auth/register'];
+  const seen = new Set();
+  for (const [from, links] of outgoing) for (const to of links) {
+    if (seen.has(to)) continue; seen.add(to);
+    const r = await get(to);
+    check(`link target ${to} (from ${from}) resolves`, [200, 307].includes(r.status), String(r.status));
+    check(`link target ${to} is not a private app page`, !PRIVATE.includes(to) || AUTH_OK.includes(to), 'private route linked from a public page');
+  }
+
   const home = await get('/');
   check('homepage og:image is absolute and resolves to an image', (meta(home.body, 'og:image') ?? '').startsWith(SITE + '/opengraph-image') && (await get('/opengraph-image')).headers.get('content-type') === 'image/png');
   const viewport = meta(home.body, 'viewport') ?? '';

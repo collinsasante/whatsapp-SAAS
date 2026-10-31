@@ -56,3 +56,15 @@
     top: 108px;
   }
 }
+
+.item p.more {
+  padding-top: 0;
+  margin-top: calc(var(--space-3) * -1);
+  font-size: var(--text-small);
+}
+.more a {
+  color: var(--green-700);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

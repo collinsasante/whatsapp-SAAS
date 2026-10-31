@@ -9,6 +9,7 @@ export default function Hero() {
         <h1 id="hero-title" className={`h1 ${styles.title}`}>
           <span>A customer</span> <span>messages</span> <span>at 9&nbsp;pm.</span> <span>Who answers?</span>
         </h1>
+        <h2 className={styles.sub}>The WhatsApp shared inbox for teams, with AI customer support when you want it</h2>
         <p className={`lede ${styles.lede}`}>
           VerzChat puts your WhatsApp conversations in one shared inbox. Every chat has an owner you can see, either one
           of your agents or Verz AI, and you can take it over or hand it back with one click.

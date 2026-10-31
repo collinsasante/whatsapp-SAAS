@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { reveal } from './reveal';
 import styles from './Inside.module.css';
 
@@ -26,6 +27,10 @@ export default function Inside() {
           <p className="lede">
             You do not need five tools stitched together. These ship in the same login as the inbox, and the plan you
             choose sets how much of each you get.
+          </p>
+          <p className={styles.note}>
+            To connect your own systems, use the webhooks and REST API described in the{' '}
+            <Link href="/api-docs">API documentation</Link>.
           </p>
         </div>
 

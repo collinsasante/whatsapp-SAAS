@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy — VerzChat',
+  title: 'Privacy Policy',
   description: 'Our privacy policy explains how VerzChat collects, uses, and protects your personal data.',
   alternates: { canonical: '/privacy' },
 };

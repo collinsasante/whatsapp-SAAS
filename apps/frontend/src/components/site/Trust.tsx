@@ -12,6 +12,7 @@ const FACTS = [
 const LINKS = [
   { href: '/privacy', label: 'Privacy policy' },
   { href: '/data-deletion', label: 'Data deletion' },
+  { href: '/gdpr', label: 'GDPR and data rights' },
   { href: '/terms', label: 'Terms of service' },
   { href: '/changelog', label: 'Changelog' },
   { href: '/status', label: 'System status' },

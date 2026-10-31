@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'GDPR — VerzChat',
+  title: 'GDPR and data rights',
   description: 'VerzChat GDPR compliance information for EU/EEA users.',
   alternates: { canonical: '/gdpr' },
 };

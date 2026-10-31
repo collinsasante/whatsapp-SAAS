@@ -1,0 +1,30 @@
+.section {
+  padding: var(--space-8) 0 0;
+}
+.grid {
+  display: grid;
+  gap: var(--space-5);
+}
+.body {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 62ch;
+  color: var(--ink-soft);
+}
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  font-weight: 600;
+}
+.links a {
+  color: var(--green-700);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (min-width: 900px) {
+  .grid {
+    grid-template-columns: 4fr 7fr;
+    gap: var(--space-7);
+  }
+}

@@ -72,6 +72,8 @@ export const PLAN_ROWS: Array<{ label: string; values: [string, string, string] 
 export interface FaqItem {
   q: string;
   a: string;
+  /** Pages that go deeper on the answer. Rendered under it; the FAQPage markup carries the answer text only. */
+  links?: Array<{ href: string; label: string }>;
 }
 
 export const FAQ: FaqItem[] = [
@@ -98,9 +100,15 @@ export const FAQ: FaqItem[] = [
   {
     q: 'Who can see my customers\' messages?',
     a: 'Your team, inside your workspace. If you turn on Verz AI, the text of messages is sent to our AI provider to write replies, and the privacy policy names the provider and explains this. You can disconnect a channel at any time and ask us to delete your data.',
+    links: [
+      { href: '/privacy', label: 'Privacy policy' },
+      { href: '/gdpr', label: 'GDPR and data rights' },
+      { href: '/data-deletion', label: 'Data deletion' },
+    ],
   },
   {
     q: 'Can I cancel?',
     a: 'Yes. Cancel from Billing in your workspace. The plan stays active until the end of the period you have paid for.',
+    links: [{ href: '/terms', label: 'Terms of service' }],
   },
 ];
