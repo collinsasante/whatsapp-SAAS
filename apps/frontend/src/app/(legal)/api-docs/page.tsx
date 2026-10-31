@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'API Docs: VerzChat',
+  title: 'API and webhook documentation',
   description: 'VerzChat API documentation, webhooks, REST endpoints, and integration guides for developers.',
   alternates: { canonical: '/api-docs' },
 };

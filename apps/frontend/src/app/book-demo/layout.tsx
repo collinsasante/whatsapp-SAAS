@@ -5,7 +5,7 @@ import SiteFooter from '@/components/site/SiteFooter';
 import { APP_VIEWPORT } from '@/lib/seo/site';
 
 export const metadata: Metadata = {
-  title: 'Book a Demo: See VerzChat in Action',
+  title: 'Book a demo of the WhatsApp shared inbox',
   description:
     'Schedule a personalized walkthrough of VerzChat. See how teams use one shared WhatsApp inbox to handle customer conversations at scale.',
   openGraph: {

@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
 
 export const runtime = 'edge';
-export const alt = 'VerzChat: one shared inbox for WhatsApp, with Verz AI when you want it';
+export const alt = 'VerzChat: WhatsApp shared inbox with AI for teams';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 

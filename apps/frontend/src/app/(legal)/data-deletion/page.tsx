@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Data Deletion — VerzChat',
+  title: 'Data deletion',
   description: 'How to request deletion of your VerzChat account and data.',
   alternates: { canonical: '/data-deletion' },
 };
