@@ -1,56 +1,16 @@
 import type { MetadataRoute } from 'next';
+import { INDEXABLE_PAGES } from '@/lib/seo/public-pages';
+import { NON_PRODUCTION_SITE, SITE_URL } from '@/lib/seo/site';
 
+/**
+ * Only canonical, public, indexable URLs, each with the date its content really last changed (see public-pages.ts).
+ * No changefreq or priority: Google ignores both. Staging and local builds publish an empty sitemap.
+ */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = 'https://verzchat.com';
-
-  return [
-    {
-      url: base,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 1.0,
-    },
-    {
-      url: `${base}/book-demo`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.9,
-    },
-    {
-      url: `${base}/privacy`,
-      lastModified: new Date(),
-      changeFrequency: 'yearly',
-      priority: 0.5,
-    },
-    {
-      url: `${base}/terms`,
-      lastModified: new Date(),
-      changeFrequency: 'yearly',
-      priority: 0.5,
-    },
-    {
-      url: `${base}/gdpr`,
-      lastModified: new Date(),
-      changeFrequency: 'yearly',
-      priority: 0.5,
-    },
-    {
-      url: `${base}/changelog`,
-      lastModified: new Date(),
-      changeFrequency: 'weekly',
-      priority: 0.5,
-    },
-    {
-      url: `${base}/api-docs`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly',
-      priority: 0.5,
-    },
-    {
-      url: `${base}/status`,
-      lastModified: new Date(),
-      changeFrequency: 'daily',
-      priority: 0.5,
-    },
-  ];
+  if (NON_PRODUCTION_SITE) return [];
+  return INDEXABLE_PAGES.map((page) => ({
+    // The homepage's canonical is the bare origin (no trailing slash), so that is what the sitemap lists.
+    url: page.path === '/' ? SITE_URL : `${SITE_URL}${page.path}`,
+    lastModified: page.lastModified,
+  }));
 }
