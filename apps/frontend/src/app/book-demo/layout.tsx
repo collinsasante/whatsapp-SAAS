@@ -1,7 +1,8 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Bricolage_Grotesque } from 'next/font/google';
 import '@/components/site/site.css';
 import SiteFooter from '@/components/site/SiteFooter';
+import { APP_VIEWPORT } from '@/lib/seo/site';
 
 export const metadata: Metadata = {
   title: 'Book a Demo: See VerzChat in Action',
@@ -14,6 +15,9 @@ export const metadata: Metadata = {
     canonical: '/book-demo',
   },
 };
+
+// Indexable, but its form fields are 14px: without this lock iOS zooms into a field when it is focused. Lift it when the fields are 16px.
+export const viewport: Viewport = APP_VIEWPORT;
 
 const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-display', display: 'swap', axes: ['opsz', 'wdth'] });
 

@@ -1,13 +1,23 @@
 const { withSentryConfig } = require('@sentry/nextjs');
 
 /** @type {import('next').NextConfig} */
+// Mirrors NON_PRODUCTION_SITE in src/lib/seo/site.ts (see the comment there for why each signal is used). Staging and local builds are never indexed.
+const nonProduction =
+  process.env.NODE_ENV === 'development' ||
+  ['staging', 'preview', 'development', 'test'].includes((process.env.NEXT_PUBLIC_SITE_ENV ?? '').toLowerCase()) ||
+  process.env.NEXT_PUBLIC_SHOW_DEV_TOOLS === 'true';
+
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  poweredByHeader: false,
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
   async headers() {
     return [
+      // Every response this app serves, pages and files alike, on a non-production build. (Responses nginx sends from the backend, such as
+      // /api/v1, never pass through here; they are JSON, not pages.)
+      ...(nonProduction ? [{ source: '/:path*', headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }] }] : []),
       {
         // Allow Firebase popup to check window.closed on the login page
         source: '/(login|register)',

@@ -8,6 +8,92 @@ export const metadata: Metadata = {
 
 const entries = [
   {
+    version: '2.8.3',
+    date: '30 Oct 2026',
+    tag: 'Fix',
+    tagColor: 'bg-orange-100 text-orange-700',
+    items: [
+      { type: 'fixed', text: 'Large images failed to send on WhatsApp with "Media upload error". WhatsApp refuses images over 5 MB, so larger images are now converted to JPEG and, only if still too large, scaled down. Smaller JPEG and PNG images are sent exactly as before.' },
+      { type: 'fixed', text: 'WebP and GIF images could also fail to send. They are now converted to JPEG first (a GIF is sent as a still image).' },
+    ],
+  },
+  {
+    version: '2.8.0',
+    date: '26 Oct 2026',
+    tag: 'Feature',
+    tagColor: 'bg-blue-100 text-blue-700',
+    items: [
+      { type: 'new', text: 'Reply deadline setting. In Manage, an admin chooses how many minutes (1 to 1,440) a customer who asked for a person can wait. The dashboard alert and the inbox use it.' },
+      { type: 'new', text: 'Dashboard rebuilt for owners: four headline numbers (conversations, new customers, median first response, resolution rate), alert tiles that open the matching inbox view, and a conversation trend.' },
+      { type: 'new', text: 'Products, Orders, Revenue and Tasks pages rebuilt on one layout with a summary, search and filters, and a side panel for details and actions.' },
+      { type: 'improved', text: 'Revenue "You keep" is now calculated as gross sales minus refunds minus the platform fee. The old page understated refunds, so its figure was too high whenever there had been a refund.' },
+      { type: 'fixed', text: 'Messenger and Instagram: a reply sent from outside VerzChat (the Page inbox or Meta Business Suite) now appears in the conversation.' },
+      { type: 'fixed', text: 'A text message that was delivered but kept showing the sending clock now corrects itself after about 40 seconds.' },
+      { type: 'fixed', text: 'The app no longer stretches wider than a phone screen when a page has wide content.' },
+    ],
+  },
+  {
+    version: '2.7.0',
+    date: '24 Oct 2026',
+    tag: 'Major',
+    tagColor: 'bg-purple-100 text-purple-700',
+    items: [
+      { type: 'fixed', text: 'Suspending a workspace or a user now ends their access straight away. Before, people who were already signed in could keep working.' },
+      { type: 'new', text: 'Analytics rebuilt around three questions: what is happening, why, and what to do next, with date range, previous-period comparison and channel filters.' },
+      { type: 'improved', text: 'Dashboard rebuilt as an owner overview with a Today, 7 days, 30 days or custom range and comparison to the previous period.' },
+      { type: 'improved', text: 'Inbox links can open pre-filtered by status, assignee or channel.' },
+      { type: 'fixed', text: 'A message that failed to send no longer counts as the first reply to a customer, so median first-reply times are no longer too fast.' },
+      { type: 'improved', text: 'Revenue now comes from Commerce orders, per currency. It no longer shows VerzChat subscription billing.' },
+      { type: 'improved', text: 'A consistent look across every signed-in page: one page-title size, one set of status colours, readable status colours in dark mode, and visible keyboard focus.' },
+    ],
+  },
+  {
+    version: '2.6.0',
+    date: '23 Oct 2026',
+    tag: 'Feature',
+    tagColor: 'bg-blue-100 text-blue-700',
+    items: [
+      { type: 'new', text: 'Messenger and Instagram now do more of what WhatsApp does in the inbox: media is uploaded to Meta directly, replies quote the message, delivered and read ticks update, and chatbot flows, automations and Verz AI run on inbound messages with plain-text replies. Customers outside your own team can use Messenger and Instagram only after Meta\'s App Review.' },
+      { type: 'fixed', text: 'Messenger and Instagram contacts show a name from Meta, or "Messenger user" / "Instagram user", instead of "Unknown".' },
+    ],
+  },
+  {
+    version: '2.4.0',
+    date: '23 Oct 2026',
+    tag: 'Feature',
+    tagColor: 'bg-blue-100 text-blue-700',
+    items: [
+      { type: 'new', text: 'Instagram: an account picker like Facebook\'s, so only the account you choose is connected. Messages to a connected Instagram account arrive in the inbox and agents can reply with text, images, video and audio. This needs Meta setup first.' },
+      { type: 'new', text: 'Disconnect on every channel card connected through a login (Instagram, TikTok, Telegram). A channel with history is disconnected and kept so past conversations keep their channel.' },
+      { type: 'fixed', text: 'Workspaces that manage more than a few Facebook Pages now see all of them when connecting.' },
+      { type: 'fixed', text: 'The Channels page no longer sends stored credentials (Telegram bot tokens, TikTok and Instagram access tokens) to every workspace member.' },
+      { type: 'improved', text: 'Knowledge base changes, uploads and website import are now limited to admins.' },
+    ],
+  },
+  {
+    version: '2.2.0',
+    date: '20 Sep 2026',
+    tag: 'Feature',
+    tagColor: 'bg-blue-100 text-blue-700',
+    items: [
+      { type: 'new', text: 'WhatsApp via QR (the unofficial linked-device connection) now works end to end.' },
+      { type: 'new', text: 'Facebook Messenger channel.' },
+      { type: 'improved', text: 'A WhatsApp QR session now recovers cleanly from an expired QR code, and two service instances can no longer run the same session at once.' },
+    ],
+  },
+  {
+    version: '2.0.0',
+    date: '21 May 2026',
+    tag: 'Major',
+    tagColor: 'bg-purple-100 text-purple-700',
+    items: [
+      { type: 'new', text: 'Email verification on signup, and 2-step authentication by email code.' },
+      { type: 'new', text: 'Knowledge base upload (PDF, TXT, CSV, MD) and website import.' },
+      { type: 'new', text: 'Live dashboard numbers and always-visible message read receipts.' },
+      { type: 'improved', text: 'Campaigns, dashboard and inbox work on mobile screens.' },
+    ],
+  },
+  {
     version: '1.4.0',
     date: '19 May 2026',
     tag: 'Major',
@@ -15,9 +101,9 @@ const entries = [
     items: [
       { type: 'new', text: 'Verz AI assistant: AI-powered reply suggestions trained on your knowledge base. Enable it per workspace in Settings > AI.' },
       { type: 'new', text: 'Universal takeover system, any agent can take over a conversation assigned to another agent or Verz, with a clear handover state so nothing gets confused.' },
-      { type: 'new', text: 'Single Pro plan at $25/month. Simplified billing, one flat price for your whole team.' },
-      { type: 'new', text: 'Automated Postgres backups running daily on the server with 7-day retention.' },
-      { type: 'improved', text: 'Onboarding reduced from 5 steps to 2. Connect your WhatsApp number, get your profile auto-fetched from Meta, done.' },
+      { type: 'new', text: 'A single Pro plan with one flat price for your whole team. Plans and prices have changed since; the current plans are on the home page.' },
+      { type: 'new', text: 'Automated Postgres backups with 7-day retention on the server.' },
+      { type: 'improved', text: 'Onboarding is now 2 steps: connect your WhatsApp number and your profile is fetched from Meta automatically.' },
       { type: 'improved', text: 'AI assistant now uses DeepSeek instead of Claude Haiku. Faster, cheaper, and the replies feel more natural.' },
       { type: 'fixed', text: 'Rate limiting is now applied globally across all API endpoints. Webhook endpoints are correctly exempted.' },
     ],
@@ -72,7 +158,7 @@ export default function ChangelogPage() {
       <div className="mb-12">
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">Changelog</h1>
         <p className="text-lg text-gray-500">
-          What we shipped and when. We update this every time something meaningful changes.
+          What we shipped and when. This is a summary of the changes that matter to people using VerzChat; newest first.
         </p>
       </div>
 

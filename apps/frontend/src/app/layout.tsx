@@ -2,20 +2,19 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from '@/components/shared/ThemeProvider';
+import { NON_PRODUCTION_SITE, SITE_URL } from '@/lib/seo/site';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
 
+// Zoom is left on for the marketing and legal pages. The signed-in app and its forms lock it in their own layouts (APP_VIEWPORT).
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  interactiveWidget: 'resizes-content',
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://verzchat.com'),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: 'VerzChat: WhatsApp Business Inbox for Teams',
     template: '%s | VerzChat',
@@ -34,9 +33,11 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     site: '@verzchat',
   },
-  alternates: {
-    canonical: '/',
-  },
+  // No canonical here. It was '/', which every page without its own canonical inherited, so private and utility pages declared the
+  // homepage as their canonical. Each indexable page now sets its own; private pages set none.
+  //
+  // Staging and local builds are never indexed (the matching X-Robots-Tag response header comes from next.config.js).
+  ...(NON_PRODUCTION_SITE ? { robots: { index: false, follow: false } } : {}),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

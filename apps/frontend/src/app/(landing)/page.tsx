@@ -22,8 +22,13 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   alternates: { canonical: '/' },
-  openGraph: { type: 'website', url: 'https://verzchat.com', siteName: 'VerzChat', title: TITLE, description: DESCRIPTION },
-  twitter: { card: 'summary_large_image', title: TITLE, description: DESCRIPTION },
+  // The image is named here because this page sets its own openGraph/twitter objects, which replaced the file-based one: the homepage was
+  // the only public page whose link previews had no image.
+  openGraph: {
+    type: 'website', url: 'https://verzchat.com', siteName: 'VerzChat', title: TITLE, description: DESCRIPTION,
+    images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: TITLE }],
+  },
+  twitter: { card: 'summary_large_image', title: TITLE, description: DESCRIPTION, images: ['/opengraph-image'] },
 };
 
 const structuredData = [
