@@ -3,6 +3,9 @@ import type { Metadata, Viewport } from 'next';
 /** The one public origin. Canonicals, the sitemap and structured data are built from it; the layout's metadataBase resolves relative URLs against it. */
 export const SITE_URL = 'https://verzchat.com';
 
+/** The hostnames production is served on (www is redirected to the apex by nginx). Any other Host is treated as non-production by middleware.ts. */
+export const PRODUCTION_HOSTS: readonly string[] = ['verzchat.com', 'www.verzchat.com'];
+
 /**
  * True for any build that must not be indexed: local development, and staging. A build is non-production ONLY on a positive signal, never
  * by the absence of one, because the opposite mistake (production marked non-production) would de-index the whole site.

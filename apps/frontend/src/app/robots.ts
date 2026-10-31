@@ -19,21 +19,21 @@ import { NON_PRODUCTION_SITE, SITE_URL } from '@/lib/seo/site';
 /** Fetch pages to answer a user's question or build a search index that links back to the source. Allowed. */
 const SEARCH_AI_CRAWLERS = [
   'OAI-SearchBot', // OpenAI: indexes pages for ChatGPT search results
-  'ChatGPT-User', // OpenAI: fetches a page when a user asks ChatGPT about it
+  'ChatGPT-User', // OpenAI: fetches a page when a user asks ChatGPT about it. OpenAI says robots.txt rules may not apply to it
   'Claude-SearchBot', // Anthropic: indexes pages for Claude search results
   'Claude-User', // Anthropic: fetches a page when a user asks Claude about it
   'PerplexityBot', // Perplexity: indexes pages for Perplexity search results
-  'Perplexity-User', // Perplexity: fetches a page when a user asks about it
-  'DuckAssistBot', // DuckDuckGo: fetches pages for AI-assisted answers with citations
-  'Applebot', // Apple: Siri and Spotlight search (not Applebot-Extended)
+  'Perplexity-User', // Perplexity: fetches a page when a user asks about it. Perplexity says it generally ignores robots.txt
+  'DuckAssistBot', // DuckDuckGo: AI-assisted answers. Name not confirmed on DuckDuckGo's own pages when last checked; harmless if unused
+  'Applebot', // Apple: Siri, Spotlight and Safari search. Apple says crawled data may also inform its models and AI answers; Applebot-Extended below is the training opt-out
 ];
 
 /** Collect content to train or tune models, or build datasets. Blocked for now. */
 const TRAINING_AI_CRAWLERS = [
   'GPTBot', // OpenAI: model training
   'ClaudeBot', // Anthropic: model training
-  'anthropic-ai', // Anthropic: legacy training crawler name
-  'Claude-Web', // Anthropic: legacy crawler name
+  'anthropic-ai', // Anthropic: older name; NOT in Anthropic's current crawler help page, kept because blocking an unused token is harmless
+  'Claude-Web', // Anthropic: older name; NOT in Anthropic's current crawler help page, kept for the same reason
   'Google-Extended', // Google: opt-out token for Gemini training and grounding. Does NOT affect Google Search indexing (that is Googlebot)
   'Applebot-Extended', // Apple: opt-out token for Apple's model training. Does not affect Applebot search
   'CCBot', // Common Crawl: open datasets used to train many models
