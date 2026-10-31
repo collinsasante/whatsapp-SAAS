@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { Logger } from '@nestjs/common';
 import axios from 'axios';
 import { DEEPSEEK_MODEL } from '../common/deepseek';
 import { AiResponderService, ProviderCallWrapper, buildLegacyRequestBody, isBlankProviderReply } from './ai-responder.service';
@@ -58,11 +59,34 @@ describe('AiResponderService.generateSuggestion -- thinking off and one retry on
       expect(config.headers.Authorization).toBe('Bearer unit-test-placeholder');
     });
 
-    it('builds the same body for the retry as for the first attempt', async () => {
+    it('asks the retry WITHOUT JSON mode but still with thinking off, and keeps every other setting', async () => {
       post.mockResolvedValueOnce(BLANK).mockResolvedValueOnce(GOOD);
       await build().generateSuggestion('t1', 'c1', 'do you deliver?');
-      expect(post.mock.calls[1][1]).toEqual(post.mock.calls[0][1]);
-      expect(post.mock.calls[1][1].thinking).toEqual({ type: 'disabled' });
+      const first = post.mock.calls[0][1];
+      const retry = post.mock.calls[1][1];
+      expect(first.response_format).toEqual({ type: 'json_object' });
+      expect(retry).not.toHaveProperty('response_format');
+      expect(retry.thinking).toEqual({ type: 'disabled' });
+      expect({ ...retry, response_format: first.response_format }).toEqual(first);
+    });
+
+    it('accepts a retry answer that has a real line break inside the reply string', async () => {
+      post.mockResolvedValueOnce(BLANK).mockResolvedValueOnce(reply('{"response":"Yes, we deliver.\nIt takes one to two days.","confidence":80}'));
+      const result = await build().generateSuggestion('t1', 'c1', 'do you deliver?');
+      expect(result.response).toBe('Yes, we deliver.\nIt takes one to two days.');
+    });
+
+    it('logs only sizes and shapes, never the customer message or the reply text', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      post.mockResolvedValueOnce(BLANK).mockResolvedValueOnce(reply('{"response":"UNIQUE-REPLY-TEXT-77","confidence":80}'));
+      await build().generateSuggestion('t1', 'c1', 'UNIQUE-CUSTOMER-TEXT-42');
+      const logged = warn.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(logged).toContain('asking once more without JSON mode');
+      expect(logged).toContain('system_chars=');
+      expect(logged).toContain('reply shape:');
+      expect(logged).not.toContain('UNIQUE-REPLY-TEXT-77');
+      expect(logged).not.toContain('UNIQUE-CUSTOMER-TEXT-42');
+      warn.mockRestore();
     });
   });
 

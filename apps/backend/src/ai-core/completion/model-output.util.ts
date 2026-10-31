@@ -111,7 +111,9 @@ function recoverResponse(text: string): { response: string; confidence: number |
   if (!m) return null;
   let response: string;
   try {
-    response = JSON.parse(`"${m[1]}"`) as string;
+    // A model often writes a real line break inside the string. That makes the object invalid JSON but the reply itself is intact, so
+    // the control characters are escaped before the string is read.
+    response = JSON.parse(`"${m[1].replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\t/g, '\\t')}"`) as string;
   } catch {
     return null;
   }
@@ -189,5 +191,36 @@ export function describeModelResponse(data: unknown): string {
     `content_chars=${len(message['content'])}`,
     `reasoning_chars=${len(message['reasoning_content'])}`,
     `tool_calls=${Array.isArray(message['tool_calls']) ? message['tool_calls'].length : 0}`,
+  ].join(' ');
+}
+
+/**
+ * A one-line, content-free description of the SHAPE of a model's text, for the log: how long it is, how it starts, whether it is valid
+ * JSON, how many reply objects it holds, whether a line break sits inside the reply string, and what parseStructuredReply makes of it.
+ * Never the text itself. It exists to say why output was refused or blanked without copying a customer's conversation into a log.
+ */
+export function describeReplyShape(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw : '';
+  const t = text.trim();
+  if (!t) return `chars=${text.length} blank`;
+  const first = t.startsWith('{') ? 'brace' : t.startsWith('```') ? 'fence' : t.startsWith('[') ? 'bracket' : /^[A-Za-z]/.test(t) ? 'letter' : /^\d/.test(t) ? 'digit' : 'other';
+  let jsonParses = false;
+  try {
+    JSON.parse(stripFence(t));
+    jsonParses = true;
+  } catch {
+    jsonParses = false;
+  }
+  const replyObjects = (t.match(STRUCTURED_REPLY_START) ?? []).length;
+  const rawControlInReply = /"response"\s*:\s*"(?:\\.|[^"\\\n\r\t])*[\n\r\t]/.test(t);
+  const parsed = parseStructuredReply(t);
+  return [
+    `chars=${text.length}`,
+    `trimmed=${t.length}`,
+    `first=${first}`,
+    `json_parses=${jsonParses}`,
+    `reply_objects=${replyObjects}`,
+    `raw_line_break_in_reply=${rawControlInReply}`,
+    `parser=${parsed.ok ? (parsed.recovered ? 'recovered' : 'ok') : parsed.reason}`,
   ].join(' ');
 }
