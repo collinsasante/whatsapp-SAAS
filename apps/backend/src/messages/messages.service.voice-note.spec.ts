@@ -7,6 +7,9 @@ import { MessageType } from '@whatsapp-platform/shared-types';
 import { isOggBuffer } from '../common/media/audio.util';
 import { MessagesService } from './messages.service';
 
+// real ffmpeg remux; slow when the suite runs in parallel, so the default 5 s limit is too tight.
+jest.setTimeout(30_000);
+
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 const describeReal = hasFfmpeg ? describe : describe.skip;
 

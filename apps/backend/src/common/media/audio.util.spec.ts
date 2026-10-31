@@ -4,6 +4,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { isOggBuffer, isWebmBuffer, transcodeWebmToOgg } from './audio.util';
 
+// real ffmpeg remux; slow when the suite runs in parallel, so the default 5 s limit is too tight.
+jest.setTimeout(30_000);
+
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 const describeReal = hasFfmpeg ? describe : describe.skip;
 

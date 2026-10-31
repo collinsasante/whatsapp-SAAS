@@ -4,6 +4,9 @@ import * as path from 'path';
 import { isJpegBuffer, isPngBuffer, needsImageTranscode, sniffImageKind, transcodeImageToJpeg, WHATSAPP_IMAGE_MAX_BYTES } from './image.util';
 import { makeOversizedPng } from './image.test-helpers';
 
+// real ffmpeg transcodes of a multi-megabyte image; slow when the suite runs in parallel, so the default 5 s limit is too tight.
+jest.setTimeout(30_000);
+
 // Tiny real files: a 1x1 lossy WebP, a 1x1 fully transparent lossless WebP, a 1x1 GIF, and a 1x1 PNG.
 const LOSSY_WEBP = Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64');
 const TRANSPARENT_WEBP = Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64');

@@ -1,0 +1,119 @@
+name: Backend tests
+
+# Runs on pull requests into main and is reused by deploy.yml, so a failing backend test blocks a production deploy.
+# No secrets are needed: AI providers are mocked in the tests and the database jobs use throwaway local services.
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Unit tests (hermetic) ────────────────────────────────────────────────
+  unit:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      # Five specs run the real ffmpeg binary and skip themselves silently when it is missing, so install it
+      # explicitly and fail here if it is not usable.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: |
+          pnpm --filter @whatsapp-platform/shared-types build
+          pnpm --filter @whatsapp-platform/shared-utils build
+
+      - name: Generate Prisma client
+        run: pnpm --filter @whatsapp-platform/backend prisma:generate
+
+      # Two workers: the suite spawns ffmpeg and hashes with bcrypt, which time out when many workers compete for few cores.
+      - name: Run backend unit tests
+        run: pnpm --filter @whatsapp-platform/backend exec jest --ci --maxWorkers=2
+
+  # ── 2. Database tests (disposable Postgres + Redis) ─────────────────────────
+  # Runs the two suites that are skipped in the unit job. Both refuse any database that is not clearly a throwaway one,
+  # and the services below exist only for the lifetime of this job.
+  database:
+    name: Backend database tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Digital Self requires a local database whose name ends in "test"; the media suite truncates tenants, so it gets its own.
+      DIGITAL_SELF_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dstest
+      DIGITAL_SELF_TEST_REDIS_URL: redis://127.0.0.1:6379
+      MEDIA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mediatest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: |
+          pnpm --filter @whatsapp-platform/shared-types build
+          pnpm --filter @whatsapp-platform/shared-utils build
+
+      - name: Generate Prisma client
+        run: pnpm --filter @whatsapp-platform/backend prisma:generate
+
+      - name: Create test databases and apply migrations
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE dstest" -c "CREATE DATABASE mediatest"
+          DATABASE_URL="$DIGITAL_SELF_TEST_DATABASE_URL" pnpm --filter @whatsapp-platform/backend exec prisma migrate deploy
+          DATABASE_URL="$MEDIA_TEST_DATABASE_URL" pnpm --filter @whatsapp-platform/backend exec prisma migrate deploy
+
+      - name: Run backend database tests
+        run: pnpm --filter @whatsapp-platform/backend exec jest --ci --maxWorkers=2 digital-self.db.integration media-library.db
