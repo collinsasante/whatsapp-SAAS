@@ -7,7 +7,19 @@ See [VERSIONING.md](./VERSIONING.md) for how releases are created.
 
 ## [Unreleased]
 
+### Added
+- **AI Digital Self.** Every agent now has a Digital Self that learns how they write (tone, reply length, emoji, greetings, language) from the replies they type themselves. It never learns from saved replies, templates, automated messages or text written by Verz AI, and it never changes prices, stock, policies or who owns a conversation. In Team, an admin can see what each one has learned, pause learning, correct a style or reset it. In a conversation, an admin or the owner can choose whose style Verz AI uses, and can exclude the conversation from learning, which also removes what was learned from it. It does nothing until it is switched on for a workspace.
+
+### Changed
+- Verz AI now answers several quick messages from a customer once, with the whole burst in view, instead of replying to each one. It still replies to every message when they are not sent in a burst, and it never holds back a request for a person or a reply that changed an order or delivery.
+- A follow-up that points back at what was just discussed ("I want that one", "what about the other one?", "can I get it today?") now keeps its subject, so Verz AI has the right information in front of it. A plain "ok thanks" still looks nothing up.
+- Verz AI copes better with spelling mistakes in a customer's message ("delivary" finds Delivery).
+- Verz AI no longer picks one answer silently when two pieces of business information disagree (for example two delivery fees). It says it cannot confirm which is right and suggests asking a team member.
+- Workspaces on the original Verz AI responder now get the same tone guidance as the others: emoji only when they fit, no reflexive closing line, and no repeating an answer.
+- When a Digital Self is chosen for a conversation, its style now takes precedence over the general defaults for length, emoji, greeting and energy, so the difference between agents is visible.
+
 ### Fixed
+- Test Chat now answers in the conversation it shows, so a Digital Self chosen there applies to the reply.
 - Verz AI: when a customer sends several messages in quick succession, each reply now sees the conversation in the right order. Before, the message being answered could appear twice and the assistant's own latest reply could be missing, which made replies repeat or miss the point.
 - Verz AI no longer pulls unrelated knowledge-base articles for a greeting, thanks or a short follow-up. Questions are matched on their real subject (mobile money and "momo", delivery and shipping, opening hours), and a follow-up like "how much for delivery?" keeps the product being discussed.
 - Verz AI no longer treats ordinary requests as attacks: "give me the phone number of the shop", "give me the user guide" and "you are now a bit late with my order" now get a normal reply. Real attempts to extract other customers' data or change the assistant's role are still blocked.
