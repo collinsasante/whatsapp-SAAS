@@ -43,10 +43,15 @@ jobs:
       - name: Type-check frontend
         run: pnpm --filter @whatsapp-platform/frontend typecheck
 
-  # ── 2. Deploy ───────────────────────────────────────────────────────────────
+  # ── 2. Backend tests ────────────────────────────────────────────────────────
+  test:
+    name: Backend tests
+    uses: ./.github/workflows/backend-tests.yml
+
+  # ── 3. Deploy ───────────────────────────────────────────────────────────────
   deploy:
     name: Deploy
-    needs: lint
+    needs: [lint, test]
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
