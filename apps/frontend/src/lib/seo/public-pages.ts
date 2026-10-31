@@ -15,7 +15,7 @@ export interface PublicPage {
 export const INDEXABLE_PAGES: PublicPage[] = [
   { path: '/', lastModified: '2026-10-26' },
   { path: '/book-demo', lastModified: '2026-10-24' },
-  { path: '/changelog', lastModified: '2026-10-19' },
+  { path: '/changelog', lastModified: '2026-10-31' },
   { path: '/api-docs', lastModified: '2026-10-19' },
   { path: '/data-deletion', lastModified: '2026-10-12' },
   { path: '/terms', lastModified: '2026-05-24' },
