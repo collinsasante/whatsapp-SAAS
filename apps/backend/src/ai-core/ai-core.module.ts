@@ -6,8 +6,7 @@ import { ApprovedCorrectionsModule } from '../ai-learning/corrections/approved-c
 import { InternalTasksModule } from '../internal-tasks/internal-tasks.module';
 import { CommerceModule } from '../commerce/commerce.module';
 import { AiLearningModule } from '../ai-learning/ai-learning.module';
-import { DeepSeekProvider } from './providers/deepseek.provider';
-import { ProviderRegistryService } from './providers/provider-registry.service';
+import { AiProvidersModule } from './providers/ai-providers.module';
 import { PromptsService } from './prompts/prompts.service';
 import { AiAgentsService } from './agents/ai-agents.service';
 import { AiAgentsController } from './agents/ai-agents.controller';
@@ -52,11 +51,10 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
     // KnowledgeBaseModule <-> AiCoreModule above.
     forwardRef(() => CommerceModule),
     AiLearningModule,
+    AiProvidersModule,
   ],
   controllers: [AiAgentsController, AiExecutionsController],
   providers: [
-    DeepSeekProvider,
-    ProviderRegistryService,
     PromptsService,
     AiAgentsService,
     AiExecutionsService,
@@ -76,6 +74,6 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
     AiPricingService,
     SecurityRefusalService,
   ],
-  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, AiMeteredProviderService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService, SecurityRefusalService],
+  exports: [AiProvidersModule, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, AiMeteredProviderService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService, SecurityRefusalService],
 })
 export class AiCoreModule {}
