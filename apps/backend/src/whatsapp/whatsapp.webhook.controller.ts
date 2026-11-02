@@ -146,17 +146,25 @@ export class WhatsAppWebhookController {
    * Verifies Meta's x-hub-signature-256 against WHATSAPP_APP_SECRET before any tenant fan-out. All tenants are
    * onboarded under one Meta app, so one global secret is correct here, not a per-tenant one.
    *
-   * A signature that does not match a configured secret is always rejected. When the secret is not configured the
-   * message is accepted and a single warning is logged per server start: failing closed here would stop every
-   * customer's inbound WhatsApp messages the moment a deploy lands on a server that has not been given the secret yet.
-   * Setting WHATSAPP_APP_SECRET turns enforcement on with no code change.
+   * A signature that does not match a configured secret is always rejected. With no secret configured the request is
+   * rejected in production (anyone who knows a tenant id could otherwise forge customer messages into that workspace) and
+   * accepted with a once-per-start warning elsewhere, so local development does not need Meta credentials.
    */
   private assertValidSignature(raw: Buffer | undefined, signature: string | undefined): void {
     const result = checkWebhookSignature(raw, signature, process.env['WHATSAPP_APP_SECRET']);
     if (result === 'invalid') throw new BadRequestException('Invalid webhook signature');
-    if (result === 'unconfigured' && !this.warnedUnconfiguredSecret) {
-      this.warnedUnconfiguredSecret = true;
-      this.logger.warn('WHATSAPP_APP_SECRET is not configured: inbound WhatsApp webhook signatures are NOT being verified. Set it to enforce verification.');
+    if (result === 'unconfigured') {
+      if (process.env['NODE_ENV'] === 'production') {
+        if (!this.warnedUnconfiguredSecret) {
+          this.warnedUnconfiguredSecret = true;
+          this.logger.error('WHATSAPP_APP_SECRET is not configured: inbound WhatsApp webhooks are being REFUSED. Set it to accept messages.');
+        }
+        throw new BadRequestException('Webhook signature verification is not configured');
+      }
+      if (!this.warnedUnconfiguredSecret) {
+        this.warnedUnconfiguredSecret = true;
+        this.logger.warn('WHATSAPP_APP_SECRET is not configured: inbound WhatsApp webhook signatures are NOT being verified (non-production).');
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import * as Minio from 'minio';
+import { resolveInsideDir, safeFileExtension } from '../common/security/storage-key.util';
 import { Readable } from 'stream';
 
 @Injectable()
@@ -65,7 +66,7 @@ export class StorageService {
   }
 
   async upload(file: Express.Multer.File, tenantId: string): Promise<{ fileKey: string; fileUrl: string }> {
-    const ext = path.extname(file.originalname);
+    const ext = safeFileExtension(path.extname(file.originalname));
     const fileKey = `${tenantId}/${uuidv4()}${ext}`;
 
     if (this.driver === 's3' && this.s3Client) {
@@ -84,7 +85,7 @@ export class StorageService {
       const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
       return { fileKey, fileUrl };
     } else {
-      const filePath = path.join(this.uploadPath, fileKey);
+      const filePath = resolveInsideDir(this.uploadPath, fileKey);
       const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(filePath, file.buffer);
@@ -99,13 +100,13 @@ export class StorageService {
     } else if (this.driver === 'minio' && this.minioClient) {
       await this.minioClient.removeObject(this.bucket, fileKey);
     } else {
-      const filePath = path.join(this.uploadPath, fileKey);
+      const filePath = resolveInsideDir(this.uploadPath, fileKey);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
   }
 
   async uploadRaw(buffer: Buffer, mimeType: string, tenantId: string, filename: string): Promise<{ fileKey: string; fileUrl: string }> {
-    const ext = path.extname(filename) || `.${mimeType.split('/')[1]?.split(';')[0] ?? 'bin'}`;
+    const ext = safeFileExtension(path.extname(filename) || `.${mimeType.split('/')[1]?.split(';')[0] ?? 'bin'}`) || '.bin';
     const fileKey = `${tenantId}/${uuidv4()}${ext}`;
 
     if (this.driver === 's3' && this.s3Client) {
@@ -122,7 +123,7 @@ export class StorageService {
       const fileUrl = `${this.publicUrl}/api/v1/media/serve/${fileKey.replace(/\//g, '~')}`;
       return { fileKey, fileUrl };
     } else {
-      const filePath = path.join(this.uploadPath, fileKey);
+      const filePath = resolveInsideDir(this.uploadPath, fileKey);
       const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(filePath, buffer);
@@ -157,7 +158,7 @@ export class StorageService {
         const mimeType = (stat.metaData?.['content-type'] as string | undefined) ?? 'application/octet-stream';
         return { buffer: Buffer.concat(chunks), mimeType };
       } else {
-        const filePath = path.join(this.uploadPath, fileKey);
+        const filePath = resolveInsideDir(this.uploadPath, fileKey);
         if (!fs.existsSync(filePath)) return null;
         return { buffer: fs.readFileSync(filePath), mimeType: 'application/octet-stream' };
       }
@@ -191,7 +192,7 @@ export class StorageService {
         return { stream: null, mimeType: null };
       }
     } else {
-      const filePath = path.join(this.uploadPath, fileKey);
+      const filePath = resolveInsideDir(this.uploadPath, fileKey);
       if (!fs.existsSync(filePath)) return { stream: null, mimeType: null };
       return { stream: fs.createReadStream(filePath), mimeType: guessMimeFromExtension(filePath) };
     }

@@ -9,10 +9,14 @@ import * as cookieParser from 'cookie-parser';
 import type { Request, Response } from 'express';
 import { AppModule } from './app.module';
 import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
-import { assertProductionSecretsConfigured } from './config/validate-production-secrets';
+import { assertProductionSecretsConfigured, describeMissingOptionalConfig } from './config/validate-production-secrets';
+import { PrismaService } from './prisma/prisma.service';
 
 async function bootstrap() {
   assertProductionSecretsConfigured();
+  if (process.env['NODE_ENV'] === 'production') {
+    for (const line of describeMissingOptionalConfig()) console.warn(`[config] ${line}`);
+  }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['log', 'error', 'warn'],
@@ -71,10 +75,27 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
+  // Liveness: the process is up. Readiness: it can reach its database. Neither exposes configuration or error detail.
   app.getHttpAdapter().get('/api/v1/health', (_req: Request, res: Response) => res.json({ status: 'ok' }));
+  const prisma = app.get(PrismaService);
+  app.getHttpAdapter().get('/api/v1/health/ready', async (_req: Request, res: Response) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ status: 'ready' });
+    } catch (error) {
+      console.error('[health] database check failed:', error instanceof Error ? error.name : 'unknown error');
+      res.status(503).json({ status: 'unavailable' });
+    }
+  });
+
+  // Run onModuleDestroy / queue-worker close on SIGTERM so a deploy does not abandon in-flight jobs or leave connections open.
+  app.enableShutdownHooks();
 
   await app.listen(port);
   console.log(`Backend API running on port ${port}`);
 }
 
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error('Backend failed to start:', error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

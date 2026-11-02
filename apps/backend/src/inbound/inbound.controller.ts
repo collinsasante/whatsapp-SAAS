@@ -5,6 +5,8 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Request } from 'express';
 import { InboundService } from './inbound.service';
 
+const WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
+
 @ApiTags('Inbound')
 @Controller('inbound')
 export class InboundController {
@@ -23,6 +25,11 @@ export class InboundController {
     rawBody: Buffer,
     signatures: string,
   ): void {
+    // Replay protection: Svix signs the timestamp, so a captured request is only valid for a few minutes.
+    const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+    if (!Number.isFinite(ageSeconds) || ageSeconds > WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS) {
+      throw new BadRequestException('Webhook timestamp outside the allowed window');
+    }
     // Svix signature format: whsec_<base64secret>
     const key = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
     const toSign = Buffer.from(`${msgId}.${timestamp}.${rawBody.toString()}`);
@@ -57,11 +64,16 @@ export class InboundController {
         throw new BadRequestException('Missing webhook signature headers');
       }
       this.verifyResendSignature(secret, svixId, svixTimestamp, req.rawBody as Buffer, svixSignature);
-    } else if (!this.warnedUnconfiguredSecret) {
-      // Accepting unsigned mail is how this endpoint has always behaved; rejecting it on deploy would silently stop
-      // inbound email on a server that has not been given the secret yet. Set RESEND_WEBHOOK_SECRET to enforce it.
-      this.warnedUnconfiguredSecret = true;
-      this.logger.warn('RESEND_WEBHOOK_SECRET is not configured: inbound email webhook signatures are NOT being verified.');
+    } else {
+      // Unsigned mail is refused in production: this endpoint feeds support tickets and notifications, so anyone able to POST
+      // here could otherwise inject them. Elsewhere it is accepted with a once-per-start warning.
+      const production = this.config.get<string>('NODE_ENV') === 'production';
+      if (!this.warnedUnconfiguredSecret) {
+        this.warnedUnconfiguredSecret = true;
+        if (production) this.logger.error('RESEND_WEBHOOK_SECRET is not configured: inbound email webhooks are being REFUSED.');
+        else this.logger.warn('RESEND_WEBHOOK_SECRET is not configured: inbound email webhook signatures are NOT being verified (non-production).');
+      }
+      if (production) throw new BadRequestException('Webhook signature verification is not configured');
     }
 
     await this.inboundService.handleInboundEmail(body);

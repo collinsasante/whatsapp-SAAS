@@ -122,3 +122,60 @@ export async function fetchPublicPage(rawUrl: string, deps: PageFetchDeps = {}):
   }
   throw new PageFetchError('too many redirects');
 }
+
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const FILE_TIMEOUT_MS = 120_000;
+
+/**
+ * Downloads a file from a public address with the same protections as fetchPublicPage (every hop validated, connection pinned to
+ * public addresses, no proxy, redirects followed here only), but returns the raw bytes and any content type. Used when a message
+ * is sent with a media link that is not one of our own storage URLs.
+ */
+export async function fetchPublicFile(
+  rawUrl: string,
+  deps: PageFetchDeps & { maxBytes?: number } = {},
+): Promise<{ buffer: Buffer; contentType: string | undefined; finalUrl: string }> {
+  const resolver = deps.resolver ?? systemResolver;
+  const lookupFn = guardedLookup(resolver);
+  const client =
+    deps.client ??
+    axios.create({
+      httpAgent: new HttpAgent({ lookup: lookupFn as never }),
+      httpsAgent: new HttpsAgent({ lookup: lookupFn as never }),
+    });
+  const maxBytes = deps.maxBytes ?? MAX_FILE_BYTES;
+
+  let current = rawUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const url = await assertPublicUrl(current, resolver);
+    let res;
+    try {
+      res = await client.get<ArrayBuffer>(url.href, {
+        timeout: FILE_TIMEOUT_MS,
+        maxRedirects: 0,
+        maxContentLength: maxBytes,
+        maxBodyLength: maxBytes,
+        responseType: 'arraybuffer',
+        proxy: false,
+        validateStatus: (status) => status >= 200 && status < 400,
+      });
+    } catch (err) {
+      const cause = (err as { cause?: unknown })?.cause;
+      if (err instanceof UnsafePageUrlError || cause instanceof UnsafePageUrlError) throw new UnsafePageUrlError(UNSAFE_MESSAGE);
+      throw new PageFetchError(`request failed: ${(err as { code?: string })?.code ?? 'error'}`);
+    }
+
+    if (res.status >= 300) {
+      const location = res.headers?.['location'];
+      if (typeof location !== 'string' || !location) throw new PageFetchError('redirect without a location');
+      try {
+        current = new URL(location, url).href;
+      } catch {
+        throw new PageFetchError('redirect to an invalid address');
+      }
+      continue;
+    }
+    return { buffer: Buffer.from(res.data), contentType: res.headers?.['content-type'] as string | undefined, finalUrl: url.href };
+  }
+  throw new PageFetchError('too many redirects');
+}

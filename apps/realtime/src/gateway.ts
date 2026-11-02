@@ -2,8 +2,14 @@ import { Server, Socket } from 'socket.io';
 import { Redis } from 'ioredis';
 import * as jwt from 'jsonwebtoken';
 import { JwtPayload, SocketEvent } from '@whatsapp-platform/shared-types';
+import { conversationRoom, isValidId, tenantRoom, userRoom } from './rooms';
 
-const JWT_SECRET = process.env['JWT_SECRET'] ?? 'changeme';
+// No fallback value: a well-known default secret would let anyone mint a valid token.
+const JWT_SECRET: string = (() => {
+  const secret = process.env['JWT_SECRET'];
+  if (!secret) throw new Error('JWT_SECRET is not configured');
+  return secret;
+})();
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -66,21 +72,24 @@ export class SocketGateway {
 
     console.log(`Client connected: ${userId} (tenant: ${tenantId})`);
 
-    void authSocket.join(`tenant:${tenantId}`);
-    void authSocket.join(`user:${userId}`);
+    void authSocket.join(tenantRoom(tenantId));
+    void authSocket.join(userRoom(userId));
 
-    this.io.to(`tenant:${tenantId}`).emit(SocketEvent.AGENT_ONLINE, { userId });
+    this.io.to(tenantRoom(tenantId)).emit(SocketEvent.AGENT_ONLINE, { userId });
 
-    authSocket.on(SocketEvent.JOIN_CONVERSATION, (conversationId: string) => {
-      void authSocket.join(`conversation:${conversationId}`);
+    authSocket.on(SocketEvent.JOIN_CONVERSATION, (conversationId: unknown) => {
+      if (!isValidId(conversationId)) return;
+      void authSocket.join(conversationRoom(tenantId, conversationId));
     });
 
-    authSocket.on(SocketEvent.LEAVE_CONVERSATION, (conversationId: string) => {
-      void authSocket.leave(`conversation:${conversationId}`);
+    authSocket.on(SocketEvent.LEAVE_CONVERSATION, (conversationId: unknown) => {
+      if (!isValidId(conversationId)) return;
+      void authSocket.leave(conversationRoom(tenantId, conversationId));
     });
 
     authSocket.on(SocketEvent.TYPING_START, (data: { conversationId: string }) => {
-      authSocket.to(`conversation:${data.conversationId}`).emit(SocketEvent.TYPING_START, {
+      if (!isValidId(data?.conversationId)) return;
+      authSocket.to(conversationRoom(tenantId, data.conversationId)).emit(SocketEvent.TYPING_START, {
         conversationId: data.conversationId,
         userId,
         isTyping: true,
@@ -88,7 +97,8 @@ export class SocketGateway {
     });
 
     authSocket.on(SocketEvent.TYPING_STOP, (data: { conversationId: string }) => {
-      authSocket.to(`conversation:${data.conversationId}`).emit(SocketEvent.TYPING_STOP, {
+      if (!isValidId(data?.conversationId)) return;
+      authSocket.to(conversationRoom(tenantId, data.conversationId)).emit(SocketEvent.TYPING_STOP, {
         conversationId: data.conversationId,
         userId,
         isTyping: false,
@@ -97,7 +107,7 @@ export class SocketGateway {
 
     authSocket.on('disconnect', () => {
       console.log(`Client disconnected: ${userId}`);
-      this.io.to(`tenant:${tenantId}`).emit(SocketEvent.AGENT_OFFLINE, { userId });
+      this.io.to(tenantRoom(tenantId)).emit(SocketEvent.AGENT_OFFLINE, { userId });
     });
   }
 
@@ -107,17 +117,22 @@ export class SocketGateway {
 
       // Personal user events (notifications, etc.)
       if (payload.userId && !payload.tenantId) {
-        this.io.to(`user:${payload.userId}`).emit(event, payload.data ?? payload);
+        this.io.to(userRoom(payload.userId)).emit(event, payload.data ?? payload);
         return;
       }
 
       const { tenantId, conversationId, ...rest } = payload;
+      if (!isValidId(tenantId)) {
+        console.error(`Dropped realtime event ${String(event)}: no tenantId`);
+        return;
+      }
 
-      if (conversationId) {
-        this.io.to(`conversation:${conversationId}`).emit(event, payload);
-        this.io.to(`tenant:${tenantId}`).except(`conversation:${conversationId}`).emit(event, { ...rest, tenantId, conversationId });
+      if (isValidId(conversationId)) {
+        const room = conversationRoom(tenantId, conversationId);
+        this.io.to(room).emit(event, payload);
+        this.io.to(tenantRoom(tenantId)).except(room).emit(event, { ...rest, tenantId, conversationId });
       } else {
-        this.io.to(`tenant:${tenantId}`).emit(event, { ...rest, tenantId, conversationId });
+        this.io.to(tenantRoom(tenantId)).emit(event, { ...rest, tenantId, conversationId });
       }
     } catch (error) {
       console.error('Failed to handle Redis message:', error);

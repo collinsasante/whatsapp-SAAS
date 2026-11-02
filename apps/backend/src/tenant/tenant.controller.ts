@@ -2,6 +2,7 @@ import { Body, Controller, Get, Patch, UseGuards, HttpCode } from '@nestjs/commo
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { TenantService } from './tenant.service';
 import { UpdateTenantDto, UpdateTenantSettingsDto } from './dto/update-tenant.dto';
+import { UpdateOnboardingDto } from './dto/update-onboarding.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -42,9 +43,10 @@ export class TenantController {
   }
 
   @Patch('onboarding')
+  @Roles(UserRole.ADMIN) // it can set the workspace's WhatsApp credentials
   @HttpCode(200)
   @ApiOperation({ summary: 'Save onboarding progress' })
-  updateOnboarding(@CurrentTenant() tenantId: string, @Body() body: Record<string, unknown>) {
-    return this.tenantService.updateOnboarding(tenantId, body as any);
+  updateOnboarding(@CurrentTenant() tenantId: string, @Body() dto: UpdateOnboardingDto) {
+    return this.tenantService.updateOnboarding(tenantId, dto);
   }
 }

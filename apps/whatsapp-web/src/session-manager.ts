@@ -507,6 +507,10 @@ export class SessionManager {
     // failing with a 404 ("Cannot POST /internal/whatsapp-web/events"),
     // since nothing in dev/CI ever exercised a real Baileys connection to
     // trigger this call for real.
+    if (!INTERNAL_API_KEY) {
+      logger.error({ payloadType: payload['type'] }, 'WHATSAPP_WEB_INTERNAL_API_KEY is not configured; event not sent to the backend');
+      return;
+    }
     await axios.post(`${BACKEND_INTERNAL_URL}/api/v1/internal/whatsapp-web/events`, payload, {
       headers: { 'x-internal-api-key': INTERNAL_API_KEY },
       timeout: 10_000,

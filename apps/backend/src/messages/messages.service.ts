@@ -1,3 +1,4 @@
+import { fetchPublicFile } from '../knowledge-base/public-page-fetch';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, Optional, forwardRef } from '@nestjs/common';
 import { DigitalSelfLearningTrigger } from '../digital-self/digital-self-learning.trigger';
 import axios from 'axios';
@@ -570,8 +571,9 @@ export class MessagesService {
       const downloaded = await this.storageService.downloadBuffer(fileKey);
       if (downloaded) return { buffer: downloaded.buffer, mimeType: downloaded.mimeType || fallbackMime };
     }
-    const dlRes = await axios.get<ArrayBuffer>(mediaUrl, { responseType: 'arraybuffer', timeout: 120_000 });
-    return { buffer: Buffer.from(dlRes.data), mimeType: (dlRes.headers['content-type'] as string | undefined) ?? fallbackMime };
+    // Any other link is user-supplied, so it is fetched with the SSRF-guarded downloader (public addresses only).
+    const downloaded = await fetchPublicFile(mediaUrl);
+    return { buffer: downloaded.buffer, mimeType: downloaded.contentType ?? fallbackMime };
   }
 
   /**

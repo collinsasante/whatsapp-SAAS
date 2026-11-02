@@ -92,9 +92,9 @@ export class SlaMonitorWorker {
           await axios.post(
             `${REALTIME_URL}/internal/emit`,
             {
-              tenantId: conv.tenantId,
               event: 'sla:breach',
-              data: {
+              payload: {
+                tenantId: conv.tenantId,
                 conversationId: conv.id,
                 contactId: conv.contactId,
                 status: conv.status,
@@ -102,7 +102,7 @@ export class SlaMonitorWorker {
                 assignedToId: conv.assignedToId,
               },
             },
-            { timeout: 5000 },
+            { headers: { 'x-internal-secret': process.env['INTERNAL_SECRET'] ?? '' }, timeout: 5000 },
           );
         } catch (err) {
           console.error(`[SlaMonitor] Failed to process breach for conv ${conv.id}:`, err instanceof Error ? err.message : String(err));

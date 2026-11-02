@@ -59,7 +59,7 @@ export class SnoozeWorker {
         event: 'conversation_unsnooze',
         payload: { conversationId, ...updated, tenantId },
       },
-      { timeout: 5000 },
+      { headers: { 'x-internal-secret': process.env['INTERNAL_SECRET'] ?? '' }, timeout: 5000 },
     ).catch((err) => {
       console.error(`Failed to emit conversation_unsnooze for ${conversationId}:`, err.message);
     });

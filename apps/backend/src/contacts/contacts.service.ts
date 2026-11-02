@@ -321,7 +321,8 @@ export class ContactsService {
   }
 
   async toggleBlock(tenantId: string, id: string) {
-    const contact = await this.prisma.contact.findFirstOrThrow({ where: { id, tenantId }, select: { id: true, isBlocked: true } });
+    const contact = await this.prisma.contact.findFirst({ where: { id, tenantId }, select: { id: true, isBlocked: true } });
+    if (!contact) throw new NotFoundException('Contact not found');
     const isBlocked = !contact.isBlocked;
     return this.prisma.contact.update({
       where: { id },

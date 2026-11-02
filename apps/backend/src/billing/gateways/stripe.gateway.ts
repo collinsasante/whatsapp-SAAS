@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
 import { IBillingGateway, ParsedWebhookEvent } from './gateway.interface';
@@ -6,14 +6,24 @@ import { IBillingGateway, ParsedWebhookEvent } from './gateway.interface';
 @Injectable()
 export class StripeGateway implements IBillingGateway {
   private readonly logger = new Logger(StripeGateway.name);
-  private readonly client: Stripe;
+  private stripeClient: Stripe | null = null;
   private readonly webhookSecret: string;
 
   constructor(private readonly config: ConfigService) {
-    this.client = new Stripe(this.config.get<string>('STRIPE_SECRET_KEY', ''), {
-      apiVersion: '2025-02-24.acacia',
-    });
     this.webhookSecret = this.config.get<string>('STRIPE_WEBHOOK_SECRET', '');
+  }
+
+  /**
+   * Stripe is created on first use. The SDK throws on an empty key, which used to stop the whole backend from booting when card
+   * payments were simply not configured. Now only a card-payment call fails, with a clear 503 and no key material in the message.
+   */
+  private get client(): Stripe {
+    if (!this.stripeClient) {
+      const key = this.config.get<string>('STRIPE_SECRET_KEY', '');
+      if (!key) throw new ServiceUnavailableException('Card payments are not available right now');
+      this.stripeClient = new Stripe(key, { apiVersion: '2025-02-24.acacia' });
+    }
+    return this.stripeClient;
   }
 
   /** Finds or creates the Stripe Customer for a tenant */

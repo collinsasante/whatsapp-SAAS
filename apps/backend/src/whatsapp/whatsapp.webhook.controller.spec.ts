@@ -22,14 +22,25 @@ describe('WhatsAppWebhookController signature guard', () => {
     if (saved.env === undefined) delete process.env['NODE_ENV']; else process.env['NODE_ENV'] = saved.env;
   });
 
-  it('in production with no secret configured it accepts the message and warns once, so a deploy cannot stop inbound messages', () => {
+  it('in production with no secret configured it refuses every request, signed or not, and logs the cause once', () => {
     delete process.env['WHATSAPP_APP_SECRET'];
     process.env['NODE_ENV'] = 'production';
+    const { controller } = build();
+    const error = jest.fn();
+    Object.assign(controller, { logger: { error, warn: jest.fn() } });
+    expect(() => controller.assertValidSignature(body, undefined)).toThrow(BadRequestException);
+    expect(() => controller.assertValidSignature(body, 'sha256=forged')).toThrow(BadRequestException);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0][0]).toContain('WHATSAPP_APP_SECRET is not configured');
+  });
+
+  it('outside production with no secret configured it accepts and warns once, so local development needs no Meta credentials', () => {
+    delete process.env['WHATSAPP_APP_SECRET'];
+    process.env['NODE_ENV'] = 'development';
     const { controller, warn } = build();
     expect(() => controller.assertValidSignature(body, undefined)).not.toThrow();
     expect(() => controller.assertValidSignature(body, 'sha256=forged')).not.toThrow();
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain('WHATSAPP_APP_SECRET is not configured');
   });
 
   it('once a secret is configured a wrong or missing signature is rejected, in production too', () => {

@@ -1,9 +1,10 @@
 import { Worker, Job } from 'bullmq';
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import { backendApiBase } from '../lib/backend-url';
 import { QueueName, AiTrialExpireJob } from '@whatsapp-platform/shared-types';
 
-const BACKEND_URL = process.env['BACKEND_URL'] ?? 'http://backend:3001';
+const BACKEND_URL = backendApiBase();
 
 export class AiTrialWorker {
   private worker?: Worker;

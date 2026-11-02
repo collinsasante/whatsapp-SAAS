@@ -80,7 +80,6 @@ export class TenantService {
     phoneNumberId?: string;
     wabaId?: string;
     accessToken?: string;
-    plan?: string;
   }) {
     const { phoneNumberId, wabaId, accessToken, ...rest } = data;
 
@@ -104,7 +103,6 @@ export class TenantService {
         ...(rest.businessDescription !== undefined && { businessDescription: rest.businessDescription }),
         ...(rest.businessAddress !== undefined && { businessAddress: rest.businessAddress }),
         ...(rest.businessWebsite !== undefined && { businessWebsite: rest.businessWebsite }),
-        ...(rest.plan && { plan: rest.plan }),
       },
     });
 

@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
 import { SocketGateway } from './gateway';
+import { createRequireInternalSecret } from './internal-auth';
 
 const PORT = parseInt(process.env['PORT'] ?? '3002', 10);
 const REDIS_HOST = process.env['REDIS_HOST'] ?? 'localhost';
@@ -10,6 +11,7 @@ const REDIS_PORT = parseInt(process.env['REDIS_PORT'] ?? '6379', 10);
 const REDIS_PASSWORD = process.env['REDIS_PASSWORD'];
 const FRONTEND_URL = process.env['FRONTEND_URL'] ?? 'http://localhost:3000';
 const BACKEND_URL = process.env['BACKEND_URL'] ?? 'http://localhost:3001';
+const INTERNAL_SECRET = process.env['INTERNAL_SECRET'];
 
 const app = express();
 app.use(express.json());
@@ -37,9 +39,10 @@ async function bootstrap() {
   const gateway = new SocketGateway(io, redisSubscriber);
   gateway.initialize();
 
-  app.post('/internal/emit', (req: Request, res: Response) => {
+  if (!INTERNAL_SECRET) console.error('INTERNAL_SECRET is not configured -- /internal/emit will refuse every request and no realtime events will be delivered');
+  app.post('/internal/emit', createRequireInternalSecret(INTERNAL_SECRET), (req: Request, res: Response) => {
     const { event, payload } = req.body as { event: string; payload: Record<string, unknown> };
-    if (!event || !payload) {
+    if (typeof event !== 'string' || !event || !payload || typeof payload !== 'object') {
       res.status(400).json({ error: 'event and payload required' });
       return;
     }
@@ -54,4 +57,17 @@ async function bootstrap() {
   });
 }
 
-bootstrap().catch(console.error);
+function shutdown(signal: string) {
+  console.log(`Realtime: ${signal} received, closing connections`);
+  io.close(() => {
+    void Promise.allSettled([redisPublisher.quit(), redisSubscriber.quit()]).finally(() => process.exit(0));
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+bootstrap().catch((error: unknown) => {
+  console.error('Realtime failed to start:', error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

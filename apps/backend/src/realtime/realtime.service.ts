@@ -14,7 +14,10 @@ export class RealtimeService {
 
   private async emit(event: string, payload: unknown) {
     try {
-      await axios.post(`${this.realtimeUrl}/internal/emit`, { event, payload }, { timeout: 5000 });
+      await axios.post(`${this.realtimeUrl}/internal/emit`, { event, payload }, {
+        headers: { 'x-internal-secret': this.configService.get<string>('INTERNAL_SECRET', '') },
+        timeout: 5000,
+      });
     } catch (error) {
       this.logger.warn(`Failed to emit realtime event ${event}: ${error instanceof Error ? error.message : String(error)}`);
     }

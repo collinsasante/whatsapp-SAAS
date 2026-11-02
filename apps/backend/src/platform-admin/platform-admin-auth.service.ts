@@ -1,3 +1,4 @@
+import { secretsMatch } from '../common/security/safe-equal.util';
 import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -26,7 +27,7 @@ export class PlatformAdminAuthService {
 
   async setup(dto: AdminSetupDto) {
     const setupSecret = this.config.get<string>('PLATFORM_ADMIN_SETUP_SECRET', '');
-    if (!setupSecret || dto.setupSecret !== setupSecret) {
+    if (!secretsMatch(dto.setupSecret, setupSecret)) {
       throw new UnauthorizedException('Invalid setup secret');
     }
 

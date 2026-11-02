@@ -333,6 +333,7 @@ export class AutomationWorker {
       try {
         const baseUrl = process.env['WHATSAPP_WEB_INTERNAL_URL'] ?? 'http://whatsapp-web:3004';
         const apiKey = process.env['WHATSAPP_WEB_INTERNAL_API_KEY'] ?? '';
+        if (!apiKey) throw new Error('WHATSAPP_WEB_INTERNAL_API_KEY is not configured');
         const res = await axios.post<{ providerMessageId: string }>(
           `${baseUrl}/sessions/${session.id}/send-text`,
           { toPhone, text },

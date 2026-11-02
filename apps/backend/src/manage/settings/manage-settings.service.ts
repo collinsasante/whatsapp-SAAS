@@ -10,6 +10,13 @@ import { UserRole } from '@whatsapp-platform/shared-types';
 
 const AI_TRIAL_DAYS = 30;
 
+/** Copies only the named keys that are present. The service is the last line of defence if a caller ever passes more than a DTO allows. */
+function pick<T extends object, K extends keyof T>(source: T, keys: readonly K[]): Pick<T, K> {
+  const out = {} as Pick<T, K>;
+  for (const key of keys) if (source[key] !== undefined) out[key] = source[key];
+  return out;
+}
+
 @Injectable()
 export class ManageSettingsService {
   private readonly logger = new Logger(ManageSettingsService.name);
@@ -47,7 +54,8 @@ export class ManageSettingsService {
     return settings;
   }
 
-  async updateWelcome(tenantId: string, data: { welcomeEnabled?: boolean; welcomeMessage?: string }) {
+  async updateWelcome(tenantId: string, input: { welcomeEnabled?: boolean; welcomeMessage?: string }) {
+    const data = pick(input, ['welcomeEnabled', 'welcomeMessage'] as const);
     return this.prisma.tenantSettings.upsert({
       where: { tenantId },
       create: { tenantId, ...data },
@@ -55,11 +63,12 @@ export class ManageSettingsService {
     });
   }
 
-  async updateOffHours(tenantId: string, data: {
+  async updateOffHours(tenantId: string, input: {
     offHoursEnabled?: boolean;
     offHoursMessage?: string;
     offHoursSchedule?: Prisma.InputJsonValue;
   }) {
+    const data = pick(input, ['offHoursEnabled', 'offHoursMessage', 'offHoursSchedule'] as const);
     return this.prisma.tenantSettings.upsert({
       where: { tenantId },
       create: { tenantId, ...data },
@@ -67,12 +76,13 @@ export class ManageSettingsService {
     });
   }
 
-  async updateOptInOut(tenantId: string, data: {
+  async updateOptInOut(tenantId: string, input: {
     optOutKeywords?: string[];
     optInKeywords?: string[];
     optOutReply?: string;
     optInReply?: string;
   }) {
+    const data = pick(input, ['optOutKeywords', 'optInKeywords', 'optOutReply', 'optInReply'] as const);
     return this.prisma.tenantSettings.upsert({
       where: { tenantId },
       create: { tenantId, ...data },
@@ -80,10 +90,11 @@ export class ManageSettingsService {
     });
   }
 
-  async updateWidget(tenantId: string, data: {
+  async updateWidget(tenantId: string, input: {
     widgetEnabled?: boolean;
     widgetConfig?: Prisma.InputJsonValue;
   }) {
+    const data = pick(input, ['widgetEnabled', 'widgetConfig'] as const);
     return this.prisma.tenantSettings.upsert({
       where: { tenantId },
       create: { tenantId, ...data },
@@ -91,13 +102,14 @@ export class ManageSettingsService {
     });
   }
 
-  async updateAi(tenantId: string, data: {
+  async updateAi(tenantId: string, input: {
     aiEnabled?: boolean;
     aiAlwaysOn?: boolean;
     aiPersonality?: string;
     aiMode?: string;
     aiPilotGroup?: boolean;
   }) {
+    const data = pick(input, ['aiEnabled', 'aiAlwaysOn', 'aiPersonality', 'aiMode', 'aiPilotGroup'] as const);
     const existing = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
       select: { aiTrialStartedAt: true, aiEnabled: true },

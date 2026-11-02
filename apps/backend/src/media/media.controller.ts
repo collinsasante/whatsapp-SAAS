@@ -1,3 +1,4 @@
+import { isSafeStorageKey } from '../common/security/storage-key.util';
 import { Throttle } from '@nestjs/throttler';
 import {
   Controller,
@@ -104,6 +105,8 @@ export class MediaController {
   @Get('serve/:fileKey')
   async serve(@Param('fileKey') fileKey: string, @Res() res: Response) {
     const normalizedKey = fileKey.replace(/~/g, '/');
+    // Public route: only keys shaped like the ones the app writes may reach storage (no traversal, no dotfiles, no odd characters).
+    if (!isSafeStorageKey(normalizedKey)) return res.status(HttpStatus.NOT_FOUND).send('File not found');
     const { stream, mimeType } = await this.mediaService.getStreamWithMime(normalizedKey);
     if (!stream) return res.status(HttpStatus.NOT_FOUND).send('File not found');
     if (mimeType) res.setHeader('Content-Type', mimeType);

@@ -1,6 +1,7 @@
-import express, { NextFunction, Request, Response } from 'express';
+import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { SessionManager } from './session-manager';
+import { createRequireInternalKey } from './internal-auth';
 
 const PORT = parseInt(process.env['PORT'] ?? '3004', 10);
 const INTERNAL_API_KEY = process.env['WHATSAPP_WEB_INTERNAL_API_KEY'] ?? '';
@@ -11,25 +12,10 @@ app.use(express.json());
 const prisma = new PrismaClient();
 const sessionManager = new SessionManager(prisma);
 
-// Internal service-to-service auth only -- this service is never exposed
-// through nginx, only reachable from backend/worker on the internal Docker
-// network, but a shared-secret header is still cheap defense-in-depth
-// against anything else that might land on the same network.
-function requireInternalKey(req: Request, res: Response, next: NextFunction): void {
-  if (!INTERNAL_API_KEY) {
-    // Fails open with a loud warning rather than locking out every request
-    // in an environment where the key hasn't been provisioned yet -- matches
-    // this codebase's established pattern for optional-until-configured
-    // secrets (CredentialsEncryptionService, WhatsApp webhook signatures).
-    console.warn('WHATSAPP_WEB_INTERNAL_API_KEY not configured -- internal auth is disabled');
-    next();
-    return;
-  }
-  if (req.header('x-internal-api-key') !== INTERNAL_API_KEY) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  next();
+// Internal service-to-service auth: fails closed (503) when WHATSAPP_WEB_INTERNAL_API_KEY is not configured. See internal-auth.ts.
+const requireInternalKey = createRequireInternalKey(INTERNAL_API_KEY);
+if (!INTERNAL_API_KEY) {
+  console.error('WHATSAPP_WEB_INTERNAL_API_KEY is not configured -- every request except /health will be refused');
 }
 
 app.get('/health', (_req: Request, res: Response) => {

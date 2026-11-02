@@ -1,6 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import axios from 'axios';
+import { fetchPublicPage } from '../knowledge-base/public-page-fetch';
 
 function extract(html: string, prop: string): string | null {
   const re = new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i');
@@ -25,17 +25,10 @@ export class LinkPreviewController {
     }
 
     try {
-      const res = await axios.get<string>(url, {
-        timeout: 5000,
-        maxRedirects: 3,
-        responseType: 'text',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; LinkPreviewBot/1.0)',
-          'Accept': 'text/html',
-        },
-        maxContentLength: 500_000,
-      });
-      const html = typeof res.data === 'string' ? res.data.slice(0, 100_000) : '';
+      // Same guarded fetch the knowledge base uses: every hop (including redirects) is checked and the connection is pinned to
+      // public addresses, so a preview can never reach localhost, the Docker network, or a cloud metadata address.
+      const { html: fullHtml } = await fetchPublicPage(url);
+      const html = fullHtml.slice(0, 100_000);
       return {
         url,
         title: extract(html, 'og:title') ?? extractTitle(html),

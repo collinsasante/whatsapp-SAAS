@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
+import { backendApiBase } from '../lib/backend-url';
 
-const BACKEND_URL = process.env['BACKEND_URL'] ?? 'http://backend:3001';
+const BACKEND_URL = backendApiBase();
 const INTERNAL_SECRET = process.env['INTERNAL_SECRET'] ?? '';
 
 export class BillingCronWorker {
@@ -61,7 +62,10 @@ export class BillingCronWorker {
         `${BACKEND_URL}/manage/settings/subscription-downgraded`,
         { tenantId: sub.tenantId },
         { headers: { 'x-internal-secret': INTERNAL_SECRET }, timeout: 8000 },
-      ).catch(() => null);
+      ).catch((err) => {
+        // The backend refuses this call when INTERNAL_SECRET is unset or different, so say so instead of failing silently.
+        console.error(`Failed to send the subscription-downgraded notification for ${sub.tenantId}:`, (err as Error).message);
+      });
 
       console.log(`Downgraded tenant ${sub.tenantId} from ${sub.plan.slug} to free (expired)`);
     }
