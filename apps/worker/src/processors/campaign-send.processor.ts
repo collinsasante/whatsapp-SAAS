@@ -31,7 +31,14 @@ export class CampaignSendWorker {
     );
 
     this.worker.on('failed', (job, err) => {
-      console.error(`Campaign job ${job?.id} failed:`, err.message);
+      console.error(`Campaign job ${job?.id} failed (attempt ${job?.attemptsMade}/${job?.opts.attempts ?? 1}):`, err.message);
+      // BullMQ retries a thrown error up to `attempts` times. On the last one nothing will try again, so the batch's recipients
+      // must reach a terminal state here, otherwise the campaign would stay RUNNING with PENDING recipients forever.
+      if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+        this.failBatch(job.data, `Sending failed after ${job.attemptsMade} attempts: ${err.message}`).catch((e) => {
+          console.error(`Could not close out failed batch of campaign ${job.data.campaignId}:`, e instanceof Error ? e.message : String(e));
+        });
+      }
     });
 
     this.worker.on('completed', (job) => {
@@ -53,8 +60,9 @@ export class CampaignSendWorker {
       include: { template: true },
     });
 
-    if (!campaign || campaign.status === 'PAUSED') {
-      console.log(`Campaign ${campaignId} is paused or not found, skipping batch`);
+    if (!campaign || campaign.status !== 'RUNNING') {
+      // Paused, deleted, or already finished (COMPLETED / FAILED): never send for a campaign that is not running.
+      console.log(`Campaign ${campaignId} is ${campaign?.status ?? 'not found'}, skipping batch`);
       return;
     }
 
@@ -64,15 +72,26 @@ export class CampaignSendWorker {
     const credentials = await resolveWhatsAppCredentials(this.prisma, tenantId, campaign.whatsappNumberId);
 
     if (!credentials) {
-      throw new Error('WhatsApp not configured for tenant');
+      // Permanent: retrying cannot fix missing credentials, so the batch is closed out now instead of retried and then abandoned.
+      console.error(`Campaign ${campaignId}: WhatsApp credentials are missing or invalid for this campaign's number; failing the batch`);
+      await this.failBatch(job.data, "WhatsApp is not configured for this campaign's number");
+      return;
     }
 
     const recipients = await this.prisma.campaignRecipient.findMany({
-      where: { id: { in: recipientIds }, status: 'PENDING' },
+      where: { id: { in: recipientIds }, campaignId, status: 'PENDING' },
       include: { contact: true },
     });
 
     for (const recipient of recipients) {
+      // A pause (or any other change) must take effect inside a running batch, not only at the next one; otherwise a resumed
+      // campaign could be re-queued while this batch is still sending the same recipients.
+      const current = await this.prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+      if (current?.status !== 'RUNNING') {
+        console.log(`Campaign ${campaignId} is ${current?.status ?? 'gone'}; stopping this batch before recipient ${recipient.id}`);
+        return;
+      }
+
       if (recipient.contact.isBlocked || recipient.contact.optedOut) {
         await this.prisma.campaignRecipient.update({
           where: { id: recipient.id },
@@ -202,17 +221,39 @@ export class CampaignSendWorker {
     return created.id;
   }
 
+  /** Marks this batch's still-PENDING recipients FAILED (never touching SENT ones), counts them, and settles the campaign. */
+  private async failBatch(data: CampaignSendJob, reason: string) {
+    const { campaignId, tenantId, recipientIds } = data;
+    const campaign = await this.prisma.campaign.findFirst({ where: { id: campaignId, tenantId }, select: { id: true } });
+    if (!campaign) return;
+    const { count } = await this.prisma.campaignRecipient.updateMany({
+      where: { id: { in: recipientIds }, campaignId, status: 'PENDING' },
+      data: { status: 'FAILED', errorMessage: reason.slice(0, 500) },
+    });
+    if (count > 0) {
+      await this.prisma.campaign.update({ where: { id: campaignId }, data: { failedCount: { increment: count } } });
+    }
+    await this.checkAndCompleteIfDone(campaignId);
+  }
+
+  /**
+   * Settles a campaign once no recipient is PENDING. Every recipient is SENT or FAILED by then, so: nothing sent and something
+   * failed = FAILED; otherwise COMPLETED (failedCount > 0 means partially completed). Only a RUNNING campaign is settled, so a
+   * paused or deleted campaign is never overwritten.
+   */
   private async checkAndCompleteIfDone(campaignId: string) {
     const pending = await this.prisma.campaignRecipient.count({
       where: { campaignId, status: 'PENDING' },
     });
+    if (pending > 0) return;
 
-    if (pending === 0) {
-      await this.prisma.campaign.update({
-        where: { id: campaignId },
-        data: { status: 'COMPLETED', completedAt: new Date() },
-      });
-    }
+    const campaign = await this.prisma.campaign.findUnique({ where: { id: campaignId }, select: { status: true, sentCount: true, failedCount: true } });
+    if (!campaign || campaign.status !== 'RUNNING') return;
+    const status = campaign.sentCount === 0 && campaign.failedCount > 0 ? 'FAILED' : 'COMPLETED';
+    await this.prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status, completedAt: new Date() },
+    });
   }
 
   private sleep(ms: number) {

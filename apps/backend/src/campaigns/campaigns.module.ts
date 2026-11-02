@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { CampaignsService } from './campaigns.service';
 import { CampaignsController } from './campaigns.controller';
+import { ScheduledCampaignProcessor } from './scheduled-campaign.processor';
 import { QueueName } from '@whatsapp-platform/shared-types';
 
 @Module({
@@ -12,7 +13,7 @@ import { QueueName } from '@whatsapp-platform/shared-types';
     ),
   ],
   controllers: [CampaignsController],
-  providers: [CampaignsService],
+  providers: [CampaignsService, ScheduledCampaignProcessor],
   exports: [CampaignsService],
 })
 export class CampaignsModule {}

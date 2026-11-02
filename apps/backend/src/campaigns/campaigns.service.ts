@@ -1,17 +1,23 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
-import { QueueName } from '@whatsapp-platform/shared-types';
+import { QueueName, ScheduledCampaignJob } from '@whatsapp-platform/shared-types';
 import { CampaignStatus } from '@whatsapp-platform/shared-types';
 import { buildContactWhere, SegmentFilter } from '../segments/segments.service';
 
 const BATCH_SIZE = 50;
 
+/** One delayed job per campaign: the id makes a repeated launch idempotent and lets cancellation find the job. */
+export const scheduledCampaignJobId = (campaignId: string) => `scheduled-campaign-${campaignId}`;
+const SCHEDULED_JOB_OPTIONS = { attempts: 3, backoff: { type: 'exponential' as const, delay: 5000 }, removeOnComplete: true, removeOnFail: false };
+
 @Injectable()
 export class CampaignsService {
+  private readonly logger = new Logger(CampaignsService.name);
+
   constructor(
     private prisma: PrismaService,
     @InjectQueue(QueueName.CAMPAIGN_SEND) private campaignQueue: Queue,
@@ -25,7 +31,7 @@ export class CampaignsService {
       include: { plan: true },
     });
     if (sub?.plan.limMaxCampaigns === 0) {
-      throw new ForbiddenException('Your current plan does not include campaigns. Upgrade to create campaigns.');
+      throw new ForbiddenException('Your current plan does not include campaigns.');
     }
 
     const template = await this.prisma.template.findFirst({
@@ -214,10 +220,12 @@ export class CampaignsService {
     }
 
     if (campaign.scheduledAt && campaign.scheduledAt > new Date()) {
+      // A job left over from an earlier launch of this campaign (for example a failed one) must not block, or double, this one.
+      await this.removeScheduledJob(campaignId);
       await this.scheduledQueue.add(
         'launch-campaign',
-        { campaignId, tenantId },
-        { delay: campaign.scheduledAt.getTime() - Date.now() },
+        { campaignId, tenantId } satisfies ScheduledCampaignJob,
+        { ...SCHEDULED_JOB_OPTIONS, jobId: scheduledCampaignJobId(campaignId), delay: campaign.scheduledAt.getTime() - Date.now() },
       );
       return this.prisma.campaign.update({
         where: { id: campaignId },
@@ -228,12 +236,46 @@ export class CampaignsService {
     return this.startSending(tenantId, campaignId);
   }
 
+  /**
+   * Runs when a scheduled campaign's time arrives (ScheduledCampaignProcessor). It starts the campaign only if it is STILL scheduled:
+   * a campaign that was deleted, already started or paused in the meantime is left alone. The status change is one conditional
+   * write, so two deliveries of the job cannot both start it. If queueing the batches fails, the campaign goes back to SCHEDULED
+   * and the error is rethrown so the job is retried, never left RUNNING with nothing queued.
+   */
+  async startScheduled(tenantId: string, campaignId: string): Promise<{ started: boolean; reason?: string; batches?: number }> {
+    const claimed = await this.prisma.campaign.updateMany({
+      where: { id: campaignId, tenantId, status: CampaignStatus.SCHEDULED },
+      data: { status: CampaignStatus.RUNNING, startedAt: new Date() },
+    });
+    if (claimed.count === 0) return { started: false, reason: 'not scheduled (deleted, already started or changed)' };
+
+    try {
+      const batches = await this.enqueueBatches(tenantId, campaignId);
+      return { started: true, batches };
+    } catch (err) {
+      await this.prisma.campaign
+        .updateMany({ where: { id: campaignId, tenantId, status: CampaignStatus.RUNNING }, data: { status: CampaignStatus.SCHEDULED, startedAt: null } })
+        .catch((revertError: unknown) => this.logger.error(`Campaign ${campaignId} could not be put back to SCHEDULED after a queueing failure: ${String(revertError)}`));
+      throw err;
+    }
+  }
+
+  /** The last retry of a scheduled launch failed: say so on the campaign instead of leaving it SCHEDULED forever. */
+  async markScheduledLaunchFailed(tenantId: string, campaignId: string): Promise<void> {
+    await this.prisma.campaign.updateMany({ where: { id: campaignId, tenantId, status: CampaignStatus.SCHEDULED }, data: { status: CampaignStatus.FAILED } });
+  }
+
   async startSending(tenantId: string, campaignId: string) {
     await this.prisma.campaign.update({
       where: { id: campaignId },
       data: { status: CampaignStatus.RUNNING, startedAt: new Date() },
     });
 
+    const batches = await this.enqueueBatches(tenantId, campaignId);
+    return { message: 'Campaign launched', batches };
+  }
+
+  private async enqueueBatches(tenantId: string, campaignId: string): Promise<number> {
     const recipients = await this.prisma.campaignRecipient.findMany({
       where: { campaignId, status: 'PENDING' },
       select: { id: true },
@@ -258,7 +300,17 @@ export class CampaignsService {
       ),
     );
 
-    return { message: 'Campaign launched', batches: batches.length };
+    return batches.length;
+  }
+
+  private async removeScheduledJob(campaignId: string): Promise<void> {
+    try {
+      const job = await this.scheduledQueue.getJob(scheduledCampaignJobId(campaignId));
+      if (job) await job.remove();
+    } catch (err) {
+      // A job that is active right now cannot be removed; the processor re-checks the campaign's status, so it does no harm.
+      this.logger.warn(`Scheduled job for campaign ${campaignId} was not removed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async getRecipients(
@@ -333,6 +385,8 @@ export class CampaignsService {
     if (!([CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.FAILED] as CampaignStatus[]).includes(campaign.status as CampaignStatus)) {
       throw new BadRequestException('Only draft, scheduled, or failed campaigns can be deleted');
     }
+    // Deleting a scheduled campaign cancels its launch.
+    await this.removeScheduledJob(campaignId);
     await this.prisma.campaignRecipient.deleteMany({ where: { campaignId } });
     await this.prisma.campaign.delete({ where: { id: campaignId } });
     return { deleted: true };
