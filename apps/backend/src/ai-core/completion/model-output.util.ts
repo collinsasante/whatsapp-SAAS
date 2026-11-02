@@ -7,7 +7,7 @@
  * an HTML error page or a stack trace from being treated as a reply either.
  *
  * parseStructuredReply is for the {"response", "confidence"} format the legacy and v2 prompts ask for.
- * checkCustomerText is for any final text (also used for tool-calling replies, which are plain text).
+ * checkCustomerText is for any final text (also used for plain-text tool-calling replies, such as Commerce's).
  * Neither makes a model call. A failure carries a reason for the log only; it is never shown to a customer.
  * What happens next is the caller's existing recovery path: no reply, a real handoff and the standard fallback text.
  */
@@ -101,8 +101,16 @@ function stripFence(raw: string): string {
   return raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
 }
 
+/**
+ * The prompt asks for a 0-100 score, but a model sometimes answers on a 0-1 scale (0.92). Read as 0-100 that is "1% sure", which
+ * hands a good answer to a human. Only a number strictly between 0 and 1 is read as that fraction (0.92 -> 92). Every whole number
+ * (0 and 1 included) and every number above 1 keeps its 0-100 meaning, so the established output does not change: a bare 1 or 1.0
+ * is indistinguishable from "1 out of 100" and stays 1. Numeric strings are still not accepted (null).
+ */
 function clampConfidence(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  const score = value > 0 && value < 1 ? value * 100 : value;
+  return Math.min(100, Math.max(0, Math.round(score)));
 }
 
 /** Reads a complete "response" string out of broken JSON. Returns null if the string is not closed (truncated). */
@@ -115,7 +123,7 @@ function recoverResponse(text: string): { response: string; confidence: number |
   } catch {
     return null;
   }
-  const c = /"confidence"\s*:\s*(-?\d{1,3})(?:\.\d+)?/.exec(text);
+  const c = /"confidence"\s*:\s*(-?\d{1,3}(?:\.\d+)?)/.exec(text);
   return { response, confidence: c ? clampConfidence(Number(c[1])) : null };
 }
 

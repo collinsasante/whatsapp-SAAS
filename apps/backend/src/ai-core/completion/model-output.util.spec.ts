@@ -1,4 +1,5 @@
 import { checkCustomerText, parseStructuredReply } from './model-output.util';
+import { shouldEscalateOnConfidence } from '../pipeline/escalation-detector.util';
 
 describe('parseStructuredReply', () => {
   it('reads a well-formed reply and clamps confidence', () => {
@@ -229,5 +230,65 @@ describe('F-C: generic technical failures', () => {
     'Exception made for you: delivery is free today.',
   ])('accepts the business reply "%s"', (text) => {
     expect(checkCustomerText(text)).toEqual({ safe: true });
+  });
+});
+
+describe('confidence scale: a 0-1 score is read as a fraction, everything else keeps its 0-100 meaning', () => {
+  const confidenceOf = (value: string) => {
+    const parsed = parseStructuredReply(`{"response":"Hi","confidence":${value}}`);
+    return parsed.ok ? parsed.confidence : 'refused';
+  };
+
+  it.each([
+    ['0.92', 92], ['0.5', 50], ['0.05', 5], ['0.999', 100], ['0.004', 0],
+  ])('reads the fraction %s as %i', (value, expected) => {
+    expect(confidenceOf(value)).toBe(expected);
+  });
+
+  it.each([
+    ['92', 92], ['85', 85], ['20', 20], ['100', 100], ['0', 0], ['1', 1], ['1.0', 1], ['1.5', 2], ['92.4', 92], ['92.6', 93], ['150', 100], ['-5', 0],
+  ])('keeps the established 0-100 reading of %s as %i', (value, expected) => {
+    expect(confidenceOf(value)).toBe(expected);
+  });
+
+  it('still reads a numeric string, null or a boolean as no confidence', () => {
+    expect(confidenceOf('"0.92"')).toBeNull();
+    expect(confidenceOf('"92"')).toBeNull();
+    expect(confidenceOf('null')).toBeNull();
+    expect(confidenceOf('true')).toBeNull();
+  });
+
+  it('no longer hands a confident 0-1 answer to a human, and still hands over a genuinely low score', () => {
+    const handoff = (value: string) => shouldEscalateOnConfidence(confidenceOf(value) as number | null);
+    expect(handoff('0.92')).toBe(false);
+    expect(handoff('0.15')).toBe(true); // 15 out of 100: a real knowledge gap
+    expect(handoff('15')).toBe(true);
+    expect(handoff('20')).toBe(true);
+    expect(handoff('21')).toBe(false);
+  });
+
+  it('reads a fraction in the broken-JSON recovery path too', () => {
+    expect(parseStructuredReply('{"response":"Hi","confidence":0.92')).toMatchObject({ ok: true, response: 'Hi', confidence: 92, recovered: true });
+    expect(parseStructuredReply('Sure! {"response":"Hi","confidence":0.5')).toMatchObject({ ok: true, response: 'Hi', confidence: 50, recovered: true });
+  });
+});
+
+// Investigated for the v2 tool-calling path, where the provider cannot be asked for JSON mode and a model sometimes adds a note
+// after the object. Not supported, on purpose: text after a complete reply object cannot be told apart from a correction of it.
+describe('text after a complete reply object stays refused', () => {
+  it.each([
+    ['a harmless note', '{"response":"We open at nine.","confidence":90}\n\nNote: I used the opening-hours article.'],
+    ['a correction that reverses the answer', '{"response":"Yes, we deliver on Sundays.","confidence":90}\n\nActually, we do not deliver on Sundays.'],
+    ['a second answer in prose', '{"response":"Yes.","confidence":90} The real answer is no.'],
+    ['a second reply object', '{"response":"Yes.","confidence":90} {"response":"No.","confidence":90}'],
+    ['a stray closing brace', '{"response":"Yes.","confidence":90}}'],
+  ])('refuses %s as malformed', (_name, raw) => {
+    expect(parseStructuredReply(raw)).toEqual({ ok: false, reason: 'malformed' });
+  });
+
+  it('a harmless note and a correction have the same shape, so no rule over the text can accept one and refuse the other', () => {
+    const note = parseStructuredReply('{"response":"We open at nine.","confidence":90}\n\nNote: this came from article three.');
+    const correction = parseStructuredReply('{"response":"We open at nine.","confidence":90}\n\nCorrection: we open at ten.');
+    expect(note).toEqual(correction);
   });
 });
