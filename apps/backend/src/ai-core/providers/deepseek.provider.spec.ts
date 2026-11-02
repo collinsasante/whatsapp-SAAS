@@ -148,4 +148,74 @@ describe('DeepSeekProvider', () => {
       tools: [{ type: 'function', function: { name: 'get_order_status' } }],
     });
   });
+  describe('total deadline, cancellation and attempt override', () => {
+    const REQ = { modelKey: 'deepseek-v4-flash', messages: [{ role: 'user' as const, content: 'hi' }] };
+    /** A request that never answers and rejects the way axios does once its signal aborts. */
+    const hangUntilAborted = (_url: string, _body: unknown, cfg?: { signal?: AbortSignal }) =>
+      new Promise<never>((_resolve, reject) => {
+        cfg?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('canceled'), { code: 'ERR_CANCELED' })));
+      });
+
+    it('makes one provider attempt when maxAttempts is 1, even for a retryable failure', async () => {
+      mockedAxios.post.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 503 } }));
+
+      await expect(provider.complete({ ...REQ, maxAttempts: 1 })).rejects.toMatchObject({ code: 'server_error' });
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('never raises the provider own attempt limit', async () => {
+      mockedAxios.post.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 503 } }));
+
+      await expect(provider.complete({ ...REQ, maxAttempts: 9 })).rejects.toMatchObject({ code: 'server_error' });
+      expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels the in-flight request when the total deadline passes and does not retry', async () => {
+      mockedAxios.post.mockImplementation(hangUntilAborted);
+      const startedAt = Date.now();
+
+      await expect(provider.complete({ ...REQ, deadlineMs: 60 })).rejects.toMatchObject({
+        code: 'timeout', uncertainOutcome: true, message: expect.stringContaining('total deadline'),
+      });
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+      expect((mockedAxios.post.mock.calls[0][2] as { signal?: AbortSignal }).signal?.aborted).toBe(true);
+    });
+
+    it('is bounded as a TOTAL: a slow first attempt plus the retry pause cannot outlive the deadline', async () => {
+      mockedAxios.post.mockRejectedValue(Object.assign(new Error('boom'), { response: { status: 503 } }));
+      jest.spyOn(global.Math, 'random').mockReturnValue(1); // longest retry pause (1000 ms)
+      const startedAt = Date.now();
+
+      await expect(provider.complete({ ...REQ, deadlineMs: 80 })).rejects.toMatchObject({ code: 'timeout', message: expect.stringContaining('total deadline') });
+      expect(Date.now() - startedAt).toBeLessThan(500);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects without calling the provider when the caller signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(provider.complete({ ...REQ, signal: controller.signal })).rejects.toMatchObject({ code: 'timeout', message: expect.stringContaining('cancelled') });
+      expect(mockedAxios.post).not.toHaveBeenCalled();
+    });
+
+    it('cancels an in-flight request when the caller aborts', async () => {
+      mockedAxios.post.mockImplementation(hangUntilAborted);
+      const controller = new AbortController();
+      const pending = provider.complete({ ...REQ, signal: controller.signal });
+      setTimeout(() => controller.abort(), 20);
+
+      await expect(pending).rejects.toMatchObject({ code: 'timeout', message: expect.stringContaining('cancelled') });
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('still succeeds, and leaves no pending deadline timer, when the answer arrives in time', async () => {
+      mockedAxios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: {} } });
+
+      await expect(provider.complete({ ...REQ, deadlineMs: 5_000 })).resolves.toMatchObject({ content: 'ok' });
+      // Jest fails the run with an open-handle warning if the 5 s timer were left running; the explicit check is the timer count.
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
 });

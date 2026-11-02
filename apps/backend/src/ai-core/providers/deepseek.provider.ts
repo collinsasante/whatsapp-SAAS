@@ -43,8 +43,18 @@ function classifyError(err: unknown): AiProviderError {
   return new AiProviderError('network', axiosErr?.message ?? 'DeepSeek request failed', true, err);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Resolves after `ms`, or as soon as the signal aborts (so a retry pause cannot outlive the deadline). */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 @Injectable()
@@ -59,9 +69,40 @@ export class DeepSeekProvider implements AiProvider {
       throw new AiProviderError('auth', 'DEEPSEEK_API_KEY is not configured', false);
     }
 
+    // One controller covers the whole call: the total deadline and the caller's signal both abort it, which cancels the in-flight
+    // request (axios `signal`) and the pause between attempts.
+    const maxAttempts = Math.max(1, Math.min(this.maxAttempts, req.maxAttempts ?? this.maxAttempts));
+    const controller = new AbortController();
+    const abortFromCaller = (): void => controller.abort();
+    let deadlineHit = false;
+    const deadlineTimer = req.deadlineMs !== undefined
+      ? setTimeout(() => { deadlineHit = true; controller.abort(); }, Math.max(0, req.deadlineMs))
+      : undefined;
+    if (req.signal?.aborted) controller.abort();
+    else req.signal?.addEventListener('abort', abortFromCaller, { once: true });
+    const cancelled = (cause?: unknown): AiProviderError => new AiProviderError(
+      'timeout', deadlineHit ? 'DeepSeek total deadline exceeded' : 'DeepSeek request cancelled', true, cause, true,
+    );
+
+    try {
+      return await this.attempts(req, apiKey, maxAttempts, controller.signal, cancelled);
+    } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      req.signal?.removeEventListener('abort', abortFromCaller);
+    }
+  }
+
+  private async attempts(
+    req: ChatCompletionRequest,
+    apiKey: string,
+    maxAttempts: number,
+    signal: AbortSignal,
+    cancelled: (cause?: unknown) => AiProviderError,
+  ): Promise<ChatCompletionResult> {
     let lastError: AiProviderError | undefined;
     let uncertainPriorAttempt = false;
-    for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (signal.aborted) throw cancelled();
       const startedAt = Date.now();
       try {
         const res = await axios.post<DeepSeekResponseBody>(
@@ -87,6 +128,7 @@ export class DeepSeekProvider implements AiProvider {
           {
             headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             timeout: req.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            signal,
           },
         );
 
@@ -111,8 +153,13 @@ export class DeepSeekProvider implements AiProvider {
           latencyMs: Date.now() - startedAt,
         };
       } catch (err) {
+        // A cancelled request is never retried: the deadline or the caller has already decided this call is over.
+        if (signal.aborted) {
+          this.logger.warn(`DeepSeek call cancelled (attempt=${attempt + 1})`);
+          throw cancelled(err);
+        }
         lastError = classifyError(err);
-        if (!lastError.retryable || attempt === this.maxAttempts - 1) {
+        if (!lastError.retryable || attempt === maxAttempts - 1) {
           this.logger.warn(`DeepSeek call failed (${lastError.code}, retryable=${lastError.retryable}, attempt=${attempt + 1}): ${lastError.message}`);
           const uncertainOutcome = uncertainPriorAttempt || ['timeout', 'network', 'server_error'].includes(lastError.code);
           if (uncertainOutcome) {
@@ -122,7 +169,7 @@ export class DeepSeekProvider implements AiProvider {
         }
         uncertainPriorAttempt ||= ['timeout', 'network', 'server_error'].includes(lastError.code);
         this.logger.warn(`DeepSeek call failed (${lastError.code}), retrying once: ${lastError.message}`);
-        await sleep(RETRY_BASE_DELAY_MS + Math.random() * RETRY_BASE_DELAY_MS);
+        await sleep(RETRY_BASE_DELAY_MS + Math.random() * RETRY_BASE_DELAY_MS, signal);
       }
     }
     // Unreachable, but satisfies the compiler -- the loop always returns or throws.

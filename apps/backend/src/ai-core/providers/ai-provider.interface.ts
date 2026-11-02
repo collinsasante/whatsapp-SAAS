@@ -35,6 +35,16 @@ export interface ChatCompletionRequest {
   timeoutMs?: number;
   /** Override for a future per-tenant key; defaults to the provider's own env-sourced key. */
   apiKey?: string;
+  /**
+   * Hard TOTAL deadline for the whole call, across every internal attempt and the pause between them. `timeoutMs` alone is not a
+   * total: it is a per-attempt limit that a provider answering slowly (headers early, body late, or keep-alive bytes) can outlive.
+   * When it passes, the in-flight request is cancelled and the call fails with code 'timeout'. Unset keeps the previous behaviour.
+   */
+  deadlineMs?: number;
+  /** Upper bound on internal attempts for this call (never raises the provider's own limit). 1 = no internal retry. */
+  maxAttempts?: number;
+  /** Cancels the call when aborted by the caller; surfaces as an AiProviderError with code 'timeout'. */
+  signal?: AbortSignal;
 }
 
 export interface ChatCompletionResult {
