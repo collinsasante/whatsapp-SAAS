@@ -3,7 +3,7 @@ import { PaymentGateway, PaymentStatus } from '@whatsapp-platform/shared-types';
 import { AiCreditTransactionType } from '@prisma/client';
 
 function buildPayment(overrides: Partial<Record<string, unknown>> = {}) {
-  return { id: 'payment-1', tenantId: 't1', invoiceId: null, gatewayReference: 'VRZ-C-ABC', status: 'PENDING', ...overrides };
+  return { id: 'payment-1', tenantId: 't1', invoiceId: null, gatewayReference: 'VRZ-C-ABC', status: 'PENDING', amount: 10, currency: 'GHS', ...overrides };
 }
 
 function buildPurchase(overrides: Partial<Record<string, unknown>> = {}) {
@@ -25,7 +25,7 @@ function buildDeps() {
     stripe: { verifyWebhookSignature: jest.fn().mockReturnValue(true), parseWebhookEvent: jest.fn() },
     paystack: {
       verifyWebhookSignature: jest.fn().mockReturnValue(true),
-      parseWebhookEvent: jest.fn().mockResolvedValue({ event: 'charge.success', gatewayReference: 'VRZ-C-ABC', status: 'success' }),
+      parseWebhookEvent: jest.fn().mockResolvedValue({ event: 'charge.success', gatewayReference: 'VRZ-C-ABC', status: 'success', amount: 10, currency: 'GHS' }),
     },
     invoiceService: {},
     subscriptionService: {},

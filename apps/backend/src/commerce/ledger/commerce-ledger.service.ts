@@ -8,6 +8,7 @@ import { WebhookEventService } from '../../common/monitoring/webhook-event.servi
 import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
 import { isValidOrderTransition } from '../orders/order-state.util';
 import { computeRefundAdjustment, computeTakeRate } from './take-rate.util';
+import { describePaymentMismatch, PaymentMismatchError } from '../../common/payments/payment-match.util';
 import { getTenantDateRangeBoundaries } from '../../common/utils/timezone.util';
 
 const DEFAULT_COMMERCE_FEE_SETTING_KEY = 'default_commerce_fee_pct';
@@ -71,15 +72,12 @@ export class CommerceLedgerService {
     if (tx.status !== 'success') {
       return { verified: false, reason: `Paystack reports status "${tx.status}"`, paystackStatus: tx.status, order };
     }
-    if (Math.abs(tx.amountMajorUnits - order.totalMajorUnits) > 0.01) {
-      return {
-        verified: false,
-        reason: `Amount mismatch: Paystack says ${tx.amountMajorUnits}, order total is ${order.totalMajorUnits}`,
-        order,
-      };
+    const mismatch = describePaymentMismatch({ amount: order.totalMajorUnits, currency: order.currency }, { amount: tx.amountMajorUnits, currency: tx.currency });
+    if (mismatch) {
+      return { verified: false, reason: mismatch, order };
     }
 
-    const updated = await this.recordPaymentSuccess(order.id, tx.transactionId, tx.amountMajorUnits);
+    const updated = await this.recordPaymentSuccess(order.id, tx.transactionId, tx.amountMajorUnits, tx.currency);
     return { verified: true, alreadyPaid: false, order: updated ?? order };
   }
 
@@ -95,7 +93,7 @@ export class CommerceLedgerService {
    * inside the transaction and is caught below as a no-op, rather than
    * relying purely on a check-then-write race like BillingEvent's pattern.
    */
-  async recordPaymentSuccess(orderId: string, gatewayEventId: string, verifiedAmountMajorUnits: number) {
+  async recordPaymentSuccess(orderId: string, gatewayEventId: string, verifiedAmountMajorUnits: number, verifiedCurrency: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) {
       this.logger.warn(`recordPaymentSuccess: unknown order ${orderId}`);
@@ -119,9 +117,16 @@ export class CommerceLedgerService {
       return null;
     }
 
+    // Everything below is refused BEFORE the order, the ledger or the merchant's proceeds change. A signed event proves the gateway
+    // sent it, not that it paid this order's amount in this order's currency, nor that the order is still waiting for payment.
     if (!isValidOrderTransition(order.status, OrderStatus.PAID)) {
       this.logger.error(`Cannot mark order ${orderId} PAID from status ${order.status}`);
-      return null;
+      throw new PaymentMismatchError(`Order is ${order.status}, not awaiting payment; a payment of ${verifiedAmountMajorUnits} ${verifiedCurrency} arrived and was NOT recorded`);
+    }
+    const mismatch = describePaymentMismatch({ amount: order.totalMajorUnits, currency: order.currency }, { amount: verifiedAmountMajorUnits, currency: verifiedCurrency });
+    if (mismatch) {
+      this.logger.error(`Payment for order ${orderId} refused: ${mismatch}`);
+      throw new PaymentMismatchError(mismatch);
     }
 
     const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } });
@@ -226,8 +231,14 @@ export class CommerceLedgerService {
       return;
     }
 
+    // The order named in the event's metadata must be the order this payment reference was issued for.
+    if (order.paystackReference !== parsed.gatewayReference) {
+      throw new PaymentMismatchError(`Payment reference ${parsed.gatewayReference} was not issued for order ${order.id}`);
+    }
+
+    // No defaulting to the order total: an event without an amount or currency cannot pay an order.
     const eventId = parsed.gatewayPaymentId ?? parsed.gatewayReference;
-    await this.recordPaymentSuccess(order.id, eventId, parsed.amount ?? order.totalMajorUnits);
+    await this.recordPaymentSuccess(order.id, eventId, parsed.amount as number, parsed.currency as string);
   }
 
   /**
@@ -272,12 +283,14 @@ export class CommerceLedgerService {
     });
     const alreadyRefundedMajorUnits = Math.round(priorAdjustments.reduce((sum, e) => sum + Math.abs((e.data as { refundAmountMajorUnits?: number })?.refundAmountMajorUnits ?? 0), 0) * 100) / 100;
 
-    // Pre-existing limitation, not introduced here: this re-reads the tenant's
-    // CURRENT rate (or default) rather than whatever rate was actually applied at
-    // payment time. If a rate changes between payment and refund, the clawback
-    // uses the new rate, not the original one. Out of scope for this change.
-    const tenantSettings = await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } });
-    const takeRatePct = tenantSettings?.takeRatePct ?? (await this.getDefaultCommerceFeePct());
+    // The clawback must reverse what was actually earned on this order, so it uses the rate recorded on the order's own TAKE_RATE
+    // entry at payment time. A platform-admin change to the percentage applies to FUTURE payments only; it must never alter what
+    // an existing order already earned. Only an order with no recorded rate (none is expected) falls back to the current rate.
+    const earned = await this.prisma.commerceLedgerEntry.findFirst({ where: { orderId, type: LedgerEntryType.TAKE_RATE } });
+    const recordedPct = (earned?.data as { takeRatePct?: unknown } | null | undefined)?.takeRatePct;
+    const takeRatePct = typeof recordedPct === 'number' && Number.isFinite(recordedPct)
+      ? recordedPct
+      : ((await this.prisma.tenantSettings.findUnique({ where: { tenantId: order.tenantId } }))?.takeRatePct ?? (await this.getDefaultCommerceFeePct()));
 
     const { takeRateClawbackMajorUnits } = computeRefundAdjustment({
       orderTotalMajorUnits: order.totalMajorUnits,

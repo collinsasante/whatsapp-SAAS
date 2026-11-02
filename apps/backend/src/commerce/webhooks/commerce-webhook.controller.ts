@@ -5,6 +5,7 @@ import { Request } from 'express';
 import { WebhookSource } from '@prisma/client';
 import { PaystackGateway } from '../../billing/gateways/paystack.gateway';
 import { CommerceLedgerService } from '../ledger/commerce-ledger.service';
+import { PaymentMismatchError } from '../../common/payments/payment-match.util';
 import { WebhookEventService } from '../../common/monitoring/webhook-event.service';
 
 /**
@@ -55,6 +56,13 @@ export class CommerceWebhookController {
       await this.ledgerService.processPaystackWebhookPayload(parsed);
       await this.webhookEventService.markOutcome(eventLogId, 'PROCESSED');
     } catch (err) {
+      if (err instanceof PaymentMismatchError) {
+        // The event was authentic but does not match the order. Nothing was changed. It is recorded as FAILED for an admin to
+        // look at, and answered 200: the same event would be refused again, so asking Paystack to resend it would only repeat it.
+        this.logger.error(`Commerce payment event refused: ${err.reason}`);
+        await this.webhookEventService.markOutcome(eventLogId, 'FAILED', err.reason);
+        return { received: true };
+      }
       await this.webhookEventService.markOutcome(eventLogId, 'FAILED', err instanceof Error ? err.message : String(err));
       throw err;
     }

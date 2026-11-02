@@ -41,7 +41,7 @@ describe('CommerceLedgerService -- Verz-AI unification, Phase P: payment verific
     const internalTasks = { create: jest.fn().mockResolvedValue({ id: 'task-1' }) };
     const service = buildService(prisma, internalTasks);
 
-    await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+    await service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS');
 
     expect(internalTasks.create).toHaveBeenCalledWith('t1', expect.objectContaining({
       department: 'Payments',
@@ -55,7 +55,7 @@ describe('CommerceLedgerService -- Verz-AI unification, Phase P: payment verific
     const internalTasks = { create: jest.fn().mockResolvedValue({ id: 'task-1' }) };
     const service = buildService(prisma, internalTasks);
 
-    await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+    await service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS');
 
     expect(internalTasks.create).not.toHaveBeenCalled();
   });
@@ -65,7 +65,7 @@ describe('CommerceLedgerService -- Verz-AI unification, Phase P: payment verific
     const internalTasks = { create: jest.fn().mockRejectedValue(new Error('db down')) };
     const service = buildService(prisma, internalTasks);
 
-    await expect(service.recordPaymentSuccess('order-1', 'evt-1', 100)).resolves.toBeTruthy();
+    await expect(service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS')).resolves.toBeTruthy();
   });
 });
 
@@ -76,7 +76,7 @@ describe('CommerceLedgerService -- commerce fee default', () => {
       prisma.platformSettings.findUnique.mockResolvedValue({ key: 'default_commerce_fee_pct', value: 5 });
       const service = buildService(prisma);
 
-      await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+      await service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS');
 
       const txCall = prisma.$transaction.mock.calls[0][0];
       const tx = { commerceLedgerEntry: { create: jest.fn().mockResolvedValue({}) }, order: { update: jest.fn().mockResolvedValue({}) }, orderEvent: { create: jest.fn().mockResolvedValue({}) } };
@@ -92,7 +92,7 @@ describe('CommerceLedgerService -- commerce fee default', () => {
       prisma.platformSettings.findUnique.mockResolvedValue({ key: 'default_commerce_fee_pct', value: 5 });
       const service = buildService(prisma);
 
-      await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+      await service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS');
 
       const txCall = prisma.$transaction.mock.calls[0][0];
       const tx = { commerceLedgerEntry: { create: jest.fn().mockResolvedValue({}) }, order: { update: jest.fn().mockResolvedValue({}) }, orderEvent: { create: jest.fn().mockResolvedValue({}) } };
@@ -105,7 +105,7 @@ describe('CommerceLedgerService -- commerce fee default', () => {
       const prisma = buildPrismaMock();
       const service = buildService(prisma);
 
-      await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+      await service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS');
 
       const txCall = prisma.$transaction.mock.calls[0][0];
       const tx = { commerceLedgerEntry: { create: jest.fn().mockResolvedValue({}) }, order: { update: jest.fn().mockResolvedValue({}) }, orderEvent: { create: jest.fn().mockResolvedValue({}) } };
@@ -121,7 +121,7 @@ describe('CommerceLedgerService -- commerce fee default', () => {
       prisma.commerceLedgerEntry.findFirst.mockResolvedValue(existing);
       const service = buildService(prisma);
 
-      const result = await service.recordPaymentSuccess('order-1', 'evt-1', 100);
+      const result = await service.recordPaymentSuccess('order-1', 'evt-1', 100, 'GHS');
 
       expect(result).toBe(existing);
       expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -157,7 +157,8 @@ describe('CommerceLedgerService.reprocessWebhookEvent', () => {
 
   it('replays the stored parsed payload through recordPaymentSuccess and marks PROCESSED', async () => {
     const prisma = buildPrismaMock();
-    const storedPayload = { event: 'charge.success', status: 'success', gatewayReference: 'ref-1', gatewayPaymentId: 'pay-1', metadata: { orderId: 'order-1' }, amount: 100 };
+    prisma.order.findUnique.mockResolvedValue(buildOrder({ paystackReference: 'ref-1' }));
+    const storedPayload = { event: 'charge.success', status: 'success', gatewayReference: 'ref-1', gatewayPaymentId: 'pay-1', metadata: { orderId: 'order-1' }, amount: 100, currency: 'GHS' };
     const webhookEventService = { findOne: jest.fn().mockResolvedValue({ id: 'evt-1', source: 'PAYSTACK_COMMERCE', payload: storedPayload }), markReprocessed: jest.fn().mockResolvedValue(undefined) };
     const service = buildServiceWithWebhookEvents(prisma, webhookEventService);
 

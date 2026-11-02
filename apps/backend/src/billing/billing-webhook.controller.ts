@@ -20,6 +20,7 @@ import { InvoiceService } from './invoice.service';
 import { SubscriptionService } from './subscription.service';
 import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 import { AiCreditTransactionType, WebhookSource } from '@prisma/client';
+import { describePaymentMismatch, PaymentMismatchError } from '../common/payments/payment-match.util';
 import { WebhookEventService } from '../common/monitoring/webhook-event.service';
 
 @SkipThrottle()
@@ -118,6 +119,16 @@ export class BillingWebhookController {
       this.logger.warn(`${gateway} payment success for unknown reference: ${parsed.gatewayReference}`);
       return;
     }
+
+    // A signed event proves the gateway sent it, not that it paid what this purchase or invoice was created for. Nothing below runs, and
+    // no credit is granted, unless the amount and currency match. A credit pack has one fixed price, so it must match exactly. A gateway
+    // subscription plan charges its own plan price, which can exceed a discounted invoice, so an invoice may be paid more but never less.
+    const mismatch = describePaymentMismatch(
+      { amount: payment.amount, currency: payment.currency },
+      { amount: parsed.amount, currency: parsed.currency },
+      payment.invoiceId ? 'at_least' : 'exact',
+    );
+    if (mismatch) throw new PaymentMismatchError(mismatch);
 
     const eventId = parsed.gatewayPaymentId ?? parsed.gatewayReference!;
     await this.prisma.billingEvent.create({

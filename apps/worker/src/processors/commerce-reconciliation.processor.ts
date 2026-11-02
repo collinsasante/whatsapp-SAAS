@@ -120,13 +120,17 @@ export class CommerceReconciliationWorker {
 
     const actualAmount = tx.amount / 100;
     const expectedAmount = order.totalMajorUnits;
-    const amountMismatch = Math.abs(actualAmount - expectedAmount) > 0.01;
+    // A payment in the wrong currency is an amount mismatch whatever the number says (GHS 100 is not USD 100).
+    const currencyMismatch = !tx.currency || tx.currency.toUpperCase() !== order.currency.toUpperCase();
+    const amountMismatch = currencyMismatch || Math.abs(actualAmount - expectedAmount) > 0.01;
     const statusMismatch = tx.status !== 'success';
 
     if (amountMismatch || statusMismatch) {
       await this.createException(order, amountMismatch ? 'AMOUNT_MISMATCH' : 'STATUS_MISMATCH', {
         expectedAmountMajorUnits: expectedAmount,
         actualAmountMajorUnits: actualAmount,
+        expectedCurrency: order.currency,
+        actualCurrency: tx.currency ?? null,
         paystackStatus: tx.status,
       });
     }
