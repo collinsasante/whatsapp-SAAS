@@ -143,6 +143,28 @@ describe('GenerationStage', () => {
       expect(ctx.trace.alreadyRecorded).toBe(true); // ToolCallingService wrote the one execution; the pipeline must not write another
     });
 
+    it('asks ToolCallingService to read the answer as the structured {response, confidence} reply the prompt requests', async () => {
+      const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We have that in stock.', toolTrace: [], failed: false, hitMaxIterations: false }) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, { complete: jest.fn() } as any);
+
+      await stage.execute(buildCtx({ tools: ['search_products'], toolContext }));
+
+      expect(toolCalling.complete).toHaveBeenCalledWith(expect.objectContaining({ replyFormat: 'structured' }));
+    });
+
+    it('carries the confidence ToolCallingService read from a structured answer onto the result and the trace', async () => {
+      const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We open at nine.', confidence: 88, toolTrace: [], failed: false, hitMaxIterations: false, executionId: 'exec-1' }) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, { complete: jest.fn() } as any);
+      const ctx = buildCtx({ tools: ['search_products'], toolContext });
+
+      await stage.execute(ctx);
+
+      expect(ctx.result).toEqual({ response: 'We open at nine.', confidence: 88, blocked: false });
+      expect(ctx.trace.confidence).toBe(88);
+    });
+
     it('a valid final answer stays SUCCESS and is used as is', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We have that in stock.', toolTrace: [], failed: false, hitMaxIterations: false, executionId: 'exec-1' }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

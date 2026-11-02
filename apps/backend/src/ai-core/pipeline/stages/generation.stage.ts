@@ -32,10 +32,11 @@ export class GenerationStage implements PipelineStage {
     // Verz-AI unification, Phase A: when a run has tools available (ctx.tools --
     // nothing populates this yet, see pipeline.types.ts), delegate to the same shared
     // tool-calling engine CommerceAiService uses instead of this stage's own single-shot
-    // completion. Final answers from a tool-calling run are plain text, not the
-    // {response, confidence} JSON convention below -- confidence is left null in that
-    // case, the same "no signal available" state PolicyStage/EscalationStage already
-    // handle for a JSON-parse failure.
+    // completion. The responder prompt asks for the same {response, confidence} JSON on
+    // both paths, so ToolCallingService reads the final answer in 'structured' mode: a
+    // well-formed object is unwrapped to its response (with its confidence), prose is
+    // still accepted with confidence null (the "no signal available" state
+    // PolicyStage/EscalationStage already handle), and broken JSON is refused.
     if (ctx.tools?.length) {
       if (!ctx.toolContext) {
         this.logger.warn('ctx.tools set without ctx.toolContext -- running without tools this turn');
@@ -53,6 +54,8 @@ export class GenerationStage implements PipelineStage {
           toolContext: ctx.toolContext,
           modelKey: ctx.modelKey,
           maxTokens: ctx.maxResponseTokens,
+          // The responder prompt asks for {"response","confidence"}, as on the single-shot path below.
+          replyFormat: 'structured',
         });
 
         // Deterministic half of state tracking -- reads whatever tools actually
@@ -93,8 +96,9 @@ export class GenerationStage implements PipelineStage {
           };
           ctx.trace.status = 'SUCCESS';
         } else {
-          ctx.result = { response: result.content, confidence: null, blocked: false, mediaToSend: result.sideEffects };
+          ctx.result = { response: result.content, confidence: result.confidence ?? null, blocked: false, mediaToSend: result.sideEffects };
           ctx.trace.status = 'SUCCESS';
+          if (result.confidence != null) ctx.trace.confidence = result.confidence;
         }
         // ToolCallingService.complete() already wrote its own AiExecution row
         // (with real tokens/cost) internally -- see PipelineTrace.alreadyRecorded's

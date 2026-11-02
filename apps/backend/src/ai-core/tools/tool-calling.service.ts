@@ -8,20 +8,34 @@ import { ToolRegistryService } from './tool-registry.service';
 import { isToolResultEnvelope, ToolExecutionContext, ToolSideEffect } from './tool-registry.types';
 import { sanitizeToolTrace } from './tool-trace-sanitizer.util';
 import { AiMeteredProviderService } from '../completion/ai-metered-provider.service';
-import { checkCustomerText, ReplyProblem } from '../completion/model-output.util';
+import { checkCustomerText, parseStructuredReply, ReplyProblem } from '../completion/model-output.util';
 
 const DEFAULT_MAX_ITERATIONS = 4;
 
+/** What a run's final (tool-free) answer comes to: the text to send and the model's own confidence, or why it cannot be sent. */
+type FinalAnswer = { problem: ReplyProblem } | { problem?: undefined; response: string; confidence: number | null };
+
 /**
- * Why a run's final (tool-free) answer cannot be sent, or undefined when it can. Only `finish_reason=length` is treated as
- * truncation: it means the provider stopped at the token limit. It is checked first because a reply that spent its whole
- * budget before writing anything is better diagnosed as cut off than as blank.
+ * Judges a run's final (tool-free) answer. Only `finish_reason=length` is treated as truncation: it means the provider stopped at
+ * the token limit. It is checked first because a reply that spent its whole budget before writing anything is better diagnosed as
+ * cut off than as blank.
+ *
+ * `plain` (the default, and what Commerce uses) expects clean prose, so anything JSON-shaped is machine output and is refused.
+ * `structured` is for callers whose prompt asks for {"response","confidence"} (the Verz-AI v2 responder): the reply is read the same
+ * way the single-shot path reads it, so a well-formed object is unwrapped to its `response` and prose is still accepted when the
+ * model ignores the format. Broken or ambiguous JSON is refused either way.
  */
-function finalAnswerProblem(content: string, finishReason: string): ReplyProblem | undefined {
-  if (finishReason === 'length') return 'truncated';
+function judgeFinalAnswer(content: string, finishReason: string, format: ReplyFormat): FinalAnswer {
+  if (finishReason === 'length') return { problem: 'truncated' };
+  if (format === 'structured') {
+    const parsed = parseStructuredReply(content);
+    return parsed.ok ? { response: parsed.response, confidence: parsed.confidence } : { problem: parsed.reason };
+  }
   const check = checkCustomerText(content);
-  return check.safe ? undefined : check.reason;
+  return check.safe ? { response: content, confidence: null } : { problem: check.reason };
 }
+
+export type ReplyFormat = 'plain' | 'structured';
 
 export interface ToolCallingRequest {
   tenantId: string;
@@ -42,6 +56,8 @@ export interface ToolCallingRequest {
   modelKey?: string;
   maxTokens?: number;
   maxIterations?: number;
+  /** How the final answer is read: see judgeFinalAnswer. Defaults to 'plain', so callers that do not ask for JSON are unchanged. */
+  replyFormat?: ReplyFormat;
 }
 
 export interface ToolCallTrace {
@@ -70,6 +86,8 @@ export interface ToolCallingResult {
   sideEffects: ToolSideEffect[];
   /** The AiExecution this run recorded (undefined if recording failed), so the caller can link it to its interaction log. */
   executionId?: string;
+  /** Set on a `structured` run only: the model's own 0-100 confidence, or null when it wrote prose or omitted it. Absent on a `plain` run. */
+  confidence?: number | null;
   /**
    * Set when the model's final answer must not reach the customer: cut off at the token limit, blank, machine output and so on.
    * `content` still holds exactly what the provider returned, for diagnosis; callers must not send it. The execution this run
@@ -133,7 +151,9 @@ export class ToolCallingService {
         if (!completion.toolCalls.length) {
           // The final answer is judged before the execution is written, so the stored status is the real outcome. Tokens are
           // kept either way: the provider call happened and was settled by its own reservation.
-          const outputProblem = finalAnswerProblem(completion.content, completion.finishReason);
+          const format = req.replyFormat ?? 'plain';
+          const answer = judgeFinalAnswer(completion.content, completion.finishReason, format);
+          const outputProblem = answer.problem;
           if (outputProblem) this.logger.warn(`Tool-calling final answer rejected (${outputProblem}, finish_reason=${completion.finishReason}) for conversation ${req.conversationId ?? 'unknown'}`);
           const executionId = await this.trace(req, {
             status: outputProblem ? 'PROVIDER_ERROR' : 'SUCCESS', provider: lastProvider, modelKey,
@@ -141,7 +161,10 @@ export class ToolCallingService {
             estCostUsd: estimateCostUsd(modelKey, totalInputTokens, totalOutputTokens),
             ...(outputProblem && { errorCode: 'parse_error', errorMessage: `Model output rejected: ${outputProblem}` }),
           }, toolTrace, reservationIds);
-          return { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects, executionId, ...(outputProblem && { outputProblem }) };
+          // A rejected answer is handed back exactly as the provider wrote it (for diagnosis); an accepted one is the text to send.
+          return answer.problem
+            ? { content: completion.content, toolTrace, failed: false, hitMaxIterations: false, sideEffects, executionId, outputProblem: answer.problem }
+            : { content: answer.response, ...(format === 'structured' && { confidence: answer.confidence }), toolTrace, failed: false, hitMaxIterations: false, sideEffects, executionId };
         }
 
         messages.push({ role: 'assistant', content: completion.content ?? '', toolCalls: completion.toolCalls });
