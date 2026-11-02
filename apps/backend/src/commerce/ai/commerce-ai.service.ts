@@ -11,10 +11,10 @@ import { ToolCallingService, ToolCallTrace } from '../../ai-core/tools/tool-call
 import { ToolSideEffect } from '../../ai-core/tools/tool-registry.types';
 import { deriveStateFromToolTrace } from '../../ai-core/tools/state-derivation.util';
 import { buildIdentityAndSafetyBlock } from '../../ai-core/prompts/shared-identity-block';
+import { formatHandoffBlock, HandoffOutcome } from '../../ai-core/prompts/handoff-context';
 import { SHARED_STYLE_RULES } from '../../ai-core/prompts/shared-style-rules';
 import { formatBusinessInfoBlock } from '../../ai-core/prompts/business-info.util';
 import { formatStateBlock } from '../../ai-core/prompts/conversation-state.util';
-import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { DEEPSEEK_MODEL } from '../../common/deepseek';
 import { buildConversationHistoryWhere } from '../../ai-core/context/history-scope.util';
 import { loadHistory } from '../../ai-core/context/history-loader.util';
@@ -116,10 +116,11 @@ export class CommerceAiService {
     customerMessage: string,
     contactName?: string,
     evalContext?: { dryRunPayment: boolean },
-    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean },
+    opts?: { readOnlyTools?: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean; handoffOutcome?: HandoffOutcome },
   ): Promise<CommerceAiResult> {
     if (detectInjection(customerMessage)) {
-      return { response: "I'm here to help you shop. How can I assist you today?", blocked: true, toolTrace: [] };
+      // No customer text here: messages.service.ts has SecurityRefusalService write the refusal in the workspace's voice.
+      return { response: '', blocked: true, toolTrace: [] };
     }
 
     if (!process.env.DEEPSEEK_API_KEY) return { response: '', blocked: false, toolTrace: [] };
@@ -127,28 +128,17 @@ export class CommerceAiService {
     // Unlike the general pipeline's EscalationStage, this path previously had no
     // escalation mechanism at all -- the model would tell the customer "a team member
     // will reach out" while nothing actually happened (no status change, no
-    // notification). Same detector the general pipeline uses; runs before generation
-    // so the request for a human is known before the AI composes its reply.
+    // notification). Same detector the general pipeline uses.
     //
-    // Second hardening pass, Section 4: this used to call conversations.request()
-    // directly, right here, with a swallowed failure -- messages.service.ts is now
-    // the single place that actually performs the handoff (with a real retry) and
-    // decides the final customer-facing text based on whether it truly succeeded, so
-    // this only ever sets the signal, never performs or narrates the action itself.
+    // This only sets the signal (see the return below): messages.service.ts is the single
+    // place that performs the handoff, with a real retry, and withholds the reply if it fails.
+    // The reply itself is always written by the model.
     const explicitHumanRequest = detectHumanRequest(customerMessage);
-    if (explicitHumanRequest) {
-      // The signal below makes messages.service.ts hand the conversation to a person for real, but the model is never told that, so a
-      // model-written reply could offer "if you'd rather talk to a person, say the word" to a customer who is ALREADY being handed over
-      // (seen in the first staging evaluation of "I hate chatting with AI"). The legacy responder and the v2 pipeline answer this with
-      // the fixed handoff line and no model call; commerce does the same, so what the customer reads matches what happens, the wording
-      // does not depend on a model, and no paid call is made for it. If the handoff itself fails, messages.service.ts swaps the text.
-      return { response: HUMAN_HANDOFF_REPLY, blocked: false, shouldEscalate: true, toolTrace: [] };
-    }
 
     const [settings, conversation, aiState] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId },
-        select: { businessName: true, businessAddress: true, businessPhone: true, offHoursSchedule: true, timezone: true },
+        select: { businessName: true, businessAddress: true, businessPhone: true, offHoursSchedule: true, timezone: true, aiPersonality: true },
       }),
       this.prisma.conversation.findFirst({ where: { id: conversationId, tenantId }, select: { adSourceId: true, adHeadline: true, adImageUrl: true } }),
       this.conversationState.getState(tenantId, conversationId),
@@ -176,7 +166,10 @@ export class CommerceAiService {
     const styleContext = (await this.digitalSelfContext?.getStyleBlock(tenantId, conversationId)) ?? '';
 
     const commerceRules = [
-      `You are the AI sales assistant for ${businessName} on WhatsApp. You help customers browse products, build an order, and check out.`,
+      `You are a member of the ${businessName} team, handling sales on WhatsApp. You help customers browse products, build an order, and check out.`,
+      ``,
+      // The workspace's configured personality, as the other responders use it (Commerce used to ignore it).
+      `PERSONALITY: ${settings?.aiPersonality ?? 'You are helpful, friendly, and professional. Keep replies concise and conversational.'}`,
       ``,
       `COMMERCE RULES:`,
       `- Use ONLY tool results for product names, prices, and stock. Never invent or guess a price or say something is in stock without checking.`,
@@ -211,6 +204,7 @@ export class CommerceAiService {
       styleContext,
       ``,
       buildIdentityAndSafetyBlock(businessName),
+      formatHandoffBlock(opts?.handoffOutcome),
     ].join('\n') + knowledgeContext + correctionsContext;
 
     const userContent = contactName ? `Customer name: ${contactName}\nMessage: ${customerMessage}` : customerMessage;
@@ -251,42 +245,32 @@ export class CommerceAiService {
     void this.conversationState.mergeState(tenantId, conversationId, deriveStateFromToolTrace(result.toolTrace));
 
     if (result.failed) {
-      // Verz-AI unification, Phase L / second hardening pass Section 4: this text is
-      // now only ever shown to the customer once messages.service.ts has confirmed the
-      // handoff actually succeeded (via shouldEscalate + requestWithRetry) -- no
-      // conversations.request() call happens here anymore, so there's nothing to
-      // narrate before it's real.
+      // Verz-AI unification, Phase L / second hardening pass Section 4: no customer text is
+      // written for a failure -- the empty response plus shouldEscalate makes messages.service.ts
+      // perform the real handoff (requestWithRetry) and send nothing.
       this.logger.warn(`Commerce AI provider call failed for conversation ${conversationId}`);
-      return {
-        response: PROVIDER_FAILURE_FALLBACK_TEXT,
-        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId,
-      };
+      return { response: '', blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
     }
 
     if (result.hitMaxIterations) {
       this.logger.warn(`Commerce AI hit max tool-call iterations for conversation ${conversationId}`);
-      // Verz-AI unification, Phase I / second hardening pass Section 4: same as above --
-      // the real handoff attempt (and the decision of what to actually tell the
-      // customer if it fails) now happens once, centrally, in messages.service.ts.
-      return {
-        response: MAX_ITERATIONS_FALLBACK_TEXT,
-        blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId,
-      };
+      // Verz-AI unification, Phase I / second hardening pass Section 4: same as above.
+      return { response: '', blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
     }
 
     if (result.outputProblem === 'truncated') {
       // The provider stopped at the token limit: a half-finished quote or price is never shown. Same recovery as a rejected reply.
       this.logger.warn(`Commerce AI output truncated at the token limit for conversation ${conversationId}; nothing sent to the customer`);
-      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
+      return { response: '', blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
     }
 
     const content = result.content.trim();
     const textCheck = checkCustomerText(content);
     if (content && !textCheck.safe) {
       // Machine output (raw JSON, a provider error body, a stack trace) is never shown to a customer: same recovery
-      // as a failed provider call -- the standard fallback text and a real handoff.
+      // as a failed provider call -- a real handoff and no customer text.
       this.logger.warn(`Commerce AI output rejected (${textCheck.reason}) for conversation ${conversationId}; nothing sent to the customer`);
-      return { response: PROVIDER_FAILURE_FALLBACK_TEXT, blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
+      return { response: '', blocked: false, shouldEscalate: true, toolTrace: result.toolTrace, executionId: result.executionId };
     }
     if (!content) {
       this.logger.warn(`Commerce AI: empty content and no tool calls for conversation ${conversationId}`);

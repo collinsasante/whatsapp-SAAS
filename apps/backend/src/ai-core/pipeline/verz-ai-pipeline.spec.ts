@@ -37,7 +37,7 @@ function buildPrismaMock() {
         // version matches RESPONDER_SYSTEM_VERSION so PromptsService.ensureVersion's
         // upgrade path (unrelated to this suite, covered in prompts.service.spec.ts)
         // short-circuits immediately without needing aiPromptVersion mocked here.
-        versions: [{ id: 'ver-1', templateId: 'tmpl-1', version: '1.2.0', body: 'System for {{business_name}}: {{personality}} {{tenant_instructions}} {{knowledge_base}}', variables: [] }],
+        versions: [{ id: 'ver-1', templateId: 'tmpl-1', version: '1.3.0', body: 'System for {{business_name}}: {{personality}} {{tenant_instructions}} {{knowledge_base}}', variables: [] }],
       }),
       create: jest.fn(),
     },
@@ -61,7 +61,7 @@ function buildPipeline(mockProvider: MockProvider, prisma: ReturnType<typeof bui
   // call mergeState never runs anyway -- a stub satisfies both constructors.
   const conversationState = { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn().mockResolvedValue(undefined) };
 
-  const guard = new GuardStage(prisma as never);
+  const guard = new GuardStage();
   const contextAssembly = new ContextAssemblyStage(prisma as never, conversationState as never, noKb);
   const promptBuild = new PromptBuildStage(promptsService);
   // ctx.tools is never set in these fixtures, so ToolCallingService is never actually
@@ -158,7 +158,7 @@ describe('VerzAiPipelineService (integration, MockProvider)', () => {
     expect(savedExecution.safetyFlags.injectionDetected).toBe(true);
   });
 
-  it('degrades gracefully on a provider error: real fallback + escalation, traced as PROVIDER_ERROR, never throws', async () => {
+  it('degrades gracefully on a provider error: escalation with no customer text, traced as PROVIDER_ERROR, never throws', async () => {
     const provider = new MockProvider();
     (provider as { key: string }).key = 'deepseek';
     provider.nextError = new AiProviderError('timeout', 'DeepSeek request timed out', true);
@@ -167,10 +167,9 @@ describe('VerzAiPipelineService (integration, MockProvider)', () => {
 
     const result = await pipeline.run({ tenantId: 't1', agentId: 'agent-1', conversationId: 'c1', customerMessage: 'How much is delivery?', taskType: 'RESPONDER' });
 
-    // Verz-AI unification, Phase L: an empty response here used to reach
-    // messages.service.ts's `if (!result?.response) return;` guard and leave the
-    // customer with total silence. Now a real fallback + shouldEscalate every time.
-    expect(result.response).not.toBe('');
+    // No customer text is written for a failure: shouldEscalate makes messages.service.ts hand the
+    // conversation to a person for real, and the empty response means nothing is sent.
+    expect(result.response).toBe('');
     expect(result.shouldEscalate).toBe(true);
     expect(result.confidence).toBeNull();
     expect(result.executionId).toBeTruthy(); // trace still persisted despite the failure

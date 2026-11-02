@@ -58,6 +58,8 @@ export interface ToolCallingRequest {
   maxIterations?: number;
   /** How the final answer is read: see judgeFinalAnswer. Defaults to 'plain', so callers that do not ask for JSON are unchanged. */
   replyFormat?: ReplyFormat;
+  /** Extra JSON recorded with this run's execution (in safetyFlags), e.g. which knowledge articles informed the prompt. Cannot override `simulated`. */
+  traceMetadata?: Record<string, unknown>;
 }
 
 export interface ToolCallTrace {
@@ -218,7 +220,7 @@ export class ToolCallingService {
         { tenantId: req.tenantId, agentId: req.agentId, conversationId: req.conversationId, taskType: req.taskType },
         {
           ...trace,
-          safetyFlags: req.simulated ? { simulated: true } : {},
+          safetyFlags: { ...(req.traceMetadata ?? {}), ...(req.simulated ? { simulated: true } : {}) },
           stageTimings: {},
           toolTrace: toolTrace.length > 0 ? sanitizeToolTrace(toolTrace) : undefined,
           ...(reservationIds.length > 0 && { reservationIds }),

@@ -103,6 +103,15 @@ export class KnowledgeBaseService {
     });
   }
 
+  /** The tenant's active articles with their ids, oldest first (the order getActive() uses), for retrieval that must reference sources. */
+  async getActiveForRetrieval(tenantId: string): Promise<Array<{ id: string; title: string; content: string }>> {
+    return this.prisma.knowledgeBaseArticle.findMany({
+      where: { tenantId, isActive: true },
+      select: { id: true, title: true, content: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   /** Bounded, relevance-filtered subset of getActive() for use in LLM prompts -- see selectRelevantArticles() for the full rationale. */
   async getRelevant(tenantId: string, query: string, previousCustomerMessages: string[] = []): Promise<{ title: string; content: string }[]> {
     const all = await this.getActive(tenantId);

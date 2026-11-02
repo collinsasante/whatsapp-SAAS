@@ -17,8 +17,15 @@ import { ANSWER_DIRECTLY_RULE, CONVERSATION_CONTINUITY_RULE, CUSTOMER_LANGUAGE_R
 
 export const RESPONDER_SYSTEM_TEMPLATE_KEY = 'responder.system';
 export const RESPONDER_SYSTEM_TEMPLATE_NAME = 'Commerce/Support Responder: System Prompt';
-export const RESPONDER_SYSTEM_VERSION = '1.2.0';
-export const RESPONDER_SYSTEM_CHANGE_NOTE = 'Removes the canned "great question / team will follow up" fallback and the always-use-the-name rule; adds answer-first, knowledge-gap, continuity, language and name-use rules (D11).';
+export const RESPONDER_SYSTEM_VERSION = '1.3.0';
+export const RESPONDER_SYSTEM_CHANGE_NOTE = 'Opens with the workspace\'s own identity instead of "You are the AI assistant": the model speaks for the business as a member of its team, in the business\'s voice. Identity honesty and every safety rule are unchanged (appended by code). Wording rules from 1.2.0 are kept.';
+
+/**
+ * MD5 of the exact v1.1.0 body as seeded and stored in the database (observed on staging, 2026-11-02). The v1.1.0 text is no
+ * longer in the code, so an install still on it is recognised by this fingerprint: if its stored body hashes to this value it was
+ * never edited and may advance to the current version. Any other body is a customisation and is never replaced.
+ */
+export const RESPONDER_SYSTEM_BODY_V1_1_0_MD5 = 'f3cd38178edc4ff8ab2096179c5ca3af';
 
 export const RESPONDER_SYSTEM_VARIABLES = [
   'business_name', 'personality', 'tenant_instructions', 'knowledge_base',
@@ -59,7 +66,8 @@ export const RESPONDER_SYSTEM_BODY_V1_0_0 = [
   `{{knowledge_base}}`,
 ].join('\n');
 
-export const RESPONDER_SYSTEM_BODY = [
+/** The exact v1.2.0 body, frozen: kept only so an install still on an UNTOUCHED 1.2.0 is recognised and may advance to 1.3.0. */
+export const RESPONDER_SYSTEM_BODY_V1_2_0 = [
   `You are the AI assistant for {{business_name}}, handling customer WhatsApp messages.`,
   ``,
   `PERSONALITY: {{personality}}`,
@@ -79,4 +87,14 @@ export const RESPONDER_SYSTEM_BODY = [
   `Respond with ONLY valid JSON on a single line: {"response":"<your reply>","confidence":<0-100>}`,
   `The confidence score reflects how well your knowledge base covers the question (100 = perfect match, <70 = knowledge gap).`,
   `{{knowledge_base}}`,
+].join('\n');
+
+/**
+ * v1.3.0: identical to 1.2.0 except the opening line. The old "You are the AI assistant for X" framing is replaced by the
+ * workspace's own identity, so the model speaks for the business from the first line. Identity honesty is stated here and,
+ * independently, appended by code (shared-identity-block.ts) so an edited template can never weaken it.
+ */
+export const RESPONDER_SYSTEM_BODY = [
+  `You speak for {{business_name}}, as a member of its team, in the business's own voice. Customers are talking to the business, so sound like the people who run it. Never claim to be a human; if someone sincerely asks whether they are talking to a person, answer honestly.`,
+  ...RESPONDER_SYSTEM_BODY_V1_2_0.split('\n').slice(1),
 ].join('\n');

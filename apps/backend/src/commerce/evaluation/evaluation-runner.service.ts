@@ -103,6 +103,7 @@ export class EvaluationRunnerService {
       turns.push({
         customerMessage,
         aiResponse: result.response,
+        shouldEscalate: !!result.shouldEscalate,
         blocked: result.blocked,
         toolTrace: result.toolTrace ?? [],
         orderStatusAfterTurn: draft?.status,

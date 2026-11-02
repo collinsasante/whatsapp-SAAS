@@ -6,7 +6,6 @@ import { ToolCallingService } from '../../tools/tool-calling.service';
 import { deriveStateFromToolTrace } from '../../tools/state-derivation.util';
 import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
-import { MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../prompts/escalation-messages.util';
 import { AiMeteredProviderService } from '../../completion/ai-metered-provider.service';
 import { parseStructuredReply } from '../../completion/model-output.util';
 
@@ -56,6 +55,7 @@ export class GenerationStage implements PipelineStage {
           maxTokens: ctx.maxResponseTokens,
           // The responder prompt asks for {"response","confidence"}, as on the single-shot path below.
           replyFormat: 'structured',
+          ...(ctx.retrievalTrace && { traceMetadata: { retrieval: ctx.retrievalTrace } }),
         });
 
         // Deterministic half of state tracking -- reads whatever tools actually
@@ -72,10 +72,9 @@ export class GenerationStage implements PipelineStage {
           // silence for the customer. Same shouldEscalate mechanism the
           // hitMaxIterations branch just below already relies on.
           this.logger.warn(`Generation (tool-calling) provider call failed for conversation ${ctx.input.conversationId}`);
-          ctx.result = {
-            response: PROVIDER_FAILURE_FALLBACK_TEXT,
-            confidence: null, blocked: false, shouldEscalate: true,
-          };
+          // No customer text is written for a failure: the empty response plus shouldEscalate makes the caller hand the
+          // conversation to a person for real and send nothing, instead of a canned line the model never wrote.
+          ctx.result = { response: '', confidence: null, blocked: false, shouldEscalate: true };
           ctx.trace.status = 'PROVIDER_ERROR';
           if (result.outputProblem) {
             ctx.trace.errorCode = 'parse_error';
@@ -90,10 +89,7 @@ export class GenerationStage implements PipelineStage {
           // messages.service.ts already acts on that flag in both
           // handleAiAutoReply/handleAiSuggestion, and EscalationStage (which runs
           // right after this stage) only ever adds escalation, never clears it.
-          ctx.result = {
-            response: MAX_ITERATIONS_FALLBACK_TEXT,
-            confidence: null, blocked: false, shouldEscalate: true,
-          };
+          ctx.result = { response: '', confidence: null, blocked: false, shouldEscalate: true };
           ctx.trace.status = 'SUCCESS';
         } else {
           ctx.result = { response: result.content, confidence: result.confidence ?? null, blocked: false, mediaToSend: result.sideEffects };
@@ -135,7 +131,7 @@ export class GenerationStage implements PipelineStage {
       ctx.trace.estCostUsd = estimateCostUsd(ctx.modelKey, completion.usage.inputTokens, completion.usage.outputTokens);
 
       // Only a clean reply is used. Cut-off or malformed JSON, provider error text and the like take the same
-      // recovery path as a provider failure below (standard fallback text and a real handoff), never the customer.
+      // recovery path as a provider failure below (a real handoff and no customer text), never the customer.
       // A reply the provider stopped at the token limit is cut off even when what it wrote happens to parse.
       if (completion.finishReason === 'length') throw new AiProviderError('parse_error', 'Model output rejected: truncated', false);
       const parsed = parseStructuredReply(completion.content);
@@ -149,10 +145,7 @@ export class GenerationStage implements PipelineStage {
       // Verz-AI unification, Phase L: same silent-failure fix as the tool-calling
       // branch above -- an empty response with no shouldEscalate meant the customer
       // got nothing at all when the provider call itself threw.
-      ctx.result = {
-        response: PROVIDER_FAILURE_FALLBACK_TEXT,
-        confidence: null, blocked: false, shouldEscalate: true,
-      };
+      ctx.result = { response: '', confidence: null, blocked: false, shouldEscalate: true };
       ctx.trace.status = 'PROVIDER_ERROR';
       ctx.trace.errorCode = providerErr.code;
       ctx.trace.errorMessage = providerErr.message;

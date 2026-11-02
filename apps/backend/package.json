@@ -14,6 +14,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts",
     "billing:setup-plans": "ts-node scripts/setup-billing-plans.ts",
+    "ai:legacy-readiness": "ts-node scripts/legacy-retirement-readiness.ts",
     "whatsapp:resync-tokens": "ts-node scripts/resync-whatsapp-number-tokens.ts",
     "digital-self:seed-synthetic": "ts-node src/digital-self/validation/seed-synthetic.cli.ts",
     "digital-self:validate": "ts-node src/digital-self/validation/staging-validation.cli.ts",

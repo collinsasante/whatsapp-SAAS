@@ -3,7 +3,6 @@ import { ReplyFormat, ToolCallingService } from './tool-calling.service';
 import { GenerationStage } from '../pipeline/stages/generation.stage';
 import { newTrace, PipelineContext } from '../pipeline/pipeline.types';
 import { DEFAULT_MODEL_KEY } from '../models/model-catalog';
-import { HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../prompts/escalation-messages.util';
 import { EscalationStage } from '../pipeline/stages/escalation.stage';
 import { RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0 } from '../prompts/seed/responder-system.v1';
 import { parseStructuredReply } from '../completion/model-output.util';
@@ -190,7 +189,7 @@ describe('a structured {"response","confidence"} final answer', () => {
 
       await stageFor(t).execute(c);
 
-      expect(c.result).toEqual({ response: PROVIDER_FAILURE_FALLBACK_TEXT, confidence: null, blocked: false, shouldEscalate: true });
+      expect(c.result).toEqual({ response: '', confidence: null, blocked: false, shouldEscalate: true });
       expect(c.trace.status).toBe('PROVIDER_ERROR');
       expect(c.trace.errorCode).toBe('parse_error');
     });
@@ -298,12 +297,12 @@ describe('a real tool call followed by a structured final answer', () => {
       expect(mergeState).toHaveBeenCalledTimes(1);
     });
 
-    it('a very low confidence (15) becomes the human-handoff reply and a real handoff request', async () => {
+    it('a very low confidence (15) keeps the model\'s own reply and asks for a real handoff', async () => {
       const { ctx } = await generate('{"response":"I am not sure we make that.","confidence":15}');
 
       await new EscalationStage().execute(ctx);
 
-      expect(ctx.result).toEqual(expect.objectContaining({ response: HUMAN_HANDOFF_REPLY, shouldEscalate: true, confidence: 15 }));
+      expect(ctx.result).toEqual(expect.objectContaining({ response: 'I am not sure we make that.', shouldEscalate: true, confidence: 15 }));
       expect(ctx.trace.safetyFlags.escalationReason).toBe('low_confidence');
     });
 
@@ -325,10 +324,10 @@ describe('a real tool call followed by a structured final answer', () => {
       expect(ctx.result?.shouldEscalate).toBeUndefined();
     });
 
-    it('text after the reply object is refused and the customer gets the fallback and a handoff', async () => {
+    it('text after the reply object is refused and the customer gets nothing and a handoff is requested', async () => {
       const { ctx } = await generate('{"response":"We open at nine.","confidence":90}\n\nActually, we open at ten.');
 
-      expect(ctx.result).toEqual({ response: PROVIDER_FAILURE_FALLBACK_TEXT, confidence: null, blocked: false, shouldEscalate: true });
+      expect(ctx.result).toEqual({ response: '', confidence: null, blocked: false, shouldEscalate: true });
       expect(ctx.trace.status).toBe('PROVIDER_ERROR');
     });
   });
@@ -364,5 +363,31 @@ describe('the seeded responder prompt asks for a format the structured parser ac
     expect(result).toMatchObject({ content: 'We open on Saturday from 8:00 to 16:00.', confidence: 85 });
     expect(result.outputProblem).toBeUndefined();
     expect(t.prisma.aiExecution.create.mock.calls[0][0].data.status).toBe('SUCCESS');
+  });
+});
+
+describe('trace metadata recorded with a tool-calling execution', () => {
+  const retrieval = { mode: 'hybrid', candidates: { keyword: 1, vector: 1 }, sources: [{ articleId: 'a2', title: 'Location and parking', chunkIndexes: [], via: ['vector'], finalRank: 1 }] };
+  const request = (extra: Record<string, unknown>) => ({
+    tenantId: 't1', taskType: 'RESPONDER' as const, conversationId: 'c1', systemPrompt: 's', historyMessages: [], userMessage: 'hi',
+    toolNames: [], toolContext: { tenantId: 't1', conversationId: 'c1', contactId: 'ct1', customerPhone: '+233555000111' }, ...extra,
+  });
+
+  it('stores the retrieval trace under safetyFlags.retrieval', async () => {
+    const t = build({ content: 'We open at nine.', finishReason: 'stop' });
+    await t.service.complete(request({ traceMetadata: { retrieval } }));
+    expect(t.prisma.aiExecution.create.mock.calls[0][0].data.safetyFlags).toEqual({ retrieval });
+  });
+
+  it('keeps the simulated marker and does not let metadata override it', async () => {
+    const t = build({ content: 'We open at nine.', finishReason: 'stop' });
+    await t.service.complete(request({ simulated: true, traceMetadata: { simulated: false, retrieval } }));
+    expect(t.prisma.aiExecution.create.mock.calls[0][0].data.safetyFlags).toEqual({ retrieval, simulated: true });
+  });
+
+  it('is unchanged when no metadata is given', async () => {
+    const t = build({ content: 'We open at nine.', finishReason: 'stop' });
+    await t.service.complete(request({}));
+    expect(t.prisma.aiExecution.create.mock.calls[0][0].data.safetyFlags).toEqual({});
   });
 });

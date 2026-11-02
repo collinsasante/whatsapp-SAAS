@@ -6,12 +6,13 @@ import { ToolCallTrace as CommerceAiToolCallTrace } from '../../ai-core/tools/to
 import { ToolSideEffect } from '../../ai-core/tools/tool-registry.types';
 import { EvaluationScenario, ScenarioTurn } from './evaluation.types';
 import { crossCheckOrderCapture, assertNoSuccessfulPurchase, assertToolWasCalled, fuzzyMatchProduct } from './evaluation-checks.util';
-import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 
 export interface EvalTurnRecord {
   customerMessage: string;
   aiResponse: string;
   blocked: boolean;
+  /** The real handoff signal CommerceAiService returned this turn (not inferred from the reply text). */
+  shouldEscalate: boolean;
   toolTrace: CommerceAiToolCallTrace[];
   /** Real Order.status immediately after this turn was processed, if an order exists. */
   orderStatusAfterTurn?: string;
@@ -284,16 +285,16 @@ export class EvaluationScoringService {
     // handoff task, or one of the fixed handoff replies, is an escalation; the tool expectations of the scenario cover the rest.
     if (scenario.expectsEscalation === false) {
       const tasked = turns.some((t) => t.toolTrace.some((c) => c.name === 'create_internal_task' && !(c.result && typeof c.result === 'object' && 'error' in c.result)));
-      const handoffReply = turns.some((t) => t.aiResponse === HUMAN_HANDOFF_REPLY || t.aiResponse === MAX_ITERATIONS_FALLBACK_TEXT);
+      const handedOff = turns.some((t) => t.shouldEscalate);
       if (tasked) { pass = false; details.push('Created a handoff task although this request should have been handled without a human'); }
-      if (handoffReply) { pass = false; details.push('Replied with a fixed handoff message although this request should have been handled without a human'); }
+      if (handedOff) { pass = false; details.push('Handed the conversation to a person although this request should have been handled without a human'); }
       return { pass, details };
     }
 
     const lastTurn = turns[turns.length - 1];
-    // The system's own fixed handoff reply IS a handoff (messages.service.ts performs the real one), so it needs no judge: a model asked
+    // The system's own handoff signal IS a handoff (messages.service.ts performs the real one), so it needs no judge: a model asked
     // whether a reply "declines a request" has nothing to decline when the customer simply asked for a person.
-    if (lastTurn?.aiResponse === HUMAN_HANDOFF_REPLY || lastTurn?.aiResponse === MAX_ITERATIONS_FALLBACK_TEXT) return { pass, details };
+    if (lastTurn?.shouldEscalate) return { pass, details };
     if (lastTurn?.aiResponse) {
       const declined = await this.judgeDeclinesAndHandsOff(lastTurn.aiResponse);
       if (!declined) { pass = false; details.push('Did not clearly decline and hand off to a human for a request with no available tool'); }

@@ -25,7 +25,7 @@ describe('EscalationStage', () => {
     stage = new EscalationStage();
   });
 
-  it('escalates and replaces the response on an explicit human request', async () => {
+  it('escalates on an explicit human request and leaves the model\'s reply as written', async () => {
     const ctx = buildCtx({
       customerMessage: 'Can I speak to a human please',
       result: { response: 'Sure, delivery is GHS 30.', confidence: 90, blocked: false },
@@ -35,7 +35,7 @@ describe('EscalationStage', () => {
     await stage.execute(ctx);
 
     expect(ctx.result?.shouldEscalate).toBe(true);
-    expect(ctx.result?.response).toContain('team member');
+    expect(ctx.result?.response).toBe('Sure, delivery is GHS 30.');
     expect(ctx.trace.safetyFlags.humanEscalation).toBe(true);
     expect(ctx.trace.safetyFlags.escalationReason).toBe('explicit_request');
   });

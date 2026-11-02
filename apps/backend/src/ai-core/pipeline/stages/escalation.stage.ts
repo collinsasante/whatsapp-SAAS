@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { detectHumanRequest, shouldEscalateOnConfidence } from '../escalation-detector.util';
-import { HUMAN_HANDOFF_REPLY } from '../../prompts/escalation-messages.util';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 
 /**
@@ -12,10 +11,8 @@ import { PipelineContext, PipelineStage } from '../pipeline.types';
  * module dependency (ConversationsModule already imports AiCoreModule, for
  * AiCompletionService).
  *
- * The response text is replaced with a deterministic handoff line rather
- * than trusting the model to mention the handoff itself -- the prompt has
- * no "you can escalate" instruction, so the model's own reply wouldn't
- * reliably say anything about connecting the customer to a person.
+ * The model's own reply is left as written: only the escalation signal is
+ * added, so what the customer reads is never a canned line.
  */
 @Injectable()
 export class EscalationStage implements PipelineStage {
@@ -33,11 +30,7 @@ export class EscalationStage implements PipelineStage {
     const lowConfidence = shouldEscalateOnConfidence(ctx.result.confidence);
 
     if (explicitRequest || lowConfidence) {
-      ctx.result = {
-        ...ctx.result,
-        shouldEscalate: true,
-        response: HUMAN_HANDOFF_REPLY,
-      };
+      ctx.result = { ...ctx.result, shouldEscalate: true };
       ctx.trace.safetyFlags.humanEscalation = true;
       ctx.trace.safetyFlags.escalationReason = explicitRequest ? 'explicit_request' : 'low_confidence';
     }

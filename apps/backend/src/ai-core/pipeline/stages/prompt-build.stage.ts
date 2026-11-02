@@ -6,6 +6,7 @@ import { buildIdentityAndSafetyBlock } from '../../prompts/shared-identity-block
 import { SHARED_STYLE_RULES } from '../../prompts/shared-style-rules';
 import { formatBusinessInfoBlock } from '../../prompts/business-info.util';
 import { formatStateBlock } from '../../prompts/conversation-state.util';
+import { formatHandoffBlock } from '../../prompts/handoff-context';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 
 @Injectable()
@@ -39,6 +40,7 @@ export class PromptBuildStage implements PipelineStage {
       SHARED_STYLE_RULES,
       ``,
       buildIdentityAndSafetyBlock(ctx.businessName),
+      formatHandoffBlock(ctx.input.handoffOutcome),
     ].join('\n');
 
     ctx.trace.stageTimings[this.name] = Date.now() - startedAt;

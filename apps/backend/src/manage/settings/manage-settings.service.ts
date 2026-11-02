@@ -112,7 +112,7 @@ export class ManageSettingsService {
     const data = pick(input, ['aiEnabled', 'aiAlwaysOn', 'aiPersonality', 'aiMode', 'aiPilotGroup'] as const);
     const existing = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
-      select: { aiTrialStartedAt: true, aiEnabled: true },
+      select: { aiTrialStartedAt: true, aiEnabled: true, aiPersonality: true },
     });
 
     const updateData: Prisma.TenantSettingsUpdateInput = { ...data };
@@ -138,11 +138,31 @@ export class ManageSettingsService {
       this.logger.log(`AI trial started for tenant ${tenantId} — expires in ${AI_TRIAL_DAYS} days`);
     }
 
-    return this.prisma.tenantSettings.upsert({
+    const saved = await this.prisma.tenantSettings.upsert({
       where: { tenantId },
       create: { tenantId, ...updateData } as Parameters<typeof this.prisma.tenantSettings.create>[0]['data'],
       update: updateData,
     });
+
+    if (data.aiPersonality !== undefined) await this.syncDefaultAgentPersonality(tenantId, existing?.aiPersonality ?? null, data.aiPersonality);
+    return saved;
+  }
+
+  /**
+   * The workspace personality is configured here, but VerzAI v2 reads it from the tenant's default AI agent (copied when the agent
+   * was created). Without this the v2 pipeline would keep answering in the OLD personality after the workspace changed it. Only an
+   * agent that still carries the previous workspace value (or none) follows the change: an agent whose personality was set
+   * separately is deliberately different and is never overwritten. A failure here is logged and must not fail the settings save.
+   */
+  private async syncDefaultAgentPersonality(tenantId: string, previous: string | null, next: string): Promise<void> {
+    try {
+      await this.prisma.aiAgent.updateMany({
+        where: { tenantId, isDefault: true, OR: [{ personality: null }, ...(previous !== null ? [{ personality: previous }] : [])] },
+        data: { personality: next },
+      });
+    } catch (err) {
+      this.logger.warn(`Default AI agent personality not synced for tenant ${tenantId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async approveAi(tenantId: string) {

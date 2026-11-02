@@ -5,22 +5,25 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ConversationStateService } from '../../../conversations/conversation-state.service';
 import { PipelineContext, PipelineStage } from '../pipeline.types';
 import { KNOWLEDGE_CONTEXT_SOURCE, KnowledgeContextSource } from '../knowledge-context.source';
-import { buildConversationHistoryWhere } from '../../context/history-scope.util';
+import { buildConversationHistoryWhere, buildHistoryWhere } from '../../context/history-scope.util';
 import { loadHistory } from '../../context/history-loader.util';
 
-const HISTORY_WINDOW = 12;
+/** Turns kept when the history follows the verified customer across their conversations (the legacy responder kept 200). */
+const CUSTOMER_HISTORY_WINDOW = 40;
+/** Turns kept inside the current conversation, the fallback when the customer cannot be verified. */
+const CONVERSATION_HISTORY_WINDOW = 12;
 
 /**
- * Ported verbatim from the legacy responder: last-12 TEXT-message window,
+ * Ported from the legacy responder: a bounded TEXT-message window (40 turns for a verified customer, 12 in the current conversation),
  * menu-digit expansion, then relevance-filtered KB context keyed off the
  * (possibly menu-expanded) final customer message -- same ordering, same
  * behavior. businessName is tenant-level (TenantSettings), not agent-level;
  * personality/systemInstructions are already on ctx, seeded by the pipeline
  * from the resolved AiAgent before stages run.
  *
- * History is the current conversation only, and always tenant-scoped
- * (buildConversationHistoryWhere) -- the message query previously filtered by
- * conversationId alone.
+ * History is tenant-scoped and, like the legacy responder it replaces, follows the CUSTOMER: a returning contact's earlier
+ * conversations with this tenant inform the reply (buildHistoryWhere, scoped by the verified contact id). If the conversation
+ * or its contact cannot be verified it falls back to the current conversation only (buildConversationHistoryWhere), never wider.
  *
  * Verz-AI unification, Phase D/F: also fetches TenantSettings' business-data
  * fields (previously never read into any prompt), the conversation's ad
@@ -42,25 +45,32 @@ export class ContextAssemblyStage implements PipelineStage {
   async execute(ctx: PipelineContext): Promise<void> {
     const startedAt = Date.now();
 
-    const historyWhere = buildConversationHistoryWhere(ctx.input.tenantId, ctx.input.conversationId);
-
-    const [settings, history, conversation, aiState] = await Promise.all([
+    const [settings, conversation, aiState] = await Promise.all([
       this.prisma.tenantSettings.findUnique({
         where: { tenantId: ctx.input.tenantId },
         select: { businessName: true, businessAddress: true, businessPhone: true, offHoursSchedule: true, timezone: true },
       }),
-      // A blank conversation id => empty history, never an unscoped query.
-      loadHistory(this.prisma, historyWhere, HISTORY_WINDOW, ctx.input.currentMessageId),
       this.prisma.conversation.findFirst({
         where: { id: ctx.input.conversationId, tenantId: ctx.input.tenantId },
-        select: { adSourceId: true, adHeadline: true, adImageUrl: true },
+        select: { adSourceId: true, adHeadline: true, adImageUrl: true, contactId: true },
       }),
       this.conversationState.getState(ctx.input.tenantId, ctx.input.conversationId),
     ]);
 
+    // The verified contact id (from the tenant's own conversation row) widens the history to this customer's earlier chats;
+    // without it the history stays inside the current conversation. A blank conversation id => empty history, never unscoped.
+    // A blank contact id is not a verified one: it gets the narrow scope AND the narrow window (buildHistoryWhere itself also
+    // falls back to the conversation for a blank id, so the two decisions cannot disagree).
+    const contactId = conversation?.contactId && conversation.contactId.trim().length > 0 ? conversation.contactId : null;
+    const verifiedContact = contactId !== null;
+    const historyWhere = contactId !== null
+      ? buildHistoryWhere(ctx.input.tenantId, { id: ctx.input.conversationId, contactId })
+      : buildConversationHistoryWhere(ctx.input.tenantId, ctx.input.conversationId);
+    const history = await loadHistory(this.prisma, historyWhere, verifiedContact ? CUSTOMER_HISTORY_WINDOW : CONVERSATION_HISTORY_WINDOW, ctx.input.currentMessageId);
+
     ctx.businessName = settings?.businessName ?? 'our business';
     ctx.businessInfo = settings ?? undefined;
-    ctx.adContext = conversation ?? undefined;
+    ctx.adContext = conversation ? { adSourceId: conversation.adSourceId, adHeadline: conversation.adHeadline, adImageUrl: conversation.adImageUrl } : undefined;
     ctx.conversationState = aiState;
 
     // Menu state: if the last outbound message was a numbered list and the customer
@@ -81,7 +91,14 @@ export class ContextAssemblyStage implements PipelineStage {
     // optional contactName prefix).
     ctx.historyMessages = history.turns;
 
-    ctx.knowledgeContext = await this.knowledgeContext.getContext(ctx.input.tenantId, ctx.customerMessage, history.customerMessages);
+    if (this.knowledgeContext.getContextWithTrace) {
+      const retrieved = await this.knowledgeContext.getContextWithTrace(ctx.input.tenantId, ctx.customerMessage, history.customerMessages);
+      ctx.knowledgeContext = retrieved.context;
+      ctx.retrievalTrace = retrieved.trace;
+      ctx.trace.safetyFlags.retrieval = retrieved.trace; // recorded with the execution, so a reply can be traced to the articles behind it
+    } else {
+      ctx.knowledgeContext = await this.knowledgeContext.getContext(ctx.input.tenantId, ctx.customerMessage, history.customerMessages);
+    }
     // Rides in the same template variable as the KB, so no stored prompt template has to change; '' when no Digital Self applies.
     ctx.knowledgeContext += (await this.digitalSelfContext?.getStyleBlock(ctx.input.tenantId, ctx.input.conversationId)) ?? '';
 

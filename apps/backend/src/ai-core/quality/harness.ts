@@ -198,7 +198,7 @@ export async function runV2(s: Scenario): Promise<Observed> {
   );
   const pipeline = new VerzAiPipelineService(
     prisma as never, executions,
-    new GuardStage(prisma as never),
+    new GuardStage(),
     new ContextAssemblyStage(prisma as never, state as never, new KbRelevantContextSource(kb, { getGuidanceBlock: async () => '' } as never)),
     new PromptBuildStage(new PromptsService(prisma as never)),
     new GenerationStage(registry, {} as never, state as never, metered as never),

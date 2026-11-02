@@ -17,9 +17,10 @@ import { PromptBuildStage } from './pipeline/stages/prompt-build.stage';
 import { GenerationStage } from './pipeline/stages/generation.stage';
 import { PolicyStage } from './pipeline/stages/policy.stage';
 import { EscalationStage } from './pipeline/stages/escalation.stage';
-import { KNOWLEDGE_CONTEXT_SOURCE, KbRelevantContextSource } from './pipeline/knowledge-context.source';
+import { knowledgeSourceProviders } from './pipeline/knowledge-source.providers';
 import { VerzAiPipelineService } from './pipeline/verz-ai-pipeline.service';
 import { AiExecutionsService } from './executions/ai-executions.service';
+import { SecurityRefusalService } from './refusal/security-refusal.service';
 import { AiExecutionsController } from './executions/ai-executions.controller';
 import { AiCompletionService } from './completion/ai-completion.service';
 import { AiMeteredProviderService } from './completion/ai-metered-provider.service';
@@ -65,7 +66,7 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
     GenerationStage,
     PolicyStage,
     EscalationStage,
-    { provide: KNOWLEDGE_CONTEXT_SOURCE, useClass: KbRelevantContextSource },
+    ...knowledgeSourceProviders,
     VerzAiPipelineService,
     AiCompletionService,
     AiMeteredProviderService,
@@ -73,7 +74,8 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
     ToolCallingService,
     AiCreditsService,
     AiPricingService,
+    SecurityRefusalService,
   ],
-  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, AiMeteredProviderService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService],
+  exports: [ProviderRegistryService, PromptsService, AiAgentsService, AiExecutionsService, VerzAiPipelineService, AiCompletionService, AiMeteredProviderService, ToolRegistryService, ToolCallingService, AiCreditsService, AiPricingService, SecurityRefusalService],
 })
 export class AiCoreModule {}

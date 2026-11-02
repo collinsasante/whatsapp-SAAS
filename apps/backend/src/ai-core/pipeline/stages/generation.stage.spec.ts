@@ -1,7 +1,6 @@
 import { GenerationStage } from './generation.stage';
 import { newTrace, PipelineContext } from '../pipeline.types';
 import { DEFAULT_MODEL_KEY } from '../../models/model-catalog';
-import { PROVIDER_FAILURE_FALLBACK_TEXT } from '../../prompts/escalation-messages.util';
 
 function buildCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
   return {
@@ -54,7 +53,7 @@ describe('GenerationStage', () => {
 
       await stage.execute(ctx);
 
-      expect(ctx.result).toEqual({ response: PROVIDER_FAILURE_FALLBACK_TEXT, confidence: null, blocked: false, shouldEscalate: true });
+      expect(ctx.result).toEqual({ response: '', confidence: null, blocked: false, shouldEscalate: true });
       expect(ctx.trace).toEqual(expect.objectContaining({ status: 'PROVIDER_ERROR', errorCode: 'parse_error', errorMessage: 'Model output rejected: truncated', inputTokens: 10, outputTokens: 400, reservationIds: ['reservation-1'] }));
       expect(ctx.trace.alreadyRecorded).toBeUndefined(); // this path is recorded once, by the pipeline
     });
@@ -111,7 +110,7 @@ describe('GenerationStage', () => {
       expect(toolCalling.complete.mock.calls[1][0].taskType).toBe('RESPONDER');
     });
 
-    it('produces a PROVIDER_ERROR trace and a real fallback + escalation when the tool-calling call fails, instead of empty silence', async () => {
+    it('produces a PROVIDER_ERROR trace and an escalation with no customer text when the tool-calling call fails', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: '', toolTrace: [], failed: true, hitMaxIterations: false }) };
       const meteredProvider = { complete: jest.fn() };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,14 +119,14 @@ describe('GenerationStage', () => {
 
       await stage.execute(ctx);
 
-      expect(ctx.result?.response).not.toBe('');
+      expect(ctx.result?.response).toBe('');
       expect(ctx.result?.shouldEscalate).toBe(true);
       expect(ctx.result?.confidence).toBeNull();
       expect(ctx.result?.blocked).toBe(false);
       expect(ctx.trace.status).toBe('PROVIDER_ERROR');
     });
 
-    it.each(['empty', 'truncated', 'malformed', 'internal_error'] as const)('a final answer ToolCallingService rejected (%s) becomes the fallback and a handoff, and is not recorded a second time', async (outputProblem) => {
+    it.each(['empty', 'truncated', 'malformed', 'internal_error'] as const)('a final answer ToolCallingService rejected (%s) becomes a handoff with no customer text, and is not recorded a second time', async (outputProblem) => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'half an ans', toolTrace: [], failed: false, hitMaxIterations: false, executionId: 'exec-1', outputProblem }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, { complete: jest.fn() } as any);
@@ -135,7 +134,7 @@ describe('GenerationStage', () => {
 
       await stage.execute(ctx);
 
-      expect(ctx.result).toEqual({ response: PROVIDER_FAILURE_FALLBACK_TEXT, confidence: null, blocked: false, shouldEscalate: true });
+      expect(ctx.result).toEqual({ response: '', confidence: null, blocked: false, shouldEscalate: true });
       expect(ctx.result?.response).not.toContain('half an ans');
       expect(ctx.trace.status).toBe('PROVIDER_ERROR');
       expect(ctx.trace.errorCode).toBe('parse_error');
@@ -163,6 +162,19 @@ describe('GenerationStage', () => {
 
       expect(ctx.result).toEqual({ response: 'We open at nine.', confidence: 88, blocked: false });
       expect(ctx.trace.confidence).toBe(88);
+    });
+
+    it('hands the retrieval trace to the tool-calling run so its execution records which articles informed the prompt', async () => {
+      const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We open at nine.', toolTrace: [], failed: false, hitMaxIterations: false }) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, { complete: jest.fn() } as any);
+      const retrievalTrace = { mode: 'hybrid' as const, candidates: { keyword: 1, vector: 1 }, sources: [{ articleId: 'a1', title: 'Opening hours', chunkIndexes: [], via: ['keyword' as const], keywordRank: 1, finalRank: 1 }] };
+
+      await stage.execute(buildCtx({ tools: ['search_products'], toolContext, retrievalTrace }));
+      expect(toolCalling.complete).toHaveBeenLastCalledWith(expect.objectContaining({ traceMetadata: { retrieval: retrievalTrace } }));
+
+      await stage.execute(buildCtx({ tools: ['search_products'], toolContext }));
+      expect(toolCalling.complete.mock.calls[1][0].traceMetadata).toBeUndefined();
     });
 
     it('a valid final answer stays SUCCESS and is used as is', async () => {

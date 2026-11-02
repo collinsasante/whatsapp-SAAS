@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { containsRetiredScript } from './retired-wording';
 import {
-  RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_CHANGE_NOTE, RESPONDER_SYSTEM_TEMPLATE_KEY,
+  RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_BODY_V1_1_0_MD5, RESPONDER_SYSTEM_BODY_V1_2_0, RESPONDER_SYSTEM_CHANGE_NOTE, RESPONDER_SYSTEM_TEMPLATE_KEY,
   RESPONDER_SYSTEM_TEMPLATE_NAME, RESPONDER_SYSTEM_VARIABLES, RESPONDER_SYSTEM_VERSION,
 } from './seed/responder-system.v1';
 
@@ -28,6 +30,7 @@ export class PromptsService {
   private readonly logger = new Logger(PromptsService.name);
   private readonly cache = new Map<string, CachedVersion>();
   private seeded = false;
+  private readonly warnedRetired = new Set<string>();
 
   constructor(private prisma: PrismaService) {}
 
@@ -61,23 +64,36 @@ export class PromptsService {
     this.seeded = true;
   }
 
+  /** True only for a stored body that is byte-identical to a version this code seeded: no admin has touched it. */
+  private isUntouchedSeed(body: string): boolean {
+    return body === RESPONDER_SYSTEM_BODY_V1_0_0 || body === RESPONDER_SYSTEM_BODY_V1_2_0 || createHash('md5').update(body).digest('hex') === RESPONDER_SYSTEM_BODY_V1_1_0_MD5;
+  }
+
   /**
-   * Verz-AI unification, Phase D: brings an already-seeded template up to the
-   * latest RESPONDER_SYSTEM_VERSION. Only auto-activates the new version when
-   * the current ACTIVE one is byte-identical to the original v1.0.0 seed --
-   * i.e. genuinely untouched by a tenant admin -- otherwise creates it as a
-   * DRAFT so a customized prompt is never silently overwritten. A template
-   * with no ACTIVE version at all is a separate, pre-existing anomaly this
-   * method doesn't try to fix -- getActiveVersion's own NotFoundException
-   * already surfaces that case; skip rather than guess.
+   * Brings an already-seeded template up to the latest RESPONDER_SYSTEM_VERSION. The new version only becomes ACTIVE when the
+   * current ACTIVE one is untouched seed text (the original v1.0.0, v1.1.0 or v1.2.0), so a prompt customised by a tenant
+   * admin or platform admin is never replaced: for those, the new version is created as a DRAFT and activation stays a deliberate
+   * step. If an untouched install already holds the new version as an unedited DRAFT (created by an earlier deploy that could
+   * not upgrade it), that draft is activated instead of creating a second copy. A template with no ACTIVE version at all is a
+   * separate, pre-existing anomaly this method doesn't try to fix -- getActiveVersion's own NotFoundException surfaces it.
    */
   private async ensureVersion(templateId: string, active: { id: string; version: string; body: string } | undefined): Promise<void> {
     if (!active || active.version === RESPONDER_SYSTEM_VERSION) return;
 
-    const alreadyHasNewVersion = await this.prisma.aiPromptVersion.findFirst({ where: { templateId, version: RESPONDER_SYSTEM_VERSION } });
-    if (alreadyHasNewVersion) return;
+    const untouched = this.isUntouchedSeed(active.body);
+    const existing = await this.prisma.aiPromptVersion.findFirst({ where: { templateId, version: RESPONDER_SYSTEM_VERSION } });
+    if (existing) {
+      // Only an unedited draft of exactly the current body, on an untouched install, is activated; anything else stays as it is.
+      if (untouched && existing.status === 'DRAFT' && existing.body === RESPONDER_SYSTEM_BODY) {
+        await this.prisma.$transaction([
+          this.prisma.aiPromptVersion.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } }),
+          this.prisma.aiPromptVersion.update({ where: { id: existing.id }, data: { status: 'ACTIVE', activatedAt: new Date() } }),
+        ]);
+        this.logger.log(`Activated the existing v${RESPONDER_SYSTEM_VERSION} draft of "${RESPONDER_SYSTEM_TEMPLATE_KEY}" (the ACTIVE v${active.version} was untouched seed text)`);
+      }
+      return;
+    }
 
-    const untouched = active.body === RESPONDER_SYSTEM_BODY_V1_0_0;
     const created = await this.prisma.aiPromptVersion.create({
       data: {
         templateId,
@@ -114,12 +130,19 @@ export class PromptsService {
       throw new NotFoundException(`No ACTIVE prompt version for template "${templateKey}"`);
     }
 
+    // A stored prompt that still scripts a fixed customer reply is never served, whatever its status: the current seed body is
+    // used in its place, in memory only. Nothing in the database is changed, so an admin's customisations stay on record.
+    const retired = templateKey === RESPONDER_SYSTEM_TEMPLATE_KEY && containsRetiredScript(active.body);
+    if (retired && !this.warnedRetired.has(active.id)) {
+      this.warnedRetired.add(active.id);
+      this.logger.warn(`ACTIVE prompt v${active.version} (${active.id}) of "${templateKey}" scripts a fixed customer reply; serving the current built-in v${RESPONDER_SYSTEM_VERSION} body instead until a clean version is activated`);
+    }
     const entry: CachedVersion = {
       id: active.id,
       templateId: active.templateId,
       version: active.version,
-      body: active.body,
-      variables: active.variables,
+      body: retired ? RESPONDER_SYSTEM_BODY : active.body,
+      variables: retired ? [...RESPONDER_SYSTEM_VARIABLES] : active.variables,
       cachedAt: Date.now(),
     };
     this.cache.set(templateKey, entry);

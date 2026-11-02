@@ -36,10 +36,11 @@ import type { OutboundFile } from '../facebook-messenger/facebook-messenger.serv
 import { channelHasCustomerServiceWindow, isCustomerServiceWindowOpen } from './customer-service-window.util';
 import { buildPaginationMeta, getPaginationSkip, interpolateTemplate, isSimulatedPhone, SimulatedRecipientError } from '@whatsapp-platform/shared-utils';
 import { isAiAllowedForContact } from './ai-contact-restriction.util';
-import { HANDOFF_FAILED_TEXT, HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../ai-core/prompts/escalation-messages.util';
 import { isUnsupportedFollowUpPromise } from '../ai-core/pipeline/follow-up-promise.util';
 import { buildLegacyTrace, describeProviderError, LegacyCallObservation, readProviderUsage } from './legacy-ai-execution.util';
 import { detectHumanRequest } from '../ai-core/pipeline/escalation-detector.util';
+import { HandoffOutcome } from '../ai-core/prompts/handoff-context';
+import { SecurityRefusalService, SECURITY_REFUSAL_METADATA_KEY } from '../ai-core/refusal/security-refusal.service';
 import { isAgentAway } from './ai-takeover.util';
 
 /**
@@ -115,12 +116,6 @@ const SIMULATED_MESSAGE_METADATA = { simulated: true } as const;
 
 const CLIENT_SEND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
-/**
- * After the AI could not answer because the provider failed and a handoff was requested, the customer has already been told so.
- * Within this window a further provider failure on the same conversation sends nothing more (see handleAiAutoReply), instead of
- * repeating the same apology and handoff request on every message the customer writes.
- */
-const PROVIDER_FAILURE_FALLBACK_COOLDOWN_MS = 15 * 60_000;
 export const RECEIPT_LOOKUP_RETRY_DELAYS_MS: readonly number[] = [150, 400, 1200];
 
 /** Scheme, host and port of a media link, for logs: enough to judge whether Meta can reach it, without the storage key in the path. */
@@ -153,6 +148,8 @@ export class MessagesService {
     return next;
   }
 
+  private readonly warnedLegacyTenants = new Set<string>();
+
   constructor(
     private prisma: PrismaService,
     private whatsappService: WhatsAppService,
@@ -176,6 +173,9 @@ export class MessagesService {
     @Inject(forwardRef(() => FacebookMessengerService)) private facebookMessengerService: FacebookMessengerService,
     @Inject(forwardRef(() => WhatsAppWebService)) private whatsAppWebService: WhatsAppWebService,
     @Optional() private digitalSelfLearning?: DigitalSelfLearningTrigger,
+    // Optional only so existing constructors need not change; always provided by AiCoreModule in the app. Without it a blocked
+    // message gets no reply (the safe default).
+    @Optional() private securityRefusal?: SecurityRefusalService,
   ) {}
 
   /**
@@ -1659,6 +1659,19 @@ export class MessagesService {
   }
 
   /**
+   * A customer who asks for a person is handed over BEFORE any reply is written, so the reply is generated knowing whether it
+   * really happened. Returns undefined when the message is not such a request. The outcome is given to the model as a verified
+   * fact (see ai-core/prompts/handoff-context.ts): on success it acknowledges the handoff without offering a person again, on
+   * failure it must not claim anyone was notified.
+   */
+  private async handOffBeforeReply(simulated: boolean, tenantId: string, conversationId: string, content: string): Promise<HandoffOutcome | undefined> {
+    if (!detectHumanRequest(content)) return undefined;
+    const escalated = await this.requestHandoff(simulated, tenantId, conversationId, 'AI escalation: customer requested a human');
+    if (!escalated) this.logger.warn(`Handoff failed (after retry) for conversation ${conversationId} -- the reply will be generated without claiming a handoff`);
+    return escalated ? 'requested' : 'failed';
+  }
+
+  /**
    * Re-reads conversation ownership directly from the DB and recomputes the
    * same humanOwned/agentAway decision dispatchAiAndChatbot made at dispatch
    * time. Called immediately before a paid provider call and again
@@ -1700,27 +1713,6 @@ export class MessagesService {
   }
 
   /**
-   * True if this conversation already received a provider-failure apology, with a successful handoff request, within the cooldown.
-   * A failed lookup answers false: the worst case is the old behaviour (one more apology), never a silent customer on a DB hiccup.
-   */
-  private async recentProviderFailureFallbackSent(tenantId: string, conversationId: string): Promise<boolean> {
-    const prior = await this.prisma.message.findFirst({
-      where: {
-        tenantId,
-        conversationId,
-        direction: 'OUTBOUND',
-        createdAt: { gte: new Date(Date.now() - PROVIDER_FAILURE_FALLBACK_COOLDOWN_MS) },
-        AND: [{ metadata: { path: ['fallback'], equals: true } }, { metadata: { path: ['handoffRequested'], equals: true } }],
-      },
-      select: { id: true },
-    }).catch((err) => {
-      this.logger.warn(`Could not check for a recent AI fallback in conversation ${conversationId}: ${String(err)}`);
-      return null;
-    });
-    return !!prior;
-  }
-
-  /**
    * Resolves the tenant's default AiAgent (lazily backfilled, shares the same
    * synthetic isAiAgent user the legacy responder uses) and runs the Verz-AI
    * v2 pipeline. Only called when the verz_ai_v2 feature flag is on.
@@ -1731,6 +1723,7 @@ export class MessagesService {
     channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER',
     currentMessageId?: string,
     simulated?: boolean,
+    handoffOutcome?: HandoffOutcome,
   ) {
     return this.aiAgentsService.findOrCreateDefaultAgent(tenantId).then((agent) =>
       this.verzAiPipeline.run({
@@ -1750,6 +1743,7 @@ export class MessagesService {
         customerPhone,
         readOnlyTools,
         channelType,
+        ...(handoffOutcome && { handoffOutcome }),
       }),
     );
   }
@@ -1770,12 +1764,12 @@ export class MessagesService {
     customerPhone: string,
     content: string,
     contactName: string | undefined,
-    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean },
+    opts: { commerceEnabled: boolean; readOnlyTools: boolean; channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER'; currentMessageId?: string; simulated?: boolean; handoffOutcome?: HandoffOutcome },
   ): Promise<UnifiedAiResult> {
     if (opts.commerceEnabled) {
       const r = await this.commerceAiService.handleMessage(
         tenantId, conversationId, contactId, customerPhone, content, contactName, undefined,
-        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType, currentMessageId: opts.currentMessageId, ...(opts.simulated && { simulated: true }) },
+        { readOnlyTools: opts.readOnlyTools, channelType: opts.channelType, currentMessageId: opts.currentMessageId, ...(opts.simulated && { simulated: true }), ...(opts.handoffOutcome && { handoffOutcome: opts.handoffOutcome }) },
       );
       // Second hardening pass, Section 4: r.shouldEscalate was never mapped through
       // here before -- Commerce's own escalation branches called
@@ -1788,15 +1782,18 @@ export class MessagesService {
     }
 
     const useV2 = await this.featureFlagsService.isEnabledCached('verz_ai_v2', tenantId).catch(() => false);
-    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType, opts.currentMessageId, opts.simulated);
+    if (useV2) return this.runVerzAiV2(tenantId, conversationId, contactId, customerPhone, content, contactName, opts.readOnlyTools, opts.channelType, opts.currentMessageId, opts.simulated, opts.handoffOutcome);
 
-    // An explicit request for a person never needs the model: hand off for real (messages.service acts on
-    // shouldEscalate in both AUTO_REPLY and SUGGESTION mode) and skip a paid call whose reply would be replaced anyway.
-    // v2 and Commerce make the same detection in their own paths. The legacy responder had none, so a customer who
-    // asked for a human got a knowledge-base answer instead.
-    if (detectHumanRequest(content)) {
-      return { response: HUMAN_HANDOFF_REPLY, confidence: null, blocked: false, executionId: null, shouldEscalate: true };
+    // The legacy responder is being retired in favour of VerzAI v2 (the Digital Self). Say so once per workspace and process, so the
+    // remaining workspaces are visible in the logs; `pnpm run ai:legacy-readiness` reports which of them are ready to move.
+    if (!this.warnedLegacyTenants.has(tenantId)) {
+      this.warnedLegacyTenants.add(tenantId);
+      this.logger.warn(`Workspace ${tenantId} is still answered by the legacy responder (verz_ai_v2 is off for it); it is scheduled to move to VerzAI v2`);
     }
+
+    // An explicit request for a person is handed off for real (messages.service acts on shouldEscalate in both AUTO_REPLY
+    // and SUGGESTION mode); the reply itself is still written by the model. v2 and Commerce make the same detection in their own paths.
+    const humanRequested = detectHumanRequest(content);
 
     // What the provider actually did, observed from outside so the responder stays untouched.
     const startedAt = Date.now();
@@ -1822,23 +1819,24 @@ export class MessagesService {
         return opts.simulated ? observed() : this.runLegacyAiProviderCall(tenantId, observed);
       },
       opts.currentMessageId,
+      opts.handoffOutcome,
     );
     // The legacy responder still uses a fixed estimate, but its provider request is
     // wrapped in the same durable hold so concurrent calls cannot spend held credits.
     // It is recorded WITHOUT credit metering for exactly that reason: the hold above already charges it, and recording it
     // as a normal RESPONDER execution would charge it a second time. The record makes the reply traceable and evaluable.
     const executionId = await this.recordLegacyExecution(tenantId, conversationId, buildLegacyTrace({ legacy, call, latencyMs: Date.now() - startedAt, simulated: opts.simulated }), opts.simulated);
-    return this.withoutUnsupportedFollowUp({ ...legacy, executionId });
+    return this.withoutUnsupportedFollowUp({ ...legacy, executionId, ...(humanRequested && { shouldEscalate: true }) });
   }
 
   /**
-   * A reply that promises the team will follow up, when no tool this turn arranged one, is replaced by a real handoff (the same
+   * A reply that promises the team will follow up, when no tool this turn arranged one, is backed by a real handoff (the same
    * shouldEscalate path an explicit request for a person takes), so the customer is never told something that is not happening.
    * The v2 pipeline applies the same rule in its own policy stage.
    */
   private withoutUnsupportedFollowUp(result: UnifiedAiResult): UnifiedAiResult {
     if (result.shouldEscalate || !result.response || !isUnsupportedFollowUpPromise(result.response, result.toolTrace)) return result;
-    return { ...result, response: HUMAN_HANDOFF_REPLY, shouldEscalate: true };
+    return { ...result, shouldEscalate: true };
   }
 
   /** Recording is traceability, never a reason for the customer not to get a reply: a failure is logged and the turn goes on. */
@@ -1929,13 +1927,19 @@ export class MessagesService {
     // do -- add_item_to_order/submit_order_for_payment/create_internal_task stay
     // withheld until AUTO_REPLY or a human sends the reply themselves. New safeguard
     // for a new capability, not a weakening of anything that exists today.
+    const handoffOutcome = await this.handOffBeforeReply(simulated, tenantId, conversation.id, content);
     const result = await this.generateAiReply(
       tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type), currentMessageId, ...(simulated && { simulated: true }) },
+      { commerceEnabled, readOnlyTools: true, channelType: aiChannelType(conversation.channel?.type), currentMessageId, ...(simulated && { simulated: true }), ...(handoffOutcome && { handoffOutcome }) },
     ).catch((err) => {
       this.logger.warn(`AI suggestion generation failed for conversation ${conversation.id}: ${String(err)}`);
       return null;
     });
+    if (result?.blocked) {
+      // Nothing reaches the customer in SUGGESTION mode, and the guard writes no text: there is no suggestion to surface.
+      this.logger.log(`AI suggestion skipped for conversation ${conversation.id}: the security guard blocked the message`);
+      return;
+    }
     if (!result?.response) {
       // Verz-AI unification, Phase L: SUGGESTION mode never auto-sends to the
       // customer (a human reviews first), so there's no message to send here --
@@ -1946,7 +1950,7 @@ export class MessagesService {
       return;
     }
 
-    if (result.shouldEscalate) {
+    if (result.shouldEscalate && !handoffOutcome) {
       // Second hardening pass, Section 4: SUGGESTION mode never auto-sends to the
       // customer (a human reviews first), so there's no customer-facing text to keep
       // honest here -- but the handoff itself should still be real and retried, not a
@@ -2016,16 +2020,35 @@ export class MessagesService {
     if (!simulated) this.maybeScoreLead(tenantId, conversation.id, contact.id, commerceEnabled); // a paid, metered call: not for a test conversation
 
     const startMs = Date.now();
-    const [result, verzAgent] = await Promise.all([
+    // A request for a person is acted on first; the reply below is then written knowing whether the handoff really happened.
+    const handoffOutcome = await this.handOffBeforeReply(simulated, tenantId, conversation.id, content);
+    const [generated, verzAgent] = await Promise.all([
       this.generateAiReply(
         tenantId, conversation.id, contact.id, contact.phone ?? '', content, contact.name ?? undefined,
-        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type), currentMessageId, ...(simulated && { simulated: true }) },
+        { commerceEnabled, readOnlyTools: false, channelType: aiChannelType(conversation.channel?.type), currentMessageId, ...(simulated && { simulated: true }), ...(handoffOutcome && { handoffOutcome }) },
       ).catch((err) => {
         this.logger.warn(`AI auto-reply generation failed for conversation ${conversation.id}: ${String(err)}`);
         return null;
       }),
       this.aiResponderService.findOrCreateVerzAgent(tenantId).catch(() => null),
     ]);
+
+    // The security guard blocked this message and wrote no text. The refusal is written in the workspace's own voice by a
+    // separate call that is never shown the blocked message; if it cannot be written (limit, credits, provider, validation)
+    // nothing is sent.
+    let result = generated;
+    let isSecurityRefusal = false;
+    if (result?.blocked) {
+      const refusal = await this.securityRefusal?.generate({
+        tenantId, conversationId: conversation.id, simulated, channelType: aiChannelType(conversation.channel?.type), handoffOutcome,
+      });
+      if (!refusal) {
+        this.logger.warn(`Blocked message in conversation ${conversation.id}: no refusal was sent`);
+        return;
+      }
+      result = { ...result, response: refusal };
+      isSecurityRefusal = true;
+    }
 
     // Re-check again right before delivering anything to the customer.
     // generateAiReply() above is a real provider round-trip that can take
@@ -2040,72 +2063,36 @@ export class MessagesService {
       return;
     }
 
-    // A provider outage must not turn into the same apology on every customer message. If this conversation was already told, with a
-    // successful handoff request, a moment ago, stay quiet: the request is open and the customer's messages still reach the team.
-    // A normal reply, or a provider that has recovered, is not affected: only a repeat of the failure is suppressed.
-    if ((!result?.response || result.response === PROVIDER_FAILURE_FALLBACK_TEXT) && await this.recentProviderFailureFallbackSent(tenantId, conversation.id)) {
-      this.logger.warn(`AI provider-failure fallback suppressed for conversation ${conversation.id}: the customer was already told and a handoff is already requested`);
-      return;
-    }
-
     if (!result?.response) {
-      // Verz-AI unification, Phase L: this used to be a silent early return -- if
-      // generateAiReply() threw outright (rather than returning a handled failure
-      // result), the customer got nothing at all and nothing was logged as having
-      // gone wrong. generateAiReply()'s own failure branches now always return
-      // real text, so reaching here means the call threw before returning anything;
-      // still give the customer something and get a human involved for real.
-      this.logger.warn(`AI auto-reply produced no response at all for conversation ${conversation.id} -- sending fallback and escalating`);
-      // Second hardening pass, Section 4: attempt the real handoff first (with a real
-      // retry) so the text actually sent matches what really happened, instead of
-      // sending an optimistic line and separately hoping the handoff also worked.
-      const escalated = await this.requestHandoff(
-        simulated, tenantId, conversation.id, 'AI escalation: AI reply generation threw before returning a response',
+      // The AI produced no reply (provider error or timeout, truncated or rejected output, tool-loop limit, or generation threw).
+      // No text is written on its behalf: the conversation is handed to a person for real and the customer is sent nothing.
+      // Repeats are harmless -- an already requested conversation is left as it is and agents are not notified again.
+      this.logger.warn(`AI auto-reply produced no response for conversation ${conversation.id} -- escalating, nothing sent to the customer`);
+      await this.requestHandoff(
+        simulated, tenantId, conversation.id, 'AI escalation: the AI could not produce a reply',
       );
-      const fallbackText = escalated
-        ? PROVIDER_FAILURE_FALLBACK_TEXT
-        : HANDOFF_FAILED_TEXT;
-      // requestWithRetry above is an awaited DB round-trip after the post-generation
-      // check -- re-verify before the fallback text reaches the customer. The handoff
-      // request itself is kept (it is the legitimate escalation, not a customer reply).
-      if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
-        this.logger.log(`AI fallback reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
-        return;
-      }
-      const fallbackDelivery = await this.sendAiText(tenantId, conversation, contact, fallbackText);
-      const fallbackMessage = await this.prisma.message.create({
-        data: {
-          tenantId, conversationId: conversation.id, contactId: contact.id, direction: 'OUTBOUND' as const, type: 'TEXT' as const,
-          ...fallbackDelivery.fields, content: fallbackText, whatsappNumberId: conversation.whatsappNumberId,
-          metadata: { aiGenerated: true, fallback: true, handoffRequested: escalated, ...(simulated ? SIMULATED_MESSAGE_METADATA : {}) },
-        },
-      }).catch((err) => {
-        this.logger.warn(`Failed to persist the AI fallback message for conversation ${conversation.id}: ${String(err)}`);
-        return null;
-      });
-      if (fallbackMessage) this.realtimeService.emitNewMessage(tenantId, conversation.id, fallbackMessage);
       return;
     }
 
-    let handoffRequested = false;
-    if (result.shouldEscalate) {
-      // Second hardening pass, Section 4: backend-enforced handoff truth. The
-      // generator's own text for this turn may already say something like "I'll get
-      // someone to help" -- it was written without knowing whether the handoff would
-      // actually succeed. This performs the real handoff (with a real retry, not a
-      // swallowed .catch(() => null)) and only keeps that optimistic text if it's
-      // actually true; if the handoff genuinely fails, the text sent to the customer
-      // is rewritten to something honest instead of a claim that didn't happen.
+    // The handoff for an explicit request was already performed before generation. If it failed, the model was told so and must not
+    // claim otherwise; a reply that still promises a follow-up is withheld rather than sent as a claim that did not happen.
+    if (handoffOutcome === 'failed' && isUnsupportedFollowUpPromise(result.response, result.toolTrace)) {
+      this.logger.warn(`AI reply withheld for conversation ${conversation.id}: it promised a follow-up although the handoff failed`);
+      return;
+    }
+
+    if (result.shouldEscalate && !handoffOutcome) {
+      // Backend-enforced handoff truth: the reply was written without knowing whether the handoff would succeed, and it may say
+      // "I've asked the team". The real handoff (with a real retry) is performed first; if it genuinely fails, the reply is
+      // withheld rather than sent as a claim that did not happen, and the customer's message stays in the open inbox.
       const escalated = await this.requestHandoff(
         simulated, tenantId, conversation.id, 'AI escalation: customer requested a human, or the AI had very low confidence',
       );
-      handoffRequested = escalated;
       if (!escalated) {
-        this.logger.warn(`Handoff failed (after retry) for conversation ${conversation.id} -- rewriting response to avoid a false claim`);
-        result.response = HANDOFF_FAILED_TEXT;
+        this.logger.error(`Handoff failed (after retry) for conversation ${conversation.id} -- AI reply withheld to avoid a false claim`);
+        return;
       }
-      // Same reasoning as the no-response branch: requestWithRetry was awaited after
-      // the post-generation check, so re-verify before the send below.
+      // Same reasoning as the generation check above: the handoff was awaited after it, so re-verify before the send below.
       if (await this.isConversationHumanHandled(tenantId, conversation.id, takeoverEnabled, aiEnabledForTenant)) {
         this.logger.log(`AI escalation reply NOT delivered for conversation ${conversation.id}: a human agent took over while the handoff request was pending (ownership recheck before send).`);
         return;
@@ -2156,8 +2143,8 @@ export class MessagesService {
         // message metadata, so anything already keying off it keeps working.
         metadata: {
           ...(commerceEnabled ? { aiGenerated: true, commerce: true } : { aiGenerated: true }),
-          // Marks a provider-failure apology so that a repeat within the cooldown can be recognised.
-          ...(result.response === PROVIDER_FAILURE_FALLBACK_TEXT ? { fallback: true, handoffRequested } : {}),
+          // Counted by SecurityRefusalService to limit refusals per conversation.
+          ...(isSecurityRefusal ? { [SECURITY_REFUSAL_METADATA_KEY]: true } : {}),
           ...(simulated ? SIMULATED_MESSAGE_METADATA : {}),
         },
       },

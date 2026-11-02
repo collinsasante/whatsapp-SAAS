@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { KnowledgeBaseService } from '../../knowledge-base/knowledge-base.service';
 import { ApprovedCorrectionsService } from '../../ai-learning/corrections/approved-corrections.service';
+import { RetrievalTrace } from '../../knowledge-base/rag/retrieval-trace';
 
 /**
  * Abstraction point for Phase 3's RAG work to swap in real vector retrieval
@@ -12,6 +13,8 @@ import { ApprovedCorrectionsService } from '../../ai-learning/corrections/approv
  */
 export interface KnowledgeContextSource {
   getContext(tenantId: string, query: string, previousCustomerMessages?: string[]): Promise<string>;
+  /** Optional: the same context plus which articles informed it, for tracing. Sources that do not track this simply omit it. */
+  getContextWithTrace?(tenantId: string, query: string, previousCustomerMessages?: string[]): Promise<{ context: string; trace: RetrievalTrace }>;
 }
 
 /** DI token -- interfaces don't exist at runtime, so this is what makes the

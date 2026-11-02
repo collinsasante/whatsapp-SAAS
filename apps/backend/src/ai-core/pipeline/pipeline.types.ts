@@ -2,6 +2,8 @@ import { AiExecutionStatus, AiExecutionSafetyFlags, AiTaskType } from '@whatsapp
 import { ToolExecutionContext, ToolSideEffect } from '../tools/tool-registry.types';
 import { BusinessInfoSettings, AdContext } from '../prompts/business-info.util';
 import { AiState } from '../tools/state-derivation.util';
+import { HandoffOutcome } from '../prompts/handoff-context';
+import { RetrievalTrace } from '../../knowledge-base/rag/retrieval-trace';
 
 /**
  * Same shape as the legacy AiSuggestionResult plus two new fields
@@ -24,7 +26,7 @@ export interface VerzAiResult {
 }
 
 /** What an execution records about its own safety handling, plus whether it was a simulated (Test Chat) run. */
-export type TraceSafetyFlags = AiExecutionSafetyFlags & { simulated?: boolean };
+export type TraceSafetyFlags = AiExecutionSafetyFlags & { simulated?: boolean; retrieval?: RetrievalTrace };
 
 export interface PipelineInput {
   /**
@@ -58,6 +60,9 @@ export interface PipelineInput {
    * Optional and defaults to WhatsApp formatting everywhere not yet threaded,
    * so this is purely additive -- zero behavior change for existing callers. */
   channelType?: 'WHATSAPP' | 'FACEBOOK_MESSENGER';
+  /** Set when the customer asked for a person and messages.service.ts already performed the handoff: the verified outcome,
+   * given to the model so its reply neither offers a person again nor claims a handoff that did not happen. */
+  handoffOutcome?: HandoffOutcome;
 }
 
 export interface PipelineTrace {
@@ -105,6 +110,8 @@ export interface PipelineContext {
   customerMessage: string; // mutable: menu-digit expansion rewrites this
   historyMessages: { role: 'user' | 'assistant'; content: string }[];
   knowledgeContext: string;
+  /** Which knowledge-base articles informed `knowledgeContext`, when the knowledge source tracks it. Ids and ranks only, never content. */
+  retrievalTrace?: RetrievalTrace;
   /** Verz-AI unification, Phase D: real TenantSettings fields (address/phone/
    * hours) -- previously captured nowhere in this pipeline, only businessName was. */
   businessInfo?: BusinessInfoSettings;

@@ -1,6 +1,5 @@
 import { EvaluationScoringService, EvalTurnRecord, PRODUCT_CLAIM_FIELDS } from './evaluation-scoring.service';
 import { COMMERCE_EVAL_SCENARIOS } from './scenarios/commerce-eval-scenarios';
-import { HUMAN_HANDOFF_REPLY, MAX_ITERATIONS_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 
 function buildService() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -12,6 +11,7 @@ function buildTurn(overrides: Partial<EvalTurnRecord> = {}): EvalTurnRecord {
     customerMessage: 'hi',
     aiResponse: 'Sure, happy to help.',
     blocked: false,
+    shouldEscalate: false,
     toolTrace: [],
     mediaToSend: [],
     scriptedTurn: { customerMessage: 'hi' },
@@ -107,10 +107,10 @@ describe('EvaluationScoringService -- Verz-AI unification, Phase K deterministic
       const r = await score(noEscalation, [buildTurn({ toolTrace: [task({ error: 'department is required' })] })]);
       expect(r.scores['escalation_behaviour']?.pass).toBe(true);
     });
-    it.each([[HUMAN_HANDOFF_REPLY], [MAX_ITERATIONS_FALLBACK_TEXT]])('fails when it fell back to a fixed handoff message: %s', async (aiResponse) => {
-      const r = await score(noEscalation, [buildTurn({ aiResponse })]);
+    it('fails when the system handed the conversation to a person, whatever the reply says', async () => {
+      const r = await score(noEscalation, [buildTurn({ shouldEscalate: true })]);
       expect(r.scores['escalation_behaviour']?.pass).toBe(false);
-      expect(r.scores['escalation_behaviour']?.details[0]).toMatch(/fixed handoff message/);
+      expect(r.scores['escalation_behaviour']?.details[0]).toMatch(/Handed the conversation to a person/);
     });
     it('one escalation anywhere in a multi-turn scenario fails it', async () => {
       const r = await score(noEscalation, [buildTurn(), buildTurn({ toolTrace: [task({ taskId: 't' })] }), buildTurn()]);
@@ -123,15 +123,13 @@ describe('EvaluationScoringService -- Verz-AI unification, Phase K deterministic
         expect(r.scores['escalation_behaviour']?.details[0]).toMatch(/Did not clearly decline and hand off/);
       }
     });
-    it.each([[HUMAN_HANDOFF_REPLY], [MAX_ITERATIONS_FALLBACK_TEXT]])('a scenario that expects a handoff accepts the system\'s fixed handoff reply without asking a judge: %s', async (aiResponse) => {
-      const r = await score({ ...noEscalation, expectsEscalation: undefined }, [buildTurn({ aiResponse })]);
+    it('a scenario that expects a handoff accepts the system\'s handoff signal without asking a judge', async () => {
+      const r = await score({ ...noEscalation, expectsEscalation: undefined }, [buildTurn({ shouldEscalate: true, aiResponse: 'Of course, a colleague will take over.' })]);
       expect(r.scores['escalation_behaviour']).toEqual({ pass: true, details: [] });
     });
-    it('...but only when it is the LAST reply and exactly the fixed text (a lookalike or an earlier one does not count)', async () => {
-      const early = await score({ ...noEscalation, expectsEscalation: undefined }, [buildTurn({ aiResponse: HUMAN_HANDOFF_REPLY }), buildTurn({ aiResponse: 'Anything else?' })]);
+    it('...but only when it is the LAST turn that handed off (an earlier one does not count)', async () => {
+      const early = await score({ ...noEscalation, expectsEscalation: undefined }, [buildTurn({ shouldEscalate: true }), buildTurn({ aiResponse: 'Anything else?' })]);
       expect(early.scores['escalation_behaviour']?.pass).toBe(false);
-      const lookalike = await score({ ...noEscalation, expectsEscalation: undefined }, [buildTurn({ aiResponse: HUMAN_HANDOFF_REPLY + ' ok' })]);
-      expect(lookalike.scores['escalation_behaviour']?.pass).toBe(false);
     });
     it('the prompt-injection scenario keeps its own rule', async () => {
       const r = await score({ ...noEscalation, key: 'escalation_prompt_injection', expectsEscalation: undefined }, [buildTurn({ blocked: true })]);

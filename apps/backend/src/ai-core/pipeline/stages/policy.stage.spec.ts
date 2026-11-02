@@ -1,6 +1,5 @@
 import { PolicyStage } from './policy.stage';
 import { newTrace, PipelineContext } from '../pipeline.types';
-import { HUMAN_HANDOFF_REPLY } from '../../prompts/escalation-messages.util';
 
 function buildCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
   return {
@@ -124,10 +123,10 @@ describe('PolicyStage: unsupported follow-up promises become a real handoff', ()
     return buildCtx({ result: { response, confidence: 80, blocked: false, ...extra }, trace });
   };
 
-  it('replaces a promise nothing arranged with the real handoff reply and flags it', async () => {
+  it('flags a promise nothing arranged as a real handoff and leaves the reply as the model wrote it', async () => {
     const ctx = build('Our team will get back to you about the price.');
     await stage.execute(ctx);
-    expect(ctx.result).toMatchObject({ shouldEscalate: true, response: HUMAN_HANDOFF_REPLY });
+    expect(ctx.result).toMatchObject({ shouldEscalate: true, response: 'Our team will get back to you about the price.' });
     expect(ctx.trace.safetyFlags).toMatchObject({ unsupportedFollowUpPromise: true, humanEscalation: true, escalationReason: 'unsupported_follow_up_promise' });
   });
 
@@ -165,7 +164,7 @@ describe('PolicyStage: unsupported follow-up promises become a real handoff', ()
   });
 
   it('does not touch a reply that is already escalating', async () => {
-    const ctx = build(HUMAN_HANDOFF_REPLY, undefined, { shouldEscalate: true });
+    const ctx = build('Our team will get back to you.', undefined, { shouldEscalate: true });
     await stage.execute(ctx);
     expect(ctx.trace.safetyFlags.unsupportedFollowUpPromise).toBeUndefined();
   });

@@ -1,4 +1,3 @@
-import { HUMAN_HANDOFF_REPLY, PROVIDER_FAILURE_FALLBACK_TEXT } from '../prompts/escalation-messages.util';
 import { Article, GENERATORS, Generator, Scenario, StoredMessage } from './harness';
 
 /** A Ghanaian skin-care shop. Nine articles, so the knowledge base is larger than the 5-article cap and ranking matters. */
@@ -121,7 +120,7 @@ export const SCENARIOS: Scenario[] = [
 
   // ---------------------------------------------------------------- malformed, truncated and unexpected model output
   ...(() => {
-    const failureBy = { legacy: '' as string | RegExp, v2: PROVIDER_FAILURE_FALLBACK_TEXT as string | RegExp, commerce: PROVIDER_FAILURE_FALLBACK_TEXT as string | RegExp };
+    const failureBy = { legacy: '' as string | RegExp, v2: '' as string | RegExp, commerce: '' as string | RegExp };
     const bad: Array<[string, string, string, string?]> = [
       ['truncated', 'JSON cut off mid-reply', '{"response":"Hello! Our shea butter comes in two sizes, 250g for GHS 45 and 500g for GH', '{"response":"Hello! Our shea butter comes in two sizes, 250g for GHS 45 and 500g for GH'],
       ['unclosed-quote', 'JSON with an unterminated string', '{"response":"Hello there', undefined],
@@ -145,16 +144,16 @@ export const SCENARIOS: Scenario[] = [
   scenario({ id: 'output-plain-prose', category: 'output', title: 'clean plain prose from a model that ignored the JSON format is still delivered', generators: TWO, kb: SHOP_KB,
     stored: [IN('m1', 'how much is shea butter', 1)], current: 'm1', rawModel: '250g is GHS 45 and 500g is GHS 80.', expect: { response: '250g is GHS 45 and 500g is GHS 80.' } }),
   scenario({ id: 'output-empty', category: 'output', title: 'an empty model reply sends nothing and takes the recovery path', generators: TWO, kb: SHOP_KB,
-    stored: [IN('m1', 'how much is shea butter', 1)], current: 'm1', rawModel: '', expect: { responseBy: { legacy: '', v2: PROVIDER_FAILURE_FALLBACK_TEXT } } }),
+    stored: [IN('m1', 'how much is shea butter', 1)], current: 'm1', rawModel: '', expect: { responseBy: { legacy: '', v2: '' } } }),
 
   // ---------------------------------------------------------------- history isolation between tenants and conversations
   scenario({ id: 'isolation-other-tenant', category: 'isolation', title: "another tenant's messages never appear, even in the same conversation id", generators: ALL, kb: SHOP_KB,
     stored: [IN('m1', 'do you deliver', 3), IN('x1', 'SECRET from tenant two', 1, { tenantId: 't2' }), OUT('x2', 'SECRET reply from tenant two', 2, { tenantId: 't2' })], current: 'm1', expect: { turns: [] } }),
   scenario({ id: 'isolation-other-conversation', category: 'isolation', title: "another customer's conversation never appears", generators: ALL, kb: SHOP_KB,
     stored: [IN('m1', 'do you deliver', 3), IN('y1', 'SECRET from another customer', 1, { conversationId: 'c-other', contactId: 'contact-other' })], current: 'm1', expect: { turns: [] } }),
-  scenario({ id: 'isolation-same-contact-earlier-conversation', category: 'isolation', title: "the legacy responder keeps a returning customer's earlier chat; v2 and Commerce stay in this conversation", generators: ALL, kb: SHOP_KB,
+  scenario({ id: 'isolation-same-contact-earlier-conversation', category: 'isolation', title: "the legacy responder and v2 keep a returning customer's earlier chat; Commerce stays in this conversation", generators: ALL, kb: SHOP_KB,
     stored: [IN('o1', 'I bought shea butter last week', 1, { conversationId: 'c-old' }), OUT('o2', 'Thank you!', 2, { conversationId: 'c-old' }), IN('m1', 'is it back in stock', 5)], current: 'm1',
-    expect: { turnsBy: { legacy: ['C: I bought shea butter last week', 'AI: Thank you!'], v2: [], commerce: [] } } }),
+    expect: { turnsBy: { legacy: ['C: I bought shea butter last week', 'AI: Thank you!'], v2: ['C: I bought shea butter last week', 'AI: Thank you!'], commerce: [] } } }),
 
   // ---------------------------------------------------------------- direct and informal requests for a person.
   // v2 and Commerce detect these themselves; the legacy responder's detection lives in MessagesService and is covered,
@@ -168,7 +167,7 @@ export const SCENARIOS: Scenario[] = [
     'Can I speak to a human please',
   ].map((text, i) => scenario({ id: `human-${i + 1}`, category: 'human', title: `"${text}" starts a handoff`, generators: ['v2', 'commerce'], kb: SHOP_KB,
     stored: [IN('m1', text, 1)], current: 'm1', reply: 'Of course, I will get someone.',
-    expect: { escalate: true, responseBy: { v2: HUMAN_HANDOFF_REPLY, commerce: HUMAN_HANDOFF_REPLY } } })),
+    expect: { escalate: true, response: 'Of course, I will get someone.' } })),
   ...[
     'You can call me Kwame',
     'I need a person to deliver to my house',
