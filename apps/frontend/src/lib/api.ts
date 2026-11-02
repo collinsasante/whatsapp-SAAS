@@ -485,16 +485,9 @@ export const attributesApi = {
 
 export const billingApi = {
   getStatus: () => api.get('/billing'),
-  getPlans: () => api.get('/billing/plans'),
   getUsage: () => api.get('/billing/usage'),
   getUsageHistory: () => api.get('/billing/usage/history'),
   getInvoices: () => api.get('/billing/invoices'),
-  initiateStripeCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
-    api.post('/billing/checkout/stripe', data),
-  initiatePaystackCheckout: (data: { planSlug: string; cycle: string; billingEmail?: string; promoCode?: string }) =>
-    api.post('/billing/checkout/paystack', data),
-  applyPromoCode: (code: string, planSlug: string) => api.post('/billing/promo', { code, planSlug }),
-  startTrial: (planSlug: string) => api.post(`/billing/trial/${planSlug}`),
   cancelSubscription: (immediately?: boolean) => api.delete('/billing/cancel', { data: { immediately } }),
   updateBillingEmail: (billingEmail: string) => api.post('/billing/email', { billingEmail }),
   getCreditPacks: () => api.get('/billing/credits/packs'),

@@ -237,7 +237,7 @@ export default function DashboardScreen() {
             <Text className="text-light-text-primary dark:text-white text-xl font-bold">
               {greeting()}, {user?.name?.split(' ')[0] ?? 'Agent'}
             </Text>
-            {biz?.plan && (
+            {biz?.plan && biz.plan.toLowerCase() !== 'free' && (
               <View className="mt-1.5 self-start bg-green/15 rounded-full px-2.5 py-0.5 border border-green/20">
                 <Text className="text-green text-[10px] font-semibold">{biz.plan} Plan</Text>
               </View>

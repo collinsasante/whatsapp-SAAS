@@ -101,7 +101,7 @@ const entries = [
     items: [
       { type: 'new', text: 'Verz AI assistant: AI-powered reply suggestions trained on your knowledge base. Enable it per workspace in Settings > AI.' },
       { type: 'new', text: 'Universal takeover system, any agent can take over a conversation assigned to another agent or Verz, with a clear handover state so nothing gets confused.' },
-      { type: 'new', text: 'A single Pro plan with one flat price for your whole team. Plans and prices have changed since; the current plans are on the home page.' },
+      { type: 'new', text: 'A single Pro plan for your whole team. Plans have changed since this release.' },
       { type: 'new', text: 'Automated Postgres backups with 7-day retention on the server.' },
       { type: 'improved', text: 'Onboarding is now 2 steps: connect your WhatsApp number and your profile is fetched from Meta automatically.' },
       { type: 'improved', text: 'AI assistant now uses DeepSeek instead of Claude Haiku. Faster, cheaper, and the replies feel more natural.' },

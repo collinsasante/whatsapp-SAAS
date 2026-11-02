@@ -44,31 +44,6 @@ export const CHANNELS: ChannelRow[] = [
   },
 ];
 
-export interface PlanColumn {
-  id: 'free' | 'starter' | 'pro';
-  name: string;
-  price: string;
-  note: string;
-  highlight?: boolean;
-}
-
-export const PLANS: PlanColumn[] = [
-  { id: 'free', name: 'Free', price: '$0', note: 'No card needed' },
-  { id: 'starter', name: 'Starter', price: '$16', note: 'per month' },
-  { id: 'pro', name: 'Pro', price: '$25', note: 'per month, 7-day trial', highlight: true },
-];
-
-// Rows come from the plan definitions in prisma/seed.ts; only limits stated there appear.
-export const PLAN_ROWS: Array<{ label: string; values: [string, string, string] }> = [
-  { label: 'Agents', values: ['1', '2', '20'] },
-  { label: 'WhatsApp channels', values: ['1', '1', '5'] },
-  { label: 'Contacts', values: ['Unlimited', 'Unlimited', '20,000'] },
-  { label: 'Messages', values: ['Unlimited', 'Unlimited', 'Unlimited'] },
-  { label: 'Message templates', values: ['None', '3', 'Unlimited'] },
-  { label: 'Campaigns', values: ['None', '3', 'Unlimited'] },
-  { label: 'Verz AI assistant and knowledge base', values: ['None', 'None', 'Included'] },
-];
-
 export interface FaqItem {
   q: string;
   a: string;
@@ -77,10 +52,6 @@ export interface FaqItem {
 }
 
 export const FAQ: FaqItem[] = [
-  {
-    q: 'What does VerzChat cost?',
-    a: 'There is a free plan with one agent and one WhatsApp channel. Starter is $16 a month and Pro is $25 a month, and Pro begins with a 7-day trial. The table above lists what each plan includes.',
-  },
   {
     q: 'Which channels can I connect today?',
     a: "WhatsApp works today, either through Meta's official WhatsApp Business Platform or by linking a phone with a QR code. Messenger and Instagram are built and are opening to every workspace as Meta approves our app. We only list what we can operate.",
@@ -105,10 +76,5 @@ export const FAQ: FaqItem[] = [
       { href: '/gdpr', label: 'GDPR and data rights' },
       { href: '/data-deletion', label: 'Data deletion' },
     ],
-  },
-  {
-    q: 'Can I cancel?',
-    a: 'Yes. Cancel from Billing in your workspace. The plan stays active until the end of the period you have paid for.',
-    links: [{ href: '/terms', label: 'Terms of service' }],
   },
 ];

@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -146,26 +146,10 @@ export class ManageSettingsService {
   }
 
   async approveAi(tenantId: string) {
-    // Must have active paid subscription
-    const sub = await this.prisma.subscription.findUnique({
-      where: { tenantId },
-      include: { plan: true },
-    });
-
-    const isPaid = sub && sub.status === 'ACTIVE' && sub.plan.monthlyPrice > 0;
-    if (!isPaid) {
-      throw new ForbiddenException('An active paid plan is required to activate VerzAI.');
-    }
-
-    // Must have AI credits
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { aiCredits: true },
-    });
-    if (!tenant || tenant.aiCredits <= 0) {
-      throw new ForbiddenException('AI credits are required to activate VerzAI. Purchase credits first.');
-    }
-
+    // Approval is the only step: it needs no monthly subscription, no paid plan and no credit balance. A workspace may approve VerzAI
+    // at zero credits. What it cannot do at zero (or too few) credits is get a chargeable reply: every reply first reserves credits
+    // (AiMeteredProviderService / AiCreditsService), and AiResponderService.evaluateAvailability keeps the AI silent while the balance
+    // is empty. VerzAI stays enabled throughout, so it answers again as soon as the workspace tops up. No usage is ever free.
     return this.prisma.tenantSettings.upsert({
       where: { tenantId },
       create: { tenantId, aiEnabled: true, aiTrialApprovedAt: new Date() },
@@ -183,7 +167,6 @@ export class ManageSettingsService {
     ]);
 
     const workspaceName = tenant?.name ?? 'your workspace';
-    const frontendUrl = process.env['FRONTEND_URL'] ?? 'https://app.verzchat.com';
 
     for (const admin of admins) {
       await this.notificationsService.notifyUser(admin.id, tenantId, {
@@ -215,17 +198,8 @@ export class ManageSettingsService {
           <ul style="margin:0 0 24px;padding-left:20px;color:#374151;font-size:14px;line-height:1.8">
             <li>Campaigns are paused</li>
             <li>Agent access limited to 2</li>
-            <li>AI agent paused</li>
             <li>You can still send and receive messages</li>
           </ul>
-          <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px">
-            <tr><td style="border-radius:8px;background:#0d9488">
-              <a href="${frontendUrl}/billing" target="_blank"
-                style="display:inline-block;padding:13px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none">
-                Renew Subscription
-              </a>
-            </td></tr>
-          </table>
         </td></tr>
         <tr><td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center">
           <p style="margin:0;color:#d1d5db;font-size:11px">© VerzChat</p>
@@ -282,7 +256,7 @@ export class ManageSettingsService {
             It has been observing your conversations and is now ready to start replying as an AI agent.
           </p>
           <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6">
-            To activate VerzAI, you need an active paid plan and AI credits. Then approve it in your AI settings.
+            Approve it in your AI settings to activate it. Replies are charged against your workspace&apos;s AI credits, so it answers whenever there are credits available.
           </p>
           <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px">
             <tr><td style="border-radius:8px;background:#0d9488">

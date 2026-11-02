@@ -14,7 +14,7 @@ export default function FinalCta() {
         <h2 id="cta-title" className="h2">
           Put your first channel in the inbox today
         </h2>
-        <p className={styles.sub}>The free plan has one agent and one WhatsApp channel. You can upgrade when your team grows.</p>
+        <p className={styles.sub}>Create a workspace, connect a channel and answer your customers from one shared inbox.</p>
         <div className={styles.actions}>
           <Link href="/auth/register" className="btn btn-light">
             Start free

@@ -169,7 +169,9 @@ export default function AiPage() {
     setApprovingAi(true);
     try {
       await manageSettingsApi.approveAi();
-      toast.success('VerzAI activated! It will now start replying to messages.');
+      toast.success(aiCredits > 0
+        ? 'VerzAI activated! It will now start replying to messages.'
+        : 'VerzAI is activated. It will start replying as soon as your workspace has AI credits.');
       void load();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -383,13 +385,16 @@ export default function AiPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-teal-900">VerzAI is active</p>
                     <p className="text-xs text-teal-700 mt-0.5">
-                      AI replies consume 1 credit each. Balance: <strong>{aiCredits.toLocaleString()} credits</strong>.
+                      AI replies are charged against your credits. Balance: <strong>{aiCredits.toLocaleString()} credits</strong>.
                       {aiCredits <= 20 && aiCredits > 0 && ', top up soon!'}
                     </p>
                     {aiCredits === 0 && (
-                      <Link href="/billing" className="text-xs text-red-600 font-semibold hover:underline mt-1 inline-block">
-                        No credits remaining, buy credits to resume →
-                      </Link>
+                      <>
+                        <p className="text-xs text-red-600 mt-1">VerzAI is on but paused: there are no credits left. It will reply again as soon as you top up.</p>
+                        <Link href="/billing" className="text-xs text-red-600 font-semibold hover:underline mt-1 inline-block">
+                          Buy credits →
+                        </Link>
+                      </>
                     )}
                   </div>
                 </div>
@@ -405,7 +410,7 @@ export default function AiPage() {
                       <p className="text-sm font-semibold text-amber-900">VerzAI learning period complete, approval required</p>
                       <p className="text-xs text-amber-700 mt-0.5">
                         Verz has been observing your conversations for 30 days and is ready to start replying.
-                        To activate it, you need an active paid plan and AI credits.
+                        Approve it to start replying. Replies are charged against your AI credits, and it pauses by itself whenever the balance runs out.
                       </p>
                     </div>
                   </div>
@@ -971,7 +976,7 @@ export default function AiPage() {
               {[
                 { step: '1', title: 'Customer messages', desc: 'A customer sends a WhatsApp message outside business hours (or any time if Always On)' },
                 { step: '2', title: 'Verz searches KB', desc: 'Verz reads your knowledge base and crafts a relevant, natural reply' },
-                { step: '3', title: 'Instant reply', desc: "Customer gets an answer in seconds. If Verz can't help, it lets them know a team member will follow up" },
+                { step: '3', title: 'Instant reply', desc: "Customer gets an answer in seconds. If Verz can't help, it hands the conversation to your team" },
               ].map(({ step, title, desc }) => (
                 <div key={step} className="flex gap-3">
                   <div className="w-6 h-6 rounded-full bg-teal-600 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5">{step}</div>

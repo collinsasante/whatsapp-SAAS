@@ -28,7 +28,7 @@ export default function Trust() {
             What we can show you today
           </h2>
           <p className={`lede ${styles.lede}`}>
-            There are no customer logos or quotes on this page. We would rather you open the free plan and judge the inbox
+            There are no customer logos or quotes on this page. We would rather you open a workspace and judge the inbox
             yourself, and read how we handle your data first.
           </p>
         </div>

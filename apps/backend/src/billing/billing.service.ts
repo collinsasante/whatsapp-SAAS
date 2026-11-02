@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingCycle, PaymentGateway, PaymentStatus } from '@whatsapp-platform/shared-types';
@@ -10,6 +10,7 @@ import { StripeGateway } from './gateways/stripe.gateway';
 import { PaystackGateway } from './gateways/paystack.gateway';
 import { AiCreditsService } from '../ai-core/credits/ai-credits.service';
 import { randomBytes } from 'crypto';
+import { isSubscriptionSalesEnabled, SUBSCRIPTIONS_UNAVAILABLE_CODE, SUBSCRIPTIONS_UNAVAILABLE_MESSAGE, withoutPlanPricing } from './subscription-sales.util';
 
 function genRef(prefix: string) {
   return `${prefix}-${randomBytes(4).toString('hex').toUpperCase()}`;
@@ -32,6 +33,17 @@ export class BillingService {
     private readonly aiCreditsService: AiCreditsService,
   ) {}
 
+  private subscriptionSalesEnabled(): boolean {
+    return isSubscriptionSalesEnabled((key) => this.config.get<string>(key));
+  }
+
+  /** Subscription checkout, promo codes and trials are refused while subscription sales are off (see subscription-sales.util.ts). */
+  private assertSubscriptionSalesEnabled(): void {
+    if (!this.subscriptionSalesEnabled()) {
+      throw new ForbiddenException({ statusCode: 403, code: SUBSCRIPTIONS_UNAVAILABLE_CODE, message: SUBSCRIPTIONS_UNAVAILABLE_MESSAGE });
+    }
+  }
+
   async getStatus(tenantId: string) {
     const [tenant, sub] = await Promise.all([
       this.prisma.tenant.findUnique({
@@ -41,6 +53,11 @@ export class BillingService {
       this.subscriptionService.getOrCreateFreeTrial(tenantId),
     ]);
     if (!tenant) throw new NotFoundException('Tenant not found');
+    // The workspace keeps its plan, status, limits and renewal dates. While sales are off, what the plan costs is not shown.
+    if (!this.subscriptionSalesEnabled()) {
+      const plan = withoutPlanPricing(sub.plan);
+      return { subscription: { ...sub, plan }, plan, billingEmail: tenant.billingEmail, workspaceName: tenant.name };
+    }
     return { subscription: sub, plan: sub.plan, billingEmail: tenant.billingEmail, workspaceName: tenant.name };
   }
 
@@ -52,8 +69,14 @@ export class BillingService {
     return this.invoiceService.getInvoices(tenantId);
   }
 
-  getPlans() {
+  async getPlans() {
+    if (!this.subscriptionSalesEnabled()) return [];
     return this.subscriptionService.getPlans();
+  }
+
+  startTrial(tenantId: string, planSlug: string) {
+    this.assertSubscriptionSalesEnabled();
+    return this.subscriptionService.startTrial(tenantId, planSlug);
   }
 
   /**
@@ -86,6 +109,7 @@ export class BillingService {
   // ─── Stripe: subscription checkout (embedded Elements) ───────────────────
 
   async initiateStripeCheckout(tenantId: string, dto: InitiateCheckoutDto, userId?: string) {
+    this.assertSubscriptionSalesEnabled();
     const tenant = await this.requireTenant(tenantId);
     const plan = await this.prisma.plan.findUnique({ where: { slug: dto.planSlug } });
     if (!plan) throw new NotFoundException(`Plan not found: ${dto.planSlug}`);
@@ -156,6 +180,7 @@ export class BillingService {
   // ─── Paystack: subscription checkout (embedded Inline) ───────────────────
 
   async initiatePaystackCheckout(tenantId: string, dto: InitiateCheckoutDto, userId?: string) {
+    this.assertSubscriptionSalesEnabled();
     const tenant = await this.requireTenant(tenantId);
     const plan = await this.prisma.plan.findUnique({ where: { slug: dto.planSlug } });
     if (!plan) throw new NotFoundException(`Plan not found: ${dto.planSlug}`);
@@ -234,6 +259,7 @@ export class BillingService {
   }
 
   async applyPromoCode(tenantId: string, code: string, planSlug: string) {
+    this.assertSubscriptionSalesEnabled();
     const promo = await this.prisma.promoCode.findUnique({ where: { code: code.toUpperCase() } });
     if (!promo || !promo.isActive) throw new NotFoundException('Promo code not found or inactive');
 

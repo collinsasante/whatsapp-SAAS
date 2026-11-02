@@ -19,7 +19,7 @@ export default function TermsPage() {
 
       <div className="space-y-10">
         <Section title="The basics">
-          <p>VerzChat is a business messaging platform. You use it to manage customer conversations through WhatsApp, Instagram, Messenger, and Telegram. You need a business to sign up, and you&apos;re responsible for how your team uses the platform.</p>
+          <p>VerzChat is a business messaging platform. You use it to manage customer conversations through WhatsApp, Instagram, and Messenger. You need a business to sign up, and you&apos;re responsible for how your team uses the platform.</p>
           <p>By creating an account, you confirm that you&apos;re at least 18 years old and have the authority to agree to these terms on behalf of your business.</p>
         </Section>
 
@@ -30,7 +30,6 @@ export default function TermsPage() {
         </Section>
 
         <Section title="Billing">
-          <p>The Pro plan is $25/month. Annual billing is $250/year.</p>
           <p>Your subscription renews automatically at the start of each billing period. You can cancel anytime from your billing settings and you&apos;ll keep access until the end of the period you paid for. We don&apos;t offer refunds for partial months, but if something went wrong on our end we&apos;ll make it right.</p>
           <p>If a payment fails, we&apos;ll email you and give you 7 days to sort it out before suspending the account.</p>
         </Section>

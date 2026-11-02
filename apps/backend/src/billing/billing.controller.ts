@@ -24,7 +24,7 @@ export class BillingController {
   }
 
   @Get('plans')
-  @ApiOperation({ summary: 'Get all available plans' })
+  @ApiOperation({ summary: 'Get all available plans (empty while subscription sales are off)' })
   getPlans() {
     return this.billingService.getPlans();
   }
@@ -72,7 +72,7 @@ export class BillingController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Start a free trial for a plan' })
   startTrial(@CurrentTenant() tenantId: string, @Param('planSlug') planSlug: string) {
-    return this.billingService['subscriptionService'].startTrial(tenantId, planSlug);
+    return this.billingService.startTrial(tenantId, planSlug);
   }
 
   @Delete('cancel')

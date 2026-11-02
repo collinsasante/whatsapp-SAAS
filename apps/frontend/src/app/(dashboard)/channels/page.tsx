@@ -1220,8 +1220,8 @@ function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
               Connect & manage all your<br className="hidden sm:block" /> customer conversations
             </h1>
             <p className="text-slate-400 text-sm leading-relaxed max-w-lg">
-              One unified inbox for WhatsApp, Instagram, Facebook, TikTok, and Telegram.
-              Connect channels once and let your team handle everything from here.
+              One unified inbox for WhatsApp, Instagram, and Facebook Messenger.
+              TikTok and Telegram can be connected and verified, but their messages do not reach the inbox yet.
             </p>
           </div>
 

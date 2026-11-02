@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { BillingService } from './billing.service';
 
-function build(over: { pack?: Record<string, unknown> | null; plan?: Record<string, unknown> | null; tenantEmail?: string | null; userEmail?: string | null } = {}) {
+function build(over: { pack?: Record<string, unknown> | null; plan?: Record<string, unknown> | null; tenantEmail?: string | null; userEmail?: string | null; salesEnabled?: boolean } = {}) {
   const pack = over.pack === undefined ? { slug: 'starter', name: 'Starter', credits: 1000, bonusCredits: 100, priceUsd: 10, priceGhs: 150 } : over.pack;
   const plan = over.plan === undefined
     ? { id: 'p1', slug: 'pro', name: 'Pro', monthlyPrice: 50, paystackPlanCodeMonthly: 'PLN_x', paystackPlanCodeYearly: 'PLN_y', ghsMonthlyPrice: 600, ghsYearlyPrice: 6000 }
@@ -19,7 +19,7 @@ function build(over: { pack?: Record<string, unknown> | null; plan?: Record<stri
   const paystackGateway = { initializeTransaction: jest.fn().mockResolvedValue({ accessCode: 'ac_1', authorizationUrl: 'https://p/x', gatewayReference: 'REF-1' }) };
   const subscriptionService = { createCheckoutInvoice: jest.fn().mockResolvedValue({ invoice: { id: 'inv1', total: 600, currency: 'GHS' } }) };
   const svc = Object.create(BillingService.prototype) as Record<string, unknown>;
-  Object.assign(svc, { prisma, paystackGateway, subscriptionService, config: { get: jest.fn().mockReturnValue('pk_test') } });
+  Object.assign(svc, { prisma, paystackGateway, subscriptionService, config: { get: jest.fn((key: string) => (key === 'SUBSCRIPTION_SALES_ENABLED' ? (over.salesEnabled ? 'true' : undefined) : 'pk_test')) } });
   return { svc: svc as unknown as BillingService, prisma, paystackGateway, subscriptionService };
 }
 
@@ -64,16 +64,17 @@ describe('AI credit purchase (Paystack)', () => {
   });
 });
 
-describe('plan upgrade (Paystack)', () => {
+// Subscription checkout only runs while subscription sales are switched on (see billing.service.subscription-sales.spec.ts for the off state).
+describe('plan upgrade (Paystack), with subscription sales switched on', () => {
   it('charges the cycle\'s GHS price with the matching Paystack plan code, in the caller\'s tenant', async () => {
-    const { svc, paystackGateway, prisma } = build({ tenantEmail: 'billing@acme.test' });
+    const { svc, paystackGateway, prisma } = build({ tenantEmail: 'billing@acme.test', salesEnabled: true });
     await svc.initiatePaystackCheckout('tenant-A', { planSlug: 'pro', cycle: 'YEARLY' as never }, 'u1');
     expect(paystackGateway.initializeTransaction).toHaveBeenCalledWith(expect.objectContaining({ amountMajorUnits: 6000, currency: 'GHS', planCode: 'PLN_y', tenantId: 'tenant-A' }));
     expect(prisma.payment.create.mock.calls[0][0].data).toMatchObject({ tenantId: 'tenant-A', amount: 6000, currency: 'GHS' });
   });
 
   it('upgrades with no email typed and none saved: uses the signed-in user\'s email', async () => {
-    const { svc, paystackGateway } = build({ tenantEmail: null });
+    const { svc, paystackGateway } = build({ tenantEmail: null, salesEnabled: true });
     await svc.initiatePaystackCheckout('t1', { planSlug: 'pro', cycle: 'MONTHLY' as never }, 'u1');
     expect(paystackGateway.initializeTransaction.mock.calls[0][0]).toMatchObject({ email: 'owner@acme.test', planCode: 'PLN_x', amountMajorUnits: 600 });
   });
@@ -82,14 +83,14 @@ describe('plan upgrade (Paystack)', () => {
     ['no GHS price', { ghsMonthlyPrice: null }],
     ['no Paystack plan code', { paystackPlanCodeMonthly: null }],
   ])('says the plan is not provisioned (%s) instead of starting a broken payment', async (_l, patch) => {
-    const { svc, paystackGateway, subscriptionService } = build({ plan: { id: 'p1', slug: 'pro', name: 'Pro', monthlyPrice: 50, paystackPlanCodeMonthly: 'PLN_x', ghsMonthlyPrice: 600, ...patch } });
+    const { svc, paystackGateway, subscriptionService } = build({ salesEnabled: true, plan: { id: 'p1', slug: 'pro', name: 'Pro', monthlyPrice: 50, paystackPlanCodeMonthly: 'PLN_x', ghsMonthlyPrice: 600, ...patch } });
     await expect(svc.initiatePaystackCheckout('t1', { planSlug: 'pro', cycle: 'MONTHLY' as never }, 'u1')).rejects.toThrow('not yet provisioned for Paystack');
     expect(paystackGateway.initializeTransaction).not.toHaveBeenCalled();
     expect(subscriptionService.createCheckoutInvoice).not.toHaveBeenCalled();
   });
 
   it('an unknown plan is a clear 404, not a server error', async () => {
-    const { svc } = build({ plan: null });
+    const { svc } = build({ plan: null, salesEnabled: true });
     await expect(svc.initiatePaystackCheckout('t1', { planSlug: 'ghost', cycle: 'MONTHLY' as never }, 'u1')).rejects.toThrow('Plan not found');
   });
 });

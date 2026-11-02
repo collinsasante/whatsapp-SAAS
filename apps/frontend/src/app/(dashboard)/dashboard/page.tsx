@@ -162,7 +162,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <WidgetCard id="business" title="Business and subscription" description="Your business details and plan" widget={business}>
+            <WidgetCard id="business" title="Business" description="Your business details and AI credits" widget={business}>
               {(data) => <BusinessCard data={data} />}
             </WidgetCard>
           </div>

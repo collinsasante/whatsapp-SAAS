@@ -1,8 +1,8 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  AlertCircle, BarChart3, Bot, Check, CheckCircle2,
-  CreditCard, Download, Mail, Receipt, RefreshCw, Sparkles, Users, X, Zap,
+  AlertCircle, BarChart3, Bot, CheckCircle2,
+  CreditCard, Download, Mail, Receipt, RefreshCw, Sparkles, Users, X,
 } from 'lucide-react';
 import { billingApi } from '@/lib/api';
 import EmptyState from '@/components/ui/EmptyState';
@@ -16,10 +16,9 @@ import { showConfirm } from '@/store/confirm.store';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+// What a plan costs is deliberately not part of this type: while subscription sales are off the API sends no price.
 interface Plan {
   id: string; slug: string; name: string; description: string | null;
-  monthlyPrice: number; yearlyPrice: number; currency: string;
-  ghsMonthlyPrice: number | null; ghsYearlyPrice: number | null;
   trialDays: number; isActive: boolean;
   limMaxAgents: number; limMaxChannels: number; limMaxContacts: number;
   limMaxTemplates: number; limMessagesPerMonth: number;
@@ -91,18 +90,6 @@ interface CreditUsageSummary {
   totalUsed: number;
 }
 
-// ─── Currency helpers ─────────────────────────────────────────────────────────
-
-const isGhana = typeof window !== 'undefined'
-  ? Intl.DateTimeFormat().resolvedOptions().timeZone === 'Africa/Accra'
-  : false;
-const GHS_RATE = 12.5;
-
-function formatUsd(usd: number): string {
-  if (isGhana) return `₵${Math.round(usd * GHS_RATE)}`;
-  return `$${usd}`;
-}
-
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
@@ -118,6 +105,17 @@ const STATUS_STYLE: Record<string, string> = {
 
 function UsageBar({ label, used, limit, color }: { label: string; used: number; limit: number; color: string }) {
   const unlimited = limit < 0;
+  // A limit of 0 means the workspace's plan does not include this at all. It is not "0 of 0 used", so it gets no meter and no warning.
+  if (limit === 0) {
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-medium text-gray-600">{label}</span>
+          <span className="font-semibold text-gray-400">Not included</span>
+        </div>
+      </div>
+    );
+  }
   const pct = unlimited ? 0 : Math.min(100, Math.round((used / limit) * 100));
   const warning = !unlimited && pct >= 85;
   return (
@@ -144,158 +142,8 @@ function UsageBar({ label, used, limit, color }: { label: string; used: number; 
   );
 }
 
-// ─── CheckoutModal ───────────────────────────────────────────────────────────
-
 type CheckoutStep = 'form' | 'pay' | 'success';
 
-function CheckoutModal({ plan, initialEmail, onClose, onActivated }: {
-  plan: Plan;
-  initialEmail?: string;
-  onClose: () => void;
-  onActivated: () => void;
-}) {
-  const [cycle, setCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const userEmail = useAuthStore((st) => st.user?.email);
-  // Saved billing email first, else the signed-in user's own email. Always editable.
-  const [email, setEmail] = useState(initialEmail || userEmail || '');
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<CheckoutStep>('form');
-  const [error, setError] = useState<string | null>(null);
-
-  const [paystackAccessCode, setPaystackAccessCode] = useState<string | null>(null);
-
-  const ghsAmount = cycle === 'YEARLY' ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
-  const emailOk = isPlausibleEmail(email);
-  // A plan with no GHS price cannot be bought through Paystack: say so instead of failing at checkout.
-  const unavailable = !ghsAmount;
-
-  const handleContinue = async () => {
-    setError(null);
-    if (!emailOk) { setError('Enter a valid billing email so we can send your receipt.'); return; }
-    setLoading(true);
-    try {
-      const res = await billingApi.initiatePaystackCheckout({ planSlug: plan.slug, cycle, billingEmail: email.trim() });
-      const data = res.data as { free?: boolean; accessCode?: string };
-      if (data.free) { toast.success(`${plan.name} plan activated`); onActivated(); onClose(); return; }
-      if (data.accessCode) {
-        setPaystackAccessCode(data.accessCode);
-        setStep('pay');
-      }
-    } catch (err: unknown) {
-      const message = getApiError(err, 'Could not start checkout. Please try again.');
-      setError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Subscribe to {plan.name}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-
-        {step === 'success' && (
-          <div className="p-8 flex flex-col items-center gap-4 text-center">
-            <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center">
-              <CheckCircle2 size={32} className="text-teal-600" />
-            </div>
-            <div>
-              <p className="font-bold text-gray-900 text-lg">Payment successful</p>
-              <p className="text-sm text-gray-500 mt-1">Your {plan.name} plan will activate within a few seconds.</p>
-            </div>
-            <button onClick={() => { onActivated(); onClose(); }}
-              className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 transition-colors text-sm">
-              Continue
-            </button>
-          </div>
-        )}
-
-        {step === 'pay' && (
-          <div className="p-5 space-y-4">
-            {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
-            {paystackAccessCode && (
-              <PaystackCheckoutButton
-                accessCode={paystackAccessCode}
-                onSuccess={() => setStep('success')}
-                onError={(msg) => setError(msg)}
-              />
-            )}
-            <button onClick={() => setStep('form')} className="w-full text-xs text-gray-400 hover:text-gray-600 underline">
-              Back
-            </button>
-          </div>
-        )}
-
-        {step === 'form' && (
-          <>
-            <div className="p-5 space-y-5">
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Method</p>
-                <div className="p-3 rounded-xl border-2 border-teal-500 bg-teal-50">
-                  <div className="text-sm font-semibold text-gray-900">Paystack</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Card, Mobile Money, bank. Charged in Ghana cedis (GHS).</div>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Billing Cycle</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['MONTHLY', 'YEARLY'] as const).map((c) => {
-                    const ghsPrice = c === 'YEARLY' ? plan.ghsYearlyPrice : plan.ghsMonthlyPrice;
-                    const price = ghsPrice ? `GH₵${ghsPrice}` : 'Not available';
-                    return (
-                      <button key={c} onClick={() => setCycle(c)}
-                        className={cn('p-3 rounded-xl border-2 text-left transition-all text-sm',
-                          cycle === c ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300')}>
-                        <div className="font-semibold text-gray-900">{c === 'MONTHLY' ? 'Monthly' : 'Yearly'}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{price}{c === 'MONTHLY' ? '/mo' : '/yr'}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Billing Email
-                </p>
-                <input type="email" inputMode="email" autoComplete="email" aria-label="Billing email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  placeholder="billing@yourcompany.com"
-                  aria-invalid={email.length > 0 && !emailOk}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
-                <p className="text-xs text-gray-400 mt-1">Receipts for this payment go to this address.</p>
-                {email.length > 0 && !emailOk && <p className="text-xs text-red-600 mt-1">Enter a valid email address.</p>}
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-4 text-sm">
-                <div className="flex justify-between font-bold text-gray-900">
-                  <span>{plan.name} ({cycle === 'MONTHLY' ? 'Monthly' : 'Yearly'})</span>
-                  <span>{ghsAmount ? `GH₵${ghsAmount}` : 'Not available'}</span>
-                </div>
-                {unavailable && <p className="text-xs text-amber-700 mt-2">This plan cannot be purchased online yet. Contact support to upgrade.</p>}
-              </div>
-            </div>
-
-            <div className="px-5 pb-5">
-              <button onClick={() => { void handleContinue(); }} disabled={loading || unavailable || !emailOk}
-                className="w-full py-3 bg-teal-600 text-white font-semibold rounded-xl hover:bg-teal-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2 text-sm">
-                {loading
-                  ? <><span className="animate-spin h-4 w-4 border-2 border-white/40 border-t-white rounded-full" />Starting checkout...</>
-                  : 'Continue to Payment'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 // ─── CreditCheckoutModal ──────────────────────────────────────────────────────
 
 function CreditCheckoutModal({ pack, onClose, onPurchased }: {
@@ -577,105 +425,29 @@ function CreditActivitySection() {
   );
 }
 
-// ─── PlanCard ─────────────────────────────────────────────────────────────────
-
-function PlanCard({ plan, isCurrent, currentSlug, onSelect }: {
-  plan: Plan; isCurrent: boolean; currentSlug: string; onSelect: () => void;
-}) {
-  const isFree = plan.monthlyPrice === 0;
-  const ORDER: Record<string, number> = { free: 0, starter: 1, pro: 2 };
-  const currentOrder = ORDER[currentSlug] ?? 0;
-  const planOrder = ORDER[plan.slug] ?? 1;
-  const isUpgrade = planOrder > currentOrder;
-  const isDowngrade = planOrder < currentOrder;
-
-  const btnLabel = isCurrent ? 'Current Plan' : isUpgrade ? `Upgrade to ${plan.name}` : isDowngrade ? `Switch to ${plan.name}` : `Select ${plan.name}`;
-
-  return (
-    <div className={cn(
-      'relative rounded-2xl border-2 p-5 flex flex-col gap-4 transition-all',
-      isCurrent ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-500 ring-offset-1' : 'border-gray-200 bg-white hover:border-teal-300',
-    )}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-sm font-bold text-gray-900">{plan.name}</span>
-            {isCurrent && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-600 text-white uppercase tracking-wide">
-                Current
-              </span>
-            )}
-            {plan.trialDays > 0 && !isCurrent && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                {plan.trialDays}-day trial
-              </span>
-            )}
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-2xl font-bold text-gray-900">{isFree ? 'Free' : formatUsd(plan.monthlyPrice)}</span>
-            {!isFree && <span className="text-xs text-gray-400">/month</span>}
-          </div>
-          {plan.description && <p className="text-xs text-gray-500 mt-1">{plan.description}</p>}
-        </div>
-      </div>
-      {(plan.features as string[]).length > 0 && (
-        <ul className="space-y-1">
-          {(plan.features as string[]).map((f) => (
-            <li key={f} className="flex items-center gap-2 text-xs text-gray-600">
-              <Check size={11} className="text-teal-500 flex-shrink-0" />
-              {f}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="mt-auto pt-2">
-        {isCurrent ? (
-          <div className="py-2 px-4 text-center text-xs font-semibold text-teal-700 bg-teal-100 rounded-xl">
-            Active
-          </div>
-        ) : (
-          <button onClick={onSelect}
-            className={cn(
-              'w-full py-2 px-4 text-xs font-semibold rounded-xl transition-colors',
-              isUpgrade
-                ? 'text-white bg-teal-600 hover:bg-teal-700'
-                : 'text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200',
-            )}>
-            {btnLabel}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [usageData, setUsageData] = useState<UsageResponse | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [billingEmail, setBillingEmail] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
-  const [checkoutPlan, setCheckoutPlan] = useState<Plan | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [statusRes, usageRes, invoicesRes, plansRes] = await Promise.all([
+      const [statusRes, usageRes, invoicesRes] = await Promise.all([
         billingApi.getStatus(),
         billingApi.getUsage(),
         billingApi.getInvoices(),
-        billingApi.getPlans(),
       ]);
       const s = statusRes.data as BillingStatus;
       setStatus(s);
       setBillingEmail(s.billingEmail ?? '');
       setUsageData(usageRes.data as UsageResponse);
       setInvoices((invoicesRes.data as Invoice[]) ?? []);
-      setPlans((plansRes.data as Plan[]) ?? []);
     } catch (err) {
       toast.error(getApiError(err, 'Failed to load billing data'));
     } finally { setLoading(false); }
@@ -715,33 +487,18 @@ export default function BillingPage() {
   const sub = status.subscription;
   const currentPlan = sub.plan;
   const currentSlug = currentPlan.slug;
-  const publicPlans = plans.filter((p) => p.isActive);
   const { usage, limits } = usageData;
 
   const periodLabel = new Date(usage.periodStart).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  function formatPrice(plan: Plan) {
-    if (plan.monthlyPrice === 0) return 'Free';
-    return `${formatUsd(plan.monthlyPrice)}/mo`;
-  }
-
   return (
     <>
-      {checkoutPlan && (
-        <CheckoutModal
-          plan={checkoutPlan}
-          initialEmail={billingEmail}
-          onClose={() => setCheckoutPlan(null)}
-          onActivated={() => { void load(); }}
-        />
-      )}
-
       <div className="flex flex-col h-full bg-gray-50 overflow-auto">
         <div className="bg-white border-b border-gray-100 px-6 py-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Billing & Plans</h1>
-              <p className="text-sm text-gray-500">Manage your subscription, usage, and invoices</p>
+              <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Billing</h1>
+              <p className="text-sm text-gray-500">Your plan, usage, AI credits and invoices</p>
             </div>
             <button onClick={() => { void load(); }}
               className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors">
@@ -751,7 +508,8 @@ export default function BillingPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-4xl mx-auto w-full">
-          {/* Subscription banner */}
+          {/* Current plan: only for a workspace that still has a paid subscription (name, status and dates; no price, no purchase). */}
+          {currentSlug !== 'free' && (
           <div className={cn('rounded-2xl border-2 p-5',
             currentSlug === 'pro' ? 'border-teal-200 bg-teal-50' : 'border-gray-200 bg-white')}>
             <div className="flex items-center justify-between flex-wrap gap-4">
@@ -761,7 +519,7 @@ export default function BillingPage() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <h2 className="font-bold text-gray-900 text-lg">{currentPlan.name} Plan</h2>
+                    <h2 className="font-bold text-gray-900 text-lg">{currentPlan.name} plan</h2>
                     <span className={cn('text-xs font-semibold px-2.5 py-0.5 rounded-full', STATUS_STYLE[sub.status] ?? 'bg-gray-100 text-gray-500')}>
                       {sub.status.replace('_', ' ')}
                     </span>
@@ -770,14 +528,12 @@ export default function BillingPage() {
                     )}
                   </div>
                   <div className="text-sm text-gray-500 space-x-3">
-                    {currentPlan.monthlyPrice === 0 && <span>Free forever</span>}
-                    {currentPlan.monthlyPrice > 0 && <span>{formatPrice(currentPlan)}</span>}
                     {sub.status === 'TRIAL' && sub.trialEndsAt && (
                       <span className="text-blue-600 font-medium">
                         Trial ends {new Date(sub.trialEndsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     )}
-                    {sub.status === 'ACTIVE' && currentPlan.monthlyPrice > 0 && (
+                    {sub.status === 'ACTIVE' && currentSlug !== 'free' && (
                       <span>
                         Renews {new Date(sub.currentPeriodEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
@@ -785,19 +541,7 @@ export default function BillingPage() {
                   </div>
                 </div>
               </div>
-              {currentPlan.monthlyPrice > 0 && (
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-gray-900">{formatPrice(currentPlan)}</p>
-                  <p className="text-xs text-gray-400">per {sub.cycle === 'YEARLY' ? 'year' : 'month'}</p>
-                </div>
-              )}
             </div>
-            {sub.status === 'TRIAL' && (
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700 flex items-center gap-2">
-                <AlertCircle size={14} className="flex-shrink-0" />
-                Your trial expires soon. Subscribe to continue without interruption.
-              </div>
-            )}
             {sub.status === 'PAST_DUE' && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-center gap-2">
                 <AlertCircle size={14} className="flex-shrink-0" />
@@ -805,28 +549,6 @@ export default function BillingPage() {
               </div>
             )}
           </div>
-
-          {/* Available plans */}
-          {publicPlans.length > 0 && (
-            <div>
-              <h2 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <Zap size={16} className="text-teal-600" />Plans
-              </h2>
-              <div className={cn(
-                'grid gap-4',
-                publicPlans.length === 1 ? 'grid-cols-1' : publicPlans.length === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3',
-              )}>
-                {publicPlans.map(plan => (
-                  <PlanCard
-                    key={plan.id}
-                    plan={plan}
-                    isCurrent={currentSlug === plan.slug}
-                    currentSlug={currentSlug}
-                    onSelect={() => setCheckoutPlan(plan)}
-                  />
-                ))}
-              </div>
-            </div>
           )}
 
           {/* Usage meters */}
@@ -844,9 +566,6 @@ export default function BillingPage() {
               <UsageBar label="Templates"       used={usage.totalTemplates} limit={limits.maxTemplates}     color="bg-orange-400" />
               <UsageBar label="Active Channels" used={usage.activeChannels} limit={limits.maxChannels}      color="bg-blue-400" />
               <UsageBar label="Campaigns Sent"  used={usage.campaignsSent}  limit={limits.maxCampaigns}     color="bg-amber-400" />
-              {limits.aiCreditsPerMonth !== 0 && (
-                <UsageBar label="AI Credits Used" used={usage.aiCreditsUsed} limit={limits.aiCreditsPerMonth} color="bg-pink-500" />
-              )}
             </div>
           </div>
 

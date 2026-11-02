@@ -22,7 +22,7 @@ export default function Hero() {
             Book a demo
           </Link>
         </div>
-        <p className={styles.fine}>The free plan includes one agent and one WhatsApp channel. No card needed.</p>
+        <p className={styles.fine}>Start free. No card needed.</p>
       </div>
 
       <div className={`${styles.slab} on-dark`}>

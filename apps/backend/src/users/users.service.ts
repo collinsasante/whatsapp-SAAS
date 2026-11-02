@@ -41,7 +41,7 @@ export class UsersService {
       this.prisma.user.count({ where: { tenantId, isActive: true, isAiAgent: false } }),
     ]);
     if (sub && sub.plan.limMaxAgents > 0 && agentCount >= sub.plan.limMaxAgents) {
-      throw new ForbiddenException(`Agent limit reached (${sub.plan.limMaxAgents} on your plan). Upgrade to add more agents.`);
+      throw new ForbiddenException(`Agent limit reached (${sub.plan.limMaxAgents} on your plan).`);
     }
 
     const existing = await this.prisma.user.findUnique({

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, Modal, TextInput,
-  Alert, RefreshControl, ActivityIndicator,
+  View, Text, ScrollView, TouchableOpacity,
+  Alert, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -9,16 +9,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import { apiClient } from '../../../src/lib/api';
-import { useAppTheme } from '../../../src/theme/useAppTheme';
 
+// What a plan costs is deliberately not part of this type: while subscription sales are off the API sends no price.
 interface Plan {
   id: string;
   slug: string;
   name: string;
   description: string | null;
-  monthlyPrice: number;
-  yearlyPrice: number;
-  currency: string;
   trialDays: number;
   features: string[];
   limMaxAgents: number;
@@ -134,23 +131,12 @@ function ProgressBar({ used, max, color = '#25D366' }: { used: number; max: numb
 }
 
 export default function BillingScreen() {
-  const { colors } = useAppTheme();
   const qc = useQueryClient();
-  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [checkoutCycle, setCheckoutCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const [billingEmail, setBillingEmail] = useState('');
 
   const { data: billingStatus, isLoading, refetch: refetchStatus } = useQuery({
     queryKey: ['billing', 'status'],
     queryFn: () => apiClient.billing.getStatus().then((r) => r.data as BillingStatus | { data: BillingStatus }),
     select: (raw) => (('data' in (raw as object)) ? (raw as { data: BillingStatus }).data : raw) as BillingStatus,
-  });
-
-  const { data: plans, refetch: refetchPlans } = useQuery({
-    queryKey: ['billing', 'plans'],
-    queryFn: () => apiClient.billing.getPlans().then((r) => r.data),
-    select: (raw) => (Array.isArray(raw) ? raw : ((raw as { data: Plan[] }).data ?? [])) as Plan[],
   });
 
   const { data: usageData, refetch: refetchUsage } = useQuery({
@@ -177,30 +163,6 @@ export default function BillingScreen() {
     select: (raw) => (Array.isArray(raw) ? raw : ((raw as { data: CreditPack[] }).data ?? [])) as CreditPack[],
   });
 
-  const checkoutMutation = useMutation({
-    mutationFn: (data: { planSlug: string; cycle: string; billingEmail?: string }) =>
-      apiClient.billing.initiatePaystackCheckout(data),
-    onSuccess: async (res) => {
-      setShowCheckoutModal(false);
-      const data = res.data as { free?: boolean; authorizationUrl?: string };
-
-      if (data.free) {
-        qc.invalidateQueries({ queryKey: ['billing'] });
-        Alert.alert('You’re all set', 'Your plan is now active.');
-        return;
-      }
-
-      if (!data.authorizationUrl) {
-        Alert.alert('Error', 'Could not start checkout. Please try again.');
-        return;
-      }
-
-      await WebBrowser.openBrowserAsync(data.authorizationUrl);
-      qc.invalidateQueries({ queryKey: ['billing'] });
-    },
-    onError: () => Alert.alert('Error', 'Failed to initiate checkout.'),
-  });
-
   const cancelMutation = useMutation({
     mutationFn: () => apiClient.billing.cancelSubscription(false),
     onSuccess: () => {
@@ -224,7 +186,7 @@ export default function BillingScreen() {
     onError: () => Alert.alert('Error', 'Failed to initiate credit purchase.'),
   });
 
-  const refetchAll = () => { refetchStatus(); refetchPlans(); refetchUsage(); refetchInvoices(); };
+  const refetchAll = () => { refetchStatus(); refetchUsage(); refetchInvoices(); };
 
   const subscription = billingStatus?.subscription;
   const currentPlan = billingStatus?.plan;
@@ -239,7 +201,6 @@ export default function BillingScreen() {
     { label: 'Templates', used: usage.totalTemplates, max: limits.maxTemplates },
     { label: 'Active Channels', used: usage.activeChannels, max: limits.maxChannels },
     { label: 'Campaigns', used: usage.campaignsSent, max: limits.maxCampaigns },
-    { label: 'AI Credits', used: usage.aiCreditsUsed, max: limits.aiCreditsPerMonth },
   ] : [];
 
   return (
@@ -256,8 +217,8 @@ export default function BillingScreen() {
         contentContainerStyle={{ padding: 16 }}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetchAll} tintColor="#25D366" />}
       >
-        {/* Current subscription */}
-        {subscription && (
+        {/* Current plan: only for a workspace that still has a paid subscription (name, status and dates; no price, no purchase). */}
+        {subscription && currentPlan?.slug !== 'free' && (
           <View className="bg-light-card dark:bg-surface-card rounded-2xl border border-light-border dark:border-white/5 p-5 mb-5">
             <View className="flex-row items-start justify-between mb-3">
               <View>
@@ -270,19 +231,6 @@ export default function BillingScreen() {
                   </View>
                   <Text className="text-light-text-muted dark:text-white/40 text-xs capitalize">{subscription.cycle}</Text>
                 </View>
-              </View>
-              <View className="items-end">
-                <Text className="text-light-text-primary dark:text-white font-bold text-xl">
-                  {formatPrice(
-                    subscription.cycle === 'YEARLY'
-                      ? (currentPlan?.yearlyPrice ?? 0)
-                      : (currentPlan?.monthlyPrice ?? 0),
-                    currentPlan?.currency,
-                  )}
-                </Text>
-                <Text className="text-light-text-disabled dark:text-white/30 text-xs">
-                  /{subscription.cycle === 'YEARLY' ? 'yr' : 'mo'}
-                </Text>
               </View>
             </View>
 
@@ -344,70 +292,6 @@ export default function BillingScreen() {
                 </View>
               ))}
             </View>
-          </>
-        )}
-
-        {/* Available plans */}
-        {plans && plans.length > 0 && (
-          <>
-            <Text className="text-light-text-muted dark:text-white/40 text-xs font-semibold uppercase tracking-wider mb-3">
-              Available Plans
-            </Text>
-            {plans.map((plan) => {
-              const isCurrent = plan.id === currentPlan?.id;
-              return (
-                <View key={plan.id} className={`bg-light-card dark:bg-surface-card rounded-2xl border p-4 mb-3 ${isCurrent ? 'border-green/40' : 'border-light-border dark:border-white/5'}`}>
-                  <View className="flex-row items-start justify-between mb-2">
-                    <View>
-                      <View className="flex-row items-center gap-2">
-                        <Text className="text-light-text-primary dark:text-white font-bold">{plan.name}</Text>
-                        {isCurrent && (
-                          <View className="bg-green/20 rounded-full px-2 py-0.5">
-                            <Text className="text-green text-[10px] font-semibold">Current</Text>
-                          </View>
-                        )}
-                      </View>
-                      {plan.description && (
-                        <Text className="text-light-text-muted dark:text-white/40 text-xs mt-0.5">{plan.description}</Text>
-                      )}
-                    </View>
-                    <View className="items-end">
-                      <Text className="text-light-text-primary dark:text-white font-bold text-lg">
-                        {formatPrice(plan.monthlyPrice, plan.currency)}
-                        <Text className="text-light-text-muted dark:text-white/40 text-xs">/mo</Text>
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View className="flex-row flex-wrap gap-2 mb-3">
-                    {[
-                      `${plan.limMaxAgents} agents`,
-                      `${plan.limMaxChannels} channels`,
-                      plan.limMaxContacts > 0 ? `${plan.limMaxContacts.toLocaleString()} contacts` : 'Unlimited contacts',
-                    ].map((f) => (
-                      <View key={f} className="bg-light-background dark:bg-surface rounded-full px-2.5 py-0.5">
-                        <Text className="text-light-text-muted dark:text-white/40 text-[10px]">{f}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {!isCurrent && (
-                    <TouchableOpacity
-                      className="bg-green rounded-xl py-2.5 items-center"
-                      onPress={() => {
-                        setSelectedPlan(plan);
-                        setBillingEmail(billingStatus?.billingEmail ?? '');
-                        setShowCheckoutModal(true);
-                      }}
-                    >
-                      <Text className="text-white font-semibold text-sm">
-                        {(currentPlan?.monthlyPrice ?? 0) > plan.monthlyPrice ? 'Downgrade' : 'Upgrade'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
           </>
         )}
 
@@ -488,73 +372,6 @@ export default function BillingScreen() {
         )}
       </ScrollView>
 
-      {/* Checkout modal */}
-      <Modal visible={showCheckoutModal} animationType="slide" transparent>
-        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-light-background dark:bg-surface rounded-t-3xl p-6">
-            <View className="flex-row items-center justify-between mb-5">
-              <Text className="text-light-text-primary dark:text-white text-lg font-bold">
-                Subscribe to {selectedPlan?.name}
-              </Text>
-              <TouchableOpacity onPress={() => setShowCheckoutModal(false)}>
-                <Ionicons name="close" size={22} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Billing cycle */}
-            <Text className="text-light-text-muted dark:text-white/50 text-xs mb-2">Billing Cycle</Text>
-            <View className="flex-row bg-light-card dark:bg-surface-card rounded-xl p-1 mb-4">
-              {(['MONTHLY', 'YEARLY'] as const).map((cycle) => (
-                <TouchableOpacity
-                  key={cycle}
-                  onPress={() => setCheckoutCycle(cycle)}
-                  className={`flex-1 py-2.5 rounded-lg items-center ${checkoutCycle === cycle ? 'bg-green' : ''}`}
-                >
-                  <Text className={`text-sm font-semibold ${checkoutCycle === cycle ? 'text-white' : 'text-light-text-muted dark:text-white/40'}`}>
-                    {cycle === 'MONTHLY' ? (
-                      `Monthly  ${selectedPlan ? formatPrice(selectedPlan.monthlyPrice, selectedPlan.currency) : ''}`
-                    ) : (
-                      `Yearly  ${selectedPlan ? formatPrice(selectedPlan.yearlyPrice, selectedPlan.currency) : ''}`
-                    )}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Billing email */}
-            <Text className="text-light-text-muted dark:text-white/50 text-xs mb-1.5">Billing Email</Text>
-            <TextInput
-              className="bg-light-card dark:bg-surface-card border border-light-border dark:border-white/10 rounded-xl px-4 py-3 text-light-text-primary dark:text-white mb-5"
-              placeholder="your@email.com"
-              placeholderTextColor={colors.textDisabled}
-              value={billingEmail}
-              onChangeText={setBillingEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <TouchableOpacity
-              className="bg-green rounded-2xl py-4 items-center"
-              onPress={() => {
-                if (!selectedPlan) return;
-                checkoutMutation.mutate({
-                  planSlug: selectedPlan.slug,
-                  cycle: checkoutCycle,
-                  billingEmail: billingEmail || undefined,
-                });
-              }}
-              disabled={checkoutMutation.isPending}
-            >
-              {checkoutMutation.isPending ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-white font-bold text-base">Proceed to Payment</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

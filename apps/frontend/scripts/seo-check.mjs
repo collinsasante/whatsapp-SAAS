@@ -156,7 +156,7 @@ async function production() {
   const homeLinks = outgoing.get('/');
   for (const target of ['/book-demo', '/api-docs', '/changelog', '/privacy', '/terms', '/gdpr', '/data-deletion', '/status']) check(`homepage links to ${target}`, homeLinks.includes(target));
   const bookLinks = outgoing.get('/book-demo');
-  check('book-demo links to the registration page and back to pricing', bookLinks.includes('/auth/register') && bookLinks.includes('/'));
+  check('book-demo links to the registration page', bookLinks.includes('/auth/register'));
   const AUTH_OK = ['/auth/login', '/auth/register'];
   const seen = new Set();
   for (const [from, links] of outgoing) for (const to of links) {

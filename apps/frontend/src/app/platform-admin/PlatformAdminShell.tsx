@@ -24,7 +24,7 @@ const NAV: NavSection[] = [
     label: 'Business', items: [
       { href: `${P}/workspaces`, label: 'Tenants', icon: Building2 },
       { href: `${P}/users`, label: 'Users', icon: Users },
-      { href: `${P}/plans`, label: 'Subscriptions and plans', icon: Layers },
+      { href: `${P}/plans`, label: 'Plans (historical)', icon: Layers },
       { href: `${P}/billing`, label: 'Payments', icon: CreditCard },
       { href: `${P}/insights`, label: 'Funnel and usage', icon: BarChart3 },
     ],

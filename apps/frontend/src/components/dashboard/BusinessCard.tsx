@@ -77,6 +77,8 @@ export default function BusinessCard({ data }: { data: DashboardBusiness }) {
         </p>
       )}
 
+      {/* Only a workspace that still has a paid subscription sees one here. Nothing is sold, and a workspace without one has no plan to show. */}
+      {a.subscriptionStatus && a.plan.toLowerCase() !== 'free' && (
       <div className="mt-5 border-t border-gray-100 pt-4">
         <p className="text-xs text-gray-500">Plan</p>
         <p className="mt-1 flex flex-wrap items-center gap-2">
@@ -86,6 +88,7 @@ export default function BusinessCard({ data }: { data: DashboardBusiness }) {
         <p className="mt-3 text-xs text-gray-500">{renewLabel}</p>
         <p className="text-sm font-semibold text-gray-900">{renews ?? 'Not set'}</p>
       </div>
+      )}
 
       <dl className="mt-4 grid grid-cols-3 divide-x divide-gray-100 border-t border-gray-100 pt-4">
         <Cell label="Team members">{formatNumber(a.members)}</Cell>
@@ -100,7 +103,7 @@ export default function BusinessCard({ data }: { data: DashboardBusiness }) {
 
       <div className="mt-5 grid grid-cols-2 gap-2.5">
         <Link href="/settings" className={buttonClasses('secondary', 'md', 'whitespace-nowrap px-2 text-[13px] border-teal-600 text-teal-700 hover:bg-teal-50')}>Edit business details</Link>
-        <Link href="/billing" className={buttonClasses('primary', 'md', 'whitespace-nowrap px-2 text-[13px]')}>Manage plan</Link>
+        <Link href="/billing" className={buttonClasses('primary', 'md', 'whitespace-nowrap px-2 text-[13px]')}>Billing and credits</Link>
       </div>
     </div>
   );

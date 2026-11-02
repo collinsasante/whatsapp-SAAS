@@ -8,7 +8,6 @@ const COLUMNS = [
     title: 'Product',
     links: [
       { href: '/#channels', label: 'Channels' },
-      { href: '/#pricing', label: 'Pricing' },
       { href: '/#faq', label: 'FAQ' },
       { href: '/changelog', label: 'Changelog' },
       { href: '/api-docs', label: 'API documentation' },

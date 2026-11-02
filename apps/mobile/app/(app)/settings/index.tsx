@@ -77,13 +77,15 @@ export default function SettingsScreen() {
         <GroupedSection title="Workspace">
           <View className="px-4 py-3 border-b border-light-border dark:border-white/5">
             <Text className="text-light-text-primary dark:text-white text-[15px]">{tenant?.name}</Text>
-            <Text className="text-light-text-muted dark:text-white/35 text-xs mt-0.5 capitalize">{tenant?.plan ?? 'Free'} plan</Text>
+            {tenant?.plan && tenant.plan.toLowerCase() !== 'free' && (
+              <Text className="text-light-text-muted dark:text-white/35 text-xs mt-0.5 capitalize">{tenant.plan} plan</Text>
+            )}
           </View>
           {permissions.canManageTeam && (
             <Row icon="people-outline" label="Team" onPress={() => router.push('/(app)/settings/team')} />
           )}
           {permissions.showBilling && (
-            <Row icon="card-outline" label="Billing & Subscription" onPress={() => router.push('/(app)/billing')} last />
+            <Row icon="card-outline" label="Billing" onPress={() => router.push('/(app)/billing')} last />
           )}
         </GroupedSection>
 

@@ -29,7 +29,7 @@ export default function ApiDocsPage() {
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">API v1</p>
         <h1 className="text-4xl font-extrabold text-gray-900 mb-4">API Docs</h1>
         <p className="text-lg text-gray-500 leading-relaxed">
-          VerzChat exposes a webhook API so you can react to incoming messages, conversation events, and status changes in your own systems. Full REST API access is included in the Pro plan.
+          VerzChat exposes a webhook API so you can react to incoming messages, conversation events, and status changes in your own systems.
         </p>
       </div>
 

@@ -110,7 +110,7 @@ function PlansPageContent() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-gray-900">Plans</h1>
-          <p className="text-gray-500 text-sm mt-1">Edit pricing and limits for each plan</p>
+          <p className="text-gray-500 text-sm mt-1">Historical plans and limits. Customers cannot buy a monthly plan; these are kept for existing subscriptions and records.</p>
         </div>
         <div className="flex items-center gap-2">
           <LiveBadge secondsAgo={secondsAgo} onRefresh={refresh} refreshing={refreshing} />

@@ -21,7 +21,6 @@ export default function Overview() {
             hands the chat to a person when a customer asks for one.
           </p>
           <p className={styles.links}>
-            <Link href="/#pricing">Compare the plans</Link>
             <Link href="/book-demo">Book a demo</Link>
           </p>
         </div>
