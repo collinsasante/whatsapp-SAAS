@@ -8,8 +8,12 @@ if [[ -z "$BACKUP" || ! -s "$BACKUP" ]]; then
 fi
 
 command -v docker >/dev/null 2>&1 || { echo "ABORT: docker is required." >&2; exit 1; }
-docker image inspect postgres:16-alpine >/dev/null 2>&1 || {
-  echo "ABORT: postgres:16-alpine must be available locally; pull it before the release window." >&2
+# The rehearsal must restore into the SAME kind of server the dump came from. Staging's database has the pgvector extension, and a stock
+# postgres:16-alpine cannot restore it ("extension vector is not available"), so the release script passes the image the staging database
+# is actually running. Default stays the stock image for databases without extensions.
+RESTORE_CHECK_IMAGE=${RESTORE_CHECK_IMAGE:-postgres:16-alpine}
+docker image inspect "$RESTORE_CHECK_IMAGE" >/dev/null 2>&1 || {
+  echo "ABORT: $RESTORE_CHECK_IMAGE must be available locally; pull it before the release window." >&2
   exit 1
 }
 
@@ -30,7 +34,7 @@ CONTAINER_ID=$(docker run --detach --rm \
   --env POSTGRES_USER=restoretest \
   --env POSTGRES_PASSWORD=restore-only-not-a-secret \
   --env POSTGRES_DB=restoretest \
-  postgres:16-alpine)
+  "$RESTORE_CHECK_IMAGE")
 
 # The postgres image first runs a temporary server that listens ONLY on the Unix socket, stops it, then starts the real server. A
 # socket check can therefore pass in that first phase and the restore then runs while nothing is listening. The temporary server has

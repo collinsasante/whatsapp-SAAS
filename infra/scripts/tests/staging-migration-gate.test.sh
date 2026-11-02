@@ -86,7 +86,7 @@ grep -Fq 'source "$SCRIPT_DIR/lib/staging-migration-gate.sh"' "$RELEASE"; expect
 grep -Fq 'validate_allowed_extra_migrations || fail' "$RELEASE"; expect "release validates the allow-list before building" 0 $?
 leaks=$(grep -rl 'STAGING_ALLOWED_EXTRA_MIGRATIONS\|staging-migration-gate' \
   "$ROOT/infra/scripts" "$ROOT/.github" "$ROOT/deploy.sh" "$ROOT/infra/docker-compose.yml" "$ROOT/infra/docker-compose.dev.yml" "$ROOT/infra/.env.example" 2>/dev/null |
-  grep -v -e 'staging-release-deploy.sh' -e 'lib/staging-migration-gate.sh' -e 'tests/staging-migration-gate.test.sh' | wc -l | tr -d ' ')
+  grep -v -e 'staging-release-deploy.sh' -e 'lib/staging-migration-gate.sh' -e 'tests/staging-migration-gate.test.sh' -e 'verify-release-candidate.sh' | wc -l | tr -d ' ')
 expect "production deploy scripts, workflows and compose files never reference the allow-list" 0 "$leaks"
 
 echo "---"

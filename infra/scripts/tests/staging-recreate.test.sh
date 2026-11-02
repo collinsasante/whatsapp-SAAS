@@ -33,6 +33,12 @@ rm -f "$T/infra/.env.staging"; expect "refuses without a staging settings file" 
 stg prodjwtsecret0123456789abcdef0123456789; expect "refuses a JWT secret shared with production" "ABORT: JWT_SECRET is identical" "$(run check)"
 stg short; expect "refuses a short JWT secret" "ABORT: JWT_SECRET .* shorter than 32" "$(run check)"
 stg "" sk_live_zzz; expect "refuses a live payment key" "ABORT: PAYSTACK_SECRET_KEY .* LIVE key" "$(run check)"
+for k in INTERNAL_SECRET WHATSAPP_WEB_INTERNAL_API_KEY; do
+  prod; echo "$k=shared-fake-value" >> "$T/infra/.env"; stg; echo "$k=shared-fake-value" >> "$T/infra/.env.staging"
+  out=$(run check); expect "refuses $k shared with production" "ABORT: $k is identical" "$out"
+  printf '%s' "$out" | grep -q "shared-fake-value" && { FAIL=$((FAIL+1)); echo "FAIL  output never shows the $k value"; } || { PASS=$((PASS+1)); echo "ok    output never shows the $k value"; }
+  prod
+done
 stg; expect "refuses an unset setting and names it" "ABORT: .*REDIS_PASSWORD" "$(FAKE_MISSING=REDIS_PASSWORD run check)"
 stg; expect "refuses a non-staging database" "ABORT: .*not a staging database" "$(FAKE_DB=waplatform run check)"
 stg; out=$(run check); expect "passes with separate secrets" "all checks passed" "$out"; expect "check mode changes nothing" "check only: nothing was changed" "$out"

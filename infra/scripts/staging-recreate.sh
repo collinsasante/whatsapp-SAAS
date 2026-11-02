@@ -53,6 +53,10 @@ for k in JWT_SECRET JWT_REFRESH_SECRET; do
   [ ${#s} -ge 32 ] || fail "$k in $SFILE is shorter than 32 characters."
   [ "$s" != "$p" ] || fail "$k is identical in staging and production: a login token from one would be accepted by the other."
 done
+for k in INTERNAL_SECRET WHATSAPP_WEB_INTERNAL_API_KEY; do
+  s=$(val "$SFILE" "$k"); p=$(val "$PFILE" "$k")
+  [ -z "$s" ] || [ "$s" != "$p" ] || fail "$k is identical in staging and production: staging must not be able to call production's internal endpoints."
+done
 s=$(val "$SFILE" PLATFORM_ADMIN_SETUP_SECRET); p=$(val "$PFILE" PLATFORM_ADMIN_SETUP_SECRET)
 [ -z "$s" ] || [ "$s" != "$p" ] || fail "PLATFORM_ADMIN_SETUP_SECRET is identical in staging and production."
 for k in WHATSAPP_APP_SECRET FACEBOOK_APP_SECRET DEEPSEEK_API_KEY RESEND_API_KEY SMTP_PASS CREDENTIALS_ENCRYPTION_KEY; do

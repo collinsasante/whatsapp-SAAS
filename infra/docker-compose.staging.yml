@@ -131,6 +131,7 @@ services:
       PUBLIC_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
       WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
       WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-}
       FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       FACEBOOK_LOGIN_CONFIG_ID: ${FACEBOOK_LOGIN_CONFIG_ID:-}
@@ -169,6 +170,8 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_PUBLIC_KEY: ${PAYSTACK_PUBLIC_KEY:-}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
       BILLING_NOTIFY_EMAIL: ${BILLING_NOTIFY_EMAIL:-}
       GHS_RATE: ${GHS_RATE:-12.5}
       SUPPORT_TENANT_ID: ${SUPPORT_TENANT_ID:-}
@@ -195,6 +198,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-}
       JWT_SECRET: ${JWT_SECRET}
       FRONTEND_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}
       BACKEND_URL: http://backend:3001
@@ -221,6 +225,14 @@ services:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
       WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:-}
+      # Same key as the backend: the worker opens the stored WhatsApp credentials to send campaigns. Without it every send fails.
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      # Internal calls to the backend must include the global API prefix.
+      BACKEND_URL: http://backend:3001/api/v1
+      # Campaign click-tracking links; without it the worker would use the production address.
+      PUBLIC_BASE_URL: ${STAGING_PUBLIC_URL:-http://${VPS_IP}:8080}/api/v1
     depends_on:
       postgres:
         condition: service_healthy

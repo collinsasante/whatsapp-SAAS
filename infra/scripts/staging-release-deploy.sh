@@ -64,6 +64,8 @@ PROJECT=verzchat-staging
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/staging-migration-gate.sh
 source "$SCRIPT_DIR/lib/staging-migration-gate.sh"
+# shellcheck source=lib/staging-required-settings.sh
+source "$SCRIPT_DIR/lib/staging-required-settings.sh"
 SERVICES=(backend worker realtime whatsapp-web frontend)
 
 if [[ "$MODE" == "--help" || "$MODE" == "-h" ]]; then
@@ -289,9 +291,10 @@ git -C "$ROOT" cat-file -e "$REVISION^{commit}" 2>/dev/null || fail "candidate c
 [[ "${CONFIRM_STAGING_RELEASE:-}" == "$REVISION" ]] || fail "set CONFIRM_STAGING_RELEASE to the exact approved commit SHA"
 
 validate_allowed_extra_migrations || fail "$MIGRATION_GATE_ERROR"
-for key in POSTGRES_PASSWORD REDIS_PASSWORD JWT_SECRET JWT_REFRESH_SECRET MINIO_ACCESS_KEY MINIO_SECRET_KEY; do
+for key in "${STAGING_REQUIRED_SETTINGS[@]}"; do
   require_env "$key"
 done
+staging_encryption_key_valid "$ENV_FILE" || fail "CREDENTIALS_ENCRYPTION_KEY must be base64 that decodes to exactly 32 bytes"
 grep -Eq '^(STAGING_PUBLIC_URL|VPS_IP)=.+' "$ENV_FILE" || fail "STAGING_PUBLIC_URL or VPS_IP must be configured"
 
 verify_staging_stack
@@ -373,7 +376,8 @@ docker exec wa_staging_postgres pg_dump -U "$DB_USER" -Fc "$DB_NAME" > "$BACKUP_
 chmod 600 "$BACKUP_DIR/staging.dump"
 docker exec -i wa_staging_postgres pg_restore --list < "$BACKUP_DIR/staging.dump" >/dev/null ||
   fail "database dump archive is unreadable"
-bash "$ROOT/infra/scripts/staging-verify-backup-restore.sh" "$BACKUP_DIR/staging.dump" ||
+RESTORE_CHECK_IMAGE=$(docker inspect -f '{{.Config.Image}}' wa_staging_postgres) || fail "cannot read the staging database image"
+RESTORE_CHECK_IMAGE="$RESTORE_CHECK_IMAGE" bash "$ROOT/infra/scripts/staging-verify-backup-restore.sh" "$BACKUP_DIR/staging.dump" ||
   fail "isolated database restore rehearsal failed; write services remain stopped"
 sha256sum "$BACKUP_DIR/staging.dump" > "$BACKUP_DIR/staging.dump.sha256"
 printf '%s\n' "$REVISION" > "$BACKUP_DIR/candidate"

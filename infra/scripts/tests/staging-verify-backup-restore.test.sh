@@ -49,6 +49,7 @@ SHIM
 printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/sleep"
 chmod +x "$T/bin/"*
 
+SCRIPT_DIR_RELEASE="$(cd "$(dirname "$0")/.." && pwd)/staging-release-deploy.sh"
 PASS=0; FAIL=0
 run() { FAKE_STATE="$T" PATH="$T/bin:$PATH" bash "$SCRIPT" "$T/backup.dump" 2>&1; echo "exit=$?"; }
 expect() { if printf '%s' "$3" | grep -qE -- "$2"; then PASS=$((PASS+1)); echo "ok    $1"; else FAIL=$((FAIL+1)); echo "FAIL  $1"; fi; }
@@ -74,6 +75,9 @@ expect "a missing postgres image aborts before starting anything" "ABORT: postgr
 expect "readiness is checked over TCP" "pg_isready -h 127\.0\.0\.1" "$(cat "$SCRIPT")"
 expect "the restore connects over TCP" "pg_restore -h 127\.0\.0\.1" "$(cat "$SCRIPT")"
 expect "the rehearsal container stays network-disabled" "--network none" "$(cat "$SCRIPT")"
+expect "the rehearsal image is configurable so extension-bearing databases can be restored" 'RESTORE_CHECK_IMAGE=\$\{RESTORE_CHECK_IMAGE:-postgres:16-alpine\}' "$(cat "$SCRIPT")"
+expect "the rehearsal container is started from that image" '"\$RESTORE_CHECK_IMAGE\")' "$(cat "$SCRIPT")"
+expect "the release passes the image staging Postgres is actually running" 'RESTORE_CHECK_IMAGE="\$RESTORE_CHECK_IMAGE" bash' "$(cat "$SCRIPT_DIR_RELEASE")"
 expect "the restore still stops on the first error" "--exit-on-error --no-owner --no-acl" "$(cat "$SCRIPT")"
 
 echo; echo "$PASS passed, $FAIL failed"
