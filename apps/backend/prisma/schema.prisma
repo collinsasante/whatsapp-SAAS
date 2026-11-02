@@ -96,6 +96,8 @@ model Tenant {
   digitalSelves                   DigitalSelf[]
   aiCustomerCorrections           AiCustomerCorrection[]
   aiLearningAuditLogs             AiLearningAuditLog[]
+  aiLearningSettings              AiLearningSettings?
+  aiLearningUsage                 AiLearningUsage[]
   internalTasks                   InternalTask[]
   leads                           Lead[]
   aiCreditTransactions            AiCreditTransaction[]
@@ -540,6 +542,7 @@ model Conversation {
   lead                     Lead?
   aiInteractionEvaluations AiInteractionEvaluation[]
   digitalSelf              DigitalSelf?              @relation("ConversationDigitalSelf", fields: [digitalSelfId], references: [id], onDelete: SetNull)
+  aiInteractionLogs        AiInteractionLog[]
 
   @@index([tenantId])
   @@index([tenantId, digitalSelfId])
@@ -2587,6 +2590,9 @@ model AiInteractionLog {
   createdAt        DateTime @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Added NOT VALID (migration 20261102130000): new rows must reference a real conversation, so a log can no longer be written for a
+  // conversation that is being deleted; rows that already orphan are tolerated until an operator cleans them up and validates.
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([conversationId])
@@ -2979,6 +2985,65 @@ model AiLearningAuditLog {
   @@index([tenantId, createdAt])
   @@index([targetType, targetId])
   @@map("ai_learning_audit_logs")
+}
+
+// Per-workspace controls for the AI Learning system (judge evaluations, feedback, approved guidance). A workspace with no row is
+// treated as: learning OFF (opt-in), not paused, approved guidance ON (so guidance a workspace already approved keeps applying).
+// The three switches are independent: `learningEnabled` lets the platform spend on grading this workspace's replies,
+// `learningPaused` stops that spend without losing the opt-in, `approvedGuidanceEnabled` only controls whether reviewed guidance is
+// injected into replies. Budget overrides are in micro-USD (1 USD = 1_000_000); null means "use the platform default".
+model AiLearningSettings {
+  id                      String   @id @default(uuid())
+  tenantId                String   @unique @map("tenant_id")
+  learningEnabled         Boolean  @default(false) @map("learning_enabled")
+  learningPaused          Boolean  @default(false) @map("learning_paused")
+  approvedGuidanceEnabled Boolean  @default(true) @map("approved_guidance_enabled")
+  monthlyBudgetMicros     BigInt?  @map("monthly_budget_micros")
+  enabledAt               DateTime? @map("enabled_at")
+  enabledById             String?  @map("enabled_by_id")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("ai_learning_settings")
+}
+
+enum AiLearningUsageState {
+  RESERVED // a run holds `reservedMicros` of budget; its lease has not been reconciled
+  COMPLETED // settled with the provider-reported usage
+  FAILED // the provider call failed; settled (see settlement rules in AiLearningCostService)
+  EXPIRED // lease passed without a settlement; STILL holds its maximum estimate until reconciled
+  FENCED // a late result arrived after a takeover; recorded for audit, never applied
+  SKIPPED // not run: paused, not opted in, over a cap
+}
+
+// Platform-funded cost of AI Learning provider calls. Deliberately separate from AiCreditTransaction/AiCreditReservation: learning
+// never touches a customer's AI credits. One row per RUN: a BullMQ retry or a stall takeover is a new run with the next runNo, so
+// every paid attempt is accounted for. aiExecutionId is not a foreign key: erasing an execution must not erase its cost record.
+model AiLearningUsage {
+  id                   String               @id @default(uuid())
+  tenantId             String               @map("tenant_id")
+  aiExecutionId        String               @map("ai_execution_id")
+  runNo                Int                  @map("run_no")
+  state                AiLearningUsageState
+  reservedMicros       BigInt               @map("reserved_micros")
+  actualMicros         BigInt?              @map("actual_micros")
+  estimatedInputTokens Int                  @map("estimated_input_tokens")
+  inputTokens          Int?                 @map("input_tokens")
+  outputTokens         Int?                 @map("output_tokens")
+  priceTableVersion    String               @map("price_table_version")
+  skipReason           String?              @map("skip_reason")
+  leaseExpiresAt       DateTime             @map("lease_expires_at")
+  settledAt            DateTime?            @map("settled_at")
+  createdAt            DateTime             @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([aiExecutionId, runNo])
+  @@index([tenantId, createdAt])
+  @@index([state, leaseExpiresAt])
+  @@map("ai_learning_usage")
 }
 
 // ── Admin platform: error monitoring & webhook monitoring ──────────────────
