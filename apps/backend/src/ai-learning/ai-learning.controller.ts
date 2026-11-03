@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { EvalQualityStatus, FailureCategory, TrainingExampleStatus } from '@prisma/client';
@@ -94,6 +94,24 @@ export class AiLearningController {
   @ApiOperation({ summary: 'Approve/reject/archive a training example' })
   setTrainingExampleStatus(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload, @Body() dto: SetTrainingExampleStatusDto) {
     return this.service.setTrainingExampleStatus(tenantId, id, dto.status, user.sub);
+  }
+
+  @Post('training-examples/:id/withdraw')
+  @ApiOperation({ summary: 'Withdraw an approved training example: it stops influencing replies at once and returns to review' })
+  withdrawTrainingExample(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.withdrawTrainingExample(tenantId, id, user.sub);
+  }
+
+  @Delete('training-examples/:id')
+  @ApiOperation({ summary: 'Permanently delete a training example and its text, and remove any style contribution it made to a Digital Self' })
+  deleteTrainingExample(@CurrentTenant() tenantId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.deleteTrainingExample(tenantId, id, user.sub);
+  }
+
+  @Get('privacy/holdings')
+  @ApiOperation({ summary: 'What learning-derived customer text this workspace currently holds, and whether anything deletes it automatically' })
+  privacyHoldings(@CurrentTenant() tenantId: string) {
+    return this.service.privacyHoldings(tenantId);
   }
 
   @Post('training-examples/:id/regression-case')

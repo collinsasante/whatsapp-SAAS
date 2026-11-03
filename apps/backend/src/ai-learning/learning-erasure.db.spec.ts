@@ -152,9 +152,13 @@ dbSuite('Learning erasure on conversation and contact deletion (real PostgreSQL)
   });
 
   describe('all-or-nothing', () => {
-    async function withBrokenErasure<T>(table: string, body: () => Promise<T>): Promise<T> {
+    /**
+     * Makes deleting THIS tenant's rows from `table` fail, and nobody else's: the trigger only raises for the tenant under test, so
+     * other suites running against the same database at the same moment are unaffected.
+     */
+    async function withBrokenErasure<T>(table: string, tenantId: string, body: () => Promise<T>): Promise<T> {
       const fn = `fail_${table}_${randomUUID().slice(0, 6)}`.replace(/-/g, '_');
-      await prisma.$executeRawUnsafe(`CREATE FUNCTION ${fn}() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'erasure blocked for test'; END $$ LANGUAGE plpgsql`);
+      await prisma.$executeRawUnsafe(`CREATE FUNCTION ${fn}() RETURNS trigger AS $$ BEGIN IF OLD.tenant_id = '${tenantId}' THEN RAISE EXCEPTION 'erasure blocked for test'; END IF; RETURN OLD; END $$ LANGUAGE plpgsql`);
       await prisma.$executeRawUnsafe(`CREATE TRIGGER ${fn} BEFORE DELETE ON ${table} FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
       try { return await body(); } finally {
         await prisma.$executeRawUnsafe(`DROP TRIGGER ${fn} ON ${table}`);
@@ -166,7 +170,7 @@ dbSuite('Learning erasure on conversation and contact deletion (real PostgreSQL)
       const tenantId = await opted();
       const w = await world(tenantId, { approvedExample: true });
 
-      await withBrokenErasure(table, async () => {
+      await withBrokenErasure(table, tenantId, async () => {
         await expect(conversations.deleteConversation(tenantId, w.conversation.id, null)).rejects.toThrow();
       });
 
@@ -185,7 +189,7 @@ dbSuite('Learning erasure on conversation and contact deletion (real PostgreSQL)
       const tenantId = await opted();
       const w = await world(tenantId, { approvedExample: true });
 
-      await withBrokenErasure('messages', async () => {
+      await withBrokenErasure('messages', tenantId, async () => {
         await expect(conversations.deleteConversation(tenantId, w.conversation.id, null)).rejects.toThrow();
       });
 
@@ -198,7 +202,7 @@ dbSuite('Learning erasure on conversation and contact deletion (real PostgreSQL)
       const tenantId = await opted();
       const w = await world(tenantId, { approvedExample: true });
 
-      await withBrokenErasure('ai_training_examples', async () => {
+      await withBrokenErasure('ai_training_examples', tenantId, async () => {
         await expect(contacts.remove(tenantId, w.contact.id)).rejects.toThrow();
       });
 

@@ -1,7 +1,9 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { EvalQualityStatus, TrainingExampleStatus, FailureCategory, TakeoverClassification, CorrectionCategory, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { DigitalSelfCorrectionsService } from '../digital-self/digital-self-corrections.service';
+import { DigitalSelfCorrectionsService, correctionKey } from '../digital-self/digital-self-corrections.service';
+import { lockDigitalSelf, rebuildFromEvents } from '../digital-self/evidence.util';
+import { loadRetentionSettings } from './learning-retention.service';
 
 export interface ListInteractionsFilters {
   status?: EvalQualityStatus;
@@ -187,6 +189,15 @@ export class AiLearningService {
     return example;
   }
 
+  /**
+   * Training example lifecycle (every state is explicit about what it does to AI replies and to the stored text):
+   *   DRAFT / REVIEW   proposed or awaiting approval. Never influences replies. Text is held.
+   *   APPROVED         the only state that influences replies (workspace guidance, or one agent's style for a style correction).
+   *   REJECTED         decided against. Never influences replies. Text is held until deleted.
+   *   ARCHIVED         retired but recoverable. Never influences replies. Text is held until deleted.
+   * Leaving APPROVED (to any state) stops the influence immediately and clears the approval record. Only deleteTrainingExample removes the
+   * text. Nothing here deletes automatically; automatic retention is a separate, disabled-by-default sweep.
+   */
   async setTrainingExampleStatus(tenantId: string, id: string, status: TrainingExampleStatus, actorId: string) {
     const example = await this.prisma.aiTrainingExample.findFirst({ where: { id, tenantId } });
     if (!example) throw new NotFoundException('Training example not found');
@@ -195,19 +206,63 @@ export class AiLearningService {
     if (status === TrainingExampleStatus.APPROVED && (!example.customerInput.trim() || !(example.expectedAction?.trim() || example.expectedResponse?.trim()))) {
       throw new BadRequestException('A training example needs the customer message and an expected action or reply before it can be approved');
     }
+    return this.applyStatus(tenantId, example, status, actorId, `training_example.${status.toLowerCase()}`);
+  }
 
+  /** APPROVED to REVIEW: the example stops influencing replies at once and keeps its text for further review. */
+  async withdrawTrainingExample(tenantId: string, id: string, actorId: string) {
+    const example = await this.prisma.aiTrainingExample.findFirst({ where: { id, tenantId } });
+    if (!example) throw new NotFoundException('Training example not found');
+    if (example.status !== TrainingExampleStatus.APPROVED) throw new BadRequestException('Only an approved training example can be withdrawn');
+    return this.applyStatus(tenantId, example, TrainingExampleStatus.REVIEW, actorId, 'training_example.withdrawn');
+  }
+
+  private async applyStatus(tenantId: string, example: { id: string; status: TrainingExampleStatus }, status: TrainingExampleStatus, actorId: string, auditAction: string) {
+    const leavingApproved = example.status === TrainingExampleStatus.APPROVED && status !== TrainingExampleStatus.APPROVED;
     const updated = await this.prisma.aiTrainingExample.update({
-      where: { id },
+      where: { id: example.id },
       data: {
         status,
         ...(status === TrainingExampleStatus.APPROVED && { approvedById: actorId, approvedAt: new Date() }),
+        ...(leavingApproved && { approvedById: null, approvedAt: null }),
       },
     });
-    await this.audit(tenantId, actorId, `training_example.${status.toLowerCase()}`, 'training_example', id, { status: example.status }, { status });
+    await this.audit(tenantId, actorId, auditAction, 'training_example', example.id, { status: example.status }, { status });
     // A style-only correction also refines the Digital Self of the agent whose style the reply was written in. It never blocks or fails
     // the approval workflow, and anything that is not a style correction is left exactly as it was.
-    await this.digitalSelfCorrections?.sync(tenantId, id, actorId).catch((err: unknown) => new Logger(AiLearningService.name).warn(`Digital Self correction sync failed: ${err instanceof Error ? err.name : 'unknown'}`));
+    await this.digitalSelfCorrections?.sync(tenantId, example.id, actorId).catch((err: unknown) => new Logger(AiLearningService.name).warn(`Digital Self correction sync failed: ${err instanceof Error ? err.name : 'unknown'}`));
     return updated;
+  }
+
+  /**
+   * Permanently deletes ONE training example and everything that depends on it, in one transaction: the example row (and so its customer
+   * text, reply text and reviewer notes), and, if it was applied as a style correction, that contribution to the agent's Digital Self
+   * (the profile is rebuilt from the remaining evidence). The removal of the style contribution does not depend on the Digital Self
+   * feature flag. The audit row holds the id, the previous status and yes/no facts only, never text. The interaction record and the
+   * evaluation the example came from are NOT deleted here; they go with the conversation or the retention sweep.
+   */
+  async deleteTrainingExample(tenantId: string, id: string, actorId: string): Promise<{ deleted: true; wasApproved: boolean; promotedToRegressionCase: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      const example = await tx.aiTrainingExample.findFirst({ where: { id, tenantId }, select: { id: true, status: true, regressionCaseCreated: true } });
+      if (!example) throw new NotFoundException('Training example not found');
+
+      const contribution = await tx.digitalSelfLearningEvent.findFirst({ where: { tenantId, messageId: correctionKey(id) }, select: { id: true, digitalSelfId: true } });
+      if (contribution) {
+        await lockDigitalSelf(tx, contribution.digitalSelfId);
+        await tx.digitalSelfLearningEvent.deleteMany({ where: { id: contribution.id, tenantId } });
+        await rebuildFromEvents(tx, tenantId, contribution.digitalSelfId);
+      }
+      await tx.aiTrainingExample.deleteMany({ where: { id, tenantId } });
+
+      const wasApproved = example.status === TrainingExampleStatus.APPROVED;
+      await tx.aiLearningAuditLog.create({
+        data: {
+          tenantId, actorId, action: 'training_example.deleted', targetType: 'training_example', targetId: id,
+          previousState: { status: example.status, styleContributionRemoved: !!contribution, promotedToRegressionCase: example.regressionCaseCreated } as Prisma.InputJsonValue,
+        },
+      });
+      return { deleted: true as const, wasApproved, promotedToRegressionCase: example.regressionCaseCreated };
+    });
   }
 
   /** Marks that an engineer has manually promoted this example into the
@@ -224,8 +279,43 @@ export class AiLearningService {
     return updated;
   }
 
+  /** Each example says what it currently does to AI replies, so an administrator never has to guess from the status name. */
   async listTrainingExamples(tenantId: string, status?: TrainingExampleStatus) {
-    return this.prisma.aiTrainingExample.findMany({ where: { tenantId, ...(status && { status }) }, orderBy: { createdAt: 'desc' }, take: 100 });
+    const [rows, settings] = await Promise.all([
+      this.prisma.aiTrainingExample.findMany({ where: { tenantId, ...(status && { status }) }, orderBy: { createdAt: 'desc' }, take: 100 }),
+      this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { approvedGuidanceEnabled: true } }),
+    ]);
+    const guidanceOn = (settings?.approvedGuidanceEnabled ?? true) && process.env['AI_CORRECTIONS_DISABLED'] !== 'true';
+    return rows.map((r) => ({
+      ...r,
+      influence: r.status !== TrainingExampleStatus.APPROVED ? ('none' as const) : r.digitalSelfId ? ('style_correction' as const) : guidanceOn ? ('guidance' as const) : ('none' as const),
+    }));
+  }
+
+  /** What learning-derived customer text this workspace currently holds, so retention is visible and nothing is held silently. */
+  async privacyHoldings(tenantId: string) {
+    const [logs, oldestLog, evaluationsWithText, evaluations, examples, reviewTasks, styleEvents] = await Promise.all([
+      this.prisma.aiInteractionLog.count({ where: { tenantId, OR: [{ customerMessage: { not: '' } }, { aiResponse: { not: '' } }] } }),
+      this.prisma.aiInteractionLog.aggregate({ where: { tenantId, OR: [{ customerMessage: { not: '' } }, { aiResponse: { not: '' } }] }, _min: { createdAt: true } }),
+      this.prisma.aiInteractionEvaluation.count({ where: { tenantId, OR: [{ evaluatorReasoning: { not: null } }, { evaluationError: { not: null } }] } }),
+      this.prisma.aiInteractionEvaluation.count({ where: { tenantId } }),
+      this.prisma.aiTrainingExample.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } }),
+      this.prisma.internalTask.count({ where: { tenantId, department: 'ai_review', description: { not: null } } }),
+      this.prisma.digitalSelfLearningEvent.count({ where: { tenantId } }),
+    ]);
+    const retention = loadRetentionSettings();
+    const byStatus = Object.fromEntries(examples.map((e) => [e.status, e._count._all])) as Partial<Record<TrainingExampleStatus, number>>;
+    return {
+      interactionRecordsWithText: logs,
+      oldestInteractionRecordAt: oldestLog._min.createdAt,
+      evaluations,
+      evaluationsWithText,
+      reviewTasksWithText: reviewTasks,
+      trainingExamples: { total: examples.reduce((n, e) => n + e._count._all, 0), approved: byStatus.APPROVED ?? 0, byStatus },
+      /** Numbers and fixed-vocabulary markers only; no message text. */
+      styleEvidenceItems: styleEvents,
+      automaticDeletion: { enabled: retention.enabled, freeTextDays: retention.freeTextDays, metricsMonths: retention.metricsMonths },
+    };
   }
 
   // ─── Failures / corrections listings ─────────────────────────────────
