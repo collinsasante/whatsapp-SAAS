@@ -1,12 +1,14 @@
 /* eslint-disable no-console */
 import { PrismaClient } from '@prisma/client';
 import { AMA, KOFI } from './synthetic-personas';
-import { cleanupSynthetic, seedSynthetic } from './seed-synthetic';
+import { cleanupSynthetic, optInSyntheticWorkspace, seedSynthetic } from './seed-synthetic';
 
 /**
  * Seeds (or removes) INVENTED agent history in a SYNTHETIC workspace, for the staging validation.
  *   CONFIRM_SYNTHETIC_DATA=yes DATABASE_URL=... SEED_TENANT_ID=... SEED_AGENT_A_ID=... SEED_AGENT_B_ID=... pnpm digital-self:seed-synthetic
  *   ... SEED_TENANT_ID=... pnpm digital-self:seed-synthetic --cleanup
+ * The workspace must have opted in to AI learning (it is OFF by default). Add --opt-in to do that explicitly first, as an administrator of
+ * the SYNTHETIC workspace: SEED_ADMIN_ID=<admin user id> ... pnpm digital-self:seed-synthetic --opt-in   (needs AI_LEARNING_OPT_IN_OPEN=true)
  * Optional: SEED_REPLIES (default 36 per agent; READY needs 30). Agent A gets the warm "Ama" persona, agent B the terse "Kofi" one.
  */
 async function main(): Promise<void> {
@@ -20,6 +22,12 @@ async function main(): Promise<void> {
       const r = await cleanupSynthetic(prisma, tenantId);
       console.log(`Removed ${r.conversations} synthetic conversation(s); ${r.evidenceRemoved} learned reply(ies) removed from profiles.`);
       return;
+    }
+    if (process.argv.includes('--opt-in')) {
+      const adminId = env['SEED_ADMIN_ID'];
+      if (!adminId) throw new Error('SEED_ADMIN_ID (an administrator of the synthetic workspace) is required with --opt-in');
+      const view = await optInSyntheticWorkspace(prisma, tenantId, adminId);
+      console.log(`Workspace opted in explicitly; acknowledged notice ${view.acknowledgement.version}.`);
     }
     const [a, b] = [env['SEED_AGENT_A_ID'], env['SEED_AGENT_B_ID']];
     if (!a || !b) throw new Error('SEED_AGENT_A_ID and SEED_AGENT_B_ID are required');

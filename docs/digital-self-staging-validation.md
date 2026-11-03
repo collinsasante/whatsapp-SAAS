@@ -34,9 +34,11 @@ automated tests that need no model (`digital-self-pipeline.integration.spec.ts`)
 ```bash
 cd apps/backend
 
-# 1. Give agents A and B invented history (learner is run directly; nothing is sent to any channel)
-CONFIRM_SYNTHETIC_DATA=yes DATABASE_URL='<staging url>' SEED_TENANT_ID=<tenant> SEED_AGENT_A_ID=<A> SEED_AGENT_B_ID=<B> \
-  pnpm digital-self:seed-synthetic          # 36 replies each by default; READY needs 30
+# 1. Give agents A and B invented history (learner is run directly; nothing is sent to any channel).
+#    AI learning is OFF for every workspace until it opts in, so the first run adds --opt-in: it goes through the real opt-in rules
+#    (AI_LEARNING_OPT_IN_OPEN=true in the environment this runs in, an administrator of the SYNTHETIC workspace, the current notice version).
+CONFIRM_SYNTHETIC_DATA=yes DATABASE_URL='<staging url>' AI_LEARNING_OPT_IN_OPEN=true SEED_TENANT_ID=<tenant> SEED_ADMIN_ID=<admin user id> SEED_AGENT_A_ID=<A> SEED_AGENT_B_ID=<B> \
+  pnpm digital-self:seed-synthetic --opt-in   # 36 replies each by default; READY needs 30. Without --opt-in a workspace that has not opted in is refused.
 
 # 2. Look at the Team page: A and B should be Ready with different style chips; C should say "Not enough of their own replies".
 

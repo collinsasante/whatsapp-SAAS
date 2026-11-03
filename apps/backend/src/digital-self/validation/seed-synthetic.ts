@@ -2,6 +2,10 @@ import type { PrismaClient } from '@prisma/client';
 import { simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
 import { DigitalSelfLearningService } from '../digital-self-learning.service';
 import { DigitalSelfService, AGENT_ROLES } from '../digital-self.service';
+import { AiLearningSettingsService, LearningSettingsView } from '../../ai-learning/learning-settings.service';
+import { AiLearningCostService } from '../../ai-learning/learning-cost.service';
+import { currentDisclosureVersion } from '../../ai-learning/learning-disclosure';
+import { learningBlockReason } from '../../ai-learning/learning-eligibility';
 
 /** Marks the conversations this tool creates, so they can be found and removed again. */
 export const SEED_SOURCE = 'synthetic_digital_self_seed';
@@ -11,6 +15,24 @@ export function assertSyntheticTenant(tenantName: string): void {
   if (!/(stage|staging|synthetic|test)/i.test(tenantName)) {
     throw new Error(`Refusing to seed workspace "${tenantName}": its name must contain "stage", "staging", "synthetic" or "test". Synthetic history must never be written into a real workspace.`);
   }
+}
+
+/**
+ * Opts a SYNTHETIC workspace in to AI learning through the SAME service and rules a real administrator uses: the platform gate
+ * (AI_LEARNING_OPT_IN_OPEN=true must be set where this runs), an administrator of that workspace as the acknowledging identity, and the
+ * CURRENT notice version, all recorded as usual. Nothing is bypassed, so a staging run exercises the real opt-in. Refuses any workspace
+ * whose name does not look synthetic, so it can never opt a real workspace in.
+ */
+export async function optInSyntheticWorkspace(prisma: PrismaClient, tenantId: string, adminUserId: string): Promise<LearningSettingsView> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+  if (!tenant) throw new Error('Workspace not found');
+  assertSyntheticTenant(tenant.name);
+  const admin = await prisma.user.findFirst({ where: { id: adminUserId, tenantId, role: 'ADMIN', isActive: true, isAiAgent: false }, select: { id: true } });
+  if (!admin) throw new Error(`User ${adminUserId} is not an active administrator of this workspace`);
+  const settings = new AiLearningSettingsService(prisma as never, new AiLearningCostService(prisma as never));
+  const view = await settings.update(tenantId, admin.id, { learningEnabled: true, acknowledgedDisclosureVersion: currentDisclosureVersion() });
+  if (!view.learningActive) throw new Error(`The workspace is opted in but learning is not active (${view.blockedReason}); resume it before seeding.`);
+  return view;
 }
 
 export interface SeedAgent {
@@ -29,6 +51,12 @@ export async function seedSynthetic(prisma: PrismaClient, tenantId: string, agen
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
   if (!tenant) throw new Error('Workspace not found');
   assertSyntheticTenant(tenant.name);
+  // The learner only captures evidence for a workspace that opted in, was not paused, and acknowledged the current notice. Seeding a
+  // workspace that has not would silently learn nothing, so refuse loudly and say how to opt in.
+  const blocked = learningBlockReason(await prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { learningEnabled: true, learningPaused: true, disclosureVersion: true } }));
+  if (blocked) {
+    throw new Error(`Workspace "${tenant.name}" cannot be seeded: AI learning is not active for it (${blocked}). Opt it in explicitly with --opt-in and SEED_ADMIN_ID (needs AI_LEARNING_OPT_IN_OPEN=true), or through its settings.`);
+  }
 
   const learning = new DigitalSelfLearningService(prisma as never);
   const service = new DigitalSelfService(prisma as never);
