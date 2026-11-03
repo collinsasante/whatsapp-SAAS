@@ -1,8 +1,8 @@
 # VerzAI v2 hybrid retrieval (keyword + vector)
 
 Status: the retrieval engine, chunker, fusion, reranker, vector store, indexer and a local embedding adapter (`local-minilm`) are built and
-tested. It is **off** and **idle** in this build: `RAG_HYBRID_ENABLED` is unset, the model files and `onnxruntime-web` are not in any image, and
-the stock `postgres:16-alpine` image has no pgvector. Until all of that is provided and approved, retrieval is exactly the keyword retrieval the
+tested. It is **off** and **idle** in this build: `RAG_HYBRID_ENABLED` is unset, and the model files and `onnxruntime-web` are not in any image (staging's
+Compose mounts them read-only from the host; production does not). Until all of that is provided and approved, retrieval is exactly the keyword retrieval the
 pipeline used before. Nothing has been deployed, migrated or indexed anywhere.
 
 ## Flow (one customer message)
@@ -104,10 +104,12 @@ why keyword retrieval stays in the fusion. The set is small and synthetic; treat
 1. **Approval to add the runtime and model.** `onnxruntime-web@1.31.1` (MIT; its package is ~145 MB on disk, of which only one `.wasm` and the Node loader are
    needed, so it can be trimmed) is **deliberately not in `package.json`** yet, and the model files must be placed on the host (volume mount) and pointed to by
    `EMBEDDING_MODEL_DIR`. Until then the adapter reports itself unavailable and retrieval is keyword-only.
-2. **pgvector in the database image.** `infra/postgres/Dockerfile` builds `postgres:16-alpine` + pgvector (not wired into any compose file; pin `PG_IMAGE`
-   to the production minor version and smoke-test it on the server's architecture first). Production, staging and dev use stock `postgres:16-alpine` today.
-   The table is deliberately **not** a Prisma migration (it would fail `prisma migrate deploy` on databases without the extension). Apply it with
-   `ensurePgVectorSchema` once the image has pgvector.
+2. **pgvector in the database image.** `infra/postgres/Dockerfile` builds `postgres:16.15-alpine` + pgvector `v0.8.7`. **Staging's Compose file names the
+   resulting image** (`verzchat-staging/postgres-pgvector:16.15-0.8.7`) and mounts the model and runtime read-only into the backend; the deploy script
+   refuses to run unless the live database is already that image, and never recreates the database (`docs/staging-release.md` sections 1 to 3).
+   Production and dev still use stock `postgres:16-alpine`, deliberately. Pin `PG_IMAGE` to the exact minor version and smoke-test on the server's
+   architecture first. The table is deliberately **not** a Prisma migration (it would fail `prisma migrate deploy` on databases without the extension).
+   Apply it with `ensurePgVectorSchema` once the image has pgvector.
 3. **Indexing is explicit.** `KnowledgeIndexer.indexTenant(tenantId, { dryRun })` is never called automatically; existing knowledge-base rows are never
    modified. `dryRun` reports chunk and rough token counts with no provider. Indexing runs on the event-loop thread (~20 ms per chunk), so index a large
    knowledge base off-peak.

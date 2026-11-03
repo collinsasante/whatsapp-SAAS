@@ -66,6 +66,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/lib/staging-migration-gate.sh"
 # shellcheck source=lib/staging-required-settings.sh
 source "$SCRIPT_DIR/lib/staging-required-settings.sh"
+# shellcheck source=lib/staging-hybrid-guard.sh
+source "$SCRIPT_DIR/lib/staging-hybrid-guard.sh"
 SERVICES=(backend worker realtime whatsapp-web frontend)
 
 if [[ "$MODE" == "--help" || "$MODE" == "-h" ]]; then
@@ -273,7 +275,9 @@ SQL
   "${COMPOSE[@]}" config --quiet || fail "staging Compose configuration is invalid"
   CURRENT_STEP="code-only rollback"
   ROLLOUT_STARTED=true
-  "${COMPOSE[@]}" up -d --no-build --force-recreate "${SERVICES[@]}" || fail "image-only rollback rollout failed"
+  PG_ID_BEFORE=$(staging_postgres_container_id)
+  "${COMPOSE[@]}" up -d --no-build --no-deps --force-recreate "${SERVICES[@]}" || fail "image-only rollback rollout failed"
+  GUARD_MSG=$(staging_check_postgres_unchanged "$PG_ID_BEFORE") || fail "$GUARD_MSG"
   CURRENT_STEP="verify code-only rollback readiness"
   verify_rollout_health
   ROLLOUT_STARTED=false
@@ -354,6 +358,16 @@ read -r DB_HOST DB_NAME <<< "$DB_INFO"
 DB_USER=$(docker exec wa_staging_postgres printenv POSTGRES_USER) || fail "cannot read PostgreSQL role name"
 complete_step "database identity rechecked before preflight"
 
+# The custom pgvector database and the hybrid-RAG model mounts are checked while staging is still running normally, so a problem is found
+# before any service is stopped. None of these checks changes anything.
+CURRENT_STEP="database image and hybrid-RAG safeguards"
+GUARD_MSG=$(staging_check_declared_postgres_image "$COMPOSE_FILE") || fail "$GUARD_MSG"
+DECLARED_PG_IMAGE=$GUARD_MSG
+GUARD_MSG=$(staging_check_running_postgres_image "$DECLARED_PG_IMAGE") || fail "$GUARD_MSG"
+GUARD_MSG=$(staging_check_vector_available "$DB_USER" "$DB_NAME") || fail "$GUARD_MSG"
+GUARD_MSG=$(staging_check_hybrid_assets) || fail "$GUARD_MSG"
+complete_step "database runs the declared pgvector image; model files match their pinned SHA-256"
+
 CURRENT_STEP="migration history and data preflight"
 echo "Checking migration history and legacy-data preconditions (read-only)"
 verify_migration_checksums "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma/migrations" "$BACKUP_DIR/applied-migration-checksums.txt"
@@ -393,9 +407,13 @@ complete_step "candidate Prisma migrations applied once by the backend release j
 CURRENT_STEP="roll out application services and verify readiness"
 echo "Rolling out versioned images"
 ROLLOUT_STARTED=true
-"${COMPOSE[@]}" up -d --no-build --force-recreate "${SERVICES[@]}" ||
+PG_ID_BEFORE=$(staging_postgres_container_id)
+# --no-deps: a release starts exactly the five application services. It must never be the thing that recreates PostgreSQL, Redis or MinIO.
+"${COMPOSE[@]}" up -d --no-build --no-deps --force-recreate "${SERVICES[@]}" ||
   fail "rollout failed after migrations; database remains migrated; use only an approved recovery plan"
 WRITERS_STOPPED=false
+GUARD_MSG=$(staging_check_postgres_unchanged "$PG_ID_BEFORE") || fail "$GUARD_MSG"
+GUARD_MSG=$(staging_check_backend_mounts) || fail "$GUARD_MSG"
 
 verify_rollout_health
 ROLLOUT_STARTED=false

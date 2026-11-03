@@ -52,7 +52,18 @@ volumes:
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # Staging's database runs PostgreSQL WITH the pgvector extension (hybrid RAG): same server version and the same data volume as
+    # postgres:16-alpine, with the extension compiled in and only enabled per database by an explicit CREATE EXTENSION. The image tag is
+    # pinned to the minor version staging runs. NEVER change this to a stock postgres image: a stock image cannot load the extension that
+    # is already registered in the staging database, which breaks hybrid retrieval and pg_dump/pg_restore of the vector table.
+    # A release never builds or recreates this service (staging-release-deploy.sh builds the five application services only and starts
+    # them with --no-deps); changing the database image is the explicit, backed-up procedure in docs/staging-release.md.
+    image: verzchat-staging/postgres-pgvector:16.15-0.8.7
+    build:
+      context: ./postgres
+      args:
+        PG_IMAGE: postgres:16.15-alpine
+        PGVECTOR_VERSION: v0.8.7
     container_name: wa_staging_postgres
     restart: always
     environment:
@@ -167,6 +178,12 @@ services:
       AI_LEARNING_RETENTION_ENABLED: ${AI_LEARNING_RETENTION_ENABLED:-false}
       AI_LEARNING_RETENTION_FREE_TEXT_DAYS: ${AI_LEARNING_RETENTION_FREE_TEXT_DAYS:-}
       AI_LEARNING_RETENTION_METRICS_MONTHS: ${AI_LEARNING_RETENTION_METRICS_MONTHS:-}
+      # Hybrid RAG. OFF unless RAG_HYBRID_ENABLED is exactly "true" in .env.staging. The embedding model and the ONNX runtime are READ-ONLY host
+      # mounts (see volumes), not part of the image; the two paths below are the in-container locations of those mounts.
+      NODE_PATH: /ort/node_modules
+      EMBEDDING_MODEL_DIR: /models/all-MiniLM-L6-v2
+      RAG_HYBRID_ENABLED: ${RAG_HYBRID_ENABLED:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       SUPPORT_FORWARD_EMAIL: ${SUPPORT_FORWARD_EMAIL:-support@verzchat.com}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -186,6 +203,21 @@ services:
       SUPPORT_TENANT_ID: ${SUPPORT_TENANT_ID:-}
     volumes:
       - uploads_staging_data:/app/uploads
+      # Hybrid RAG assets: read-only, and the host directories must already exist (create_host_path: false makes a missing directory a
+      # start-up error instead of Docker silently creating an empty, root-owned one). The deploy script verifies them (and the pinned
+      # SHA-256 of the model files) before it touches anything.
+      - type: bind
+        source: /opt/verz-models/all-MiniLM-L6-v2
+        target: /models/all-MiniLM-L6-v2
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/verz-ort
+        target: /ort
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       postgres:
         condition: service_healthy
