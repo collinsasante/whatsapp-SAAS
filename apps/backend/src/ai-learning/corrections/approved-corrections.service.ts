@@ -24,6 +24,9 @@ export class ApprovedCorrectionsService {
   async getGuidanceBlock(tenantId: string, customerMessage: string): Promise<string> {
     if (this.isDisabled() || !tenantId || !customerMessage.trim()) return '';
     try {
+      // Its own switch, independent of the learning opt-in/pause: guidance a workspace already approved keeps applying until it turns this off.
+      const settings = await this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { approvedGuidanceEnabled: true } });
+      if (settings && !settings.approvedGuidanceEnabled) return '';
       const examples = await this.prisma.aiTrainingExample.findMany({
         // digitalSelfId null: a style correction applied to one agent's Digital Self must not also steer every other agent's replies.
         where: { tenantId, status: TrainingExampleStatus.APPROVED, digitalSelfId: null },

@@ -3,10 +3,10 @@ import { ApprovedCorrectionsService } from './approved-corrections.service';
 type Row = { id: string; tenantId: string; status: string; customerInput: string; expectedAction: string | null; expectedResponse: string | null; approvedAt: Date | null; updatedAt: Date };
 
 /** A tiny in-memory stand-in for the table that honours the `where` it is given, so isolation is tested by behaviour, not by inspecting the query. */
-function storeWith(rows: Row[]) {
+function storeWith(rows: Row[], settings: { approvedGuidanceEnabled: boolean } | null = null) {
   const findMany = jest.fn(async ({ where, take }: { where: { tenantId: string; status: string }; take: number }) =>
     rows.filter((r) => r.tenantId === where.tenantId && r.status === where.status).slice(0, take));
-  return { prisma: { aiTrainingExample: { findMany } }, findMany };
+  return { prisma: { aiTrainingExample: { findMany }, aiLearningSettings: { findUnique: jest.fn().mockResolvedValue(settings) } }, findMany };
 }
 
 const row = (over: Partial<Row>): Row => ({
@@ -18,6 +18,30 @@ const ask = (svc: ApprovedCorrectionsService, tenant = 'tenant-a') => svc.getGui
 
 describe('ApprovedCorrectionsService', () => {
   afterEach(() => { delete process.env.AI_CORRECTIONS_DISABLED; });
+
+  describe('the approved-guidance switch (independent of learning opt-in and pause)', () => {
+    it('keeps applying guidance when the workspace has no settings row, so existing approved guidance is not silently dropped', async () => {
+      const { prisma } = storeWith([row({})], null);
+      expect(await ask(new ApprovedCorrectionsService(prisma as never))).toContain('Kumasi takes 2 days');
+    });
+
+    it('applies guidance while learning is NOT enabled or is paused, because the switches are separate', async () => {
+      const { prisma } = storeWith([row({})], { approvedGuidanceEnabled: true, learningEnabled: false, learningPaused: true } as never);
+      expect(await ask(new ApprovedCorrectionsService(prisma as never))).toContain('Kumasi takes 2 days');
+    });
+
+    it('returns nothing, and does not even read the examples, when the workspace turned approved guidance off', async () => {
+      const { prisma, findMany } = storeWith([row({})], { approvedGuidanceEnabled: false });
+      expect(await ask(new ApprovedCorrectionsService(prisma as never))).toBe('');
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    it('a failing settings lookup ends as an empty block, never a failed reply', async () => {
+      const { prisma } = storeWith([row({})]);
+      prisma.aiLearningSettings.findUnique.mockRejectedValue(new Error('db down'));
+      expect(await ask(new ApprovedCorrectionsService(prisma as never))).toBe('');
+    });
+  });
 
   it('returns guidance from an approved example of the same tenant', async () => {
     const { prisma } = storeWith([row({ id: 'ok' })]);

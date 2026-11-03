@@ -28,6 +28,7 @@ function buildWorld() {
       findMany: jest.fn(async ({ where }: any) => examples.filter((e) => e.tenantId === where.tenantId && e.status === where.status)),
     },
     aiLearningAuditLog: { create: jest.fn(async ({ data }: any) => { audit.push(data); return data; }) },
+    aiLearningSettings: { findUnique: jest.fn(async () => null) },
   };
   return { prisma, examples, audit, learning: new AiLearningService(prisma as never), corrections: new ApprovedCorrectionsService(prisma as never) };
 }

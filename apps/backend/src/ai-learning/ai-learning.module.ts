@@ -14,6 +14,7 @@ import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.
 import { DigitalSelfModule } from '../digital-self/digital-self.module';
 import { AiProvidersModule } from '../ai-core/providers/ai-providers.module';
 import { AiLearningCostService } from './learning-cost.service';
+import { AiLearningSettingsService } from './learning-settings.service';
 import { LEARNING_COST_CONFIG, loadLearningCostConfig } from './learning-cost.config';
 
 /**
@@ -42,6 +43,7 @@ import { LEARNING_COST_CONFIG, loadLearningCostConfig } from './learning-cost.co
     AiInteractionEvalProcessor,
     AiLearningService,
     AiLearningCostService,
+    AiLearningSettingsService,
     { provide: LEARNING_COST_CONFIG, useFactory: () => loadLearningCostConfig() },
   ],
   exports: [AiLearningTriggerService, AiLearningCostService],

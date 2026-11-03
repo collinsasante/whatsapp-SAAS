@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
 import { TakeoverClassification, CorrectionCategory, TrainingExampleStatus } from '@prisma/client';
 
 export class SubmitFeedbackDto {
@@ -54,4 +55,28 @@ export class SetTrainingExampleStatusDto {
   @ApiProperty({ enum: TrainingExampleStatus })
   @IsEnum(TrainingExampleStatus)
   status: TrainingExampleStatus;
+}
+
+/**
+ * The global ValidationPipe uses enableImplicitConversion, which turns the string "false" into boolean true (and "" into false). These are
+ * safety switches, so the raw JSON value is kept and @IsBoolean accepts only a real boolean.
+ */
+const rawValue = ({ obj, key }: { obj: Record<string, unknown>; key: string }): unknown => obj[key];
+
+export class UpdateLearningSettingsDto {
+  @ApiProperty({ required: false, description: 'Opt this workspace in to (or out of) AI learning. Off by default. Switching on needs acknowledgeDisclosure.' })
+  @ValidateIf((_o, v) => v !== undefined) @Transform(rawValue) @IsBoolean()
+  learningEnabled?: boolean;
+
+  @ApiProperty({ required: false, description: 'Pause or resume learning without changing the opt-in.' })
+  @ValidateIf((_o, v) => v !== undefined) @Transform(rawValue) @IsBoolean()
+  learningPaused?: boolean;
+
+  @ApiProperty({ required: false, description: 'Whether approved guidance is used in replies. Independent of the learning switches.' })
+  @ValidateIf((_o, v) => v !== undefined) @Transform(rawValue) @IsBoolean()
+  approvedGuidanceEnabled?: boolean;
+
+  @ApiProperty({ required: false, description: 'Must be true when switching learning on.' })
+  @ValidateIf((_o, v) => v !== undefined) @Transform(rawValue) @IsBoolean()
+  acknowledgeDisclosure?: boolean;
 }

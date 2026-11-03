@@ -8,7 +8,8 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/user.decorator';
 import { AiLearningService } from './ai-learning.service';
-import { SubmitFeedbackDto, RecordCorrectionDto, SetTrainingExampleStatusDto } from './dto/ai-learning.dto';
+import { SubmitFeedbackDto, RecordCorrectionDto, SetTrainingExampleStatusDto, UpdateLearningSettingsDto } from './dto/ai-learning.dto';
+import { AiLearningSettingsService } from './learning-settings.service';
 
 /** Admin-only: interaction evaluations carry customer conversation content. */
 @ApiTags('AI Learning')
@@ -17,7 +18,22 @@ import { SubmitFeedbackDto, RecordCorrectionDto, SetTrainingExampleStatusDto } f
 @Roles(UserRole.ADMIN)
 @Controller('ai-learning')
 export class AiLearningController {
-  constructor(private readonly service: AiLearningService) {}
+  constructor(
+    private readonly service: AiLearningService,
+    private readonly settings: AiLearningSettingsService,
+  ) {}
+
+  @Get('settings')
+  @ApiOperation({ summary: 'This workspace\'s learning switches (opt-in, pause, approved guidance) and this month\'s learning usage' })
+  getSettings(@CurrentTenant() tenantId: string) {
+    return this.settings.get(tenantId);
+  }
+
+  @Patch('settings')
+  @ApiOperation({ summary: 'Change the learning switches. Switching learning on requires the disclosure acknowledgement.' })
+  updateSettings(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: UpdateLearningSettingsDto) {
+    return this.settings.update(tenantId, user.sub, dto);
+  }
 
   @Get('overview')
   @ApiOperation({ summary: 'AI Learning quality metrics for this tenant over a time window' })

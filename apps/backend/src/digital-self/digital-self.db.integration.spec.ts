@@ -50,6 +50,8 @@ suite('Digital Self against a real database', () => {
   async function tenant(name: string) {
     const t = await prisma.tenant.create({ data: { name: `${name}-${tag}`, webhookVerifyToken: randomUUID() } });
     tenants.push(t.id);
+    // Evidence capture needs the workspace to have opted in to learning (AiLearningSettings); these tests are about the learner itself.
+    await prisma.aiLearningSettings.create({ data: { tenantId: t.id, learningEnabled: true } });
     return t.id;
   }
   const user = (tenantId: string, name: string, over: Record<string, unknown> = {}) =>

@@ -42,6 +42,9 @@ export class DigitalSelfLearningService {
     const self = await provisionDigitalSelf(this.prisma, tenantId, msg.senderId);
     if (!self) return 'ineligible';
     if (!self.enabled || self.learningPaused) return 'paused';
+    // The workspace-level opt-in and pause (AiLearningSettings) govern evidence capture too: no row means the workspace never opted in.
+    const workspace = await this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { learningEnabled: true, learningPaused: true } });
+    if (!workspace?.learningEnabled || workspace.learningPaused) return 'paused';
 
     const text = msg.content ?? '';
     if (await this.isSavedText(tenantId, text)) return 'ineligible';
