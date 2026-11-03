@@ -14,7 +14,7 @@ Model `AiLearningSettings` (one optional row per workspace). A workspace with **
 | `learningPaused` | `false` | Stops both of the above without losing the opt-in. |
 | `approvedGuidanceEnabled` | `true` | Only controls whether already-approved guidance is added to replies. Independent of the other two. |
 
-`GET /ai-learning/settings` and `PATCH /ai-learning/settings` (workspace admins only). Switching learning **on** needs `acknowledgeDisclosure: true` **and** the platform gate `AI_LEARNING_OPT_IN_OPEN=true` (closed by default; operators open it only after privacy approval). Turning off and pausing are always allowed. A workspace cannot set its own budget: the DTO has no such field and rejects unknown fields. Every change is audited (flags only).
+`GET /ai-learning/settings` and `PATCH /ai-learning/settings` (workspace admins only). Switching learning **on** needs `acknowledgedDisclosureVersion` (the current notice version, from the settings view) **and** the platform gate `AI_LEARNING_OPT_IN_OPEN=true` (closed by default; operators open it only after privacy approval). Turning off and pausing are always allowed. A workspace cannot set its own budget: the DTO has no such field and rejects unknown fields. Every change is audited (flags only).
 
 **Behaviour change on deploy:** the existing `ai_learning_system` and `digital_self` platform flags are no longer sufficient. A workspace that is learning today (the pilot) stops until it opts in. No workspace is opted in by this change.
 
@@ -67,11 +67,11 @@ The audit row holds ids and counts only (approved example ids included, capped a
 ## 7. Before any real workspace opts in
 
 1. **Privacy approval** of the retention periods and of what the sweep deletes, and of keeping approved examples (which contain customer text) until an admin archives them — this is not decided in Phase 1.
-2. **Workspace disclosure** text: what is analysed, by whom, for how long. The API requires the acknowledgement but the wording and the UI are not built.
-3. **Deployment wiring** (not done; no Compose or secret was changed): pass `AI_LEARNING_OPT_IN_OPEN` (and optionally the budget and retention variables) through to the backend container.
+2. **Workspace disclosure**: built (versioned notice, acknowledgement, controls in the AI Learning tab; see `DIGITAL_SELF_LEARNING_PRIVACY.md`); the wording still needs approval.
+3. **Deployment wiring**: Compose now passes the variables to the backend with safe defaults (see the readiness branch); operators must still set them deliberately.
 4. **Staging acceptance** on a Phase-1 build: opt-in, one evaluation reserved and settled, a cap denial, a conversation deletion, restore rehearsal with the `NOT VALID` constraint.
 5. Operator steps in §5 for historical orphans.
-6. The staging validation seeder (`digital-self/validation/seed-synthetic.ts`) uses the learner; its synthetic workspace needs an opt-in row now.
+6. The staging seeder now opts the synthetic workspace in explicitly with `--opt-in` (see `digital-self-staging-validation.md`).
 7. Confirm price table, margins and caps against real provider billing after the first week; reconcile any `EXPIRED` rows.
 
 ## 8. Running the database tests
