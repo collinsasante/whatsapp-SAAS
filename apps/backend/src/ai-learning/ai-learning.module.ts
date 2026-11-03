@@ -15,6 +15,8 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
 import { AiProvidersModule } from '../ai-core/providers/ai-providers.module';
 import { AiLearningCostService } from './learning-cost.service';
 import { AiLearningSettingsService } from './learning-settings.service';
+import { AiLearningRetentionService } from './learning-retention.service';
+import { AiLearningRetentionController } from './learning-retention.controller';
 import { LEARNING_COST_CONFIG, loadLearningCostConfig } from './learning-cost.config';
 
 /**
@@ -35,7 +37,7 @@ import { LEARNING_COST_CONFIG, loadLearningCostConfig } from './learning-cost.co
     AiProvidersModule,
     BullModule.registerQueue({ name: QueueName.AI_INTERACTION_EVAL }),
   ],
-  controllers: [AiLearningController],
+  controllers: [AiLearningController, AiLearningRetentionController],
   providers: [
     AiLearningTriggerService,
     InteractionContextResolver,
@@ -44,6 +46,7 @@ import { LEARNING_COST_CONFIG, loadLearningCostConfig } from './learning-cost.co
     AiLearningService,
     AiLearningCostService,
     AiLearningSettingsService,
+    AiLearningRetentionService,
     { provide: LEARNING_COST_CONFIG, useFactory: () => loadLearningCostConfig() },
   ],
   exports: [AiLearningTriggerService, AiLearningCostService],
