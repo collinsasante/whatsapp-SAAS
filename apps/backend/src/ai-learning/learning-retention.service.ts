@@ -15,16 +15,22 @@ export interface RetentionSettings {
   metricsMonths: number;
 }
 
+/** Upper bounds: a period above these is a typo, not a policy, and the proposed default applies instead. */
+export const MAX_FREE_TEXT_DAYS = 3_650;
+export const MAX_METRICS_MONTHS = 120;
+
 export function loadRetentionSettings(env: NodeJS.ProcessEnv = process.env): RetentionSettings {
-  const positiveInt = (v: string | undefined, fallback: number): number => {
-    const n = Number(v);
-    return Number.isInteger(n) && n > 0 ? n : fallback;
+  const period = (v: string | undefined, fallback: number, max: number): number => {
+    const trimmed = (v ?? '').trim();
+    if (!/^\d+$/.test(trimmed)) return fallback;
+    const n = Number(trimmed);
+    return Number.isSafeInteger(n) && n > 0 && n <= max ? n : fallback;
   };
   return {
     // Off unless explicitly, exactly 'true': retention deletes customer-derived data, so it needs a deliberate decision (privacy approval).
     enabled: env['AI_LEARNING_RETENTION_ENABLED'] === 'true',
-    freeTextDays: positiveInt(env['AI_LEARNING_RETENTION_FREE_TEXT_DAYS'], DEFAULT_FREE_TEXT_DAYS),
-    metricsMonths: positiveInt(env['AI_LEARNING_RETENTION_METRICS_MONTHS'], DEFAULT_METRICS_MONTHS),
+    freeTextDays: period(env['AI_LEARNING_RETENTION_FREE_TEXT_DAYS'], DEFAULT_FREE_TEXT_DAYS, MAX_FREE_TEXT_DAYS),
+    metricsMonths: period(env['AI_LEARNING_RETENTION_METRICS_MONTHS'], DEFAULT_METRICS_MONTHS, MAX_METRICS_MONTHS),
   };
 }
 

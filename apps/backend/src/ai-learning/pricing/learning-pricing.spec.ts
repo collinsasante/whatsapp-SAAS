@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { LEARNING_PRICE_TABLE, costMicros } from './learning-price-table';
 import { PER_MESSAGE_TOKEN_ALLOWANCE, PER_REQUEST_TOKEN_ALLOWANCE, estimateInputTokensUpperBound } from './estimate-input-tokens.util';
-import { DEFAULT_LEARNING_COST_CONFIG, loadLearningCostConfig, usdToMicros } from '../learning-cost.config';
+import { DEFAULT_LEARNING_COST_CONFIG, MAX_CONFIGURABLE_USD, loadLearningCostConfig, usdToMicros } from '../learning-cost.config';
 import { LEARNING_MAX_OUTPUT_TOKENS } from '../learning-queue.constants';
 
 describe('learning price table', () => {
@@ -78,6 +78,27 @@ describe('learning cost configuration', () => {
       .toEqual({ workspaceMonthlyBudgetMicros: 2_500_000n, globalMonthlyBudgetMicros: 50_000_000n, maxReservationMicros: 50_000n });
     expect(usdToMicros('0.05')).toBe(50_000n);
     expect(usdToMicros('')).toBeNull();
+  });
+});
+
+describe('learning budget settings fail safely', () => {
+  const DEFAULTS = { workspaceMonthlyBudgetMicros: 5_000_000n, globalMonthlyBudgetMicros: 50_000_000n, maxReservationMicros: 50_000n };
+
+  it('with every variable missing or empty the safe defaults apply', () => {
+    expect(loadLearningCostConfig({})).toEqual(DEFAULTS);
+    expect(loadLearningCostConfig({ AI_LEARNING_WORKSPACE_MONTHLY_BUDGET_USD: '', AI_LEARNING_GLOBAL_MONTHLY_BUDGET_USD: '  ', AI_LEARNING_MAX_RESERVATION_USD: undefined })).toEqual(DEFAULTS);
+  });
+
+  it.each([['abc'], ['-5'], ['NaN'], ['Infinity'], ['1e3'], ['0x10'], ['5 dollars'], ['5,5'], ['1e999'], ['100001'], ['5000000'], ['0.0000001']])('an invalid or implausible amount %j is ignored, never used', (value) => {
+    expect(loadLearningCostConfig({ AI_LEARNING_WORKSPACE_MONTHLY_BUDGET_USD: value, AI_LEARNING_GLOBAL_MONTHLY_BUDGET_USD: value, AI_LEARNING_MAX_RESERVATION_USD: value })).toEqual(DEFAULTS);
+  });
+
+  it('accepts plain decimal amounts up to the bound, and zero (which means spend nothing)', () => {
+    expect(usdToMicros('0')).toBe(0n);
+    expect(usdToMicros('0.05')).toBe(50_000n);
+    expect(usdToMicros(' 12.345678 ')).toBe(12_345_678n);
+    expect(usdToMicros('100000')).toBe(100_000_000_000n);
+    expect(MAX_CONFIGURABLE_USD).toBe(100_000);
   });
 });
 
