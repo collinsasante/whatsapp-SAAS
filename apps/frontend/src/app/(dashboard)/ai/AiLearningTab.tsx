@@ -5,6 +5,8 @@ import { Loader2, X, ThumbsUp, ThumbsDown, AlertTriangle, CheckCircle2 } from 'l
 import { aiLearningApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import LearningPrivacyPanel from './LearningPrivacyPanel';
+import TrainingExamplesPanel from './TrainingExamplesPanel';
 
 type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
 type EvalStatus = 'PENDING' | 'EVALUATED' | 'NEEDS_REVIEW' | 'APPROVED' | 'REJECTED' | 'FAILED';
@@ -157,6 +159,8 @@ export default function AiLearningTab() {
         Automatic quality evaluation of real Verz-AI conversations, score, failure categories, and human review, feeding an approved training/regression dataset. Only runs for tenants with the AI Learning capability enabled.
       </p>
 
+      <LearningPrivacyPanel />
+
       {overview && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
           <StatCard label={`Interactions (${overview.windowHours}h)`} value={overview.totalInteractions} />
@@ -229,6 +233,8 @@ export default function AiLearningTab() {
           )}
         </div>
       )}
+
+      <TrainingExamplesPanel />
 
       {(selected || loadingDetail) && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSelected(null)}>

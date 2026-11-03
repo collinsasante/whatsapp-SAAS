@@ -656,6 +656,13 @@ export const aiLearningApi = {
   markRegressionCaseCreated: (id: string) => api.post(`/ai-learning/training-examples/${id}/regression-case`),
   listFailures: () => api.get('/ai-learning/failures'),
   listCorrections: () => api.get('/ai-learning/corrections'),
+  // Workspace privacy controls and the training-example lifecycle (admin only)
+  getSettings: () => api.get('/ai-learning/settings'),
+  updateSettings: (data: { learningEnabled?: boolean; learningPaused?: boolean; approvedGuidanceEnabled?: boolean; acknowledgedDisclosureVersion?: string }) =>
+    api.patch('/ai-learning/settings', data),
+  privacyHoldings: () => api.get('/ai-learning/privacy/holdings'),
+  withdrawTrainingExample: (id: string) => api.post(`/ai-learning/training-examples/${id}/withdraw`),
+  deleteTrainingExample: (id: string) => api.delete(`/ai-learning/training-examples/${id}`),
 };
 
 export const digitalSelfApi = {
