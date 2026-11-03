@@ -596,10 +596,11 @@ export default function AiPage() {
           {/* Knowledge Base Tabs */}
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
             {/* Tab bar */}
-            <div className="flex border-b border-gray-100">
+            {/* overflow-x-auto + shrink-0: on a phone the five tabs are wider than the card, and without this the last two ("AI Activity", "AI Learning") were clipped out of reach. */}
+            <div className="flex overflow-x-auto border-b border-gray-100">
               <button
                 onClick={() => setActiveTab('kb')}
-                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
                   activeTab === 'kb'
                     ? 'border-teal-500 text-teal-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -613,7 +614,7 @@ export default function AiPage() {
               </button>
               <button
                 onClick={() => setActiveTab('learned')}
-                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
                   activeTab === 'learned'
                     ? 'border-teal-500 text-teal-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -627,7 +628,7 @@ export default function AiPage() {
               </button>
               <button
                 onClick={() => setActiveTab('analytics')}
-                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
                   activeTab === 'analytics'
                     ? 'border-teal-500 text-teal-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -638,7 +639,7 @@ export default function AiPage() {
               </button>
               <button
                 onClick={() => setActiveTab('activity')}
-                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
                   activeTab === 'activity'
                     ? 'border-teal-500 text-teal-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -649,7 +650,7 @@ export default function AiPage() {
               </button>
               <button
                 onClick={() => setActiveTab('learning')}
-                className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
                   activeTab === 'learning'
                     ? 'border-teal-500 text-teal-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
