@@ -22,6 +22,8 @@ check "it never reads the production database or checkout" '! grep -Eq "wa_postg
 check "no environment VALUE is printed except an explicit non-secret allow-list" '! grep -Eq "printenv [A-Z_]*(KEY|SECRET|TOKEN|PASSWORD)|docker inspect[^|]*\{\{\.Config\.Env\}\}" <<<"$CODE" && grep -q "cut -d= -f1" "$S"'
 check "the body runs with stdin closed so it is safe to pipe in with bash -s" 'grep -q "^main </dev/null$" "$S"'
 
+check "the feature_flags query uses the column the schema really has (enabled), not a guess" 'awk "/^model FeatureFlag \\{/,/^\\}/" "$ROOT/apps/backend/prisma/schema.prisma" | grep -Eq "^[[:space:]]+enabled[[:space:]]+Boolean[[:space:]]*(@default\\(false\\))?[[:space:]]*$" && grep -q "key || .=. || enabled::text" "$S" && ! grep -q "is_enabled" "$S"'
+
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/bin"
 printf '#!/bin/sh\necho "$@" >> "%s/docker.calls"\nexit 1\n' "$T" > "$T/bin/docker"; chmod +x "$T/bin/docker"
 OUT=$(PATH="$T/bin:$PATH" CHECKOUT=/nonexistent BK=/nonexistent bash -s < "$S" 2>&1)

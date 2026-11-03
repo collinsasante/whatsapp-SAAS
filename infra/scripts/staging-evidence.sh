@@ -79,7 +79,7 @@ select 'inbound messages in the last 30 days: ' || count(*) from messages where 
 select 'most recent inbound message (date only): ' || coalesce(max(created_at)::date::text,'none') from messages where direction='INBOUND';
 select 'most recent outbound message (date only): ' || coalesce(max(created_at)::date::text,'none') from messages where direction='OUTBOUND';
 select 'ai_executions in the last 7 days: ' || count(*) from ai_executions where created_at > now() - interval '7 days';
-select 'platform flags: ' || coalesce(string_agg(key || '=' || is_enabled::text, ', ' order by key),'none') from feature_flags where key in ('ai_learning_system','digital_self','verz_ai_v2');
+select 'platform flags: ' || coalesce(string_agg(key || '=' || enabled::text, ', ' order by key),'none') from feature_flags where key in ('ai_learning_system','digital_self','verz_ai_v2');
 SQL
 sec "9 containment evidence (names and counts; no values)"
 psqlq <<'SQL'
