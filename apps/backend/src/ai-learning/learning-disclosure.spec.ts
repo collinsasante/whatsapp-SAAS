@@ -21,6 +21,22 @@ describe('learning disclosure', () => {
     expect(all).toMatch(/identifiers, counts and settings only, never conversation content/);
   });
 
+  it('is honest that interaction records exist whether or not learning is on, and that learning only reads them', () => {
+    const collected = buildLearningDisclosure(OFF).sections.find((s) => s.id === 'collected')!;
+    expect(collected.points[0]).toMatch(/whether or not learning is on/);
+    expect(collected.points[0]).toMatch(/Learning does not create these records; it reads them/);
+    expect(text(buildLearningDisclosure(OFF))).toMatch(/including the interaction records your AI log uses/);
+  });
+
+  it('says that switching learning off or pausing it does not delete what was already collected', () => {
+    const controls = buildLearningDisclosure(OFF).sections.find((s) => s.id === 'controls')!;
+    expect(controls.points.join(' ')).toMatch(/does not delete what was already collected/);
+  });
+
+  it('states the size of what is sent to the provider', () => {
+    expect(text(buildLearningDisclosure(OFF))).toMatch(/up to about 9,000 characters/);
+  });
+
   it('has a stable content-hash version, and the same input always gives the same one', () => {
     expect(buildLearningDisclosure(OFF).version).toMatch(/^d1-[0-9a-f]{12}$/);
     expect(buildLearningDisclosure(OFF).version).toBe(buildLearningDisclosure(OFF).version);

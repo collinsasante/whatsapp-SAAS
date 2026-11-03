@@ -31,7 +31,7 @@ export function buildLearningDisclosure(retention: RetentionSettings = loadReten
         'Approved training examples are not deleted automatically. They stay until you withdraw, archive or delete them, or delete the conversation or contact they came from.',
       ]
     : [
-        'Automatic deletion is not switched on yet. Until it is, the records described above stay until you delete them: delete a conversation or contact and everything learned from it is deleted with it, or delete individual training examples.',
+        'Automatic deletion is not switched on yet. Until it is, the records described above, including the interaction records your AI log uses, stay until you delete them: delete a conversation or contact and everything learned from it is deleted with it, or delete individual training examples.',
         'You will be asked to acknowledge an updated version of this notice before any automatic deletion period starts to apply.',
       ];
 
@@ -44,9 +44,9 @@ export function buildLearningDisclosure(retention: RetentionSettings = loadReten
         id: 'collected',
         heading: 'What is collected',
         points: [
-          'For conversations the AI answered: the customer message, the AI reply, the recent messages before it, and basic order and handover status. These are stored as an interaction record.',
-          'The result of each review: scores, the kinds of problem found, and a short written explanation. The explanation can quote the conversation.',
-          'Notes and corrections that your team writes while reviewing.',
+          'AI replies and suggestions are saved as interaction records (the customer message and the AI reply). This happens whether or not learning is on, because your AI log uses them. Learning does not create these records; it reads them.',
+          'When learning is on, each exchange is also evaluated. The evaluation stores scores, the kinds of problem found, and a short written explanation that can quote the conversation.',
+          'Notes, corrections and training examples that your team writes while reviewing are stored with the evaluation.',
           'For each human agent: counts and style markers taken from their replies, such as length, punctuation, emoji use and common greeting types. The agent’s sentences are not stored in this profile.',
         ],
       },
@@ -55,7 +55,7 @@ export function buildLearningDisclosure(retention: RetentionSettings = loadReten
         heading: 'How conversations are evaluated',
         points: [
           'Evaluation happens afterwards and in the background, never while a customer is waiting for a reply.',
-          'To evaluate an exchange, the conversation excerpt above is sent to an AI service provider (currently DeepSeek) over its API. The provider handles it under its own terms, which VerzChat does not control.',
+          'To evaluate an exchange, an excerpt of up to about 9,000 characters (the customer message, the AI reply, recent earlier messages, and order and handover status) is sent to an AI service provider, currently DeepSeek, over its API. The provider handles it under its own terms, which VerzChat does not control.',
           'VerzChat pays for evaluation. It is never taken from your AI credits.',
           'Administrators’ activity records for learning contain identifiers, counts and settings only, never conversation content.',
         ],
@@ -79,7 +79,7 @@ export function buildLearningDisclosure(retention: RetentionSettings = loadReten
         id: 'controls',
         heading: 'Your controls',
         points: [
-          'Switch learning on or off. It is off by default.',
+          'Switch learning on or off. It is off by default. Switching it off, or pausing it, stops new collection; it does not delete what was already collected. Delete conversations, contacts or training examples to remove that.',
           'Pause learning without switching it off. Digital Self profiles and existing guidance keep working while learning is paused.',
           'Switch approved guidance on or off independently of learning.',
           'Delete a conversation or contact at any time: everything learned from it is deleted in the same step. If that cannot be done, the deletion does not happen.',
