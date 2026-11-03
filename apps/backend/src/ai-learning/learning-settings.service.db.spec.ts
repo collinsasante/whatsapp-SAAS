@@ -18,7 +18,7 @@ dbSuite('AiLearningSettingsService against a real PostgreSQL', () => {
   const svc = prisma ? new AiLearningSettingsService(prisma as never, new AiLearningCostService(prisma as never)) : (undefined as unknown as AiLearningSettingsService);
   const ENV = ['AI_LEARNING_OPT_IN_OPEN', 'AI_LEARNING_RETENTION_ENABLED', 'AI_LEARNING_RETENTION_FREE_TEXT_DAYS', 'AI_LEARNING_RETENTION_METRICS_MONTHS'];
   afterEach(() => { for (const k of ENV) delete process.env[k]; });
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
   const open = () => { process.env['AI_LEARNING_OPT_IN_OPEN'] = 'true'; };
   const audits = (tenantId: string) => prisma.aiLearningAuditLog.findMany({ where: { tenantId, action: 'learning.settings_updated' }, orderBy: { createdAt: 'asc' } });
 

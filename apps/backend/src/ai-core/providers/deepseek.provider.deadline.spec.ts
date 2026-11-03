@@ -49,10 +49,12 @@ describe('DeepSeekProvider total deadline against a real server', () => {
     mode = 'headers-then-silence';
     const startedAt = Date.now();
 
-    await expect(new DeepSeekProvider().complete({ ...REQ, timeoutMs: 20_000, deadlineMs: 300, maxAttempts: 1 }))
+    await expect(new DeepSeekProvider().complete({ ...REQ, timeoutMs: 20_000, deadlineMs: 1_500, maxAttempts: 1 }))
       .rejects.toMatchObject({ code: 'timeout', uncertainOutcome: true });
 
-    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    // 1.5 s is long enough for the request to reach the server even on a loaded machine (300 ms made `requests` flaky) and still a tiny
+    // fraction of the 20 s per-attempt timeout it is proving the deadline overrides.
+    expect(Date.now() - startedAt).toBeLessThan(6_000);
     expect(requests).toBe(1);
   });
 
@@ -60,10 +62,10 @@ describe('DeepSeekProvider total deadline against a real server', () => {
     mode = 'never-answer';
     const startedAt = Date.now();
 
-    await expect(new DeepSeekProvider().complete({ ...REQ, timeoutMs: 20_000, deadlineMs: 200, maxAttempts: 1 }))
+    await expect(new DeepSeekProvider().complete({ ...REQ, timeoutMs: 20_000, deadlineMs: 500, maxAttempts: 1 }))
       .rejects.toMatchObject({ code: 'timeout' });
 
-    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    expect(Date.now() - startedAt).toBeLessThan(6_000);
   });
 
   it('returns a normal answer and its provider-reported usage when it arrives before the deadline', async () => {

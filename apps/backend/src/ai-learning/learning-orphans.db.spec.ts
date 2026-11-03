@@ -11,7 +11,7 @@ const FK = 'ai_interaction_logs_conversation_id_fkey';
 const validated = async () => (await prisma.$queryRaw<Array<{ convalidated: boolean }>>`SELECT convalidated FROM pg_constraint WHERE conname = ${FK}`)[0]?.convalidated;
 
 dbSuite('Historical orphan logs', () => {
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
 
   /**
    * Creates an orphan the way history did, WITHOUT any DDL (so it cannot lock out other suites): a superuser session that skips

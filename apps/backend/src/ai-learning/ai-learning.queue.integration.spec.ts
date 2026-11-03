@@ -37,7 +37,7 @@ queueSuite('AI Learning queue behaviour against real BullMQ and PostgreSQL', () 
   const closers: Array<() => Promise<unknown>> = [];
   const prefix = `ailtest-${randomUUID().slice(0, 8)}`;
   afterEach(async () => { while (closers.length) await closers.pop()!().catch(() => undefined); });
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
 
   /** Production attempts, backoff shape, concurrency and maxStalledCount; only lock/stall timers (and the backoff delay) are scaled. */
   const scaledWorker = (over: Partial<WorkerOptions> = {}): WorkerOptions => ({ connection, prefix, ...LEARNING_WORKER_OPTIONS, lockDuration: 600, stalledInterval: 250, ...over });

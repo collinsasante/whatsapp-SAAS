@@ -13,6 +13,9 @@ import { AiLearningCostService } from '../../ai-learning/learning-cost.service';
 import { currentDisclosureVersion } from '../../ai-learning/learning-disclosure';
 import { dbSuite, makeFixtures, newTestClient } from '../../ai-learning/testing/db-test-env';
 
+// Seeding 36 replies runs the real learner 36 times (several queries each): allow for a busy disposable database.
+jest.setTimeout(60_000);
+
 const prisma = newTestClient();
 const fx = prisma ? makeFixtures(prisma) : (undefined as unknown as ReturnType<typeof makeFixtures>);
 
@@ -22,7 +25,7 @@ dbSuite('Staging seeder and the learning opt-in (real PostgreSQL)', () => {
   const context = prisma ? new DigitalSelfContextService(prisma as never, { isEnabledCached: async () => true } as never) : (undefined as unknown as DigitalSelfContextService);
   const ENV = ['AI_LEARNING_OPT_IN_OPEN', 'AI_LEARNING_RETENTION_ENABLED'];
   afterEach(() => { for (const k of ENV) delete process.env[k]; });
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
   const open = () => { process.env['AI_LEARNING_OPT_IN_OPEN'] = 'true'; };
 
   async function synthetic(name = 'synthetic-readiness') {

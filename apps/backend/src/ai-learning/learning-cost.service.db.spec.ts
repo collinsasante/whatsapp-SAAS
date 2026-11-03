@@ -23,7 +23,7 @@ const lapse = (usageId: string) => prisma.$executeRaw`UPDATE ai_learning_usage S
 const rows = (aiExecutionId: string) => prisma.aiLearningUsage.findMany({ where: { aiExecutionId }, orderBy: { runNo: 'asc' } });
 
 dbSuite('AiLearningCostService against a real PostgreSQL', () => {
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
 
   describe('eligibility', () => {
     it('does not reserve for a workspace that never opted in (no settings row)', async () => {

@@ -27,7 +27,7 @@ dbSuite('Learning erasure on conversation and contact deletion (real PostgreSQL)
   const contacts = prisma ? new ContactsService(prisma as never, erasure) : (undefined as unknown as ContactsService);
   const conversations = prisma ? new ConversationsService(prisma as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, erasure) : (undefined as unknown as ConversationsService);
   beforeEach(() => notifications.notifyUser.mockClear());
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
 
   /** One conversation with a message, an executed AI turn, its interaction log, an evaluation with feedback, and review artefacts. */
   async function world(tenantId: string, opts: { approvedExample?: boolean; digitalSelfId?: string } = {}) {

@@ -358,7 +358,7 @@ suite('Digital Self against a real database', () => {
     expect(removed).toEqual({ conversations: 2, evidenceRemoved: 72 });
     expect((await svc.get(t, a!.id))).toMatchObject({ status: 'INITIALIZING', evidenceCount: 0 });
     expect(await prisma.message.count({ where: { tenantId: t } })).toBe(0);
-  });
+  }, 120_000); // seeds 72 replies through the real learner: well over Jest's 5 s default on a busy disposable database
 
   // ------------------------------------------------------------------ approved style corrections
   describe('approved style corrections', () => {

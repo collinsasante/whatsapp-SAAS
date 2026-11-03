@@ -40,7 +40,7 @@ dbSuite('Training example lifecycle (real PostgreSQL)', () => {
   const service = prisma ? new AiLearningService(prisma as never, corrections) : (undefined as unknown as AiLearningService);
   const guidance = prisma ? new ApprovedCorrectionsService(prisma as never) : (undefined as unknown as ApprovedCorrectionsService);
   afterEach(() => { delete process.env['AI_CORRECTIONS_DISABLED']; });
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
   const ask = (tenantId: string) => guidance.getGuidanceBlock(tenantId, QUESTION);
 
   async function exampleFor(tenantId: string, status: TrainingExampleStatus = 'APPROVED', conversationId?: string, adminId?: string) {

@@ -12,7 +12,7 @@ const usage = (tenantId: string, aiExecutionId: string, runNo: number, state: 'R
 });
 
 dbSuite('AI Learning schema against a real PostgreSQL', () => {
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
 
   describe('AiLearningSettings defaults', () => {
     it('a new row is opted OUT, not paused, with approved guidance ON and no budget override', async () => {

@@ -14,7 +14,7 @@ const BIG: LearningCostConfig = { workspaceMonthlyBudgetMicros: 1_000_000_000n, 
 
 isolatedDbSuite('AiLearningCostService global cap (isolated database)', () => {
   const service = (config: Partial<LearningCostConfig> = {}) => new AiLearningCostService(prisma as never, { ...BIG, ...config });
-  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
+  afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); }, 120_000); // many fixture tenants cascade-delete here: allow for a slow disposable database
   async function optedIn() {
     const tenantId = await fx.tenant();
     await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true, disclosureVersion: currentDisclosureVersion() } });
