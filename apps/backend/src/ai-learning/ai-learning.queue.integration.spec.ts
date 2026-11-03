@@ -4,6 +4,7 @@
  * milliseconds, not minutes), with the real cost ledger behind every run. Skipped unless AI_LEARNING_TEST_DATABASE_URL and
  * AI_LEARNING_TEST_REDIS_URL are set (see testing/db-test-env.ts).
  */
+import { currentDisclosureVersion } from './learning-disclosure';
 import { randomUUID } from 'crypto';
 import { DelayedError, Job, Queue, Worker, WorkerOptions } from 'bullmq';
 import { Test } from '@nestjs/testing';
@@ -48,7 +49,7 @@ queueSuite('AI Learning queue behaviour against real BullMQ and PostgreSQL', () 
   }
   async function optedIn() {
     const tenantId = await fx.tenant();
-    await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true } });
+    await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true, disclosureVersion: currentDisclosureVersion() } });
     return tenantId;
   }
   const lapse = (execution: string) => prisma.$executeRaw`UPDATE ai_learning_usage SET lease_expires_at = (clock_timestamp() AT TIME ZONE 'UTC') - interval '1 second' WHERE ai_execution_id = ${execution} AND state = 'RESERVED'::"AiLearningUsageState"`;

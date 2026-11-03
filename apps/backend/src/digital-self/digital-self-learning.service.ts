@@ -6,6 +6,7 @@ import { extractFeatures, isEligibleHumanMessage } from './message-features.util
 import { deriveStatus, mergeFeatures, parseProfile } from './profile.util';
 import { lockConversationAndReadExclusion, lockDigitalSelf, REPLY_SOURCE } from './evidence.util';
 import { matchesSavedReply, templateBodyText } from './saved-reply.util';
+import { isLearningPermitted } from '../ai-learning/learning-eligibility';
 
 export type LearnOutcome = 'learned' | 'duplicate' | 'ineligible' | 'paused' | 'excluded';
 
@@ -42,9 +43,9 @@ export class DigitalSelfLearningService {
     const self = await provisionDigitalSelf(this.prisma, tenantId, msg.senderId);
     if (!self) return 'ineligible';
     if (!self.enabled || self.learningPaused) return 'paused';
-    // The workspace-level opt-in and pause (AiLearningSettings) govern evidence capture too: no row means the workspace never opted in.
-    const workspace = await this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { learningEnabled: true, learningPaused: true } });
-    if (!workspace?.learningEnabled || workspace.learningPaused) return 'paused';
+    // The workspace-level opt-in, pause and acknowledged disclosure (AiLearningSettings) govern evidence capture too: no row means the workspace never opted in.
+    const workspace = await this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { learningEnabled: true, learningPaused: true, disclosureVersion: true } });
+    if (!isLearningPermitted(workspace)) return 'paused';
 
     const text = msg.content ?? '';
     if (await this.isSavedText(tenantId, text)) return 'ineligible';

@@ -5,8 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_LEARNING_COST_CONFIG, LEARNING_COST_CONFIG, LearningCostConfig } from './learning-cost.config';
 import { LEARNING_LEASE_MS, LEARNING_MAX_OUTPUT_TOKENS, LEARNING_MAX_RUNS_PER_EXECUTION } from './learning-queue.constants';
 import { LEARNING_PRICE_TABLE, costMicros } from './pricing/learning-price-table';
+import { learningBlockReason } from './learning-eligibility';
 
-export type LearningSkipReason = 'not_enabled' | 'paused' | 'run_cap' | 'workspace_cap' | 'global_cap' | 'run_ceiling' | 'already_settled' | 'in_flight';
+export type LearningSkipReason = 'not_enabled' | 'disclosure_outdated' | 'paused' | 'run_cap' | 'workspace_cap' | 'global_cap' | 'run_ceiling' | 'already_settled' | 'in_flight';
 
 export type ReserveResult =
   | { kind: 'reserved'; usageId: string; runNo: number; leaseExpiresAt: Date; reservedMicros: bigint }
@@ -88,8 +89,9 @@ export class AiLearningCostService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${RESERVATION_LOCK_KEY}))`;
 
       const settings = await tx.aiLearningSettings.findUnique({ where: { tenantId } });
-      if (!settings?.learningEnabled) return { kind: 'skipped', reason: 'not_enabled', retryLater: false } as const;
-      if (settings.learningPaused) return { kind: 'skipped', reason: 'paused', retryLater: false } as const;
+      // Opted in, not paused, and the CURRENT disclosure acknowledged (the same rule every learning gate uses).
+      const blocked = learningBlockReason(settings);
+      if (blocked || !settings) return { kind: 'skipped', reason: blocked ?? 'not_enabled', retryLater: false } as const;
 
       // 1. A lapsed lease is expired first (atomic, row-locked). Only after this can the rows be read as "live or settled".
       await tx.$executeRaw`UPDATE ai_learning_usage SET state = 'EXPIRED'::"AiLearningUsageState"

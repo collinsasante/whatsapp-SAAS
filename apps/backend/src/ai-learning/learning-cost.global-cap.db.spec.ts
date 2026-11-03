@@ -1,3 +1,4 @@
+import { currentDisclosureVersion } from './learning-disclosure';
 import { randomUUID } from 'crypto';
 import { AiLearningCostService } from './learning-cost.service';
 import { LearningCostConfig } from './learning-cost.config';
@@ -16,7 +17,7 @@ isolatedDbSuite('AiLearningCostService global cap (isolated database)', () => {
   afterAll(async () => { await fx.cleanup(); await prisma.$disconnect(); });
   async function optedIn() {
     const tenantId = await fx.tenant();
-    await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true } });
+    await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true, disclosureVersion: currentDisclosureVersion() } });
     return tenantId;
   }
 

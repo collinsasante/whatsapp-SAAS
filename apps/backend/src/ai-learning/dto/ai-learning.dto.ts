@@ -76,7 +76,7 @@ export class UpdateLearningSettingsDto {
   @ValidateIf((_o, v) => v !== undefined) @Transform(rawValue) @IsBoolean()
   approvedGuidanceEnabled?: boolean;
 
-  @ApiProperty({ required: false, description: 'Must be true when switching learning on.' })
-  @ValidateIf((_o, v) => v !== undefined) @Transform(rawValue) @IsBoolean()
-  acknowledgeDisclosure?: boolean;
+  @ApiProperty({ required: false, description: 'The version of the learning notice the administrator has read (from GET /ai-learning/settings). Required to switch learning on, and to resume after the notice changed.' })
+  @IsOptional() @IsString() @MaxLength(64)
+  acknowledgedDisclosureVersion?: string;
 }

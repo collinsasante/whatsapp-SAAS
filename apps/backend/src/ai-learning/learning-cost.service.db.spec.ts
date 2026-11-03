@@ -1,3 +1,4 @@
+import { currentDisclosureVersion } from './learning-disclosure';
 import { randomUUID } from 'crypto';
 import { AiLearningCostService } from './learning-cost.service';
 import { LearningCostConfig } from './learning-cost.config';
@@ -14,7 +15,7 @@ const service = (config: Partial<LearningCostConfig> = {}) => new AiLearningCost
 
 async function optedIn(over: { learningPaused?: boolean; monthlyBudgetMicros?: bigint } = {}) {
   const tenantId = await fx.tenant();
-  await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true, ...over } });
+  await prisma.aiLearningSettings.create({ data: { tenantId, learningEnabled: true, disclosureVersion: currentDisclosureVersion(), ...over } });
   return tenantId;
 }
 const reserve = (svc: AiLearningCostService, tenantId: string, aiExecutionId = randomUUID()) => svc.reserve({ tenantId, aiExecutionId, estimatedInputTokens: EST });
@@ -33,6 +34,21 @@ dbSuite('AiLearningCostService against a real PostgreSQL', () => {
     it('does not reserve while learning is paused, even though it is enabled', async () => {
       const tenantId = await optedIn({ learningPaused: true });
       await expect(reserve(service(), tenantId)).resolves.toMatchObject({ kind: 'skipped', reason: 'paused', retryLater: false });
+    });
+
+    it.each([['no acknowledgement recorded', null], ['an outdated acknowledgement', 'd1-000000000000']])('does not reserve for an opted-in workspace with %s, and makes no provider call possible', async (_label, version) => {
+      const tenantId = await optedIn();
+      await prisma.aiLearningSettings.update({ where: { tenantId }, data: { disclosureVersion: version } });
+      await expect(reserve(service(), tenantId)).resolves.toMatchObject({ kind: 'skipped', reason: 'disclosure_outdated', retryLater: false });
+      expect(await prisma.aiLearningUsage.count({ where: { tenantId } })).toBe(0);
+    });
+
+    it('resumes as soon as the CURRENT acknowledgement is recorded', async () => {
+      const tenantId = await optedIn();
+      await prisma.aiLearningSettings.update({ where: { tenantId }, data: { disclosureVersion: 'd1-000000000000' } });
+      await expect(reserve(service(), tenantId)).resolves.toMatchObject({ reason: 'disclosure_outdated' });
+      await prisma.aiLearningSettings.update({ where: { tenantId }, data: { disclosureVersion: currentDisclosureVersion() } });
+      await expect(reserve(service(), tenantId)).resolves.toMatchObject({ kind: 'reserved' });
     });
 
     it('writes nothing to the ledger for an ineligible workspace', async () => {

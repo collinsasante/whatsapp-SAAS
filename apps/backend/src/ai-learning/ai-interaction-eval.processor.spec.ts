@@ -166,7 +166,7 @@ describe('AiInteractionEvalProcessor', () => {
       expect(evaluator.evaluate).toHaveBeenCalledWith(expect.anything(), { tenantId: 'tenant-1', aiExecutionId: 'exec-1' });
     });
 
-    it.each(['not_enabled', 'paused', 'run_cap', 'workspace_cap', 'global_cap', 'run_ceiling', 'already_settled'] as const)(
+    it.each(['not_enabled', 'disclosure_outdated', 'paused', 'run_cap', 'workspace_cap', 'global_cap', 'run_ceiling', 'already_settled'] as const)(
       'a %s decision ends the job quietly: no retry, no FAILED evaluation, no review task', async (reason) => {
         const { processor, db, evaluator, tasks } = build();
         evaluator.evaluate.mockRejectedValue(new LearningSkippedError(reason, false));

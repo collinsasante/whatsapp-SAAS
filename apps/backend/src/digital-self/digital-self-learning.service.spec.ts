@@ -1,3 +1,4 @@
+import { currentDisclosureVersion } from '../ai-learning/learning-disclosure';
 import { DigitalSelfLearningService } from './digital-self-learning.service';
 import { DigitalSelfLearningProcessor } from './digital-self-learning.processor';
 import { DigitalSelfLearningTrigger, learnJobId } from './digital-self-learning.trigger';
@@ -5,7 +6,7 @@ import { DigitalSelfLearningTrigger, learnJobId } from './digital-self-learning.
 type Msg = { conversationId: string; conversation: { digitalSelfLearningExcluded: boolean }; tenantId: string; direction: string; type: string; senderId: string | null; templateId: string | null; content: string | null; metadata: unknown; sender: { isAiAgent: boolean } | null };
 const human = (over: Partial<Msg> = {}): Msg => ({ conversationId: 'c1', conversation: { digitalSelfLearningExcluded: false }, tenantId: 't1', direction: 'OUTBOUND', type: 'TEXT', senderId: 'ama', templateId: null, content: "Hello! I'd be happy to help 😊 Which size do you need?", metadata: null, sender: { isAiAgent: false }, ...over });
 
-function build(opts: { workspace?: { learningEnabled: boolean; learningPaused: boolean } | null; message?: Msg | null; self?: Record<string, unknown>; canned?: string[]; templates?: unknown[]; ledger?: boolean; excludedUnderLock?: boolean } = {}) {
+function build(opts: { workspace?: { learningEnabled: boolean; learningPaused: boolean; disclosureVersion: string | null } | null; message?: Msg | null; self?: Record<string, unknown>; canned?: string[]; templates?: unknown[]; ledger?: boolean; excludedUnderLock?: boolean } = {}) {
   const self = { id: 'ds1', tenantId: 't1', userId: 'ama', enabled: true, learningPaused: false, evidenceCount: 0, profile: {}, ...opts.self };
   const tx = {
     // 1st call per transaction = the shared conversation lock + exclusion read; 2nd = the Digital Self row lock.
@@ -17,7 +18,7 @@ function build(opts: { workspace?: { learningEnabled: boolean; learningPaused: b
     message: { findFirst: jest.fn().mockResolvedValue(opts.message === undefined ? human() : opts.message) },
     user: { findFirst: jest.fn().mockResolvedValue({ id: 'ama' }) },
     digitalSelf: { createMany: jest.fn().mockResolvedValue({ count: 0 }), findUnique: jest.fn().mockResolvedValue(self), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    aiLearningSettings: { findUnique: jest.fn().mockResolvedValue(opts.workspace === undefined ? { learningEnabled: true, learningPaused: false } : opts.workspace) },
+    aiLearningSettings: { findUnique: jest.fn().mockResolvedValue(opts.workspace === undefined ? { learningEnabled: true, learningPaused: false, disclosureVersion: currentDisclosureVersion() } : opts.workspace) },
     cannedResponse: { findMany: jest.fn().mockResolvedValue((opts.canned ?? []).map((content) => ({ content }))) },
     template: { findMany: jest.fn().mockResolvedValue((opts.templates ?? []).map((components) => ({ components }))) },
     $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -29,8 +30,10 @@ describe('DigitalSelfLearningService.learnFromMessage', () => {
   describe('workspace opt-in and pause (AiLearningSettings)', () => {
     it.each([
       ['no settings row (never opted in)', null],
-      ['learning not enabled', { learningEnabled: false, learningPaused: false }],
-      ['learning paused for the workspace', { learningEnabled: true, learningPaused: true }],
+      ['learning not enabled', { learningEnabled: false, learningPaused: false, disclosureVersion: currentDisclosureVersion() }],
+      ['no acknowledged disclosure', { learningEnabled: true, learningPaused: false, disclosureVersion: null }],
+      ['an outdated disclosure version', { learningEnabled: true, learningPaused: false, disclosureVersion: 'd1-old' }],
+      ['learning paused for the workspace', { learningEnabled: true, learningPaused: true, disclosureVersion: currentDisclosureVersion() }],
     ])('captures no evidence with %s', async (_label, workspace) => {
       const { svc, prisma, tx } = build({ workspace });
       expect(await svc.learnFromMessage('t1', 'm1')).toBe('paused');

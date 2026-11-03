@@ -5,6 +5,7 @@
  *
  *   DIGITAL_SELF_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/dstest DIGITAL_SELF_TEST_REDIS_URL=redis://127.0.0.1:6379 npx jest digital-self.db
  */
+import { currentDisclosureVersion } from '../ai-learning/learning-disclosure';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -51,7 +52,7 @@ suite('Digital Self against a real database', () => {
     const t = await prisma.tenant.create({ data: { name: `${name}-${tag}`, webhookVerifyToken: randomUUID() } });
     tenants.push(t.id);
     // Evidence capture needs the workspace to have opted in to learning (AiLearningSettings); these tests are about the learner itself.
-    await prisma.aiLearningSettings.create({ data: { tenantId: t.id, learningEnabled: true } });
+    await prisma.aiLearningSettings.create({ data: { tenantId: t.id, learningEnabled: true, disclosureVersion: currentDisclosureVersion() } });
     return t.id;
   }
   const user = (tenantId: string, name: string, over: Record<string, unknown> = {}) =>

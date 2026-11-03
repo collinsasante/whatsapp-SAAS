@@ -3001,6 +3001,12 @@ model AiLearningSettings {
   monthlyBudgetMicros     BigInt?  @map("monthly_budget_micros")
   enabledAt               DateTime? @map("enabled_at")
   enabledById             String?  @map("enabled_by_id")
+  // The disclosure the workspace administrator last acknowledged: its version (a content hash, see learning-disclosure.ts), who, and when.
+  // Learning runs only while this equals the CURRENT version, so any change to the disclosure needs a fresh acknowledgement. No foreign
+  // key on the administrator: the record of who agreed must outlive the user row.
+  disclosureVersion            String?   @map("disclosure_version")
+  disclosureAcknowledgedAt     DateTime? @map("disclosure_acknowledged_at")
+  disclosureAcknowledgedById   String?   @map("disclosure_acknowledged_by_id")
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
