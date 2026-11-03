@@ -30,9 +30,10 @@ chk "ufw active" bash -c 'ufw status | grep -q "Status: active"'
 chk "4 fail2ban jails" bash -c '[ "$(fail2ban-client status | grep -o "nginx-botsearch\|nginx-http-auth\|nginx-limit-req\|sshd" | wc -l)" = 4 ]'
 chk "gate references none of 22/80/443/8080" bash -c '! nft list table inet staging8443 | grep -qE "(dport|proto-dst) (22|80|443|8080)\b"'
 chk "sshd, 80, 443 and 127.0.0.1:8080 listeners present" bash -c 'for p in 22 80 443; do ss -ltnH "( sport = :$p )" | grep -q . || exit 1; done; ss -ltnH "( sport = :8080 )" | grep -q 127.0.0.1:8080'
-mkdir -p $EV/AP1-AFINAL; cp -a $AP1/AFINAL/. $EV/AP1-AFINAL/ 2>/dev/null; snap AP2-baseline 2>/dev/null
+# Reference state to compare against: REF_DIR (a snap directory) or, by default, the end of AP-1. After a stage that legitimately moves counters (B4 raises the old layer's DROP counters), point REF_DIR at that stage's final snapshot.
+mkdir -p $EV/AP1-AFINAL; cp -a ${REF_DIR:-$AP1/AFINAL}/. $EV/AP1-AFINAL/ 2>/dev/null; snap AP2-baseline 2>/dev/null
 cmp_ap1() { for f in other-tables.sha iptables.sha ip6tables.sha docker-user.sha ufw.md5 restarts.txt fw.txt; do diff -q $EV/AP1-AFINAL/$f $EV/AP2-baseline/$f >/dev/null || { echo "differs: $f"; return 1; }; done
   [ "$(tail -1 $EV/AP1-AFINAL/old4.txt)" = "$(tail -1 $EV/AP2-baseline/old4.txt)" ] && [ "$(tail -1 $EV/AP1-AFINAL/old6.txt)" = "$(tail -1 $EV/AP2-baseline/old6.txt)" ]; }
-chk "state identical to the end of AP-1 (hashes; old-layer DROP counters)" cmp_ap1
+chk "state identical to the reference snapshot (hashes; old-layer DROP counters)" cmp_ap1
 echo "gate counters (gate fwd input) at baseline: $(gc)" | tee $EV/P0/gate-counters.txt
 echo "PREFLIGHT: $PASS pass, $FAIL fail"; [ $FAIL = 0 ]
