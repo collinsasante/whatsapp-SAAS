@@ -148,6 +148,14 @@ describe('DeepSeekProvider', () => {
       tools: [{ type: 'function', function: { name: 'get_order_status' } }],
     });
   });
+  it('treats non-numeric or negative usage counts as not reported (0), never as a number', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: 'x' }, finish_reason: 'stop' }], usage: { prompt_tokens: '812', completion_tokens: -4 } } });
+
+    const result = await provider.complete({ modelKey: 'deepseek-v4-flash', messages: [] });
+
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
   describe('total deadline, cancellation and attempt override', () => {
     const REQ = { modelKey: 'deepseek-v4-flash', messages: [{ role: 'user' as const, content: 'hi' }] };
     /** A request that never answers and rejects the way axios does once its signal aborts. */

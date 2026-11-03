@@ -6,7 +6,8 @@ import { EvalQualityStatus, FailureSeverity, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { InternalTasksService } from '../internal-tasks/internal-tasks.service';
 import { InteractionContextResolver } from './interaction-context.resolver';
-import { AiInteractionEvaluatorService, TransientJudgeError } from './ai-interaction-evaluator.service';
+import { AiInteractionEvaluatorService, LearningFencedError, LearningSkippedError, TransientJudgeError } from './ai-interaction-evaluator.service';
+import { LEARNING_WORKER_OPTIONS } from './learning-queue.constants';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { AI_LEARNING_FLAG_KEY } from './ai-learning-trigger.service';
 
@@ -44,8 +45,13 @@ const isUniqueViolation = (err: unknown): boolean => !!err && typeof err === 'ob
  * duplicate-delivered job finds the stored evaluation BEFORE any provider call and never overwrites a completed or reviewed
  * one (writes are conditional, see storeUnlessFinal) -- spec section 48. The review task for a HIGH/CRITICAL evaluation is
  * created at most once, serialized on the evaluation row (see ensureReviewTask).
+ *
+ * Paid-call protection does NOT rely on this class or on BullMQ behaving: every provider call is reserved in the learning cost ledger
+ * first (AiLearningCostService), so a retry, a stall recovery, a delayed re-activation or a duplicate job is just another run that must
+ * pass the same database checks (caps, one live reservation per execution, a ceiling of 4 paid runs). The worker options are explicit
+ * (LEARNING_WORKER_OPTIONS) so that the 3 attempts + 1 tolerated stall behind that ceiling cannot drift with a library default.
  */
-@Processor(QueueName.AI_INTERACTION_EVAL)
+@Processor(QueueName.AI_INTERACTION_EVAL, LEARNING_WORKER_OPTIONS)
 export class AiInteractionEvalProcessor extends WorkerHost {
   private readonly logger = new Logger(AiInteractionEvalProcessor.name);
 
@@ -106,8 +112,19 @@ export class AiInteractionEvalProcessor extends WorkerHost {
 
     let result: Awaited<ReturnType<AiInteractionEvaluatorService['evaluate']>>;
     try {
-      result = await this.evaluator.evaluate(ctx);
+      result = await this.evaluator.evaluate(ctx, { tenantId, aiExecutionId });
     } catch (err) {
+      if (err instanceof LearningSkippedError) {
+        // Another live run holds the reservation: try again after the queue's backoff (no provider call was made). Anything else
+        // (not opted in, paused, over a cap, run ceiling, already settled) is a decision, not a failure: nothing is retried or recorded.
+        if (err.retryLater && !isLastAttempt) throw err;
+        this.logger.log(`Evaluation of execution ${aiExecutionId} not run: ${err.reason}`);
+        return;
+      }
+      if (err instanceof LearningFencedError) {
+        this.logger.warn(`Evaluation of execution ${aiExecutionId} finished after a newer run took over; its result was discarded`);
+        return;
+      }
       if (!(err instanceof TransientJudgeError)) throw err;
       // Retryable: let the queue retry with its backoff; only the last attempt records the failure.
       if (!isLastAttempt) throw err;

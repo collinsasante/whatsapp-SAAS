@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import axios from 'axios';
 import { FailureCategory } from '@prisma/client';
-import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { DEEPSEEK_MODEL } from '../common/deepseek';
+import { AiProviderError } from '../ai-core/providers/ai-provider.interface';
+import { ProviderRegistryService } from '../ai-core/providers/provider-registry.service';
+import { AiLearningCostService, FailureCharge, LearningSkipReason } from './learning-cost.service';
+import { LEARNING_MAX_OUTPUT_TOKENS, LEARNING_PROVIDER_DEADLINE_MS, LEARNING_PROVIDER_MAX_ATTEMPTS } from './learning-queue.constants';
+import { estimateInputTokensUpperBound } from './pricing/estimate-input-tokens.util';
 import { ResolvedInteractionContext } from './interaction-context.resolver';
 import { DimensionScores, computeOverallScore, computeSeverity, needsHumanReview } from './dimension-scoring.util';
 import { buildJudgePayload } from './judge-input.util';
@@ -62,19 +66,58 @@ export class TransientJudgeError extends Error {
   }
 }
 
+/** The run was not allowed to call the provider (not opted in, paused, over a cap, run ceiling, already settled, or another run is live). */
+export class LearningSkippedError extends Error {
+  constructor(readonly reason: LearningSkipReason, readonly retryLater: boolean) {
+    super(`AI learning evaluation skipped: ${reason}`);
+    this.name = 'LearningSkippedError';
+  }
+}
+
+/** The run finished after a takeover had already expired its reservation: its result must not be applied. */
+export class LearningFencedError extends Error {
+  constructor() {
+    super('AI learning evaluation result discarded: a newer run owns this execution');
+    this.name = 'LearningFencedError';
+  }
+}
+
+/** Which paid run is being evaluated. Every provider call is reserved against the learning ledger under this identity. */
+export interface JudgeRun {
+  tenantId: string;
+  aiExecutionId: string;
+}
+
 /** Explicitly retryable: server-side failures only. 4xx (400/401/402/408/429 ...) are permanent for this caller. */
 const RETRYABLE_HTTP_STATUS: ReadonlySet<number> = new Set([500, 502, 503, 504]);
 /** Explicitly retryable: the request did not get an answer at all. A timeout can still have been billed; the retry count is bounded by the queue. */
 const RETRYABLE_NETWORK_CODES: ReadonlySet<string> = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE']);
 
+/** The status or code of the transport error behind an AiProviderError (the adapter keeps it as `cause`), or of a bare error. */
+function causeOf(err: unknown, key: 'status' | 'code'): unknown {
+  const source = err instanceof AiProviderError && err.cause ? err.cause : err;
+  if (key === 'status') return (source as { response?: { status?: unknown } } | null)?.response?.status;
+  return (source as { code?: unknown } | null)?.code;
+}
+
 @Injectable()
 export class AiInteractionEvaluatorService {
   private readonly logger = new Logger(AiInteractionEvaluatorService.name);
 
-  async evaluate(ctx: ResolvedInteractionContext): Promise<EvaluationResult | null> {
+  constructor(
+    private readonly registry: ProviderRegistryService,
+    private readonly cost: AiLearningCostService,
+  ) {}
+
+  /**
+   * `run` is required on purpose: there is no way to reach the provider without reserving learning budget for it first.
+   * Resolves to null for a permanent failure; throws TransientJudgeError (retry), LearningSkippedError (not allowed to spend) or
+   * LearningFencedError (a newer run owns this execution).
+   */
+  async evaluate(ctx: ResolvedInteractionContext, run: JudgeRun): Promise<EvaluationResult | null> {
     const { json: userContent } = buildJudgePayload(ctx);
 
-    const call = await this.callJudge(userContent);
+    const call = await this.callJudge(userContent, run);
     if (!call) return null;
     const raw = call.content;
 
@@ -109,48 +152,65 @@ export class AiInteractionEvaluatorService {
   }
 
   /**
-   * ONE provider call per invocation: retrying is the queue's job (bounded attempts with backoff), so the total number of paid
-   * calls per execution is the queue's attempt count and nothing multiplies it. Resolves to the raw content and the usage the
-   * provider reported (null when it reported none), or null for a
-   * permanent failure (no key, a 4xx answer, an unknown error, empty content). Throws TransientJudgeError only for failures
-   * that are explicitly retryable.
+   * ONE paid provider attempt per invocation (maxAttempts 1, hard 30 s total deadline): retrying is the queue's job, and every retry
+   * comes back through the ledger as a separately accounted run. Resolves to the raw content and the usage the provider reported
+   * (null when it reported none), or null for a permanent failure (no key, a rejected request, an unknown error, empty content).
+   * Throws TransientJudgeError only for failures that are explicitly retryable.
    */
-  private async callJudge(userContent: string): Promise<{ content: string; usage: { inputTokens: number; outputTokens: number } | null } | null> {
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) return null;
-    let res: { data?: { choices?: Array<{ message?: { content?: unknown } }>; usage?: { prompt_tokens?: unknown; completion_tokens?: unknown } } };
+  private async callJudge(userContent: string, run: JudgeRun): Promise<{ content: string; usage: { inputTokens: number; outputTokens: number } | null } | null> {
+    // Nothing to pay for without a key, so nothing is reserved either.
+    if (!process.env.DEEPSEEK_API_KEY) return null;
+    const messages = [{ role: 'system' as const, content: SYSTEM_PROMPT }, { role: 'user' as const, content: userContent }];
+
+    const reservation = await this.cost.reserve({ tenantId: run.tenantId, aiExecutionId: run.aiExecutionId, estimatedInputTokens: estimateInputTokensUpperBound(messages) });
+    if (reservation.kind === 'skipped') throw new LearningSkippedError(reservation.reason, reservation.retryLater);
+
+    let result;
     try {
-      res = await axios.post(
-        DEEPSEEK_API_URL,
-        {
-          model: DEEPSEEK_MODEL,
-          max_tokens: 500,
-          messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userContent }],
-          response_format: { type: 'json_object' },
-        },
-        { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 20_000 },
-      );
+      result = await this.registry.forModel(DEEPSEEK_MODEL).complete({
+        modelKey: DEEPSEEK_MODEL,
+        messages,
+        maxTokens: LEARNING_MAX_OUTPUT_TOKENS,
+        jsonMode: true,
+        deadlineMs: LEARNING_PROVIDER_DEADLINE_MS,
+        maxAttempts: LEARNING_PROVIDER_MAX_ATTEMPTS,
+      });
     } catch (err) {
-      const status = (err as { response?: { status?: unknown } } | null)?.response?.status;
-      const code = (err as { code?: unknown } | null)?.code;
+      await this.settleFailure(reservation.usageId, err);
+      const status = causeOf(err, 'status');
+      const code = causeOf(err, 'code');
+      const timedOut = err instanceof AiProviderError && err.code === 'timeout';
       if (typeof status === 'number' && RETRYABLE_HTTP_STATUS.has(status)) throw new TransientJudgeError(`judge provider answered HTTP ${status}`);
-      if (typeof status !== 'number' && typeof code === 'string' && RETRYABLE_NETWORK_CODES.has(code)) throw new TransientJudgeError(`judge request failed (${code})`);
+      if (typeof status !== 'number' && (timedOut || (typeof code === 'string' && RETRYABLE_NETWORK_CODES.has(code)))) {
+        throw new TransientJudgeError(`judge request failed (${timedOut ? 'timeout' : String(code)})`);
+      }
       // Logged without the error object: it can carry the request configuration, including the Authorization header.
       this.logger.warn(`Evaluator judge call failed permanently (${typeof status === 'number' ? `HTTP ${status}` : typeof code === 'string' ? code : 'unclassified error'}); not retrying`);
       return null;
     }
-    const content = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim();
+
+    // What the provider reported, and nothing else: no token count or cost is estimated when it is absent (the adapter reports 0/0).
+    const reported = result.usage.inputTokens > 0 || result.usage.outputTokens > 0 ? result.usage : null;
+    if ((await this.cost.settle(reservation.usageId, reported)) === 'fenced') throw new LearningFencedError();
+    this.logger.log(reported ? `Judge call used ${reported.inputTokens} input and ${reported.outputTokens} output tokens (provider-reported)` : 'Judge call reported no token usage');
+
+    const content = result.content.trim();
     if (!content) {
       this.logger.warn('Evaluator judge returned no content; not retrying');
       return null;
     }
-    // What the provider reported, and nothing else: no token count or cost is estimated when it is absent.
-    const u = res.data?.usage;
-    const usage = typeof u?.prompt_tokens === 'number' && typeof u?.completion_tokens === 'number'
-      ? { inputTokens: u.prompt_tokens, outputTokens: u.completion_tokens }
-      : null;
-    this.logger.log(usage ? `Judge call used ${usage.inputTokens} input and ${usage.outputTokens} output tokens (provider-reported)` : 'Judge call reported no token usage');
-    return { content, usage };
+    return { content, usage: reported };
+  }
+
+  /** A failure must never leave a reservation dangling, and must never mask the original error. */
+  private async settleFailure(usageId: string, err: unknown): Promise<void> {
+    const notBilled = err instanceof AiProviderError && ['auth', 'invalid_request', 'rate_limited', 'parse_error'].includes(err.code);
+    const charge: FailureCharge = notBilled ? { kind: 'not_billed' } : { kind: 'uncertain' };
+    try {
+      await this.cost.fail(usageId, charge);
+    } catch (settleErr) {
+      this.logger.error(`Could not settle learning reservation ${usageId} after a provider failure; it stays RESERVED until its lease lapses: ${String(settleErr)}`);
+    }
   }
 
   /** Never trust raw model output -- validates shape, clamps scores into

@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import { QueueName, AiInteractionEvalJob, AiTaskType } from '@whatsapp-platform/shared-types';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { SimulationLimitsService } from '../ai-core/simulation/simulation-limits.service';
+import { LEARNING_JOB_OPTIONS } from './learning-queue.constants';
 
 /** The one feature flag key that gates the entire AI Learning system --
  * created via the existing feature-flags admin API/UI, rolloutType
@@ -66,7 +67,7 @@ export class AiLearningTriggerService {
         // A stable id makes enqueueing idempotent: BullMQ ignores an add whose id already exists (queued, running, or still within
         // the retained completed/failed window), so a duplicate trigger cannot create a second paid evaluation. Retries and stall
         // recovery reuse the same job, so they are unaffected. Not an integer and no ':' (both rejected by BullMQ).
-        { jobId: evalJobId(input.aiExecutionId), attempts: 3, backoff: { type: 'exponential', delay: 5_000 }, removeOnComplete: 500, removeOnFail: 500 },
+        { jobId: evalJobId(input.aiExecutionId), ...LEARNING_JOB_OPTIONS },
       );
     } catch (err) {
       this.logger.warn(`Failed to enqueue AI interaction evaluation for execution ${input.aiExecutionId}: ${String(err)}`);

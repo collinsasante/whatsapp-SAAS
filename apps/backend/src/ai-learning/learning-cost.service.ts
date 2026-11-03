@@ -133,11 +133,14 @@ export class AiLearningCostService {
     }, TX_OPTIONS);
   }
 
-  /** Settles a successful call with the provider-reported usage. 'fenced' means a takeover expired this run first: do not apply its result. */
-  async settle(usageId: string, usage: { inputTokens: number; outputTokens: number }): Promise<'completed' | 'fenced'> {
-    const actualMicros = costMicros(usage.inputTokens, usage.outputTokens);
-    await this.tripwire(usageId, usage, actualMicros);
-    const data = { actualMicros, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, settledAt: new Date() };
+  /**
+   * Settles a successful call with the provider-reported usage. 'fenced' means a takeover expired this run first: do not apply its
+   * result. `null` means the provider reported no usage: nothing is invented, the full reservation stays counted.
+   */
+  async settle(usageId: string, usage: { inputTokens: number; outputTokens: number } | null): Promise<'completed' | 'fenced'> {
+    const actualMicros = usage ? costMicros(usage.inputTokens, usage.outputTokens) : null;
+    if (usage && actualMicros !== null) await this.tripwire(usageId, usage, actualMicros);
+    const data = { actualMicros, inputTokens: usage?.inputTokens ?? null, outputTokens: usage?.outputTokens ?? null, settledAt: new Date() };
     const done = await this.prisma.aiLearningUsage.updateMany({ where: { id: usageId, state: 'RESERVED' }, data: { ...data, state: 'COMPLETED' } });
     if (done.count > 0) return 'completed';
     await this.reconcileLate(usageId, data);

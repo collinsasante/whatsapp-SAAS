@@ -32,3 +32,19 @@ export const LEARNING_PROVIDER_MAX_ATTEMPTS = 1;
 export const LEARNING_LEASE_MS = 60_000;
 /** The judge answer is capped; this is also the output side of every reservation. */
 export const LEARNING_MAX_OUTPUT_TOKENS = 500;
+
+/** Options for every evaluation job (applied where the job is enqueued). A stable jobId makes enqueueing idempotent. */
+export const LEARNING_JOB_OPTIONS = {
+  attempts: LEARNING_JOB_ATTEMPTS,
+  backoff: { type: 'exponential' as const, delay: LEARNING_JOB_BACKOFF_MS },
+  removeOnComplete: 500,
+  removeOnFail: 500,
+};
+
+/** Options for the evaluation worker (applied by @Processor). */
+export const LEARNING_WORKER_OPTIONS = {
+  concurrency: LEARNING_WORKER_CONCURRENCY,
+  lockDuration: LEARNING_WORKER_LOCK_DURATION_MS,
+  stalledInterval: LEARNING_WORKER_STALLED_INTERVAL_MS,
+  maxStalledCount: LEARNING_MAX_STALLED_COUNT,
+};

@@ -1,5 +1,6 @@
 import { AiInteractionEvalProcessor } from './ai-interaction-eval.processor';
-import { TransientJudgeError } from './ai-interaction-evaluator.service';
+import { LearningFencedError, LearningSkippedError, TransientJudgeError } from './ai-interaction-evaluator.service';
+import { LEARNING_JOB_ATTEMPTS, LEARNING_WORKER_OPTIONS } from './learning-queue.constants';
 import { ResolvedInteractionContext } from './interaction-context.resolver';
 
 function buildContext(): ResolvedInteractionContext {
@@ -153,6 +154,46 @@ describe('AiInteractionEvalProcessor', () => {
       evaluator.evaluate.mockRejectedValue(new Error('bug'));
       await expect(processor.process(buildJob({ attemptsMade: 2, attempts: 3 }))).rejects.toThrow('bug');
       expect(db.rows.size).toBe(0);
+    });
+  });
+
+  describe('learning ledger decisions', () => {
+    it('passes the job tenant and execution to the evaluator, which reserves budget under that identity', async () => {
+      const { processor, evaluator } = build();
+      await processor.process(buildJob());
+      expect(evaluator.evaluate).toHaveBeenCalledWith(expect.anything(), { tenantId: 'tenant-1', aiExecutionId: 'exec-1' });
+    });
+
+    it.each(['not_enabled', 'paused', 'run_cap', 'workspace_cap', 'global_cap', 'run_ceiling', 'already_settled'] as const)(
+      'a %s decision ends the job quietly: no retry, no FAILED evaluation, no review task', async (reason) => {
+        const { processor, db, evaluator, tasks } = build();
+        evaluator.evaluate.mockRejectedValue(new LearningSkippedError(reason, false));
+        await expect(processor.process(buildJob({ attemptsMade: 0, attempts: 3 }))).resolves.toBeUndefined();
+        expect(db.rows.size).toBe(0);
+        expect(tasks).toHaveLength(0);
+      });
+
+    it('another live run holding the reservation is retried by the queue, and quietly dropped on the last attempt', async () => {
+      const { processor, db, evaluator } = build();
+      evaluator.evaluate.mockRejectedValue(new LearningSkippedError('in_flight', true));
+      await expect(processor.process(buildJob({ attemptsMade: 0, attempts: 3 }))).rejects.toBeInstanceOf(LearningSkippedError);
+      await expect(processor.process(buildJob({ attemptsMade: 2, attempts: 3 }))).resolves.toBeUndefined();
+      expect(db.rows.size).toBe(0);
+    });
+
+    it('a fenced result (a newer run took over) is discarded and never stored or retried', async () => {
+      const { processor, db, evaluator } = build();
+      evaluator.evaluate.mockRejectedValue(new LearningFencedError());
+      await expect(processor.process(buildJob({ attemptsMade: 0, attempts: 3 }))).resolves.toBeUndefined();
+      expect(db.rows.size).toBe(0);
+    });
+  });
+
+  describe('explicit queue configuration', () => {
+    it('declares the worker options through @Processor, and they are the ones behind the four-run ceiling', () => {
+      expect(Reflect.getMetadata('bullmq:worker_metadata', AiInteractionEvalProcessor)).toEqual(LEARNING_WORKER_OPTIONS);
+      expect(LEARNING_WORKER_OPTIONS).toEqual({ concurrency: 1, lockDuration: 30_000, stalledInterval: 30_000, maxStalledCount: 1 });
+      expect(LEARNING_JOB_ATTEMPTS).toBe(3);
     });
   });
 

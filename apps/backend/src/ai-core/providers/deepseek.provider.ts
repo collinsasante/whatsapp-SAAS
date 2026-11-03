@@ -12,7 +12,12 @@ interface DeepSeekResponseBody {
     message?: { content?: string | null; tool_calls?: { id: string; function: { name: string; arguments: string } }[] };
     finish_reason?: string;
   }[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+}
+
+/** Usage feeds cost accounting, so only a genuine, finite, non-negative number is believed; anything else counts as "not reported". */
+function reportedCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 function mapFinishReason(raw: string | undefined): ChatCompletionResult['finishReason'] {
@@ -144,8 +149,8 @@ export class DeepSeekProvider implements AiProvider {
           toolCalls,
           finishReason: mapFinishReason(choice?.finish_reason),
           usage: {
-            inputTokens: res.data.usage?.prompt_tokens ?? 0,
-            outputTokens: res.data.usage?.completion_tokens ?? 0,
+            inputTokens: reportedCount(res.data.usage?.prompt_tokens),
+            outputTokens: reportedCount(res.data.usage?.completion_tokens),
           },
           attemptsUsed: attempt + 1,
           provider: this.key,

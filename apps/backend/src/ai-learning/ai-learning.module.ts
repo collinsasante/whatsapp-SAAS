@@ -12,6 +12,9 @@ import { AiLearningService } from './ai-learning.service';
 import { AiLearningController } from './ai-learning.controller';
 import { SimulationLimitsModule } from '../ai-core/simulation/simulation-limits.module';
 import { DigitalSelfModule } from '../digital-self/digital-self.module';
+import { AiProvidersModule } from '../ai-core/providers/ai-providers.module';
+import { AiLearningCostService } from './learning-cost.service';
+import { LEARNING_COST_CONFIG, loadLearningCostConfig } from './learning-cost.config';
 
 /**
  * AI Learning & Evaluation System. Deliberately standalone -- does not
@@ -28,6 +31,7 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
     InternalTasksModule,
     SimulationLimitsModule,
     DigitalSelfModule,
+    AiProvidersModule,
     BullModule.registerQueue({ name: QueueName.AI_INTERACTION_EVAL }),
   ],
   controllers: [AiLearningController],
@@ -37,7 +41,9 @@ import { DigitalSelfModule } from '../digital-self/digital-self.module';
     AiInteractionEvaluatorService,
     AiInteractionEvalProcessor,
     AiLearningService,
+    AiLearningCostService,
+    { provide: LEARNING_COST_CONFIG, useFactory: () => loadLearningCostConfig() },
   ],
-  exports: [AiLearningTriggerService],
+  exports: [AiLearningTriggerService, AiLearningCostService],
 })
 export class AiLearningModule {}
