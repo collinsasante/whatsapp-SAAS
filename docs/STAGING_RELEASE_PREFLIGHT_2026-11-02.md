@@ -1479,3 +1479,17 @@ Record evidence for every row (request, UTC time, sanitized log lines, DB rows, 
 **NO-GO.** Blockers: (1) no committed, clean, reviewed release candidate, so the deploy script would refuse and any result would not be attributable to a SHA; (2) the deploy script does not check the secrets whose absence now crash-loops the backend; (3) the worker compose gaps and the worker `BACKEND_URL` defect; (4) unknown drift between the live staging server and the repo compose (hybrid RAG).
 
 Becomes GO for staging when: the work is committed and the tree is clean; the SHA is recorded here; items 2-5 and 8 of section 8 are fixed and the full verification (backend Jest, six typechecks, service tests, migration rehearsal) is rerun on that SHA; the live staging state is captured and reconciled; the secrets pass section 5 on the host; and the backup-restore rehearsal succeeds. Passing those makes a staging deployment reasonable; it does not make production ready (see the Round 3 checklist).
+
+---
+
+# UPDATE 6 (2026-11-03): the Compose / PostgreSQL / model-mount conflict is resolved in the repository
+
+Section 4.2 above left the hybrid-RAG strategy UNRESOLVED. It is now implemented (option 1 plus 2), verified locally, and the remaining checks are named as release gates that need the live server.
+
+**What changed** (details and procedures in `docs/staging-release.md`):
+- `docker-compose.staging.yml`: `postgres` names `verzchat-staging/postgres-pgvector:16.15-0.8.7` (with a build stanza from `infra/postgres`); the backend has the two read-only host mounts (`/opt/verz-models/all-MiniLM-L6-v2`, `/opt/verz-ort`, `create_host_path: false`), `NODE_PATH`, `EMBEDDING_MODEL_DIR`, and `RAG_HYBRID_ENABLED` / `EMBEDDING_PROVIDER` passed through empty (off). Production Compose is untouched.
+- `staging-release-deploy.sh`: every `up -d` uses `--no-deps`; before anything is stopped it checks the Compose image, the running image, that pgvector is loadable and that the model files match their pinned SHA-256; afterwards it checks the database container is the same one and both mounts are read-only. The guards live in `infra/scripts/lib/staging-hybrid-guard.sh`.
+
+**Reproduced locally with real Docker/Compose:** a release-style `up -d --force-recreate app` WITHOUT `--no-deps` replaces a pgvector database by the image the Compose file names (stock), while with `--no-deps` the database container is untouched; a dump containing a vector table restores into the pgvector image and fails in the stock image; the pinned model hashes match real model files.
+
+**Still requires the live server (not provable here):** that the running database is already the pgvector image (the deploy script will refuse otherwise, naming the one-time procedure), that `/opt/verz-models` and `/opt/verz-ort` exist with the pinned files, free disk space, and the evidence from `infra/scripts/staging-evidence.sh`. Section 4.2's "UNRESOLVED" status therefore now means "implemented and locally verified; server confirmation pending", not "undecided".
