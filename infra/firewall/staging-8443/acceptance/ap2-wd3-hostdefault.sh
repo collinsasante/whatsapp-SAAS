@@ -11,7 +11,7 @@ if [ "$MODE" = outer ]; then
   cp -a /var/lib/staging-8443/snapshots/$ID $T/state/snapshots/; ln -sfn snapshots/$ID $T/state/last-good
   cp /etc/staging-8443/policy.conf $T/etc/policy.conf; install -m 640 /dev/null $T/etc/admin.txt
   snap WD3-host-before 2>/dev/null; wc -l < /var/log/staging-8443-alerts.log > $T/alerts-lines-before; HB=$(host_hash); echo "$HB" > $T/host-gate-before.sha; date -u +%FT%TZ > $T/window-start.txt
-  systemd-run --unit=stg-ap2-wd3 --pipe --wait --collect -p Nice=5 -p PrivateNetwork=yes -p IPAddressDeny=any -p "RestrictAddressFamilies=AF_UNIX AF_NETLINK" \
+  systemd-run --unit=stg-ap2-wd3 --pipe --wait --collect -p Nice=5 -p PrivateNetwork=yes -p IPAddressDeny=any -p "RestrictAddressFamilies=AF_UNIX AF_NETLINK" --setenv=WATCHDOG="$WATCHDOG" \
     -p BindPaths=$T/state:/var/lib/staging-8443 -p BindPaths=$T/etc:/etc/staging-8443 -p BindPaths=$T/lock:/run/staging-8443.lock -p BindPaths=$T/alerts.log:/var/log/staging-8443-alerts.log \
     bash $EV/ap2-wd3-hostdefault.sh $EV inner 2>&1 | grep -v -E 'Running as unit|Finished with result|Main processes|Service runtime|CPU time|IO bytes|Memory peak|Memory swap'; RC=${PIPESTATUS[0]}
   date -u +%FT%TZ > $T/window-end.txt; snap WD3-host-after 2>/dev/null; PASS=0; FAIL=0
