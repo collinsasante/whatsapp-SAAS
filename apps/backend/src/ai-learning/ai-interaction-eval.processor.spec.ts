@@ -91,6 +91,8 @@ function build(opts: { db?: ReturnType<typeof fakeEvaluations>; tasks?: ReturnTy
   const prisma = {
     aiInteractionEvaluation: db.api,
     aiLearningAuditLog: { create: jest.fn().mockResolvedValue({}) },
+    aiExecution: { findFirst: jest.fn().mockResolvedValue({ conversationId: 'conv-1' }) },
+    conversation: { findFirst: jest.fn().mockResolvedValue({ id: 'conv-1' }) },
     internalTask: t.internalTask,
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>, options?: unknown) => { events.push(`begin:${JSON.stringify(options)}`); try { return await fn(tx); } finally { events.push('end'); } }),
   };
@@ -185,6 +187,38 @@ describe('AiInteractionEvalProcessor', () => {
       const { processor, db, evaluator } = build();
       evaluator.evaluate.mockRejectedValue(new LearningFencedError());
       await expect(processor.process(buildJob({ attemptsMade: 0, attempts: 3 }))).resolves.toBeUndefined();
+      expect(db.rows.size).toBe(0);
+    });
+  });
+
+  describe('deleted conversations', () => {
+    it('drops the job, with no retry and no provider call, when the execution\'s conversation has been deleted', async () => {
+      const { processor, prisma, resolver, evaluator, db } = build();
+      resolver.resolve.mockResolvedValue(null); // the interaction log was erased with the conversation
+      prisma.conversation.findFirst.mockResolvedValue(null);
+      await expect(processor.process(buildJob({ attemptsMade: 0, attempts: 3 }))).resolves.toBeUndefined();
+      expect(evaluator.evaluate).not.toHaveBeenCalled();
+      expect(db.rows.size).toBe(0);
+      expect(prisma.conversation.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'conv-1', tenantId: 'tenant-1' } }));
+    });
+
+    it('still retries when the conversation exists but the log is simply not linked yet', async () => {
+      const { processor, resolver } = build();
+      resolver.resolve.mockResolvedValue(null);
+      await expect(processor.process(buildJob())).rejects.toThrow(/not yet resolvable/);
+    });
+
+    it('still retries when the execution has no conversation id to check', async () => {
+      const { processor, prisma, resolver } = build();
+      resolver.resolve.mockResolvedValue(null);
+      prisma.aiExecution.findFirst.mockResolvedValue({ conversationId: null });
+      await expect(processor.process(buildJob())).rejects.toThrow(/not yet resolvable/);
+    });
+
+    it('discards a result whose write is rejected by the conversation foreign key (deleted while the provider call was in flight)', async () => {
+      const { processor, db } = build();
+      db.api.create.mockRejectedValue(Object.assign(new Error('fk'), { code: 'P2003' }));
+      await expect(processor.process(buildJob())).resolves.toBeUndefined();
       expect(db.rows.size).toBe(0);
     });
   });

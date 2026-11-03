@@ -1,3 +1,4 @@
+import { ERASURE_TX_OPTIONS, LearningErasureService } from '../ai-learning/learning-erasure.service';
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationStatus, Contact } from '@prisma/client';
@@ -43,7 +44,10 @@ function getDateRangeForPreset(preset: DatePreset): { gte: Date; lte: Date } {
 
 @Injectable()
 export class ContactsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private learningErasure: LearningErasureService,
+  ) {}
 
   async create(tenantId: string, dto: CreateContactDto) {
     const phone = normalizePhone(dto.phone);
@@ -272,17 +276,26 @@ export class ContactsService {
     return this.prisma.contact.update({ where: { id }, data: dto });
   }
 
-  async remove(tenantId: string, id: string) {
+  /**
+   * Deletes the contact, its conversations and messages, and everything AI Learning derived from those conversations, in ONE
+   * transaction: if erasing the learning copies fails the contact and its conversations are NOT deleted (see LearningErasureService).
+   */
+  async remove(tenantId: string, id: string, actorId: string | null = null) {
     await this.findOne(tenantId, id);
-    const convIds = (await this.prisma.conversation.findMany({ where: { tenantId, contactId: id }, select: { id: true } })).map(c => c.id);
-    await this.prisma.campaignRecipient.deleteMany({ where: { contactId: id } });
-    await this.prisma.callLog.deleteMany({ where: { contactId: id } });
-    if (convIds.length) {
-      await this.prisma.conversationNote.deleteMany({ where: { conversationId: { in: convIds } } });
-      await this.prisma.message.deleteMany({ where: { conversationId: { in: convIds } } });
-      await this.prisma.conversation.deleteMany({ where: { id: { in: convIds } } });
-    }
-    await this.prisma.contact.delete({ where: { id } });
+    const erased = await this.prisma.$transaction(async (tx) => {
+      const convIds = (await tx.conversation.findMany({ where: { tenantId, contactId: id }, select: { id: true } })).map(c => c.id);
+      const summary = await this.learningErasure.eraseInTransaction(tx, tenantId, convIds, actorId, { type: 'contact', id });
+      await tx.campaignRecipient.deleteMany({ where: { contactId: id } });
+      await tx.callLog.deleteMany({ where: { contactId: id } });
+      if (convIds.length) {
+        await tx.conversationNote.deleteMany({ where: { conversationId: { in: convIds } } });
+        await tx.message.deleteMany({ where: { conversationId: { in: convIds } } });
+        await tx.conversation.deleteMany({ where: { id: { in: convIds } } });
+      }
+      await tx.contact.delete({ where: { id } });
+      return summary;
+    }, ERASURE_TX_OPTIONS);
+    await this.learningErasure.afterCommit(tenantId, erased);
   }
 
   async bulkImport(tenantId: string, dto: ImportContactsDto) {

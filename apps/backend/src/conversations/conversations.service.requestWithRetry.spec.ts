@@ -15,7 +15,7 @@ function buildService() {
     airtableService: {}, moduleRef: {}, aiCompletionService: {},
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new ConversationsService(deps.prisma as any, deps.activityLogService as any, deps.notificationsService as any, deps.realtimeService as any, deps.airtableService as any, deps.moduleRef as any, deps.aiCompletionService as any, {} as any);
+  return new ConversationsService(deps.prisma as any, deps.activityLogService as any, deps.notificationsService as any, deps.realtimeService as any, deps.airtableService as any, deps.moduleRef as any, deps.aiCompletionService as any, {} as any, {} as any);
 }
 
 describe('ConversationsService.requestWithRetry', () => {

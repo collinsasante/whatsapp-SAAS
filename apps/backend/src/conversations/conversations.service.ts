@@ -10,6 +10,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { AiResponderService } from '../ai/ai-responder.service';
 import { AirtableService } from './airtable.service';
+import { ERASURE_TX_OPTIONS, LearningErasureService } from '../ai-learning/learning-erasure.service';
 import { AiCompletionService } from '../ai-core/completion/ai-completion.service';
 import { CreateConversationDto, UpdateConversationDto, CreateNoteDto, TransferConversationDto } from './dto/conversation.dto';
 import { buildPaginationMeta, getPaginationSkip, normalizePhone } from '@whatsapp-platform/shared-utils';
@@ -51,6 +52,7 @@ export class ConversationsService {
     private moduleRef: ModuleRef,
     private aiCompletionService: AiCompletionService,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
+    private learningErasure: LearningErasureService,
   ) {}
 
   /** When a request for a person made now becomes overdue under this workspace's reply deadline (null: no deadline). */
@@ -786,10 +788,19 @@ export class ConversationsService {
     });
   }
 
-  async deleteConversation(tenantId: string, conversationId: string) {
+  /**
+   * Deletes the conversation together with everything AI Learning derived from it, in ONE transaction: if erasing the learning copies
+   * fails for any reason the conversation and its messages are NOT deleted (see LearningErasureService).
+   */
+  async deleteConversation(tenantId: string, conversationId: string, actorId: string | null = null) {
     await this.findOne(tenantId, conversationId);
-    await this.prisma.message.deleteMany({ where: { conversationId, tenantId } });
-    await this.prisma.conversation.delete({ where: { id: conversationId } });
+    const erased = await this.prisma.$transaction(async (tx) => {
+      const summary = await this.learningErasure.eraseInTransaction(tx, tenantId, [conversationId], actorId, { type: 'conversation', id: conversationId });
+      await tx.message.deleteMany({ where: { conversationId, tenantId } });
+      await tx.conversation.delete({ where: { id: conversationId } });
+      return summary;
+    }, ERASURE_TX_OPTIONS);
+    await this.learningErasure.afterCommit(tenantId, erased);
     return { success: true };
   }
 

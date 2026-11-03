@@ -7,6 +7,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { AirtableService } from './airtable.service';
 import { AiCoreModule } from '../ai-core/ai-core.module';
+import { LearningErasureModule } from '../ai-learning/learning-erasure.module';
 import { QueueName } from '@whatsapp-platform/shared-types';
 
 @Module({
@@ -15,6 +16,7 @@ import { QueueName } from '@whatsapp-platform/shared-types';
     ActivityLogModule,
     NotificationsModule,
     RealtimeModule,
+    LearningErasureModule,
     // CommerceModule imports ConversationsModule (Phase 2a) AND AiCoreModule now imports
     // CommerceModule back (Verz-AI unification, Phase A) -- that makes this edge part of a
     // 3-module cycle (CommerceModule -> ConversationsModule -> AiCoreModule -> CommerceModule)

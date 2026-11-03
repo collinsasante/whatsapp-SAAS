@@ -10,6 +10,7 @@
 import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { ContactsService } from './contacts/contacts.service';
+import { LearningErasureService } from './ai-learning/learning-erasure.service';
 import { AutomationService } from './automation/automation.service';
 import { TagsService } from './manage/tags/tags.service';
 import { TeamsService } from './teams/teams.service';
@@ -29,7 +30,7 @@ describeDb('tenant isolation (real database, two workspaces)', () => {
   const B = '00000000-0000-4000-8000-00000000000b';
   const ids = {} as Record<string, string>;
 
-  const contacts = new ContactsService(prisma as never);
+  const contacts = new ContactsService(prisma as never, new LearningErasureService(prisma as never, { notifyUser: jest.fn() } as never));
   const automation = new AutomationService(prisma as never);
   const tags = new TagsService(prisma as never);
   const teams = new TeamsService(prisma as never);

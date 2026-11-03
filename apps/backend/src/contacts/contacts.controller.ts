@@ -5,6 +5,8 @@ import { CreateContactDto, UpdateContactDto, ImportContactsDto } from './dto/con
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentTenant } from '../common/decorators/tenant.decorator';
+import { CurrentUser } from '../common/decorators/user.decorator';
+import { JwtPayload } from '@whatsapp-platform/shared-types';
 
 @ApiTags('Contacts')
 @ApiBearerAuth()
@@ -67,8 +69,8 @@ export class ContactsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete contact' })
-  remove(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.contactsService.remove(tenantId, id);
+  remove(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.contactsService.remove(tenantId, id, user.sub);
   }
 
   @Post('import')

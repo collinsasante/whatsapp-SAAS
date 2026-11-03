@@ -28,6 +28,7 @@ function buildService(deps: ReturnType<typeof buildDeps>) {
     deps.moduleRef as any,
     deps.aiCompletionService as any,
     deps.snoozeQueue as any,
+    {} as any, // LearningErasureService: not used by these paths
   );
 }
 

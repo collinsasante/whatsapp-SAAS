@@ -201,8 +201,8 @@ export class ConversationsController {
   }
 
   @Delete(':id')
-  deleteConversation(@CurrentTenant() tenantId: string, @Param('id') id: string) {
-    return this.conversationsService.deleteConversation(tenantId, id);
+  deleteConversation(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.conversationsService.deleteConversation(tenantId, id, user.sub);
   }
 
 }

@@ -33,6 +33,7 @@ const MAX_STORE_ROUNDS = 3;
 /** The review-task transaction waits for the row lock, then does two small writes; generous so a slow notification does not abort it. */
 const REVIEW_TASK_TX = { maxWait: 10_000, timeout: 20_000 } as const;
 
+const isForeignKeyViolation = (err: unknown): boolean => !!err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2003';
 const isUniqueViolation = (err: unknown): boolean => !!err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2002';
 
 /**
@@ -92,6 +93,12 @@ export class AiInteractionEvalProcessor extends WorkerHost {
     }
 
     const ctx = await this.resolver.resolve(tenantId, aiExecutionId);
+    if (!ctx && (await this.conversationWasDeleted(tenantId, aiExecutionId))) {
+      // The customer's conversation (and with it the interaction log this would grade) has been deleted: there is nothing left to
+      // evaluate, and no provider call may be made about deleted data. Dropped, not retried.
+      this.logger.log(`Dropping the evaluation of execution ${aiExecutionId}: its conversation was deleted`);
+      return;
+    }
     if (!ctx) {
       // Most likely messages.service.ts hasn't linked the AiInteractionLog to
       // this execution yet (a real, expected race, not an error) -- let
@@ -209,6 +216,11 @@ export class AiInteractionEvalProcessor extends WorkerHost {
       try {
         return await this.prisma.aiInteractionEvaluation.create({ data: createData, select: { id: true } });
       } catch (err) {
+        if (isForeignKeyViolation(err)) {
+          // The conversation was deleted while the provider call was in flight. The row cannot (and must not) be written.
+          this.logger.warn(JSON.stringify({ event: 'ai_learning.evaluation_discarded', tenantId, aiExecutionId, purpose, reason: 'conversation_deleted_during_evaluation' }));
+          return null;
+        }
         if (!isUniqueViolation(err)) throw err;
         const competing = await this.prisma.aiInteractionEvaluation.findFirst({ where: { aiExecutionId, tenantId }, select: { id: true, status: true } });
         if (!competing) {
@@ -223,6 +235,14 @@ export class AiInteractionEvalProcessor extends WorkerHost {
       }
     }
     throw new Error(`The evaluation for execution ${aiExecutionId} kept changing under concurrent writers; not stored`);
+  }
+
+  /** True when the execution points at a conversation that no longer exists (as opposed to a log that has simply not been linked yet). */
+  private async conversationWasDeleted(tenantId: string, aiExecutionId: string): Promise<boolean> {
+    const execution = await this.prisma.aiExecution.findFirst({ where: { id: aiExecutionId, tenantId }, select: { conversationId: true } });
+    if (!execution?.conversationId) return false;
+    const conversation = await this.prisma.conversation.findFirst({ where: { id: execution.conversationId, tenantId }, select: { id: true } });
+    return conversation === null;
   }
 
   /** Ids and statuses only. Never the prompt, the model output, the reasoning text or any credential. */
