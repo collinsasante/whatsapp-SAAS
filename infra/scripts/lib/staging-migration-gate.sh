@@ -73,3 +73,41 @@ check_applied_migrations() {
     fi
   done < "$remote_file"
 }
+
+# check_prisma_migrate_status <exit code of `prisma migrate status`> <its saved output> <candidate migrations dir> <file of "name|checksum" rows>
+# `prisma migrate status` exits 1 whenever migrations are pending, which is the expected state before a release that ships migrations.
+# So a non-zero exit is accepted only when the output says nothing but "these migrations are not yet applied" and that list is EXACTLY
+# the candidate's migrations minus the ones recorded as applied. Any other line (failed or modified migrations, drift, a connection error,
+# an unexpected pending name, a missing expected one) rejects the release. Sets MIGRATION_GATE_ERROR on rejection.
+check_prisma_migrate_status() {
+  local rc=$1 out=$2 migration_dir=$3 applied_file=$4
+  [[ "$rc" == "0" ]] && return 0
+  local expected pending line in_list=0 saw_header=0
+  expected=$(
+    comm -23 \
+      <(find "$migration_dir" -mindepth 2 -maxdepth 2 -name migration.sql -print | awk -F/ '{print $(NF-1)}' | sort -u) \
+      <(cut -d'|' -f1 "$applied_file" | sort -u)
+  )
+  pending=""
+  while IFS= read -r line; do
+    line=${line%$'\r'}
+    [[ -z "${line//[[:space:]]/}" ]] && { in_list=0; continue; }
+    if [[ "$line" =~ ^[[:space:]]*Container\ .+\ (Creating|Created|Starting|Started|Running|Removing|Removed)[[:space:]]*$ ]]; then continue; fi
+    if [[ "$line" == "Prisma schema loaded from "* || "$line" == "Datasource "* ]]; then continue; fi
+    if [[ "$line" =~ ^[0-9]+\ migrations?\ found\ in\  ]]; then continue; fi
+    if [[ "$line" =~ ^Following\ migrations?\ have\ not\ yet\ been\ applied:$ ]]; then in_list=1; saw_header=1; continue; fi
+    if [[ "$line" == "To apply migrations in development run prisma migrate dev." || "$line" == "To apply migrations in production run prisma migrate deploy." ]]; then in_list=0; continue; fi
+    if (( in_list )) && [[ "$line" =~ ^[0-9]{14}_[A-Za-z0-9_]+$ ]]; then pending+="$line"$'\n'; continue; fi
+    MIGRATION_GATE_ERROR="prisma migrate status (exit $rc) reported something other than pending migrations: ${line:0:120}"
+    return 1
+  done < "$out"
+  if (( ! saw_header )); then
+    MIGRATION_GATE_ERROR="prisma migrate status failed (exit $rc) without reporting pending migrations"
+    return 1
+  fi
+  pending=$(printf '%s' "$pending" | sort -u)
+  if [[ "$pending" != "$expected" ]]; then
+    MIGRATION_GATE_ERROR="pending migrations differ from the candidate's unapplied set (pending: $(echo $pending); expected: $(echo $expected))"
+    return 1
+  fi
+}

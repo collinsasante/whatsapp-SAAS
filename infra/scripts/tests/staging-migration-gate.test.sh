@@ -84,6 +84,37 @@ unset STAGING_ALLOWED_EXTRA_MIGRATIONS
 # Wiring and production isolation.
 grep -Fq 'source "$SCRIPT_DIR/lib/staging-migration-gate.sh"' "$RELEASE"; expect "release script uses the gate library" 0 $?
 grep -Fq 'validate_allowed_extra_migrations || fail' "$RELEASE"; expect "release validates the allow-list before building" 0 $?
+# --- check_prisma_migrate_status: Prisma exits 1 while migrations are pending ---
+PM="$WORK/pm"; mkdir -p "$PM/mig/20260101000000_a" "$PM/mig/20260102000000_b" "$PM/mig/20261102120000_new_one" "$PM/mig/20261103120000_new_two"
+for d in "$PM"/mig/*/; do echo "select 1;" > "$d/migration.sql"; done
+printf '20260101000000_a|x\n20260102000000_b|y\n' > "$PM/applied.txt"
+hdr=$' Container verzchat-staging-backend-run-0932f4b6ac60 Creating \n Container verzchat-staging-backend-run-0932f4b6ac60 Created \nPrisma schema loaded from prisma/schema.prisma\nDatasource "db": PostgreSQL database "waplatform_staging", schema "public" at "postgres:5432"\n\n4 migrations found in prisma/migrations\n'
+tail_=$'\nTo apply migrations in development run prisma migrate dev.\nTo apply migrations in production run prisma migrate deploy.\n'
+pms() { check_prisma_migrate_status "$1" "$2" "$PM/mig" "$PM/applied.txt"; echo $?; }
+printf '%s%s' "$hdr" $'\nDatabase schema is up to date!\n' > "$PM/ok0.txt"
+expect "exit 0 (up to date) is accepted" 0 "$(pms 0 "$PM/ok0.txt")"
+printf '%sFollowing migrations have not yet been applied:\n20261102120000_new_one\n20261103120000_new_two\n%s' "$hdr" "$tail_" > "$PM/exact.txt"
+expect "exit 1 with exactly the candidate's unapplied migrations is accepted" 0 "$(pms 1 "$PM/exact.txt")"
+printf '20260101000000_a|x\n20260102000000_b|y\n20261102120000_new_one|z\n' > "$PM/applied_one_pending.txt"
+printf '%sFollowing migration have not yet been applied:\n20261103120000_new_two\n%s' "$hdr" "$tail_" > "$PM/singular.txt"
+expect "the singular 'migration' wording with one pending is accepted" 0 "$(check_prisma_migrate_status 1 "$PM/singular.txt" "$PM/mig" "$PM/applied_one_pending.txt"; echo $?)"
+printf '%sFollowing migrations have not yet been applied:\n20261102120000_new_one\n%s' "$hdr" "$tail_" > "$PM/missing.txt"
+expect "a pending list missing an expected migration is rejected" 1 "$(pms 1 "$PM/missing.txt")"
+printf '%sFollowing migrations have not yet been applied:\n20261102120000_new_one\n20261103120000_new_two\n20269999999999_surprise\n%s' "$hdr" "$tail_" > "$PM/extra.txt"
+expect "an unexpected extra pending migration is rejected" 1 "$(pms 1 "$PM/extra.txt")"
+printf '%sThe migration `20260102000000_b` failed.\nFollowing migrations have not yet been applied:\n20261102120000_new_one\n20261103120000_new_two\n%s' "$hdr" "$tail_" > "$PM/failed.txt"
+expect "a failed migration in the output is rejected even with the right pending list" 1 "$(pms 1 "$PM/failed.txt")"
+printf '%sFollowing migrations have not yet been applied:\n20261102120000_new_one\n20261103120000_new_two\n\nThe migration 20260101000000_a was modified after it was applied.\n%s' "$hdr" "$tail_" > "$PM/drift.txt"
+expect "a modified-after-applied migration is rejected" 1 "$(pms 1 "$PM/drift.txt")"
+printf 'Error: P1001: Can'"'"'t reach database server at `postgres:5432`\n' > "$PM/conn.txt"
+expect "a connection error (exit 1, no pending list) is rejected" 1 "$(pms 1 "$PM/conn.txt")"
+printf 'Error response from daemon: No such image\n' > "$PM/docker.txt"
+expect "a Docker error is rejected" 1 "$(pms 125 "$PM/docker.txt")"
+check_prisma_migrate_status 1 "$PM/missing.txt" "$PM/mig" "$PM/applied.txt" >/dev/null; expect_error_contains "the rejection names what differed" "differ"
+expect "the release script uses the strict check instead of treating exit 1 as failure" 1 "$(grep -c 'prisma migrate status --schema /app/prisma/schema.prisma \\$' "$RELEASE"; true)"
+expect "the release script no longer fails directly on the status exit code" 0 "$(grep -c 'migrate status.*|| fail' "$RELEASE")"
+expect "the release script calls check_prisma_migrate_status" 1 "$(grep -c '^check_prisma_migrate_status' "$RELEASE")"
+
 leaks=$(grep -rl 'STAGING_ALLOWED_EXTRA_MIGRATIONS\|staging-migration-gate' \
   "$ROOT/infra/scripts" "$ROOT/.github" "$ROOT/deploy.sh" "$ROOT/infra/docker-compose.yml" "$ROOT/infra/docker-compose.dev.yml" "$ROOT/infra/.env.example" 2>/dev/null |
   grep -v -e 'staging-release-deploy.sh' -e 'lib/staging-migration-gate.sh' -e 'tests/staging-migration-gate.test.sh' -e 'verify-release-candidate.sh' | wc -l | tr -d ' ')

@@ -371,8 +371,13 @@ complete_step "database runs the declared pgvector image; model files match thei
 CURRENT_STEP="migration history and data preflight"
 echo "Checking migration history and legacy-data preconditions (read-only)"
 verify_migration_checksums "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma/migrations" "$BACKUP_DIR/applied-migration-checksums.txt"
+PRISMA_STATUS_RC=0
 "${COMPOSE[@]}" run --rm --no-deps backend prisma migrate status --schema /app/prisma/schema.prisma \
-  > "$BACKUP_DIR/prisma-migrate-status.txt" 2>&1 || fail "Prisma migration history check failed"
+  > "$BACKUP_DIR/prisma-migrate-status.txt" 2>&1 || PRISMA_STATUS_RC=$?
+# Prisma exits 1 while migrations are pending; accept that only when the pending list is exactly the candidate's unapplied migrations.
+check_prisma_migrate_status "$PRISMA_STATUS_RC" "$BACKUP_DIR/prisma-migrate-status.txt" \
+  "$CANDIDATE_ROOT/$REVISION/apps/backend/prisma/migrations" "$BACKUP_DIR/applied-migration-checksums.txt" ||
+  fail "Prisma migration history check failed: $MIGRATION_GATE_ERROR"
 docker exec -i wa_staging_postgres psql -X -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -f - \
   < "$CANDIDATE_ROOT/$REVISION/infra/scripts/staging-migration-preflight.sql" \
   > "$BACKUP_DIR/preflight-before.txt" || fail "read-only migration preflight found a blocking conflict"
