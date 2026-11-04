@@ -1,3 +1,4 @@
+import { ConversationLease, LeaseTimeoutError } from './conversation-lease';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import axios from 'axios';
 import { Prisma, Message } from '@prisma/client';
@@ -120,9 +121,23 @@ export class MessagesService {
   // is ever horizontally scaled to multiple replicas.
   private readonly conversationAiLocks = new Map<string, Promise<void>>();
 
-  private runExclusiveForConversation(conversationId: string, fn: () => Promise<void>): Promise<void> {
+  // Cross-replica part of the same guarantee: a PostgreSQL row lease (see conversation-lease.ts). The in-process chain stays as the cheap first
+  // layer (same-replica turns queue without polling the database).
+  private conversationLease?: ConversationLease;
+
+  private runExclusiveForConversation(conversationId: string, fn: () => Promise<void>, tenantId?: string): Promise<void> {
     const previous = this.conversationAiLocks.get(conversationId) ?? Promise.resolve();
-    const next = previous.then(fn, fn).finally(() => {
+    const guarded = async () => {
+      if (!tenantId) return fn();
+      this.conversationLease ??= new ConversationLease(this.prisma);
+      try {
+        await this.conversationLease.withLease(tenantId, conversationId, fn);
+      } catch (e) {
+        if (!(e instanceof LeaseTimeoutError)) throw e;
+        this.logger.warn(`Skipped an automatic AI turn: ${e.message}`);
+      }
+    };
+    const next = previous.then(guarded, guarded).finally(() => {
       if (this.conversationAiLocks.get(conversationId) === next) this.conversationAiLocks.delete(conversationId);
     });
     this.conversationAiLocks.set(conversationId, next);
@@ -1563,7 +1578,7 @@ export class MessagesService {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode, excludeMessageId));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode, excludeMessageId), tenantId);
         }
       } else if (aiMode === 'SUGGESTION') {
         // Verz AI Credits: Suggestion-mode replies now consume credits too (a real
@@ -1576,13 +1591,13 @@ export class MessagesService {
           // a second inbound message arriving before this one finishes doesn't launch
           // a second, racing AI generation for the same conversation.
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled, takeoverEnabled, !!aiMode, excludeMessageId));
+            this.handleAiSuggestion(tenantId, conversation, contact, content, commerceEnabled, takeoverEnabled, !!aiMode, excludeMessageId), tenantId);
         }
       } else if (aiMode === 'AUTO_REPLY') {
         const shouldAi = await this.aiResponderService.shouldRespond(tenantId).catch(() => false);
         if (shouldAi) {
           void this.runExclusiveForConversation(conversation.id, () =>
-            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode, excludeMessageId));
+            this.handleAiAutoReply(tenantId, conversation, contact, content, commerceEnabled, assignedTo, takeoverEnabled, !!aiMode, excludeMessageId), tenantId);
         }
       }
     }

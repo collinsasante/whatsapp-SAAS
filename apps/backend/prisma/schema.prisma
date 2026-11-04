@@ -3200,3 +3200,16 @@ model ChannelHistorySync {
   @@index([tenantId])
   @@map("channel_history_syncs")
 }
+
+// Cross-replica lease serialising AI turns per conversation (the in-process chain in MessagesService only works with one backend replica).
+// A row exists only while a turn runs (or until its lease expires after a crash). No foreign key on purpose: it must never block deleting a conversation.
+model AiConversationLease {
+  conversationId String   @id @map("conversation_id")
+  tenantId       String   @map("tenant_id")
+  owner          String
+  expiresAt      DateTime @map("expires_at")
+  acquiredAt     DateTime @default(now()) @map("acquired_at")
+
+  @@index([expiresAt])
+  @@map("ai_conversation_leases")
+}
