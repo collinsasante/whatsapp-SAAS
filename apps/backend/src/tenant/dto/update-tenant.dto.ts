@@ -64,6 +64,16 @@ export class UpdateTenantSettingsDto {
   @IsBoolean()
   autoReply?: boolean;
 
+  @ApiProperty({ required: false, description: "Transcribe customers' voice notes (sent to a third-party provider; uses AI credits)." })
+  @IsOptional()
+  @IsBoolean()
+  voiceTranscriptionEnabled?: boolean;
+
+  @ApiProperty({ required: false, description: "Describe customers' images (sent to a third-party provider; uses AI credits)." })
+  @IsOptional()
+  @IsBoolean()
+  imageUnderstandingEnabled?: boolean;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

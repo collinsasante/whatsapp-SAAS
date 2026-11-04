@@ -111,6 +111,7 @@ model Tenant {
   @@map("tenants")
   channelHistorySyncs    ChannelHistorySync[]
   aiCapAlerts            AiCapAlert[]
+  messageEnrichments     MessageEnrichment[]
   tikTokPublications     TikTokPublication[]
 }
 
@@ -258,6 +259,9 @@ model TenantSettings {
   aiDailyCreditCap            Int?      @map("ai_daily_credit_cap")
   // Percent of the daily cap at which admins get a warning (null = 80). The cap-reached alert needs no setting.
   aiCapWarnPercent            Int?      @map("ai_cap_warn_percent")
+  // Both default OFF: each sends the customer's media to a third-party provider, so a workspace opts in deliberately.
+  voiceTranscriptionEnabled   Boolean   @default(false) @map("voice_transcription_enabled")
+  imageUnderstandingEnabled   Boolean   @default(false) @map("image_understanding_enabled")
   autoReply                   Boolean   @default(false) @map("auto_reply")
   autoReplyMessage            String?   @map("auto_reply_message")
   maxAgents                   Int       @default(10) @map("max_agents")
@@ -688,6 +692,7 @@ model Message {
   @@index([whatsappNumberId])
   @@index([channelId])
   @@map("messages")
+  enrichments MessageEnrichment[]
 }
 
 model MessageEdit {
@@ -3431,4 +3436,36 @@ model AiCapAlert {
   @@unique([tenantId, dayKey, level])
   @@index([createdAt])
   @@map("ai_cap_alerts")
+}
+
+// Machine-generated text derived from a customer's media: a voice-note transcript or an image description. NOT something the customer wrote, and never
+// presented as such. One row per message and kind (unique), which is what makes duplicate webhook deliveries and concurrent workers harmless.
+// status: PENDING -> PROCESSING -> COMPLETED | FAILED | SKIPPED. SKIPPED means we deliberately did not try (no provider, no credits); FAILED means we tried.
+model MessageEnrichment {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  messageId      String    @map("message_id")
+  kind           String    // TRANSCRIPT | IMAGE_ANALYSIS
+  status         String    @default("PENDING")
+  text           String?
+  language       String?
+  durationSec    Float?    @map("duration_sec")
+  provider       String?
+  model          String?
+  errorCode      String?   @map("error_code")
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  leaseOwner     String?   @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  creditsCharged Int       @default(0) @map("credits_charged")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, kind])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+  @@map("message_enrichments")
 }

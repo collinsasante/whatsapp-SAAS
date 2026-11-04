@@ -10,6 +10,7 @@ import { FacebookMessengerService } from '../facebook-messenger/facebook-messeng
 import { WhatsAppWebService } from '../whatsapp-web/whatsapp-web.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { TikTokMessagingService } from '../tiktok-messaging/tiktok-messaging.service';
+import { MessageEnrichmentService, ENRICHMENT_SELECT } from '../message-enrichment/message-enrichment.service';
 import { isReplyWindowOpen as isTikTokReplyWindowOpen } from '../tiktok-messaging/tiktok-messaging.util';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -197,6 +198,7 @@ export class MessagesService {
     // Optional for the same reason; provided by TelegramModule in the app. A Telegram conversation cannot send without it.
     @Optional() @Inject(forwardRef(() => TelegramService)) private telegramService?: TelegramService,
     @Optional() @Inject(forwardRef(() => TikTokMessagingService)) private tiktokMessaging?: TikTokMessagingService,
+    @Optional() @Inject(forwardRef(() => MessageEnrichmentService)) private enrichment?: MessageEnrichmentService,
   ) {}
 
   /**
@@ -715,6 +717,8 @@ export class MessagesService {
       sender: { select: { id: true, name: true, avatarUrl: true, isAiAgent: true } },
       replyTo: { select: { id: true, content: true, type: true, direction: true, mediaCaption: true } },
       reactions: { select: { id: true, emoji: true, userId: true } },
+      // Machine-generated transcript / image description, shown to staff with its own label; never part of `content`.
+      enrichments: { select: ENRICHMENT_SELECT },
     };
 
     // Search mode — return flat ascending list
@@ -913,6 +917,7 @@ export class MessagesService {
     }
 
     this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
+    void this.enrichment?.schedule(tenantId, created.id);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
       // From the row the database just returned from the atomic increment. The in-memory copy was read before
@@ -1120,6 +1125,7 @@ export class MessagesService {
     }
 
     this.realtimeService.emitNewMessage(tenantId, conversation.id, created);
+    void this.enrichment?.schedule(tenantId, created.id);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
       // From the row the database just returned from the atomic increment. The in-memory copy was read before
@@ -1537,6 +1543,7 @@ export class MessagesService {
       throw err;
     }
     this.realtimeService.emitNewMessage(tenantId, conversation.id, message);
+    void this.enrichment?.schedule(tenantId, message.id);
     this.realtimeService.emitConversationUpdated(tenantId, conversation.id, {
       id: conversation.id,
       // From the row the database just returned from the atomic increment. The in-memory copy was read before
@@ -1625,6 +1632,20 @@ export class MessagesService {
    * conversation creation, which stay separate per transport (too entangled
    * with each provider's own payload shape to safely force-unify).
    */
+  /**
+   * A voice note's transcript is ready: answer it like typed text. Re-reads the message and conversation from the database (tenant-scoped) rather than
+   * trusting the caller, and only for a customer's own inbound message.
+   */
+  async dispatchAiForEnrichment(tenantId: string, messageId: string, text: string): Promise<void> {
+    const msg = await this.prisma.message.findFirst({
+      where: { id: messageId, tenantId, direction: MessageDirection.INBOUND },
+      include: { conversation: { include: { channel: { select: { id: true, type: true } }, assignedTo: { select: { id: true, isAiAgent: true, lastSeenAt: true } }, contact: true } } },
+    });
+    if (!msg?.conversation || msg.conversation.tenantId !== tenantId) return;
+    const { contact, ...conversation } = msg.conversation;
+    await this.dispatchAiAndChatbot(tenantId, conversation as never, contact as never, text, msg.id);
+  }
+
   private async dispatchAiAndChatbot(
     tenantId: string,
     conversation: { id: string; whatsappNumberId?: string | null; channel?: { id: string; type: string } | null; assignedTo?: { id: string; isAiAgent?: boolean; lastSeenAt?: Date | string | null } | null },

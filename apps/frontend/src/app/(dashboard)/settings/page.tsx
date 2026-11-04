@@ -23,6 +23,7 @@ interface TenantData {
     timezone: string; autoReply: boolean; autoReplyMessage: string | null;
     airtableEnabled: boolean; airtableApiKeyConfigured?: boolean;
     airtableBaseId: string | null; airtableTableName: string | null;
+    voiceTranscriptionEnabled?: boolean; imageUnderstandingEnabled?: boolean;
   } | null;
 }
 
@@ -92,6 +93,7 @@ export default function SettingsPage() {
     businessDescription: '', businessAddress: '', businessWebsite: '',
   });
   const [autoForm, setAutoForm] = useState({ autoReply: false, autoReplyMessage: '', timezone: 'UTC' });
+  const [mediaAi, setMediaAi] = useState({ voiceTranscriptionEnabled: false, imageUnderstandingEnabled: false });
   const [airtableForm, setAirtableForm] = useState({ airtableEnabled: false, airtableApiKey: '', airtableBaseId: '', airtableTableName: '' });
   const [airtableSaving, setAirtableSaving] = useState(false);
 
@@ -136,6 +138,7 @@ export default function SettingsPage() {
             businessWebsite: data.settings.businessWebsite ?? '',
           });
           setAutoForm({ autoReply: data.settings.autoReply, autoReplyMessage: data.settings.autoReplyMessage ?? '', timezone: data.settings.timezone });
+          setMediaAi({ voiceTranscriptionEnabled: !!data.settings.voiceTranscriptionEnabled, imageUnderstandingEnabled: !!data.settings.imageUnderstandingEnabled });
           setAirtableForm({ airtableEnabled: data.settings.airtableEnabled ?? false, airtableApiKey: '', airtableBaseId: data.settings.airtableBaseId ?? '', airtableTableName: data.settings.airtableTableName ?? '' });
         }
       } finally { setLoading(false); }
@@ -278,6 +281,13 @@ export default function SettingsPage() {
       toast.success('Workspace name updated');
     }
     catch { toast.error('Failed to update workspace name'); }
+    finally { setSaving(false); }
+  };
+
+  const saveMediaAi = async () => {
+    setSaving(true);
+    try { await tenantApi.updateSettings(mediaAi); toast.success('Voice and image settings saved'); }
+    catch { toast.error('Failed to save settings'); }
     finally { setSaving(false); }
   };
 
@@ -738,6 +748,27 @@ export default function SettingsPage() {
                   <button onClick={() => { void saveAuto(); }} disabled={saving} className={BTN_PRIMARY}>
                     {saving ? 'Saving…' : 'Save Settings'}
                   </button>
+                </div>
+              </section>
+
+              <section className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm" aria-labelledby="media-ai-heading">
+                <h2 id="media-ai-heading" className="text-base font-semibold text-gray-900 mb-1">Voice notes and images</h2>
+                <p className="text-sm text-gray-500 mb-5">
+                  Let Verz read what customers send as voice notes and pictures. Both are off until you turn them on. Turning one on sends those files to our
+                  speech and vision provider (a third party) and uses AI credits for each one. The result is shown under the message, labelled automatic, and
+                  can be wrong; it never replaces what the customer sent.
+                </p>
+                <div className="space-y-4">
+                  {([
+                    ['voiceTranscriptionEnabled', 'Transcribe voice notes', 'Verz can then answer a voice note as it would typed text.'],
+                    ['imageUnderstandingEnabled', 'Describe images', 'Gives your team and Verz a short description. It does not reply to a picture by itself.'],
+                  ] as const).map(([key, title, hint]) => (
+                    <label key={key} className="flex items-start gap-3 cursor-pointer">
+                      <input type="checkbox" className="mt-1 h-4 w-4 accent-teal-600" checked={mediaAi[key]} onChange={() => setMediaAi((f) => ({ ...f, [key]: !f[key] }))} />
+                      <span><span className="block text-sm font-medium text-gray-700">{title}</span><span className="block text-xs text-gray-500">{hint}</span></span>
+                    </label>
+                  ))}
+                  <button onClick={() => { void saveMediaAi(); }} disabled={saving} className={BTN_PRIMARY}>{saving ? 'Saving…' : 'Save'}</button>
                 </div>
               </section>
 

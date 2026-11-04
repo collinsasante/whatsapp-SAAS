@@ -54,17 +54,32 @@ describe('buildConversationHistoryWhere', () => {
 describe('HISTORY_ROW_FILTER: which stored rows may become turns', () => {
   const branches = (HISTORY_ROW_FILTER.OR ?? []) as Array<Record<string, unknown>>;
 
-  it('admits TEXT, inbound INTERACTIVE/LOCATION and caption-only inbound IMAGE/VIDEO, and nothing else', () => {
+  it('admits TEXT, inbound INTERACTIVE/LOCATION, caption-only inbound IMAGE/VIDEO, and opted-in completed transcripts/descriptions, and nothing else', () => {
     expect(branches).toEqual([
       { type: 'TEXT', content: { not: null } },
       { direction: 'INBOUND', type: { in: ['INTERACTIVE', 'LOCATION'] }, content: { not: null } },
       { direction: 'INBOUND', type: { in: ['IMAGE', 'VIDEO'] }, content: null, mediaCaption: { not: null } },
+      {
+        direction: 'INBOUND', type: 'AUDIO', content: null,
+        tenant: { settings: { is: { voiceTranscriptionEnabled: true } } },
+        enrichments: { some: { kind: 'TRANSCRIPT', status: 'COMPLETED', text: { not: '' } } },
+      },
+      {
+        direction: 'INBOUND', type: 'IMAGE', content: null,
+        tenant: { settings: { is: { imageUnderstandingEnabled: true } } },
+        enrichments: { some: { kind: 'IMAGE_ANALYSIS', status: 'COMPLETED', text: { not: '' } } },
+      },
     ]);
   });
 
-  it('never admits internal notes, templates, contacts, stickers, audio or documents', () => {
+  it('never admits internal notes, templates, contacts, stickers or documents, and admits AUDIO only through the opt-in transcript branch', () => {
     const admitted = new Set(branches.flatMap((b) => (typeof b.type === 'string' ? [b.type] : ((b.type as { in: string[] }).in))));
-    for (const type of ['NOTE', 'TEMPLATE', 'CONTACTS', 'STICKER', 'AUDIO', 'DOCUMENT']) expect(admitted.has(type)).toBe(false);
+    for (const type of ['NOTE', 'TEMPLATE', 'CONTACTS', 'STICKER', 'DOCUMENT']) expect(admitted.has(type)).toBe(false);
+    const audioBranches = branches.filter((b) => b.type === 'AUDIO');
+    expect(audioBranches).toHaveLength(1);
+    // an audio row is never admitted on its own: it needs the workspace opt-in AND a completed transcript
+    expect(audioBranches[0]).toHaveProperty('tenant.settings.is.voiceTranscriptionEnabled', true);
+    expect(audioBranches[0]).toHaveProperty('enrichments.some.status', 'COMPLETED');
   });
 
   it('keeps the tenant boundary on both scopes', () => {

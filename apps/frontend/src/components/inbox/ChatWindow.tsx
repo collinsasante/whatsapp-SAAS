@@ -1,4 +1,5 @@
 'use client';
+import { MessageEnrichmentNote, type MessageEnrichmentView } from './MessageEnrichmentNote';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -3238,6 +3239,9 @@ const MessageBubble = memo(function MessageBubble({
                         className="w-24 h-24 object-contain"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       />
+                    )}
+                    {(message.type === 'AUDIO' || message.type === 'IMAGE') && message.direction === 'INBOUND' && (
+                      <MessageEnrichmentNote items={(message as unknown as { enrichments?: MessageEnrichmentView[] }).enrichments} kind={message.type === 'AUDIO' ? 'TRANSCRIPT' : 'IMAGE_ANALYSIS'} outbound={isOutbound} />
                     )}
                     {message.mediaCaption && message.type !== 'DOCUMENT' && message.type !== 'VIDEO' && message.type !== 'STICKER' && (
                       <p className={cn('text-xs mt-1', isOutbound ? 'text-teal-200' : 'text-gray-500')}>{message.mediaCaption}</p>

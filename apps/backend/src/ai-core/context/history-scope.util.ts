@@ -5,14 +5,26 @@ import { Prisma } from '@prisma/client';
  *  - TEXT rows, both directions;
  *  - INBOUND INTERACTIVE (the title of a list/button the customer tapped) and INBOUND LOCATION (name/address they shared);
  *  - INBOUND IMAGE/VIDEO that have no body but carry the customer's caption (the caption is read from mediaCaption).
- * Never included: NOTE (internal agent notes), TEMPLATE, CONTACTS, STICKER, AUDIO, DOCUMENT (its mediaCaption is a file
- * name), nor any URL, MIME type or other attachment metadata. Nothing is transcribed or described on the customer's behalf.
+ *  - INBOUND AUDIO / IMAGE that have a COMPLETED machine transcript / description, but only for a workspace that has switched that feature on
+ *    (voiceTranscriptionEnabled / imageUnderstandingEnabled). That text is generated, not written by the customer; the loader labels it as such.
+ * Never included: NOTE (internal agent notes), TEMPLATE, CONTACTS, STICKER, an AUDIO or IMAGE without a completed enrichment, DOCUMENT (its
+ * mediaCaption is a file name), nor any URL, MIME type or other attachment metadata.
  */
 export const HISTORY_ROW_FILTER: Prisma.MessageWhereInput = {
   OR: [
     { type: 'TEXT', content: { not: null } },
     { direction: 'INBOUND', type: { in: ['INTERACTIVE', 'LOCATION'] }, content: { not: null } },
     { direction: 'INBOUND', type: { in: ['IMAGE', 'VIDEO'] }, content: null, mediaCaption: { not: null } },
+    {
+      direction: 'INBOUND', type: 'AUDIO', content: null,
+      tenant: { settings: { is: { voiceTranscriptionEnabled: true } } },
+      enrichments: { some: { kind: 'TRANSCRIPT', status: 'COMPLETED', text: { not: '' } } },
+    },
+    {
+      direction: 'INBOUND', type: 'IMAGE', content: null,
+      tenant: { settings: { is: { imageUnderstandingEnabled: true } } },
+      enrichments: { some: { kind: 'IMAGE_ANALYSIS', status: 'COMPLETED', text: { not: '' } } },
+    },
   ],
 };
 
