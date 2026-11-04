@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { createTestingApp, signTestToken } from './utils/test-app';
-import { testPrisma, resetTestDatabase, createTenantWithUser, disconnectTestDatabase } from './utils/test-db';
+import { testPrisma, resetTestDatabase, createTenantWithUser, disconnectTestDatabase, pinClock, unpinClock } from './utils/test-db';
 
 describe('GET /analytics/overview (e2e)', () => {
   let app: INestApplication;
@@ -10,12 +10,14 @@ describe('GET /analytics/overview (e2e)', () => {
   beforeAll(async () => { app = await createTestingApp(); });
   afterAll(async () => { await app.close(); await disconnectTestDatabase(); });
   beforeEach(async () => { await resetTestDatabase(); });
+  afterEach(() => unpinClock());
 
   it('returns exact message counts and rates for seeded messages within the requested range', async () => {
     const { tenant, user } = await createTenantWithUser({ role: UserRole.ADMIN });
     const contact = await testPrisma.contact.create({ data: { tenantId: tenant.id, phone: '+233200000001', name: 'Test Contact' } });
     const conversation = await testPrisma.conversation.create({ data: { tenantId: tenant.id, contactId: contact.id, status: 'OPEN' } });
 
+    pinClock('2026-03-15T12:00:00.000Z');       // the seeded day is "today", so the live path counts it (past days come from worker rollups)
     const inRange = new Date('2026-03-15T10:00:00.000Z'); // Africa/Accra has no offset, so this date is unambiguous
     const outOfRange = new Date('2026-04-01T10:00:00.000Z');
 
@@ -54,8 +56,24 @@ describe('GET /analytics/overview (e2e)', () => {
     expect(res.body.messages.deliveryRate).toBeCloseTo((2 / 3) * 100, 1);
   });
 
+  it('serves PAST days from the daily rollups the worker writes, and only that tenant\'s', async () => {
+    const { tenant, user } = await createTenantWithUser({ role: UserRole.ADMIN });
+    const other = await createTenantWithUser({ role: UserRole.ADMIN });
+    const row = (tenantId: string, date: string, n: number) => ({ tenantId, date: new Date(`${date}T00:00:00.000Z`), sentCount: n, deliveredCount: n - 1, readCount: 1, inboundCount: n * 2, outboundCount: n });
+    await testPrisma.analyticsDailyMessageStats.createMany({ data: [row(tenant.id, '2026-03-10', 5), row(tenant.id, '2026-03-11', 3), row(tenant.id, '2026-04-20', 99), row(other.tenant.id, '2026-03-10', 1000)] });
+    await testPrisma.analyticsDailyRevenueStats.createMany({ data: [
+      { tenantId: tenant.id, date: new Date('2026-03-10T00:00:00.000Z'), gateway: 'STRIPE', successCount: 2, failedCount: 1, amount: 40, updatedAt: new Date() },
+      { tenantId: other.tenant.id, date: new Date('2026-03-10T00:00:00.000Z'), gateway: 'STRIPE', successCount: 9, failedCount: 0, amount: 9999, updatedAt: new Date() },
+    ] });
+    const token = signTestToken(app, { sub: user.id, email: user.email, tenantId: tenant.id, role: UserRole.ADMIN });
+    const res = await request(app.getHttpServer()).get('/analytics/overview?from=2026-03-01&to=2026-03-31').set('Authorization', `Bearer ${token}`).expect(200);
+    expect(res.body.messages).toMatchObject({ sent: 8, delivered: 6, read: 2, replied: 16 });     // 5+3 only: not April, not the other tenant
+    expect(res.body.revenue).toMatchObject({ amount: 40, successCount: 2, failedCount: 1 });
+  });
+
   it('sums successful payment amounts for the period and excludes failed ones from the revenue total', async () => {
     const { tenant, user } = await createTenantWithUser({ role: UserRole.ADMIN });
+    pinClock('2026-03-10T12:00:00.000Z');
     const inRange = new Date('2026-03-10T10:00:00.000Z');
 
     await testPrisma.payment.create({

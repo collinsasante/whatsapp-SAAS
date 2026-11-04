@@ -51,6 +51,19 @@ export async function resetTestDatabase(): Promise<void> {
   await testPrisma.$executeRawUnsafe(`TRUNCATE TABLE ${names} RESTART IDENTITY CASCADE;`);
 }
 
+/**
+ * Pins only `Date` to a chosen instant (timers and I/O stay real). Analytics serves every PAST day from daily rollups that a worker writes and only the current
+ * day live, so a test that seeds rows on a fixed date must make that date "today" to exercise the live path (it used to be, when the tests were written).
+ */
+export function pinClock(iso: string): void {
+  jest.useFakeTimers({
+    now: new Date(iso),
+    doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback',
+      'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'],
+  });
+}
+export function unpinClock(): void { jest.useRealTimers(); }
+
 export async function disconnectTestDatabase(): Promise<void> {
   await testPrisma.$disconnect();
 }

@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { createTestingApp, signTestToken } from './utils/test-app';
-import { testPrisma, resetTestDatabase, createTenantWithUser, disconnectTestDatabase } from './utils/test-db';
+import { testPrisma, resetTestDatabase, createTenantWithUser, disconnectTestDatabase, pinClock, unpinClock } from './utils/test-db';
 
 describe('GET /analytics/campaigns (e2e)', () => {
   let app: INestApplication;
@@ -86,6 +86,7 @@ describe('GET /analytics/campaigns (e2e)', () => {
 });
 
 describe('GET /analytics/revenue and /analytics/health (e2e)', () => {
+  afterEach(() => unpinClock());
   let app: INestApplication;
 
   beforeAll(async () => { app = await createTestingApp(); });
@@ -103,6 +104,7 @@ describe('GET /analytics/revenue and /analytics/health (e2e)', () => {
 
   it('/analytics/revenue breaks amounts down by gateway for an ADMIN requester', async () => {
     const { tenant, user } = await createTenantWithUser({ role: UserRole.ADMIN });
+    pinClock('2026-03-10T12:00:00.000Z');          // the seeded day is "today": the live path counts it (past days come from worker rollups)
     const inRange = new Date('2026-03-10');
     await testPrisma.payment.create({ data: { tenantId: tenant.id, gateway: 'STRIPE', status: 'SUCCEEDED', amount: 25, verifiedAt: inRange, createdAt: inRange } });
     await testPrisma.payment.create({ data: { tenantId: tenant.id, gateway: 'PAYSTACK', status: 'SUCCEEDED', amount: 10, verifiedAt: inRange, createdAt: inRange } });

@@ -17,6 +17,9 @@ import { AiResponderService } from '../src/ai/ai-responder.service';
 import { CommerceAiService } from '../src/commerce/ai/commerce-ai.service';
 import { KnowledgeBaseService } from '../src/knowledge-base/knowledge-base.service';
 
+// The approved-corrections service is not under test here: it contributes no guidance.
+const noCorrections = { getGuidanceBlock: jest.fn().mockResolvedValue('') } as never;
+
 jest.mock('axios');
 
 const prisma = testPrisma as never;
@@ -168,7 +171,7 @@ describe('Verz AI conversation context against PostgreSQL (Phase 1)', () => {
     const post = axios.post as jest.Mock;
     post.mockReset();
     post.mockResolvedValue({ data: { choices: [{ message: { content: '{"response":"Yes, it is.","confidence":90}' } }] } });
-    const service = new AiResponderService(prisma, new KnowledgeBaseService(prisma, {} as never));
+    const service = new AiResponderService(prisma, new KnowledgeBaseService(prisma, {} as never), noCorrections);
 
     const result = await service.generateSuggestion(A.tenant.id, mine.conversation.id, 'is it back in stock', undefined, undefined, current.id);
 
@@ -200,7 +203,7 @@ describe('Verz AI conversation context against PostgreSQL (Phase 1)', () => {
     const current = await say(tenant.id, conversation.id, contact.id, 'INBOUND', 'do you have shea butter', at(1));
     await say(tenant.id, conversation.id, contact.id, 'INBOUND', 'and soap?', at(2));
     const complete = jest.fn().mockResolvedValue({ content: 'Yes we do.', toolTrace: [], failed: false, hitMaxIterations: false, sideEffects: [] });
-    const service = new CommerceAiService(prisma, new KnowledgeBaseService(prisma, {} as never), { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn() } as never, { complete } as never);
+    const service = new CommerceAiService(prisma, new KnowledgeBaseService(prisma, {} as never), { getState: jest.fn().mockResolvedValue(null), mergeState: jest.fn() } as never, { complete } as never, noCorrections);
 
     await service.handleMessage(tenant.id, conversation.id, contact.id, '+233200000001', 'do you have shea butter', undefined, undefined, { currentMessageId: current.id });
 
@@ -234,6 +237,6 @@ describe('Verz AI conversation context against PostgreSQL (Phase 1)', () => {
     const all = JSON.stringify(await kb.getRelevant(A.tenant.id, 'mobile money payment'));
     expect(all).not.toContain('SECRET');
     expect(all).not.toContain('old payment');
-    expect(new KbRelevantContextSource(kb)).toBeTruthy();
+    expect(new KbRelevantContextSource(kb, noCorrections)).toBeTruthy();
   });
 });
