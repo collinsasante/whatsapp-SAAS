@@ -15,6 +15,8 @@ Status as of 2026-11-04. Production and staging share one VPS (Contabo). This do
 | File permissions | `infra/.env` is mode 644 (the parent `/root` is 700, so it is not world-reachable). Existing dumps are 644. |
 | Verified restorable? | Never tested before today. |
 
+**Credential hygiene follow-ups (not done; they change production configuration or secrets):** `SMTP_PASS` should be rotated, because a fragment of it was written to `/var/log/verzchat-backup.log` by every failed run since 2026-06-03 (the log should then be cleaned, keeping a root-only archive). Lines 49, 60 and 61 of `infra/.env` contain unquoted spaces: harmless to docker-compose, which reads them literally, but they break anything that `source`s the file; quote them only after confirming how compose parses the quoted form. Set `infra/.env` to mode 600. Either enforce the Redis password on the server or remove `REDIS_PASSWORD` from the env file so the two agree.
+
 Effective protection before this work: one local copy per night on the same disk as production (RPO up to 24 h for the database, unbounded for media, nothing if the server or its disk is lost).
 
 ## 2. The repaired workflow (implemented, verified, **not yet scheduled**)
