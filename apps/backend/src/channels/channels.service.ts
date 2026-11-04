@@ -6,6 +6,10 @@ import { CredentialsEncryptionService } from '../common/crypto/credentials-encry
 import { AuditService } from '../audit/audit.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
+import {
+  TIKTOK_HTTP_TIMEOUT_MS, TIKTOK_REVOKE_URL, TIKTOK_TOKEN_URL, TIKTOK_USER_INFO_URL,
+  describeTikTokFailure, parseTikTokTokenResponse, sanitiseText, tiktokExchangeBody, tiktokRevokeBody,
+} from '@whatsapp-platform/shared-utils';
 
 /**
  * Webhook fields a Messenger Page is subscribed to. message_echoes carries replies a person sent outside VerzChat
@@ -202,6 +206,9 @@ export class ChannelsService {
     ) && (await this.prisma.conversation.count({ where: { tenantId, channelId: id } })) > 0;
     const soft = channel.type === ChannelType.FACEBOOK_MESSENGER || hasHistory;
 
+    // TikTok: end the authorization at TikTok first (best effort), and never keep tokens for an account that is no longer connected.
+    if (channel.type === ChannelType.TIKTOK) await this.revokeTikTokAuthorization(tenantId, channel);
+
     if (channel.type === ChannelType.FACEBOOK_MESSENGER) {
       await this.prisma.facebookPageConnection.updateMany({
         where: { tenantId, channelId: id },
@@ -209,7 +216,19 @@ export class ChannelsService {
       });
     }
     if (soft) {
-      await this.prisma.channel.update({ where: { id }, data: { isActive: false } });
+      // TikTok: keep who the account was (so a reconnect matches it) and drop every token.
+      const identity = (channel.credentials ?? {}) as Record<string, unknown>;
+      const keptIdentity: Record<string, string> = {};
+      const externalId = identity['externalId'] ?? channel.externalId;
+      if (typeof externalId === 'string' && externalId) keptIdentity['externalId'] = externalId;
+      if (typeof identity['openId'] === 'string' && identity['openId']) keptIdentity['openId'] = identity['openId'];
+      await this.prisma.channel.update({
+        where: { id },
+        data: {
+          isActive: false,
+          ...(channel.type === ChannelType.TIKTOK && { credentials: keptIdentity as Prisma.InputJsonValue }),
+        },
+      });
     } else {
       await this.prisma.channel.delete({ where: { id } });
     }
@@ -280,51 +299,105 @@ export class ChannelsService {
     }
   }
 
+  /**
+   * TikTok Login Kit (v2). The token endpoint answers with a FLAT object (access_token, refresh_token, open_id, expires_in,
+   * refresh_expires_in, scope) and reports failures as { error, error_description, log_id } with HTTP 200 -- see
+   * shared-utils/tiktok-oauth.ts for the verified contract. This method used to read { data, error: { code } }, which belongs to a different
+   * TikTok API, so every exchange (successful or not) ended in "TikTok token exchange failed: unknown".
+   *
+   * Tokens are encrypted at rest. Nothing sensitive is logged: not the authorization code, not the state, not any token or secret.
+   */
   private async connectTikTok(tenantId: string, code: string, redirectUri: string) {
     const clientKey = this.config.get<string>('TIKTOK_CLIENT_ID');
     const clientSecret = this.config.get<string>('TIKTOK_CLIENT_SECRET');
-
-    const tokenRes = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_key: clientKey!,
-        client_secret: clientSecret!,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-      }).toString(),
-    });
-
-    const tokenData = await tokenRes.json() as {
-      data?: { access_token: string; open_id: string; refresh_token: string; expires_in?: number };
-      error?: { code: string; message: string };
-    };
-
-    if (tokenData.error?.code !== 'ok' || !tokenData.data?.access_token) {
-      throw new Error(`TikTok token exchange failed: ${tokenData.error?.message ?? 'unknown'}`);
+    if (!clientKey || !clientSecret) {
+      this.logger.error('TikTok connect attempted but TIKTOK_CLIENT_ID / TIKTOK_CLIENT_SECRET are not configured');
+      throw new Error('tiktok is not configured on this server');
     }
 
-    const { access_token, open_id, refresh_token, expires_in } = tokenData.data;
-    const tokenExpiresAt = expires_in ? new Date(Date.now() + expires_in * 1000).toISOString() : undefined;
+    let status: number;
+    let bodyText: string;
+    try {
+      const tokenRes = await fetch(TIKTOK_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: tiktokExchangeBody({ clientKey, clientSecret, code, redirectUri }),
+        signal: AbortSignal.timeout(TIKTOK_HTTP_TIMEOUT_MS),
+      });
+      status = tokenRes.status;
+      bodyText = await tokenRes.text();
+    } catch (e) {
+      this.logger.error(`TikTok token exchange could not reach TikTok (tenant ${tenantId}): ${e instanceof Error ? e.name : 'error'}`);
+      throw new Error('TikTok could not be reached. Please try connecting again.');
+    }
 
-    const userRes = await fetch(
-      'https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url',
-      { headers: { Authorization: `Bearer ${access_token}` } },
-    );
+    const parsed = parseTikTokTokenResponse(status, bodyText);
+    if (!parsed.ok) {
+      this.logger.warn(
+        `TikTok token exchange failed (tenant ${tenantId}): http=${parsed.httpStatus} kind=${parsed.kind} error=${parsed.error} ` +
+        `description="${parsed.description}" log_id=${parsed.logId ?? '-'} redirect_uri=${redirectUri}`,
+      );
+      throw new Error(describeTikTokFailure(parsed));
+    }
+    const { tokens } = parsed;
+    if (!tokens.scopes.includes('user.info.basic')) {
+      this.logger.warn(`TikTok connection for tenant ${tenantId} was granted scopes [${tokens.scopes.join(',')}] without user.info.basic; the account name cannot be read`);
+    }
 
-    const userData = await userRes.json() as {
-      data?: { user?: { display_name?: string } };
-    };
-
-    const displayName = userData.data?.user?.display_name ?? 'TikTok Account';
+    let displayName = 'TikTok Account';
+    try {
+      const userRes = await fetch(TIKTOK_USER_INFO_URL, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        signal: AbortSignal.timeout(TIKTOK_HTTP_TIMEOUT_MS),
+      });
+      const userData = await userRes.json() as { data?: { user?: { display_name?: string } }; error?: { code?: string; message?: string; log_id?: string } };
+      if (userData.error?.code && userData.error.code !== 'ok') {
+        this.logger.warn(`TikTok user info failed (tenant ${tenantId}): ${sanitiseText(userData.error.code, 40)} ${sanitiseText(userData.error.message)} log_id=${sanitiseText(userData.error.log_id, 40)}`);
+      } else if (userData.data?.user?.display_name) {
+        displayName = sanitiseText(userData.data.user.display_name, 100) || displayName;
+      }
+    } catch (e) {
+      this.logger.warn(`TikTok user info could not be read (tenant ${tenantId}): ${e instanceof Error ? e.name : 'error'}; connecting with a generic name`);
+    }
 
     await this.upsertOAuthChannel(tenantId, ChannelType.TIKTOK, displayName, {
-      accessToken: access_token,
-      openId: open_id,
-      refreshToken: refresh_token,
-      ...(tokenExpiresAt && { tokenExpiresAt }),
-    }, open_id);
+      accessToken: this.encryption.encrypt(tokens.accessToken),
+      refreshToken: this.encryption.encrypt(tokens.refreshToken),
+      openId: tokens.openId,
+      scope: tokens.scopes.join(','),
+      tokenExpiresAt: tokens.accessExpiresAt,
+      ...(tokens.refreshExpiresAt && { refreshExpiresAt: tokens.refreshExpiresAt }),
+    }, tokens.openId);
+    this.logger.log(`TikTok account connected for tenant ${tenantId} (scopes: ${tokens.scopes.join(',') || 'none reported'})`);
+  }
+
+  /**
+   * Best effort, never throws: tells TikTok to end the authorization when a TikTok channel is disconnected. If it fails the channel is still
+   * disconnected locally and the stored tokens are still removed; the result is logged so a failure is visible.
+   */
+  private async revokeTikTokAuthorization(tenantId: string, channel: { id: string; credentials: Prisma.JsonValue }): Promise<void> {
+    const clientKey = this.config.get<string>('TIKTOK_CLIENT_ID');
+    const clientSecret = this.config.get<string>('TIKTOK_CLIENT_SECRET');
+    const stored = (channel.credentials ?? {}) as Record<string, unknown>;
+    if (!clientKey || !clientSecret || typeof stored['accessToken'] !== 'string' || !stored['accessToken']) {
+      this.logger.warn(`TikTok revoke skipped for channel ${channel.id} (tenant ${tenantId}): no stored token or missing app credentials`);
+      return;
+    }
+    try {
+      const res = await fetch(TIKTOK_REVOKE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: tiktokRevokeBody({ clientKey, clientSecret, token: this.encryption.decrypt(stored['accessToken']) }),
+        signal: AbortSignal.timeout(TIKTOK_HTTP_TIMEOUT_MS),
+      });
+      const text = await res.text();
+      let error = '';
+      try { const b = JSON.parse(text) as { error?: unknown; error_description?: unknown; log_id?: unknown }; if (typeof b.error === 'string') error = `${sanitiseText(b.error, 40)} ${sanitiseText(b.error_description)} log_id=${sanitiseText(b.log_id, 40)}`; } catch { /* an empty body is TikTok's success response */ }
+      if (error) this.logger.warn(`TikTok revoke was refused for channel ${channel.id} (tenant ${tenantId}): ${error}`);
+      else this.logger.log(`TikTok authorization revoked for channel ${channel.id} (tenant ${tenantId})`);
+    } catch (e) {
+      this.logger.warn(`TikTok revoke could not be completed for channel ${channel.id} (tenant ${tenantId}): ${e instanceof Error ? e.name : 'error'}`);
+    }
   }
 
   async connectTelegramBot(tenantId: string, botToken: string, actorId?: string) {
