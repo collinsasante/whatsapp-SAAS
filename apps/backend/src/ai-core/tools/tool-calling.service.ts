@@ -12,6 +12,18 @@ import { checkCustomerText, parseStructuredReply, ReplyProblem } from '../comple
 import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 const DEFAULT_MAX_ITERATIONS = 4;
+/** A model turn that asks for dozens of calls is broken or being steered; bound what one turn and one run may do. */
+const MAX_TOOL_CALLS_PER_ROUND = 6;
+const MAX_TOOL_CALLS_PER_RUN = 12;
+
+/** Key-order-independent form of the arguments, so {"a":1,"b":2} and {"b":2,"a":1} are the same call. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
 
 /** What a run's final (tool-free) answer comes to: the text to send and the model's own confidence, or why it cannot be sent. */
 type FinalAnswer = { problem: ReplyProblem } | { problem?: undefined; response: string; confidence: number | null };
@@ -129,6 +141,9 @@ export class ToolCallingService {
     const offeredTools = new Set(toolDefs.map((d) => d.name));
     const toolTrace: ToolCallTrace[] = [];
     const sideEffects: ToolSideEffect[] = [];
+    // Within one run an identical state-changing call (a replay, a retry by the model) executes once and answers with its first result.
+    const stateChangingResults = new Map<string, unknown>();
+    let toolCallsThisRun = 0;
     const messages: ChatMessage[] = [
       { role: 'system', content: req.systemPrompt },
       ...req.historyMessages,
@@ -175,6 +190,7 @@ export class ToolCallingService {
         }
 
         messages.push({ role: 'assistant', content: completion.content ?? '', toolCalls: completion.toolCalls });
+        let toolCallsThisRound = 0;
         for (const call of completion.toolCalls) {
           let args: Record<string, unknown> = {};
           try { args = JSON.parse(call.arguments || '{}'); } catch { /* tool handler validates required fields */ }
@@ -182,14 +198,24 @@ export class ToolCallingService {
           // indexes into a non-object, and the handler's own required-field validation answers the model.
           if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
           const toolStartedAt = Date.now();
-          const rawResult = offeredTools.has(call.name)
-            ? await this.tools.execute(call.name, req.toolContext, args)
-            : this.refuseUnofferedTool(call.name, req.conversationId);
-          // A tool may return a { forModel, sideEffect? } envelope instead of a bare
-          // result -- only forModel goes back into the model's own context; the side
-          // effect (e.g. "send this image") is pulled out for the caller to deliver.
-          const forModel = isToolResultEnvelope(rawResult) ? rawResult.forModel : rawResult;
-          if (isToolResultEnvelope(rawResult) && rawResult.sideEffect) sideEffects.push(rawResult.sideEffect);
+          toolCallsThisRound++; toolCallsThisRun++;
+          const replayKey = offeredTools.has(call.name) && this.tools.isStateChanging?.(call.name) ? `${call.name}:${canonicalJson(args)}` : null;
+          let forModel: unknown;
+          if (toolCallsThisRound > MAX_TOOL_CALLS_PER_ROUND || toolCallsThisRun > MAX_TOOL_CALLS_PER_RUN) {
+            forModel = { error: 'Too many tool calls in this turn.' };
+          } else if (replayKey && stateChangingResults.has(replayKey)) {
+            forModel = stateChangingResults.get(replayKey);   // already done this run: no second execution, no second side effect
+          } else {
+            const rawResult = offeredTools.has(call.name)
+              ? await this.tools.execute(call.name, req.toolContext, args)
+              : this.refuseUnofferedTool(call.name, req.conversationId);
+            // A tool may return a { forModel, sideEffect? } envelope instead of a bare
+            // result -- only forModel goes back into the model's own context; the side
+            // effect (e.g. "send this image") is pulled out for the caller to deliver.
+            forModel = isToolResultEnvelope(rawResult) ? rawResult.forModel : rawResult;
+            if (isToolResultEnvelope(rawResult) && rawResult.sideEffect) sideEffects.push(rawResult.sideEffect);
+            if (replayKey) stateChangingResults.set(replayKey, forModel);
+          }
           toolTrace.push({ name: call.name, args, result: forModel, durationMs: Date.now() - toolStartedAt });
           messages.push({ role: 'tool', content: JSON.stringify(forModel), toolCallId: call.id });
         }

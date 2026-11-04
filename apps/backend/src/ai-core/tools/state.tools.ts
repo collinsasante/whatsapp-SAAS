@@ -1,5 +1,6 @@
 import { ConversationStateService } from '../../conversations/conversation-state.service';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { argText, argTextList, argTextRecord } from './tool-args.util';
 
 /**
  * Verz-AI unification, Phase F: voluntary, model-driven half of state tracking
@@ -29,10 +30,10 @@ export function buildStateTools(state: ConversationStateService): ToolDefinition
       },
       execute: async (ctx: ToolExecutionContext, args) => {
         await state.mergeState(ctx.tenantId, ctx.conversationId, {
-          currentIntent: args['currentIntent'] as string | undefined,
-          knownFacts: args['addKnownFacts'] as Record<string, string> | undefined,
-          missingInfo: args['missingInfo'] as string[] | undefined,
-          lastTopic: args['lastTopic'] as string | undefined,
+          currentIntent: argText(args, 'currentIntent', 200),
+          knownFacts: argTextRecord(args, 'addKnownFacts', 8, 50, 200),
+          missingInfo: argTextList(args, 'missingInfo', 10, 100),
+          lastTopic: argText(args, 'lastTopic', 200),
         });
         return { saved: true };
       },
@@ -52,7 +53,7 @@ export function buildStateTools(state: ConversationStateService): ToolDefinition
       },
       execute: async (ctx: ToolExecutionContext, args) => {
         await state.mergeState(ctx.tenantId, ctx.conversationId, {
-          pendingAction: { type: String(args['type'] ?? 'OTHER'), description: String(args['description'] ?? ''), askedAt: new Date().toISOString() },
+          pendingAction: { type: argText(args, 'type', 40) ?? 'OTHER', description: argText(args, 'description', 300) ?? '', askedAt: new Date().toISOString() },
         });
         return { saved: true };
       },

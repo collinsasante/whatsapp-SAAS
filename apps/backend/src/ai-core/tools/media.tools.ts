@@ -1,5 +1,6 @@
 import { ProductsService } from '../../commerce/products/products.service';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { argId } from './tool-args.util';
 
 /**
  * Verz-AI unification, Phase G: the first tool with a real customer-visible
@@ -13,6 +14,7 @@ import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
 export function buildMediaTools(products: ProductsService): ToolDefinition[] {
   return [
     {
+      stateChanging: true,
       def: {
         name: 'send_product_image',
         description: "Send the customer a photo of a specific product you've already found via search_products or get_product_details. This actually sends the image as a real WhatsApp message -- it is a visible action, not just information for you. Check that the product has an image (via get_product_details) before calling this; if it doesn't, tell the customer you don't have a photo right now rather than calling this tool.",
@@ -23,7 +25,7 @@ export function buildMediaTools(products: ProductsService): ToolDefinition[] {
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const productId = args['productId'] as string;
+        const productId = argId(args, 'productId');
         if (!productId) return { error: 'productId is required' };
         const product = await products.findOne(ctx.tenantId, productId).catch(() => null);
         if (!product) return { error: 'Product not found' };

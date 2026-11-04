@@ -15,6 +15,8 @@ export interface ToolExecutionContext {
 
 export interface ToolDefinition {
   def: ChatToolDef;
+  /** Changes records or tells the customer something: within one run an identical call is executed once and a repeat gets the first result. */
+  stateChanging?: boolean;
   execute: (ctx: ToolExecutionContext, args: Record<string, unknown>) => Promise<unknown>;
 }
 

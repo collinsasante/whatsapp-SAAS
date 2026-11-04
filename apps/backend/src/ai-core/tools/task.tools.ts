@@ -2,6 +2,7 @@ import { TaskPriority } from '@prisma/client';
 import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
 import { OrdersService } from '../../commerce/orders/orders.service';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { argText } from './tool-args.util';
 
 const VALID_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
 
@@ -10,6 +11,7 @@ const VALID_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
 export function buildTaskTools(internalTasks: InternalTasksService, orders: OrdersService): ToolDefinition[] {
   return [
     {
+      stateChanging: true,
       def: {
         name: 'create_internal_task',
         description: 'Create an internal task for a human team to handle something you cannot resolve yourself -- e.g. forwarding artwork, a special request, a complaint needing follow-up. Use this instead of just telling the customer someone will help; this actually notifies the right team.',
@@ -25,11 +27,11 @@ export function buildTaskTools(internalTasks: InternalTasksService, orders: Orde
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const department = (args['department'] as string | undefined)?.trim();
-        const title = (args['title'] as string | undefined)?.trim();
-        const description = (args['description'] as string | undefined)?.trim();
+        const department = argText(args, 'department', 80);
+        const title = argText(args, 'title', 200);
+        const description = argText(args, 'description', 4000);
         if (!department || !title || !description) return { error: 'department, title, and description are required' };
-        const priorityArg = (args['priority'] as string | undefined)?.toUpperCase();
+        const priorityArg = argText(args, 'priority', 20)?.toUpperCase();
         const priority = (VALID_PRIORITIES as readonly string[]).includes(priorityArg ?? '')
           ? (priorityArg as TaskPriority)
           : TaskPriority.NORMAL;

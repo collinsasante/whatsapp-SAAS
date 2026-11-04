@@ -65,9 +65,32 @@ export class ToolRegistryService implements OnModuleInit {
     return names.map((n) => this.tools.get(n)?.def).filter((d): d is ChatToolDef => !!d);
   }
 
+  isStateChanging(name: string): boolean {
+    return this.tools.get(name)?.stateChanging === true;
+  }
+
+  /**
+   * The context is built by the server, but a handler acts with it on the strength of one claim: that this conversation belongs to this workspace and this
+   * contact. Checked here, on every call and before any handler runs, so a context assembled wrongly anywhere (a caller bug, a replayed or stale run)
+   * cannot reach another workspace's data. A failed check, or a failure to check, refuses the call.
+   */
+  private async contextIsConsistent(ctx: ToolExecutionContext): Promise<boolean> {
+    try {
+      const n = await this.prisma.conversation.count({ where: { id: ctx.conversationId, tenantId: ctx.tenantId, contactId: ctx.contactId } });
+      return n === 1;
+    } catch (err) {
+      this.logger.warn(`Tool context could not be verified: ${describeErrorForLog(err)}`);
+      return false;
+    }
+  }
+
   async execute(name: string, ctx: ToolExecutionContext, args: Record<string, unknown>): Promise<unknown> {
     const tool = this.tools.get(name);
     if (!tool) return { error: `Unknown tool: ${name}` };
+    if (!(await this.contextIsConsistent(ctx))) {
+      this.logger.warn(`Refused tool ${String(name).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 64)}: its conversation does not belong to the workspace and contact in the context`);
+      return { error: 'This conversation is not available.' };
+    }
     try {
       return await tool.execute(ctx, args);
     } catch (err) {

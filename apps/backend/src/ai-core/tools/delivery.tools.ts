@@ -2,6 +2,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { InternalTasksService } from '../../internal-tasks/internal-tasks.service';
 import { OrdersService } from '../../commerce/orders/orders.service';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { argText } from './tool-args.util';
 
 /**
  * Verz-AI unification, Phase Q: previously there was no delivery tool, schema field,
@@ -31,6 +32,7 @@ export function buildDeliveryTools(prisma: PrismaService, internalTasks: Interna
       },
     },
     {
+      stateChanging: true,
       def: {
         name: 'arrange_delivery',
         description: "STATE-CHANGING, CUSTOMER-FACING COMMITMENT: creates a real internal task for the team to actually book/arrange this specific delivery. Only call this once you have the recipient's name, phone number, and delivery address/area, and the customer has confirmed they want delivery (and a method, if this business offers more than one). This does not happen automatically just because delivery is enabled -- calling this is what makes it a real, tracked request, so don't tell the customer delivery is arranged until after you've called this and it succeeds.",
@@ -47,12 +49,12 @@ export function buildDeliveryTools(prisma: PrismaService, internalTasks: Interna
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const recipientName = (args['recipientName'] as string | undefined)?.trim();
-        const phone = (args['phone'] as string | undefined)?.trim();
-        const address = (args['address'] as string | undefined)?.trim();
+        const recipientName = argText(args, 'recipientName', 120);
+        const phone = argText(args, 'phone', 40);
+        const address = argText(args, 'address', 300);
         if (!recipientName || !phone || !address) return { error: 'recipientName, phone, and address are required' };
-        const method = (args['method'] as string | undefined)?.trim();
-        const notes = (args['notes'] as string | undefined)?.trim();
+        const method = argText(args, 'method', 60);
+        const notes = argText(args, 'notes', 500);
 
         const order = await orders.findMostRecentForConversation(ctx.tenantId, ctx.conversationId).catch(() => null);
         const description = [

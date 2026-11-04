@@ -51,7 +51,7 @@ describe('commerce.tools', () => {
 
       const result = await tool(orders, 'add_item_to_order').execute(ctx, { productId: 'p1', quantity: 0 });
 
-      expect(result).toEqual({ error: 'productId and a positive quantity are required' });
+      expect(result).toEqual({ error: 'productId and a whole-number quantity from 1 to 10000 are required' });
     });
   });
 

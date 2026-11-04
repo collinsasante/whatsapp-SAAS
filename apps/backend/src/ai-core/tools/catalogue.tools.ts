@@ -1,5 +1,6 @@
 import { ProductsService } from '../../commerce/products/products.service';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { argId, argText } from './tool-args.util';
 
 /** Migrated verbatim from CommerceAiService.executeTool's search_products/get_product_details
  * cases -- same ProductsService calls, same result shape, same behavior. Only the calling
@@ -61,7 +62,7 @@ export function buildCatalogueTools(products: ProductsService): ToolDefinition[]
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const query = (args['query'] as string | undefined)?.toLowerCase().trim();
+        const query = argText(args, 'query', 200)?.toLowerCase();
         const maxPrice = finiteNumber(args['maxPrice']);
         const minPrice = finiteNumber(args['minPrice']);
         const sort = args['sort'];
@@ -99,7 +100,7 @@ export function buildCatalogueTools(products: ProductsService): ToolDefinition[]
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const productId = args['productId'] as string;
+        const productId = argId(args, 'productId');
         if (!productId) return { error: 'productId is required' };
         const product = await products.findOne(ctx.tenantId, productId).catch(() => null);
         if (!product) return { error: 'Product not found' };

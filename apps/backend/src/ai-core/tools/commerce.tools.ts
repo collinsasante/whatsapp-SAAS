@@ -1,5 +1,6 @@
 import { OrdersService } from '../../commerce/orders/orders.service';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { argId, argPositiveInt, argText, MAX_ORDER_QUANTITY } from './tool-args.util';
 
 /** Migrated verbatim from CommerceAiService.executeTool's order-related cases -- same
  * OrdersService calls, same AWAITING_APPROVAL handling, same result shapes. The hard
@@ -8,6 +9,7 @@ import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
 export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
   return [
     {
+      stateChanging: true,
       def: {
         name: 'add_item_to_order',
         description: "Add a product to the customer's current order (creates the order if this is the first item). STATE-CHANGING: calling this a second time for a product already in the order increases its quantity rather than adding a duplicate line -- call it once per distinct add, with the total quantity the customer wants, not once per unit. Only call this once the customer has confirmed what they want and how many; this does not charge them anything yet.",
@@ -22,15 +24,15 @@ export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
         },
       },
       execute: async (ctx: ToolExecutionContext, args) => {
-        const productId = args['productId'] as string;
-        const quantity = Number(args['quantity']);
-        if (!productId || !quantity || quantity < 1) return { error: 'productId and a positive quantity are required' };
+        const productId = argId(args, 'productId');
+        const quantity = argPositiveInt(args, 'quantity', MAX_ORDER_QUANTITY);
+        if (!productId || !quantity) return { error: `productId and a whole-number quantity from 1 to ${MAX_ORDER_QUANTITY} are required` };
 
         let order = await orders.findActiveDraftForConversation(ctx.tenantId, ctx.conversationId);
         if (!order) {
           order = await orders.createDraft(ctx.tenantId, { contactId: ctx.contactId, conversationId: ctx.conversationId, customerPhone: ctx.customerPhone }) as never;
         }
-        const updated = await orders.addItem(ctx.tenantId, order!.id, { productId, quantity, variantLabel: args['variantLabel'] as string | undefined });
+        const updated = await orders.addItem(ctx.tenantId, order!.id, { productId, quantity, variantLabel: argText(args, 'variantLabel', 100) });
         return { orderId: updated.id, totalMajorUnits: updated.totalMajorUnits, currency: updated.currency, itemCount: (updated as unknown as { items: unknown[] }).items?.length };
       },
     },
@@ -47,6 +49,7 @@ export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
       },
     },
     {
+      stateChanging: true,
       def: {
         name: 'submit_order_for_payment',
         description: 'STATE-CHANGING, CUSTOMER-FACING SIDE EFFECT: finalizes the current draft order and either returns a real payment link to send the customer, or -- if any item is below its minimum order quantity -- routes the order to a manager for approval instead (no payment link in that case, this is not a rejection). Only call this once the customer has explicitly said they want to check out; it locks in the order as it stands right now, so make sure get_current_order reflects everything they want first.',
@@ -77,7 +80,8 @@ export function buildCommerceTools(orders: OrdersService): ToolDefinition[] {
       execute: async (ctx: ToolExecutionContext, args) => {
         // The contact comes from the real conversation (ctx), never from the model's arguments: an order ID the model
         // supplies is only honoured when that order belongs to this workspace AND this contact.
-        const requested = typeof args['orderId'] === 'string' ? args['orderId'] : undefined;
+        const requested = argId(args, 'orderId');
+        if (args['orderId'] !== undefined && args['orderId'] !== null && !requested) return { error: 'Order not found' };
         const order = requested
           ? await orders.findOwnedByContact(ctx.tenantId, ctx.contactId, requested)
           : await orders.findMostRecentForConversation(ctx.tenantId, ctx.conversationId);

@@ -7,7 +7,8 @@ function buildDeps() {
     orders: { findMostRecentForConversation: jest.fn().mockResolvedValue(null) },
     internalTasks: { create: jest.fn() },
     conversationState: { getState: jest.fn(), mergeState: jest.fn().mockResolvedValue(undefined) },
-    prisma: { tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) } },
+    // the conversation in the test context belongs to the workspace and contact (the registry checks this before every tool runs)
+    prisma: { tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) }, conversation: { count: jest.fn().mockResolvedValue(1) } },
   };
 }
 
