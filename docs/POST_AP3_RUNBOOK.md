@@ -82,6 +82,21 @@ Pass: 3.2-3.6. Not tested by this: publishing (not implemented), messaging (no T
 4.4 Cross-replica lease: start a second backend container from the same image on the staging network for the test only, send two messages to one conversation at the same moment, confirm one provider call at a time (`ai_conversation_leases` row appears and disappears; one reply per message; credits charged once each). Remove the extra container afterwards.
 4.5 BullMQ: run the AI learning/evaluation queue paths with real Redis/PostgreSQL (retries, duplicates, concurrency) and record job outcomes; run the real-Postgres suites against the staging image's schema copy, not the live staging database.
 
+## 4b. New capabilities: all OFF after deploy; turn on one at a time on staging only
+Nothing below runs until its switch is set. Deploying changes no behaviour for existing workspaces. For each: enable on **one staging workspace**, run the check, record the result in `docs/CHANNEL_CAPABILITY_MATRIX.md` (a mock never moves a "real-integration verified" cell).
+| Capability | Switch(es) | Staging check (needs) |
+|---|---|---|
+| Telegram messaging | connect a bot in Channels | a real bot from @BotFather; the checks in `docs/TELEGRAM_STAGING_WEBHOOK.md` (public `:8443` route behind Cloudflare; add a WAF skip rule if `getWebhookInfo` shows 403) |
+| TikTok publishing | flag `tiktok_publishing`; `TIKTOK_REQUEST_PUBLISH_SCOPE=true` only after `video.publish` is added to the app | a real TikTok account that logs in (human); posts stay "Only me" until TikTok's audit. Contract notes: `docs/TIKTOK_CONTRACT_VERIFICATION.md` |
+| TikTok messaging | flag `tiktok_messaging`; `TIKTOK_BUSINESS_APP_ID/SECRET`; `TIKTOK_MESSAGING_CONTRACT_CONFIRMED=true` **only after** an operator checks every `assumed` item in `tiktok-messaging.contract.ts` against the portal | TikTok's approval of the Business Messaging API for the app (human, outside our control). `docs/TIKTOK_MESSAGING.md` |
+| Voice-note transcription, image understanding | workspace toggles in Settings > Automation; `TRANSCRIPTION_API_KEY`, `VISION_API_KEY`/`VISION_MODEL` (vision-capable model only) | a real provider key; `docs/VOICE_AND_IMAGE_UNDERSTANDING.md` |
+| Daily AI spend cap and alerts | super admin sets a cap on a workspace's AI tab | none beyond staging; trigger the warning and reached alerts with a low cap and confirm the admin notification arrives |
+| Prompt redaction, tool authorisation | always on (no switch) | send a message containing a fake email, phone and key to Test Chat and confirm the stored AI activity shows masked values; confirm normal replies still work |
+After deploy also confirm: the six migrations applied (query above), `GET /tiktok/messaging/status` answers and lists what is unmet, and the worker log still shows `[TikTokTokenRefresh] Worker started`.
+
+### Rollback of the migrations (code first, then data)
+Only after rolling the application back, and after a verified dump: apply `apps/backend/prisma/rollbacks/*.down.sql` in **reverse order** (README there). Rehearsed on a disposable database by `infra/scripts/migration-rehearsal.sh` (26 checks: schema returns exactly, data untouched).
+
 ## 5. Cross-channel regression
 WhatsApp Cloud: send and receive one text and one image; template send; delivery status ticks. WhatsApp Web (staging session is `LOGGED_OUT`): not testable without a QR scan; record as not tested. Messenger: send from VerzChat and receive; Instagram: only if an account is connected. Telegram: connect only (no messaging exists). TikTok: section 3. For each: inbox filtering by channel, pagination, realtime event on a new message, attachment display, disconnect and reconnect, empty and error states. Tenant isolation: two tenants, each sees only its own conversations (inbox API and realtime room).
 
