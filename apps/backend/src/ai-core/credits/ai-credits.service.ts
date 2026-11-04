@@ -1,8 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { AiCreditReservation, AiCreditReservationStatus, AiCreditTransaction, AiCreditTransactionType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiPricingService } from '../pricing/ai-pricing.service';
+import { AiCapAlertNotifier, capStateFor, DEFAULT_CAP_WARN_PERCENT } from './ai-cap-alerts';
 
 const RESERVATION_TTL_MS = 15 * 60_000;
 const RESERVATION_SWEEP_INTERVAL_MS = 60_000;
@@ -26,6 +27,8 @@ export class AiSpendCapReachedError extends InsufficientAiCreditsError {
   }
 }
 
+interface CapProjection { cap: number; used: number; warnPercent: number }
+
 export interface SettleResult {
   /** False when neither the unreserved balance nor this reservation can cover
    * the settlement; provider output may already have been delivered. */
@@ -47,7 +50,8 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AiCreditsService.name);
   private reservationSweepTimer: NodeJS.Timeout | undefined;
 
-  constructor(private prisma: PrismaService, private pricing: AiPricingService) {}
+  // The notifier is optional so existing constructions (and tests) need not supply it; the app always does. Without it the cap still enforces, silently.
+  constructor(private prisma: PrismaService, private pricing: AiPricingService, @Optional() private capAlerts?: AiCapAlertNotifier) {}
 
   async getBalance(tenantId: string): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
@@ -92,13 +96,13 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Invalid AI reservation quote for ${provider}:${modelKey}`);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.withCapSignals(tenantId, () => this.prisma.$transaction(async (tx) => {
       const tenant = await this.lockTenant(tx, tenantId);
       const heldCredits = await this.getHeldCredits(tx, tenantId);
       if (tenant.aiCredits - heldCredits < quote.reservedCredits) throw new InsufficientAiCreditsError();
-      await this.assertWithinDailyCap(tx, tenantId, heldCredits, quote.reservedCredits);
+      const projection = await this.assertWithinDailyCap(tx, tenantId, heldCredits, quote.reservedCredits);
 
-      return tx.aiCreditReservation.create({
+      const reservation = await tx.aiCreditReservation.create({
         data: {
           tenantId,
           idempotencyKey: randomUUID(),
@@ -110,19 +114,20 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
           expiresAt: new Date(Date.now() + RESERVATION_TTL_MS),
         },
       });
-    });
+      return { value: reservation, projection };
+    }));
   }
 
   async reserveFixedCredits(tenantId: string, credits: number): Promise<AiCreditReservation> {
     if (!Number.isSafeInteger(credits) || credits <= 0) throw new Error('Fixed AI credit reservation must be a positive safe integer');
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.withCapSignals(tenantId, () => this.prisma.$transaction(async (tx) => {
       const tenant = await this.lockTenant(tx, tenantId);
       const heldCredits = await this.getHeldCredits(tx, tenantId);
       if (tenant.aiCredits - heldCredits < credits) throw new InsufficientAiCreditsError();
-      await this.assertWithinDailyCap(tx, tenantId, heldCredits, credits);
+      const projection = await this.assertWithinDailyCap(tx, tenantId, heldCredits, credits);
 
-      return tx.aiCreditReservation.create({
+      const reservation = await tx.aiCreditReservation.create({
         data: {
           tenantId,
           idempotencyKey: randomUUID(),
@@ -134,7 +139,8 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
           expiresAt: new Date(Date.now() + RESERVATION_TTL_MS),
         },
       });
-    });
+      return { value: reservation, projection };
+    }));
   }
 
   async settleReservation(
@@ -437,12 +443,21 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
       Math.abs(rows.find((r) => r.type === type)?._sum.credits ?? 0);
     const aiRequestsThisMonth = thisMonth.find((r) => r.type === AiCreditTransactionType.AI_USAGE)?._count ?? 0;
 
-    const capRow = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { aiDailyCreditCap: true } });
+    const capRow = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { aiDailyCreditCap: true, aiCapWarnPercent: true } });
     const spentToday = await this.prisma.$transaction((tx) => this.getSettledToday(tx, tenantId));
+    const heldNow = await this.getHeldNow(tenantId);
+    const clock = await this.getCapClock(this.prisma, tenantId);
+    const cap = capRow?.aiDailyCreditCap ?? null;
 
     return {
-      dailyCreditCap: capRow?.aiDailyCreditCap ?? null,
+      dailyCreditCap: cap,
       spentToday,
+      heldNow,
+      capWarnPercent: capRow?.aiCapWarnPercent ?? DEFAULT_CAP_WARN_PERCENT,
+      capState: capStateFor(spentToday + heldNow, cap, capRow?.aiCapWarnPercent),
+      percentOfCapUsed: cap ? Math.min(100, Math.round(((spentToday + heldNow) / cap) * 100)) : null,
+      capResetsAt: clock.resetsAt.toISOString(),
+      capTimezone: clock.timezone,
       currentBalance: balance,
       usedThisMonth: sumFor(thisMonth, AiCreditTransactionType.AI_USAGE),
       purchasedThisMonth: sumFor(thisMonth, AiCreditTransactionType.PURCHASE),
@@ -457,12 +472,97 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
    * storm) are serialised and cannot jointly exceed it. Spent = credits settled today (AI_USAGE net of REFUND) in the workspace's own timezone
    * + credits currently held by open reservations + this request. Releasing a reservation frees its headroom immediately.
    */
-  private async assertWithinDailyCap(tx: Prisma.TransactionClient, tenantId: string, heldCredits: number, requested: number): Promise<void> {
-    const settings = await tx.tenantSettings.findUnique({ where: { tenantId }, select: { aiDailyCreditCap: true } });
+  private async assertWithinDailyCap(tx: Prisma.TransactionClient, tenantId: string, heldCredits: number, requested: number): Promise<CapProjection | null> {
+    const settings = await tx.tenantSettings.findUnique({ where: { tenantId }, select: { aiDailyCreditCap: true, aiCapWarnPercent: true } });
     const cap = settings?.aiDailyCreditCap;
-    if (cap === null || cap === undefined) return;
+    if (cap === null || cap === undefined) return null;
     const spentToday = await this.getSettledToday(tx, tenantId);
     if (spentToday + heldCredits + requested > cap) throw new AiSpendCapReachedError(cap, spentToday + heldCredits);
+    return { cap, used: spentToday + heldCredits + requested, warnPercent: settings?.aiCapWarnPercent ?? DEFAULT_CAP_WARN_PERCENT };
+  }
+
+  /**
+   * Runs a reservation and, AFTER its transaction has committed (or been rolled back by a cap rejection), raises the cap alerts it caused. Alert failures
+   * never change the reservation's outcome. The error is re-thrown unchanged, so every caller sees exactly what it saw before alerts existed.
+   */
+  private async withCapSignals<T>(tenantId: string, run: () => Promise<{ value: T; projection: CapProjection | null }>): Promise<T> {
+    let out: { value: T; projection: CapProjection | null };
+    try {
+      out = await run();
+    } catch (e) {
+      if (e instanceof AiSpendCapReachedError) await this.raiseCapAlert(tenantId, 'REACHED', e.cap, e.spentToday);
+      throw e;
+    }
+    const p = out.projection;
+    if (p) {
+      const state = capStateFor(p.used, p.cap, p.warnPercent);
+      if (state === 'REACHED' || state === 'WARNING') await this.raiseCapAlert(tenantId, state, p.cap, p.used);
+    }
+    return out.value;
+  }
+
+  private async raiseCapAlert(tenantId: string, level: 'WARNING' | 'REACHED', cap: number, used: number): Promise<void> {
+    if (!this.capAlerts) return;
+    try {
+      const clock = await this.getCapClock(this.prisma, tenantId);
+      // The unique (tenant, local day, level) row decides, atomically, which of several concurrent callers announces; the others find it already there.
+      await this.prisma.aiCapAlert.createMany({ data: [{ tenantId, dayKey: clock.dayKey, level, cap, spent: used }], skipDuplicates: true });
+      const claimed = await this.prisma.aiCapAlert.updateMany({ where: { tenantId, dayKey: clock.dayKey, level, deliveredAt: null }, data: { deliveredAt: new Date() } });
+      if (claimed.count !== 1) return;
+      const settings = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { aiCapWarnPercent: true } });
+      try {
+        await this.capAlerts.deliver(tenantId, { level, cap, used, warnPercent: settings?.aiCapWarnPercent ?? DEFAULT_CAP_WARN_PERCENT, resetsAt: clock.resetsAt, timezone: clock.timezone });
+      } catch (e) {
+        // Give the claim back so the next reservation tries again, rather than losing the alert.
+        await this.prisma.aiCapAlert.updateMany({ where: { tenantId, dayKey: clock.dayKey, level }, data: { deliveredAt: null } });
+        throw e;
+      }
+    } catch (e) {
+      this.logger.warn(`AI spend cap ${level} alert not delivered for tenant ${tenantId}: ${e instanceof Error ? e.name : 'error'}`);
+    }
+  }
+
+  /** The workspace's current local day, its end (when the cap resets, as a UTC instant) and timezone. An unknown timezone name means UTC. */
+  private async getCapClock(client: Prisma.TransactionClient | PrismaService, tenantId: string): Promise<{ dayKey: string; resetsAt: Date; timezone: string }> {
+    const rows = await client.$queryRaw<Array<{ day_key: string; resets_at: Date; tz: string }>>`
+      WITH tz AS (
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_timezone_names n WHERE n.name = s.timezone) THEN s.timezone ELSE 'UTC' END AS name
+        FROM (SELECT COALESCE((SELECT timezone FROM tenant_settings WHERE tenant_id = ${tenantId}), 'UTC') AS timezone) s
+      )
+      SELECT to_char(now() AT TIME ZONE tz.name, 'YYYY-MM-DD') AS day_key,
+             (((date_trunc('day', now() AT TIME ZONE tz.name) + interval '1 day') AT TIME ZONE tz.name) AT TIME ZONE 'UTC') AS resets_at,
+             tz.name AS tz
+      FROM tz`;
+    const r = rows[0]!;
+    return { dayKey: r.day_key, resetsAt: new Date(r.resets_at), timezone: r.tz };
+  }
+
+  /** Credits currently held by open reservations (not yet settled or released). */
+  async getHeldNow(tenantId: string): Promise<number> {
+    return this.prisma.$transaction((tx) => this.getHeldCredits(tx, tenantId));
+  }
+
+  /** Every workspace that has a cap, with where it stands now. Platform operators only: it spans tenants. */
+  async getCapOverview(limit = 500) {
+    const rows = await this.prisma.tenantSettings.findMany({
+      where: { aiDailyCreditCap: { not: null }, tenant: { isActive: true } },
+      select: { tenantId: true, aiDailyCreditCap: true, aiCapWarnPercent: true, tenant: { select: { name: true } } },
+      orderBy: { updatedAt: 'desc' }, take: limit,
+    });
+    const out = [];
+    for (const r of rows) {
+      const cap = r.aiDailyCreditCap!;
+      const [spent, held, clock] = await Promise.all([
+        this.prisma.$transaction((tx) => this.getSettledToday(tx, r.tenantId)),
+        this.getHeldNow(r.tenantId),
+        this.getCapClock(this.prisma, r.tenantId),
+      ]);
+      out.push({
+        tenantId: r.tenantId, name: r.tenant.name, cap, warnPercent: r.aiCapWarnPercent ?? DEFAULT_CAP_WARN_PERCENT,
+        spentToday: spent, heldNow: held, state: capStateFor(spent + held, cap, r.aiCapWarnPercent), resetsAt: clock.resetsAt.toISOString(), timezone: clock.timezone,
+      });
+    }
+    return out;
   }
 
   /**

@@ -110,6 +110,7 @@ model Tenant {
 
   @@map("tenants")
   channelHistorySyncs    ChannelHistorySync[]
+  aiCapAlerts            AiCapAlert[]
   tikTokPublications     TikTokPublication[]
 }
 
@@ -255,6 +256,8 @@ model TenantSettings {
   // Most AI credits this workspace may spend in one day (its own timezone). Null = no cap. Set by platform admins only; enforced when credits are
   // reserved for a provider call (AiCreditsService). 0 blocks all AI replies.
   aiDailyCreditCap            Int?      @map("ai_daily_credit_cap")
+  // Percent of the daily cap at which admins get a warning (null = 80). The cap-reached alert needs no setting.
+  aiCapWarnPercent            Int?      @map("ai_cap_warn_percent")
   autoReply                   Boolean   @default(false) @map("auto_reply")
   autoReplyMessage            String?   @map("auto_reply_message")
   maxAgents                   Int       @default(10) @map("max_agents")
@@ -3409,4 +3412,23 @@ model TikTokPublication {
   @@index([status, nextAttemptAt])
   @@index([tenantId, createdAt])
   @@map("tiktok_publications")
+}
+
+// One row per workspace, local day and level: the unique key is what makes "tell the admins once" hold under concurrent reservations and replicas.
+// deliveredAt is claimed with a compare-and-set before notifying, and cleared again if delivery fails so a later reservation retries it.
+model AiCapAlert {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  dayKey      String    @map("day_key")
+  level       String
+  cap         Int
+  spent       Int
+  deliveredAt DateTime? @map("delivered_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, dayKey, level])
+  @@index([createdAt])
+  @@map("ai_cap_alerts")
 }

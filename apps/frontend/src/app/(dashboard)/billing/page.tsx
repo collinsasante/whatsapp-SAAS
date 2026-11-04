@@ -82,6 +82,14 @@ interface CreditTransaction {
 }
 
 interface CreditUsageSummary {
+  dailyCreditCap: number | null;
+  spentToday: number;
+  heldNow: number;
+  capWarnPercent: number;
+  capState: 'NO_CAP' | 'OK' | 'WARNING' | 'REACHED';
+  percentOfCapUsed: number | null;
+  capResetsAt: string;
+  capTimezone: string;
   currentBalance: number;
   usedThisMonth: number;
   purchasedThisMonth: number;
@@ -361,6 +369,33 @@ const TXN_STYLE: Record<CreditTransaction['type'], { label: string; color: strin
   ADJUSTMENT:{ label: 'Adjustment',      color: 'text-amber-600' },
 };
 
+/** Today's AI spend against the daily cap the platform set for this workspace, with when it resets. Only shown when a cap exists. */
+function DailyCapStatus({ summary }: { summary: CreditUsageSummary }) {
+  if (summary.dailyCreditCap === null) return null;
+  const used = summary.spentToday + summary.heldNow;
+  const pct = summary.percentOfCapUsed ?? 0;
+  const reached = summary.capState === 'REACHED';
+  const near = summary.capState === 'WARNING';
+  return (
+    <div className={cn('mb-5 rounded-xl border p-4', reached ? 'border-red-200 bg-red-50' : near ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50')} role="status">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-sm font-semibold text-gray-900">Daily AI spend</p>
+        <p className="text-sm tabular-nums text-gray-700">{used.toLocaleString()} of {summary.dailyCreditCap.toLocaleString()} credits</p>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white" aria-hidden="true">
+        <div className={cn('h-full rounded-full', reached ? 'bg-red-500' : near ? 'bg-amber-500' : 'bg-teal-500')} style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-gray-700">
+        {reached
+          ? 'Verz AI has paused for today because the daily cap was reached. Your team can still reply to every conversation.'
+          : near ? `Verz AI has used over ${summary.capWarnPercent}% of today's cap.` : 'Verz AI is within today\'s cap.'}
+        {' '}The cap resets {new Date(summary.capResetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} ({summary.capTimezone}).
+        To change the cap, contact support.
+      </p>
+    </div>
+  );
+}
+
 function CreditActivitySection() {
   const [summary, setSummary] = useState<CreditUsageSummary | null>(null);
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
@@ -396,6 +431,8 @@ function CreditActivitySection() {
           ))}
         </div>
       )}
+
+      {summary && <DailyCapStatus summary={summary} />}
 
       {transactions.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-6">No credit activity yet</p>

@@ -6,6 +6,7 @@ import { Section } from '../PageHeader';
 import { AdminTable, type Column } from '../AdminTable';
 import { StatusPill, type PillTone } from '../StatusPill';
 import { EmptyState } from '../States';
+import { SpendCapSection } from './SpendCapSection';
 
 type Purchase = WorkspaceDetail['creditPurchases'][number];
 const TONE: Record<string, PillTone> = { PAID: 'success', COMPLETED: 'success', PENDING: 'pending', FAILED: 'danger' };
@@ -29,6 +30,7 @@ export function TenantAiTab({ data }: { data: WorkspaceDetail }) {
           <p className="text-sm text-gray-600 max-w-md">Verz AI replies stop for this tenant when the balance reaches zero. See every grant, purchase and use in <Link className="text-teal-700 hover:underline" href={`/platform-admin/ai/transactions?tenantId=${data.id}`}>credit transactions</Link>.</p>
         </div>
       </Section>
+      <SpendCapSection tenantId={data.id} />
       <Section title="Credit purchases" description="The 10 most recent purchases.">
         <AdminTable caption="Credit purchases" columns={columns} rows={data.creditPurchases} rowKey={(p) => p.id} empty={<EmptyState title="No credit purchases" />} />
       </Section>

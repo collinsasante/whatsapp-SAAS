@@ -405,11 +405,21 @@ export class PlatformAdminController {
   @Patch('workspaces/:id/ai-daily-credit-cap')
   @UseGuards(PlatformAdminGuard)
   @RequirePlatformRole('SUPER_ADMIN')
-  async setAiDailyCreditCap(@Param('id') id: string, @Body('cap') cap: number | null, @Req() req: AdminRequest) {
-    const result = await this.adminService.setAiDailyCreditCap(id, cap === undefined ? null : cap);
-    await this.auditService.log({ adminId: req.adminId, action: 'workspace.set_ai_daily_credit_cap', resourceType: 'Tenant', resourceId: id, metadata: { cap: result.aiDailyCreditCap } });
+  async setAiDailyCreditCap(@Param('id') id: string, @Body() body: { cap?: number | null; warnPercent?: number | null }, @Req() req: AdminRequest) {
+    const result = await this.adminService.setAiDailyCreditCap(id, body?.cap === undefined ? null : body.cap, body?.warnPercent);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.set_ai_daily_credit_cap', resourceType: 'Tenant', resourceId: id, metadata: { cap: result.aiDailyCreditCap, warnPercent: result.aiCapWarnPercent } });
     return result;
   }
+
+  @Get('ai/spend-caps')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  aiSpendCaps() { return this.adminService.getAiSpendCaps(); }
+
+  @Get('workspaces/:id/ai-spend')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  workspaceAiSpend(@Param('id') id: string) { return this.adminService.getWorkspaceAiSpend(id); }
 
   @Patch('workspaces/:id/commerce')
   @UseGuards(PlatformAdminGuard)

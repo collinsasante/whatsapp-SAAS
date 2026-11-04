@@ -55,7 +55,8 @@ function buildPrismaMock(overrides: Partial<Record<string, unknown>> = {}) {
     },
     // no settings row = no daily spend cap (the cap itself is covered against a real database in ai-credits.spend-cap.db.spec.ts)
     tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
-    $queryRaw: jest.fn().mockResolvedValue([{ id: 't1' }]),
+    // one row that satisfies every raw query the service makes: the tenant lock, today's settled spend, and the cap clock
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 't1', spent: 0, day_key: '2026-11-04', resets_at: new Date('2026-11-05T00:00:00Z'), tz: 'UTC' }]),
     $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(base)),
     ...overrides,
   };
@@ -349,8 +350,14 @@ describe('AiCreditsService', () => {
       const summary = await service.getUsageSummary('t1');
 
       expect(summary).toEqual({
-        dailyCreditCap: null,   // new: the workspace has no cap configured in this fake
+        dailyCreditCap: null,   // the workspace has no cap configured in this fake
         spentToday: 0,
+        heldNow: 0,
+        capWarnPercent: 80,
+        capState: 'NO_CAP',
+        percentOfCapUsed: null,
+        capResetsAt: '2026-11-05T00:00:00.000Z',
+        capTimezone: 'UTC',
         currentBalance: 100,
         usedThisMonth: 30,
         purchasedThisMonth: 1000,

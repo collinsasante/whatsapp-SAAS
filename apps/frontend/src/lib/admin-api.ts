@@ -91,6 +91,15 @@ export interface TenantTableRow {
   usage: { conversationsThisMonth: number; messagesLast30Days: number; broadcastsThisMonth: number };
 }
 
+export type AiCapState = 'NO_CAP' | 'OK' | 'WARNING' | 'REACHED';
+export interface AiSpendCapRow {
+  tenantId: string; name: string; cap: number; warnPercent: number; spentToday: number; heldNow: number; state: AiCapState; resetsAt: string; timezone: string;
+}
+export interface AiSpendSummary {
+  dailyCreditCap: number | null; spentToday: number; heldNow: number; capWarnPercent: number; capState: AiCapState;
+  percentOfCapUsed: number | null; capResetsAt: string; capTimezone: string; currentBalance: number;
+}
+
 export interface WorkspaceDetail {
   id: string; name: string; isActive: boolean; billingEmail: string | null; createdAt: string;
   country: string | null; aiCredits: number;
@@ -624,6 +633,11 @@ export const adminApi = {
     req<Paginated<AiCreditWalletRow> & { lowThreshold: number }>('GET', `/ai/credits/wallets${qs(opts)}`),
   aiCreditTransactions: (opts: { tenantId?: string; type?: string; limit?: number; offset?: number } = {}) =>
     req<Paginated<AiCreditTransactionRow>>('GET', `/ai/credits/transactions${qs(opts)}`),
+
+  aiSpendCaps: () => req<{ items: AiSpendCapRow[] }>('GET', '/ai/spend-caps'),
+  workspaceAiSpend: (id: string) => req<AiSpendSummary>('GET', `/workspaces/${id}/ai-spend`),
+  setAiDailyCreditCap: (id: string, data: { cap: number | null; warnPercent?: number | null }) =>
+    req<{ success: boolean; aiDailyCreditCap: number | null; aiCapWarnPercent: number | null }>('PATCH', `/workspaces/${id}/ai-daily-credit-cap`, data),
 
   aiPricing: () => req<AiPricingConfigRow[]>('GET', '/ai/pricing'),
   createAiPricing: (data: Omit<AiPricingConfigRow, 'id' | 'isActive'> & { isActive?: boolean }) =>

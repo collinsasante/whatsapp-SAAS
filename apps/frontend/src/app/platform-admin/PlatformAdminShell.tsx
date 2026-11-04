@@ -35,6 +35,7 @@ const NAV: NavSection[] = [
       { href: `${P}/ai/usage`, label: 'Usage by tenant', icon: Gauge },
       { href: `${P}/ai/wallets`, label: 'Credit wallets', icon: Wallet },
       { href: `${P}/ai/transactions`, label: 'Credit transactions', icon: ReceiptText },
+      { href: `${P}/ai/spend-caps`, label: 'Daily spend caps', icon: Gauge },
       { href: `${P}/ai/pricing`, label: 'AI pricing', icon: Tag },
       { href: `${P}/ai/packages`, label: 'Credit packages', icon: Package },
     ],

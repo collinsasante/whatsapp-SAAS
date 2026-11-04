@@ -111,6 +111,7 @@ export class BillingController {
   }
 
   @Get('credits/usage')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'AI credit usage summary (balance, this-month usage/purchases, lifetime totals)' })
   getCreditUsageSummary(@CurrentTenant() tenantId: string) {
     return this.billingService.getCreditUsageSummary(tenantId);

@@ -1006,16 +1006,26 @@ export class PlatformAdminService {
     return { success: true, tenantId, plan: plan.name, periodEnd };
   }
 
+  async getAiSpendCaps() { return { items: await this.aiCreditsService.getCapOverview() }; }
+
+  async getWorkspaceAiSpend(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    return this.aiCreditsService.getUsageSummary(tenantId);
+  }
+
   /** Platform-admin-only: how many AI credits a workspace may spend per day (its own timezone). `null` removes the cap; 0 blocks AI replies. */
-  async setAiDailyCreditCap(tenantId: string, cap: number | null) {
+  async setAiDailyCreditCap(tenantId: string, cap: number | null, warnPercent?: number | null) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
     if (!tenant) throw new NotFoundException('Workspace not found');
     if (cap !== null && (!Number.isSafeInteger(cap) || cap < 0)) throw new BadRequestException('cap must be a whole number of credits (0 or more), or null for no cap');
+    if (warnPercent !== undefined && warnPercent !== null && (!Number.isInteger(warnPercent) || warnPercent < 1 || warnPercent > 99)) throw new BadRequestException('warnPercent must be a whole number from 1 to 99');
+    const warn = warnPercent === undefined ? {} : { aiCapWarnPercent: warnPercent };
     const settings = await this.prisma.tenantSettings.upsert({
       where: { tenantId },
-      create: { tenantId, aiDailyCreditCap: cap },
-      update: { aiDailyCreditCap: cap },
-      select: { aiDailyCreditCap: true },
+      create: { tenantId, aiDailyCreditCap: cap, ...warn },
+      update: { aiDailyCreditCap: cap, ...warn },
+      select: { aiDailyCreditCap: true, aiCapWarnPercent: true },
     });
     return { success: true, tenantId, ...settings };
   }
