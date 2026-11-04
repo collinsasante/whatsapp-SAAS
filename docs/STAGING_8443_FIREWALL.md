@@ -1,6 +1,6 @@
 # Staging port 8443 firewall: runbook and acceptance record
 
-Scope: the shared Contabo VPS (`84.247.142.49`) that hosts production AND staging. The staging nginx publishes port 8443; only Cloudflare (and a short-lived admin exception) may reach it.
+Scope: the shared Contabo VPS (`<vps-origin-ip>`) that hosts production AND staging. The staging nginx publishes port 8443; only Cloudflare (and a short-lived admin exception) may reach it.
 Code: `infra/firewall/staging-8443/`. Status as of 2026-11-03: installed and live on staging, validated through AP-2 (B1-B4). **AP-3 (Docker restart + reboot) and AP-4 (old-layer retirement) are NOT done and need a production maintenance window.**
 
 ## 1. Architecture
