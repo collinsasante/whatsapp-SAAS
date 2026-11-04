@@ -76,7 +76,8 @@ export class ChannelsController {
       const params = new URLSearchParams({
         client_key: appId,
         response_type: 'code',
-        scope: 'user.info.basic',
+        // video.publish must be added to the TikTok app (and approved) first; asking for a scope the app does not have makes TikTok refuse the whole sign-in.
+        scope: this.configService.get<string>('TIKTOK_REQUEST_PUBLISH_SCOPE') === 'true' ? 'user.info.basic,video.publish' : 'user.info.basic',
         redirect_uri: callbackUri,
         state,
       });

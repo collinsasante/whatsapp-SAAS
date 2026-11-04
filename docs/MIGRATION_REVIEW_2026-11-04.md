@@ -1,6 +1,6 @@
-# Review of the three pending migrations (2026-11-04)
+# Review of the four pending migrations (2026-11-04)
 
-Scope: `20261104120000_channel_history_sync`, `20261105120000_ai_conversation_leases` and (added later the same day) `20261106120000_ai_daily_credit_cap`, on `integration/staging-candidate-v2`. Verified locally against a real PostgreSQL 17 (the servers run 16): nothing was applied to staging or production.
+Scope: `20261104120000_channel_history_sync`, `20261105120000_ai_conversation_leases` `20261106120000_ai_daily_credit_cap` and (added 2026-11-04, later) `20261107120000_tiktok_publications`, on `integration/staging-candidate-v2`. Verified locally against a real PostgreSQL 17 (the servers run 16): nothing was applied to staging or production.
 
 ## What they do
 | Migration | Changes |
@@ -8,6 +8,7 @@ Scope: `20261104120000_channel_history_sync`, `20261105120000_ai_conversation_le
 | `20261104120000_channel_history_sync` | creates enum `ChannelHistorySyncStatus` (inside a `DO` block that tolerates "already exists"), table `channel_history_syncs`, a unique index on `channel_id`, an index on `tenant_id`, and foreign keys to `tenants(id)` and `channels(id)` with `ON DELETE CASCADE` |
 | `20261105120000_ai_conversation_leases` | creates table `ai_conversation_leases` (primary key `conversation_id`) and an index on `expires_at`; **no foreign keys on purpose** |
 | `20261106120000_ai_daily_credit_cap` | `ALTER TABLE tenant_settings ADD COLUMN ai_daily_credit_cap INTEGER` (nullable, no default: metadata-only, no table rewrite) and a `CHECK (cap IS NULL OR cap >= 0)` constraint (validated by scanning `tenant_settings`, one row per workspace, so effectively instant). It takes a brief ACCESS EXCLUSIVE lock on `tenant_settings`: if a long transaction holds that table the statement waits and queues new readers behind it, so apply it when no long-running transaction is open (the release script stops the staging writers first). Existing rows keep every value and get a NULL cap (no cap). Rollback: drop the constraint, then the column; the cap values are the only data lost. |
+| `20261107120000_tiktok_publications` | Creates the enum `TikTokPublishStatus` and the table `tiktok_publications` (unique `(tenant_id, idempotency_key)`, indexes on `(status, next_attempt_at)` and `(tenant_id, created_at)`, foreign keys to `tenants` and `channels` with ON DELETE CASCADE). Nothing existing is altered: no lock on a populated table, nothing to backfill. Statements are guarded (`IF NOT EXISTS`, `duplicate_object`) so a re-run is harmless. Verified: applies on the full history, and `prisma migrate diff` reports no drift for the new table. Rollback: `DROP TABLE tiktok_publications; DROP TYPE "TikTokPublishStatus";` (loses only publishing history). Inert until the `tiktok_publishing` feature flag is created and enabled: no flag row means disabled. |
 The first two alter nothing that exists. The third is the only one that touches an existing table. All statements use `IF NOT EXISTS` or tolerant `DO` blocks, so a manual re-run is harmless (tested).
 
 ## Verification performed

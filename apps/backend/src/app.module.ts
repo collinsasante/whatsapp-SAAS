@@ -25,6 +25,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { FacebookMessengerModule } from './facebook-messenger/facebook-messenger.module';
 import { WhatsAppWebModule } from './whatsapp-web/whatsapp-web.module';
 import { TelegramModule } from './telegram/telegram.module';
+import { TikTokPublishingModule } from './tiktok-publishing/tiktok-publishing.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ActivityLogModule } from './activity-log/activity-log.module';
 import { ChannelsModule } from './channels/channels.module';
@@ -112,6 +113,7 @@ import appConfig from './config/app.config';
     FacebookMessengerModule,
     WhatsAppWebModule,
     TelegramModule,
+    TikTokPublishingModule,
     DashboardModule,
     ActivityLogModule,
     ChannelsModule,

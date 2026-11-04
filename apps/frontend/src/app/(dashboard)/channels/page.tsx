@@ -12,6 +12,7 @@ import { channelsApi, facebookPagesApi, historySyncApi, type HistorySyncStatus, 
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import { getSocket, SocketEvent } from '@/lib/socket';
+import { TikTokPublishPanel } from '@/components/channels/TikTokPublishPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -99,14 +100,14 @@ const CHANNELS: ChannelDef[] = [
   {
     id: 'telegram',
     name: 'Telegram',
-    description: "Connect a Telegram Bot to verify it's live now. Full inbox messaging, group support, and automation are coming soon.",
-    badge: 'Coming Soon',
+    description: "Connect a Telegram bot to receive and answer private chats in your inbox. Needs a public HTTPS address; group chats are not supported.",
+    badge: 'Beta',
     connectType: 'api',
     accentClass: 'border-l-sky-500',
     accentBg: 'bg-sky-500',
     btnClass: 'bg-sky-500 hover:bg-sky-600 text-white',
     btnLabel: 'Connect Bot',
-    features: ['Bot token verified on connect', 'Message inbox, coming soon', 'Automation & routing, coming soon'],
+    features: ['Private chats in your inbox', 'Photos, voice notes and files', 'Group chats, not supported'],
   },
   {
     id: 'whatsapp-web',
@@ -1280,7 +1281,7 @@ function HeroSection({ connected }: { connected: ConnectedChannel[] }) {
             </h1>
             <p className="text-slate-400 text-sm leading-relaxed max-w-lg">
               One unified inbox for WhatsApp, Instagram, and Facebook Messenger.
-              TikTok and Telegram can be connected and verified, but their messages do not reach the inbox yet.
+              Telegram bots deliver private chats to the inbox. TikTok can be connected, but its messages do not reach the inbox yet.
             </p>
           </div>
 
@@ -1481,6 +1482,8 @@ function ChannelCard({
                 )}
               </div>
             </div>
+
+            {connectedData?.type === 'TIKTOK' && isActive && !needsReconnect && <TikTokPublishPanel channelId={connectedData.id} />}
 
             {/* Feature pills — shown only when disconnected */}
             {!isConnected && (

@@ -269,6 +269,19 @@ export const automationApi = {
   delete: (id: string) => api.delete(`/automation/${id}`),
 };
 
+export type TikTokPublicationStatus = 'QUEUED' | 'UPLOADING' | 'PROCESSING' | 'PUBLISHED' | 'FAILED' | 'UNCERTAIN' | 'NEEDS_RECONNECT' | 'CANCELLED';
+export interface TikTokPublication {
+  id: string; channelId: string; status: TikTokPublicationStatus; caption: string; privacyLevel: string; attempts: number;
+  lastError: string | null; tiktokPostId: string | null; createdAt: string; updatedAt: string; completedAt: string | null;
+}
+export const tiktokPublishingApi = {
+  config: () => api.get<{ enabled: boolean; allowedPrivacyLevels: string[]; maxCaption: number }>('/tiktok/publications/config'),
+  list: (channelId: string) => api.get<TikTokPublication[]>('/tiktok/publications', { params: { channelId } }),
+  create: (data: { channelId: string; mediaKey: string; caption: string; privacyLevel?: string; idempotencyKey: string }) => api.post<TikTokPublication>('/tiktok/publications', data),
+  retry: (id: string, confirmNotPosted = false) => api.post<TikTokPublication>(`/tiktok/publications/${id}/retry`, { confirmNotPosted }),
+  cancel: (id: string) => api.post<TikTokPublication>(`/tiktok/publications/${id}/cancel`),
+};
+
 export const mediaApi = {
   // `uniqueName` rejects a file whose name is already in the File Library -- pass it only from the Library page.
   upload: (file: File, onProgress?: (pct: number) => void, opts?: { uniqueName?: boolean }) => {
