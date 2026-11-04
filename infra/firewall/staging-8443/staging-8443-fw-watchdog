@@ -1,0 +1,34 @@
+#!/bin/bash
+# staging-8443-fw-watchdog: automatic rollback for a risky change to the live table inet staging8443.
+# Run it as a TRANSIENT SYSTEMD UNIT so it survives the loss of the SSH client. It uses no network, no firewall PORT and no Docker: only nft and 'staging-8443-fw boot'.
+#   usage: staging-8443-fw-watchdog <dir> <deadline-seconds> [netns]
+#   <dir> must hold pre.nft (nft list table inet staging8443) and rollback.nft (add table + delete table + the pre.nft listing); see docs/STAGING_8443_FIREWALL.md
+# Cancel:  touch <dir>/confirm      Immediate rollback:  touch <dir>/fail      Otherwise: rolls back when the deadline passes.
+D=$1; DL=$2; NS=$3; NSX=(); [ -n "$NS" ] && NSX=(ip netns exec "$NS")
+rm -f "$D/result" "$D/after-rollback.nft"   # a result left by an earlier run must never be mistaken for this run's outcome
+LOG=$D/watchdog.log; log() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
+# Admin sets are excluded from the comparison on purpose: their elements are re-derived from admin.txt by 'boot' (and may legitimately have expired meanwhile).
+strip_admin() { awk '/^[ \t]*set admin[46] \{/{skip=1} !skip{print} skip && /^[ \t]*\}/{skip=0}'; }
+norm() { strip_admin | sed -E 's/packets [0-9]+ bytes [0-9]+//; s/ expires [0-9a-z.]+//; s/ timeout [0-9dhms]+//g'; }
+BOOT_TO=${WD_BOOT_TIMEOUT:-150}   # 'boot' waits up to LOCK_WAIT (120 s) for the script lock; never let the watchdog outlive that
+[ -s "$D/rollback.nft" ] && [ -s "$D/pre.nft" ] || { log "ABORT: $D/pre.nft or rollback.nft missing or empty; nothing armed"; echo NOT_ARMED > "$D/result"; exit 2; }
+END=$(( $(date +%s) + DL )); log "armed: deadline ${DL}s ns=${NS:-host}"
+while :; do
+  [ -e "$D/confirm" ] && { log "CONFIRMED: watchdog cancelled, no rollback performed"; echo CANCELLED > "$D/result"; exit 0; }
+  [ -e "$D/fail" ] && { log "FAIL signal: rolling back now"; break; }
+  [ "$(date +%s)" -ge "$END" ] && { log "DEADLINE reached without confirmation: rolling back"; break; }
+  sleep 1
+done
+if "${NSX[@]}" nft -f "$D/rollback.nft" >> "$LOG" 2>&1; then log "restored the saved table listing (one atomic transaction)"
+else log "restore FAILED"; [ -z "$NS" ] && timeout "$BOOT_TO" /usr/local/sbin/staging-8443-fw boot >> "$LOG" 2>&1 && log "fell back to: staging-8443-fw boot"; fi
+"${NSX[@]}" nft list table inet staging8443 > "$D/after-rollback.nft" 2>&1
+# A restored listing RE-BASES element timeouts from the restore time (the admin exception would lapse later than intended). So after a restore, re-derive the sets
+# from admin.txt with 'boot'. Host: staging-8443-fw boot. Tests: WD_BOOT_CMD points at a wrapper that runs the same command inside the test namespace.
+# WD_NO_BOOT=1 skips it (used ONLY by the test that demonstrates the original flaw).
+if [ -z "$WD_NO_BOOT" ]; then
+  if [ -n "$WD_BOOT_CMD" ]; then timeout "$BOOT_TO" "$WD_BOOT_CMD" >> "$LOG" 2>&1 && log "re-ran boot (WD_BOOT_CMD) so admin timeouts are re-derived from admin.txt"
+  elif [ -z "$NS" ]; then timeout "$BOOT_TO" /usr/local/sbin/staging-8443-fw boot >> "$LOG" 2>&1 && log "re-ran 'staging-8443-fw boot' so admin timeouts are re-derived from admin.txt"; fi
+  "${NSX[@]}" nft list table inet staging8443 > "$D/after-rollback.nft" 2>&1
+fi
+if diff <(norm < "$D/pre.nft") <(norm < "$D/after-rollback.nft") >/dev/null; then log "VERIFIED: table equals the pre-change listing (counters and expiry timers ignored)"; echo ROLLED_BACK_OK > "$D/result"
+else log "MISMATCH after rollback"; echo ROLLED_BACK_MISMATCH > "$D/result"; fi

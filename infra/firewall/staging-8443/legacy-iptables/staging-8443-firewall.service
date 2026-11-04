@@ -1,0 +1,14 @@
+[Unit]
+Description=Restrict staging port 8443 to Cloudflare (DOCKER-USER for IPv4, INPUT for IPv6)
+After=docker.service ufw.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/staging-8443-firewall apply
+ExecReload=/usr/local/sbin/staging-8443-firewall apply
+ExecStop=/usr/local/sbin/staging-8443-firewall remove-rules
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Restricts the STAGING nginx's published port 8443 to Cloudflare (+ an optional admin allow-list). Staging only.
+#   IPv4: connections are DNAT'ed by Docker and FORWARDed, so they are filtered in DOCKER-USER, matched by the ORIGINAL destination port
+#         (conntrack --ctorigdstport 8443, original direction), so only traffic first addressed to 8443 is affected.
+#   IPv6: Docker has no IPv6 NAT here; docker-proxy terminates v6 connections on the host, so they arrive in INPUT and DOCKER-USER never sees
+#         them. The v6 rule is therefore a jump at the top of ip6tables INPUT, scoped to tcp dport 8443.
+# Everything lives in two dedicated chains (STG-8443, STG-8443-V6) plus one jump rule each, so removing it is exact.
+# Usage: staging-8443-firewall apply | remove-rules | status | refresh | dry-run [show]
+set -euo pipefail
+CONF=/etc/staging-8443; PORT=8443; C4=STG-8443; C6=STG-8443-V6
+JUMP4=(-p tcp -m conntrack --ctorigdstport $PORT --ctdir ORIGINAL -j $C4)
+JUMP6=(-p tcp --dport $PORT -j $C6)
+valid4() { grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$' <<<"$1"; }
+valid6() { grep -Eq '^[0-9a-fA-F:]+(/[0-9]{1,3})?$' <<<"$1" && [[ "$1" == *:* ]]; }
+list() { [ -f "$1" ] || return 0; grep -Ev '^\s*(#|$)' "$1" | tr -d '\r' | awk '{print $1}'; }
+
+build() { # family
+  local fam=$1 verdict chain
+  if [ "$fam" = 4 ]; then verdict=RETURN; chain=$C4; else verdict=ACCEPT; chain=$C6; fi
+  echo "*filter"; echo ":$chain - [0:0]"
+  [ "$fam" = 6 ] && echo "-A $chain -i lo -j ACCEPT"
+  echo "-A $chain -m conntrack --ctstate ESTABLISHED,RELATED -j $verdict"   # keep established connections
+  echo "-A $chain -i br-+ -j $verdict"; echo "-A $chain -i docker0 -j $verdict"  # traffic from this host's own Docker networks is not "external"
+  local n=0 r
+  for r in $(list "$CONF/cloudflare-ips-v$fam.txt"); do
+    if [ "$fam" = 4 ]; then valid4 "$r" || { echo "bad v4 range: $r" >&2; exit 1; }; else valid6 "$r" || { echo "bad v6 range: $r" >&2; exit 1; }; fi
+    echo "-A $chain -s $r -j $verdict"; n=$((n+1))
+  done
+  [ "$n" -ge 5 ] || { echo "refusing to apply: only $n Cloudflare ranges for IPv$fam (would lock Cloudflare out)" >&2; exit 1; }
+  for r in $(list "$CONF/admin-ips.txt"); do
+    if [ "$fam" = 4 ] && valid4 "$r"; then echo "-A $chain -s $r -j $verdict"; fi
+    if [ "$fam" = 6 ] && valid6 "$r"; then echo "-A $chain -s $r -j $verdict"; fi
+  done
+  echo "-A $chain -j DROP"; echo "COMMIT"
+}
+apply() {
+  build 4 > /tmp/stg8443.v4.$$; build 6 > /tmp/stg8443.v6.$$          # build both first: nothing is changed if either fails
+  iptables-restore --noflush < /tmp/stg8443.v4.$$                      # (re)creates the chain, then the jump is added/kept
+  iptables -C DOCKER-USER "${JUMP4[@]}" 2>/dev/null || iptables -I DOCKER-USER 1 "${JUMP4[@]}"
+  ip6tables-restore --noflush < /tmp/stg8443.v6.$$
+  ip6tables -C INPUT "${JUMP6[@]}" 2>/dev/null || ip6tables -I INPUT 1 "${JUMP6[@]}"
+  rm -f /tmp/stg8443.v4.$$ /tmp/stg8443.v6.$$
+  echo "applied: $(iptables -S $C4 | grep -c '^-A') v4 rules, $(ip6tables -S $C6 | grep -c '^-A') v6 rules"
+}
+remove_rules() {
+  while iptables -C DOCKER-USER "${JUMP4[@]}" 2>/dev/null; do iptables -D DOCKER-USER "${JUMP4[@]}"; done
+  while ip6tables -C INPUT "${JUMP6[@]}" 2>/dev/null; do ip6tables -D INPUT "${JUMP6[@]}"; done
+  iptables -F $C4 2>/dev/null && iptables -X $C4 2>/dev/null || true
+  ip6tables -F $C6 2>/dev/null && ip6tables -X $C6 2>/dev/null || true
+  echo "removed"
+}
+status() { echo "-- DOCKER-USER"; iptables -S DOCKER-USER; echo "-- $C4"; iptables -L $C4 -v -n 2>/dev/null; echo "-- v6 INPUT head"; ip6tables -S INPUT | head -3; echo "-- $C6"; ip6tables -L $C6 -v -n 2>/dev/null; }
+refresh() { # official source only; both lists must download and look sane before anything is replaced
+  curl -fsS --max-time 20 https://www.cloudflare.com/ips-v4 -o $CONF/v4.new; curl -fsS --max-time 20 https://www.cloudflare.com/ips-v6 -o $CONF/v6.new
+  [ "$(wc -l < $CONF/v4.new)" -ge 5 ] && [ "$(wc -l < $CONF/v6.new)" -ge 3 ] || { rm -f $CONF/v4.new $CONF/v6.new; echo "download looks wrong; nothing changed" >&2; exit 1; }
+  mv $CONF/v4.new $CONF/cloudflare-ips-v4.txt; mv $CONF/v6.new $CONF/cloudflare-ips-v6.txt; apply
+}
+dryrun() { build 4 > /tmp/stg8443.t4.$$; build 6 > /tmp/stg8443.t6.$$; iptables-restore --test --noflush < /tmp/stg8443.t4.$$ && echo "v4 ruleset OK ($(grep -c '^-A' /tmp/stg8443.t4.$$) rules)"; ip6tables-restore --test --noflush < /tmp/stg8443.t6.$$ && echo "v6 ruleset OK ($(grep -c '^-A' /tmp/stg8443.t6.$$) rules)"; [ "${2:-}" = show ] && { cat /tmp/stg8443.t4.$$; cat /tmp/stg8443.t6.$$; }; rm -f /tmp/stg8443.t4.$$ /tmp/stg8443.t6.$$; }
+case "${1:-}" in dry-run) dryrun "$@";; apply) apply;; remove-rules) remove_rules;; status) status;; refresh) refresh;; *) echo "usage: $0 apply|remove-rules|status|refresh" >&2; exit 2;; esac
