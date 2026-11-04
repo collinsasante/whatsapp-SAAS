@@ -106,6 +106,7 @@ model Tenant {
   whatsAppWebSessions             WhatsAppWebSession[]
 
   @@map("tenants")
+  channelHistorySyncs    ChannelHistorySync[]
 }
 
 model WhatsAppNumber {
@@ -755,6 +756,7 @@ model Channel {
   @@unique([tenantId, type, externalId])
   @@index([tenantId])
   @@map("channels")
+  historySync            ChannelHistorySync?
 }
 
 // Facebook Page connection details for a FACEBOOK_MESSENGER-type Channel --
@@ -3153,4 +3155,48 @@ model AiCreditPackage {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("ai_credit_packages")
+}
+
+enum ChannelHistorySyncStatus {
+  PENDING
+  SYNCING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+// Progress and checkpoint of importing a connected Page's existing Messenger conversations (webhooks only ever deliver new events).
+// One row per channel; `cursor` makes an interrupted run resumable, `watermark` (the newest conversation updated_time of the last COMPLETED run) makes
+// the next run incremental. Counters are per latest run. Contains no message content.
+model ChannelHistorySync {
+  id                      String                   @id @default(uuid())
+  tenantId                String                   @map("tenant_id")
+  channelId               String                   @unique @map("channel_id")
+  platform                String                   @default("MESSENGER")
+  status                  ChannelHistorySyncStatus @default(PENDING)
+  correlationId           String?                  @map("correlation_id")
+  attempts                Int                      @default(0)
+  startedAt               DateTime?                @map("started_at")
+  finishedAt              DateTime?                @map("finished_at")
+  heartbeatAt             DateTime?                @map("heartbeat_at")
+  cursor                  String?
+  watermark               DateTime?
+  pendingWatermark        DateTime?                @map("pending_watermark")
+  conversationsDiscovered Int                      @default(0) @map("conversations_discovered")
+  conversationsImported   Int                      @default(0) @map("conversations_imported")
+  conversationsSkipped    Int                      @default(0) @map("conversations_skipped")
+  conversationsFailed     Int                      @default(0) @map("conversations_failed")
+  messagesDiscovered      Int                      @default(0) @map("messages_discovered")
+  messagesImported        Int                      @default(0) @map("messages_imported")
+  messagesSkipped         Int                      @default(0) @map("messages_skipped")
+  lastErrorCode           Int?                     @map("last_error_code")
+  lastError               String?                  @map("last_error")
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("channel_history_syncs")
 }
