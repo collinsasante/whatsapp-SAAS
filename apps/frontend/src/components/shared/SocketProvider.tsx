@@ -223,7 +223,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         })
         .catch(() => { /* best-effort */ });
     }
-  }, [stopPolling, setIncomingCall, addMessage]);
+  }, [setIncomingCall, addMessage]);
 
   useEffect(() => {
     const socket = getSocket();

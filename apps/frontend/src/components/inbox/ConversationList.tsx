@@ -320,6 +320,9 @@ const ConvRow = memo(function ConvRow({
   );
 });
 
+/** How long a resolved conversation stays in the Resolved tab. */
+const TWENTY_FOUR_HOURS = 24 * 3600 * 1000;
+
 export default function ConversationList({ conversations, activeId, onSelect, loading, statusCounts, onResolvedLoaded, mobileHidden, currentUserId, hasMore, loadingMore, onLoadMore }: Props) {
   const [search, setSearch] = useState('');
   const searchParams = useSearchParams();
@@ -475,7 +478,6 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
     [statusFilter, resolvedConversations, requestedConversations, conversations],
   );
 
-  const TWENTY_FOUR_HOURS = 24 * 3600 * 1000;
 
   const filtered = useMemo(() => {
     const now = Date.now();
@@ -513,7 +515,7 @@ export default function ConversationList({ conversations, activeId, onSelect, lo
         const matchesUnreplied = statusFilter !== 'UNREPLIED' || c.messages?.[0]?.direction === 'INBOUND';
         return matchesSearch && matchesStatus && matchesChannel && matchesLabel && matchesMember && matchesUnreplied;
       });
-  }, [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter]);
+  }, [sourceConversations, search, statusFilter, channelFilter, labelFilter, memberFilter, currentUserId]);
 
   const filteredContacts = contacts.filter((c) => {
     const name = contactDisplayName(c);

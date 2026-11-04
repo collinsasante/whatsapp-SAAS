@@ -175,6 +175,9 @@ function fmtTimestamp(d: Date | string | null | undefined) {
 
 const ACTIVITY_NOISE = new Set(['MESSAGE_SENT', 'MESSAGE_DELETED', 'MESSAGE_STARRED', 'MESSAGE_RECEIVED']);
 
+/** One shared empty list for "nothing yet" lookups, so a missing entry does not create a new array on every render. */
+const EMPTY_LIST: never[] = [];
+
 export default function ChatWindow({ conversation, showDetails, onToggleDetails, onClose, onMobileBack }: Props) {
   const { messages, setMessages, prependMessages, addMessage, typingUsers, removeMessage, removeConversation, updateConversation, updateMessage, activityLogs, setActivityLogs } = useInboxStore();
   const { user } = useAuthStore();
@@ -222,9 +225,10 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
   }, [conversation.status]);
 
   // Keep isBlocked in sync when switching conversations
+  const contactIsBlocked = !!(conversation.contact as { isBlocked?: boolean } | undefined)?.isBlocked;
   useEffect(() => {
-    setIsBlocked(!!(conversation.contact as { isBlocked?: boolean } | undefined)?.isBlocked);
-  }, [conversation.id, (conversation.contact as { isBlocked?: boolean } | undefined)?.isBlocked]);
+    setIsBlocked(contactIsBlocked);
+  }, [conversation.id, contactIsBlocked]);
   const [replyTo, setReplyTo] = useState<{ id: string; content?: string; type: string; direction: string; mediaCaption?: string } | null>(null);
 
   // Transfer
@@ -303,7 +307,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     }
   }, [conversation.id]);
 
-  const activityLog = activityLogs[conversation.id] ?? [];
+  // A shared empty list, not a new [] each render: a fresh array defeats every memo and effect that depends on it.
+  const activityLog = activityLogs[conversation.id] ?? EMPTY_LIST;
 
   // Notes displayed inline in chat
   const [notes, setNotes] = useState<{ id: string; content: string; createdAt: string; author: { id: string; name: string } }[]>([]);
@@ -346,8 +351,8 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   }, [text]);
 
-  const convMessages = messages[conversation.id] ?? [];
-  const typing = typingUsers[conversation.id] ?? [];
+  const convMessages = messages[conversation.id] ?? EMPTY_LIST;
+  const typing = typingUsers[conversation.id] ?? EMPTY_LIST;
   const isResolved = localStatus === 'RESOLVED';
   const isArchived = localStatus === 'ARCHIVED';
   // Keep the old blank fallback for WhatsApp; only Messenger/Instagram contacts get a channel label.
@@ -479,7 +484,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       void conversationsApi.markRead(conversation.id).catch(() => {});
       updateConversation(conversation.id, { unreadCount: 0 });
     } finally { setLoading(false); }
-  }, [conversation.id, setMessages, updateConversation, setActivityLogs]);
+  }, [conversation.id, setMessages, updateConversation, setActivityLogs, scrollToBottom]);
 
   useEffect(() => { void loadMessages(); }, [loadMessages]);
 
@@ -769,7 +774,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
       setShowMentions(false);
     }
 
-  }, [conversation.id, handleTyping, inputMode]);
+  }, [handleTyping, inputMode]);
 
   const startRecording = async () => {
     if (recording) return;
@@ -1131,7 +1136,7 @@ export default function ChatWindow({ conversation, showDetails, onToggleDetails,
     setSending(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (photoInputRef.current) photoInputRef.current.value = '';
-  }, [conversation.id, addMessage, uploadAndSendOneFile]);
+  }, [conversation.id, addMessage, uploadAndSendOneFile, isOnline]);
 
   const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
