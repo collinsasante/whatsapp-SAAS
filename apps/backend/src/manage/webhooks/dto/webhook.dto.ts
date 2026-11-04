@@ -1,5 +1,6 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
+import { StrictBoolean } from '../../../common/validation/strict-boolean.decorator';
 export class CreateWebhookDto {
   @IsString() @MinLength(1) @MaxLength(100)
   name!: string;
@@ -11,7 +12,7 @@ export class CreateWebhookDto {
   events?: string[];
 
   /** Defaults to true when no `secret` is given. Pass false to create an unsigned webhook (API clients only). Takes precedence over `secret` when true. */
-  @IsOptional() @IsBoolean()
+  @IsOptional() @StrictBoolean()
   generateSecret?: boolean;
 
   /** A secret you chose yourself (16 to 256 visible characters). Ignored when generateSecret is true. */
@@ -39,6 +40,6 @@ export class UpdateWebhookDto {
   @IsOptional() @IsObject()
   headers?: Record<string, string>;
 
-  @IsOptional() @IsBoolean()
+  @IsOptional() @StrictBoolean()
   isActive?: boolean;
 }

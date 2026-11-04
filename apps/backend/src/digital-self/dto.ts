@@ -1,13 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsOptional, IsUUID, ValidateIf } from 'class-validator';
+import { IsIn, IsOptional, IsUUID, ValidateIf } from 'class-validator';
 import { OVERRIDE_OPTIONS } from './digital-self.constants';
 
+import { StrictBoolean } from '../common/validation/strict-boolean.decorator';
 export class SetLearningPausedDto {
-  @ApiProperty() @IsBoolean() paused: boolean;
+  @ApiProperty() @StrictBoolean() paused: boolean;
 }
 
 export class SetEnabledDto {
-  @ApiProperty() @IsBoolean() enabled: boolean;
+  @ApiProperty() @StrictBoolean() enabled: boolean;
 }
 
 /** Each field is optional; `null` clears that override. Enumerated values only (no free text reaches a prompt). */
@@ -27,6 +28,6 @@ export class AssignDigitalSelfDto {
 
 export class SetLearningExclusionDto {
   @ApiProperty({ description: 'true excludes the conversation from Digital Self learning and removes what was already learned from it.' })
-  @IsBoolean()
+  @StrictBoolean()
   excluded: boolean;
 }

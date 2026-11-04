@@ -1,6 +1,7 @@
-import { IsString, IsOptional, IsArray, IsObject, IsDateString, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsObject, IsDateString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 export class CreateCampaignDto {
   @ApiProperty()
   @IsString()
@@ -45,7 +46,7 @@ export class CreateCampaignDto {
 
   @ApiProperty({ required: false, description: 'API-only campaign, no recipients; messages are sent individually via the send API' })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   apiOnly?: boolean;
 
   @ApiProperty({ required: false, description: 'Destination URL to track clicks for this campaign' })

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -10,6 +10,7 @@ import { CurrentUser } from '../common/decorators/user.decorator';
 import { TikTokPublishingService } from './tiktok-publishing.service';
 import { TIKTOK_MAX_CAPTION, TIKTOK_PRIVACY_LEVELS } from './tiktok-publish.util';
 
+import { StrictBoolean } from '../common/validation/strict-boolean.decorator';
 export class CreateTikTokPublicationDto {
   @IsUUID() channelId!: string;
   @IsString() @MinLength(3) @MaxLength(300) mediaKey!: string;
@@ -19,7 +20,7 @@ export class CreateTikTokPublicationDto {
 }
 
 export class RetryTikTokPublicationDto {
-  @IsOptional() @IsBoolean() confirmNotPosted?: boolean;
+  @IsOptional() @StrictBoolean() confirmNotPosted?: boolean;
 }
 
 @ApiTags('TikTok publishing')

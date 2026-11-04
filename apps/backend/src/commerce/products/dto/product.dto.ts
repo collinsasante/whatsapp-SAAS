@@ -1,6 +1,7 @@
-import { IsString, IsOptional, IsNumber, IsBoolean, IsInt, Min, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsInt, Min, IsArray } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+import { StrictBoolean } from '../../../common/validation/strict-boolean.decorator';
 export class CreateProductDto {
   @ApiProperty()
   @IsString()
@@ -68,7 +69,7 @@ export class UpdateProductDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   isActive?: boolean;
 
   @ApiProperty({ required: false })

@@ -1,7 +1,8 @@
-import { IsString, IsEnum, IsArray, IsBoolean, IsOptional, IsInt } from 'class-validator';
+import { IsString, IsEnum, IsArray, IsOptional, IsInt } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { AutomationTrigger } from '@whatsapp-platform/shared-types';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 export class CreateAutomationRuleDto {
   @ApiProperty()
   @IsString()
@@ -33,7 +34,7 @@ export class UpdateAutomationRuleDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   isActive?: boolean;
 
   @ApiProperty({ required: false, type: 'array' })

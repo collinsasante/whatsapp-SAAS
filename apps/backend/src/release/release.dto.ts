@@ -1,5 +1,6 @@
-import { IsArray, IsBoolean, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
 
+import { StrictBoolean } from '../common/validation/strict-boolean.decorator';
 // MAJOR.MINOR.PATCH with an optional -prerelease tag (e.g. 1.3.0-beta.1) --
 // build metadata (+build) is deliberately not supported, this app has no use
 // for it and it would just be another way to enter a malformed version.
@@ -20,14 +21,14 @@ export class CreateReleaseDto {
   @IsOptional() @IsString() channel?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() changelog?: ChangelogDto;
-  @IsOptional() @IsBoolean() isLatest?: boolean;
+  @IsOptional() @StrictBoolean() isLatest?: boolean;
 }
 
 export class UpdateReleaseDto {
   @IsOptional() @IsString() channel?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() changelog?: ChangelogDto;
-  @IsOptional() @IsBoolean() isLatest?: boolean;
+  @IsOptional() @StrictBoolean() isLatest?: boolean;
 }
 
 export class LogDeploymentDto {

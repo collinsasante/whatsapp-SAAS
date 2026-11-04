@@ -1,6 +1,7 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 /**
  * Onboarding progress and business profile. Deliberately has no `plan`: a workspace's entitlements come from its subscription, and a
  * client must never be able to label itself with a plan. businessName/businessEmail are what the onboarding screen sends from the
@@ -8,7 +9,7 @@ import { ApiProperty } from '@nestjs/swagger';
  */
 export class UpdateOnboardingDto {
   @ApiProperty({ required: false }) @IsOptional() @IsInt() @Min(0) step?: number;
-  @ApiProperty({ required: false }) @IsOptional() @IsBoolean() completed?: boolean;
+  @ApiProperty({ required: false }) @IsOptional() @StrictBoolean() completed?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsString() @MaxLength(100) industry?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() @MaxLength(50) teamSize?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() @MaxLength(100) country?: string;

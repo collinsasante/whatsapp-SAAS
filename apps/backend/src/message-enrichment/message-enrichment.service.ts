@@ -75,7 +75,9 @@ export class MessageEnrichmentService implements OnModuleInit, OnModuleDestroy {
       const c = this.config();
       const unavailable = kind === KIND_TRANSCRIPT ? !c.transcription : !c.vision;
       await this.prisma.messageEnrichment.createMany({
-        data: [{ tenantId, messageId, kind, ...(unavailable && { status: 'SKIPPED', errorCode: 'provider_unavailable' }) }],
+        // nextAttemptAt comes from THIS process's clock, the same one processDue compares it against. The column's database default (CURRENT_TIMESTAMP,
+        // rounded to the millisecond) can land a hair after a run that starts in the same millisecond, leaving a fresh job "not due" until the next tick.
+        data: [{ tenantId, messageId, kind, nextAttemptAt: new Date(), ...(unavailable && { status: 'SKIPPED', errorCode: 'provider_unavailable' }) }],
         skipDuplicates: true,                                             // a repeated webhook delivery cannot create a second job
       });
       if (!unavailable) void this.processDue().catch((e) => this.logger.warn(`Enrichment run failed: ${describeErrorForLog(e)}`));

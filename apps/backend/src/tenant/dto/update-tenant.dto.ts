@@ -1,6 +1,7 @@
-import { IsString, IsOptional, IsBoolean, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsEmail } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 export class UpdateTenantDto {
   @ApiProperty({ required: false })
   @IsOptional()
@@ -61,17 +62,17 @@ export class UpdateTenantSettingsDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   autoReply?: boolean;
 
   @ApiProperty({ required: false, description: "Transcribe customers' voice notes (sent to a third-party provider; uses AI credits)." })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   voiceTranscriptionEnabled?: boolean;
 
   @ApiProperty({ required: false, description: "Describe customers' images (sent to a third-party provider; uses AI credits)." })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   imageUnderstandingEnabled?: boolean;
 
   @ApiProperty({ required: false })
@@ -81,7 +82,7 @@ export class UpdateTenantSettingsDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   airtableEnabled?: boolean;
 
   @ApiProperty({ required: false })

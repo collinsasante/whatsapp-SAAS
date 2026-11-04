@@ -1,6 +1,7 @@
-import { IsString, IsEmail, IsOptional, IsArray, IsObject, IsBoolean, IsDefined } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsArray, IsObject, IsDefined } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 export class CreateContactDto {
   @ApiProperty({ example: '+14155552671' })
   @IsString()
@@ -52,12 +53,12 @@ export class UpdateContactDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   isBlocked?: boolean;
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   optedOut?: boolean;
 }
 

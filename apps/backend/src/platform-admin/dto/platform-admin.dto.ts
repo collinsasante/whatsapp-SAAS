@@ -1,6 +1,7 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsNumber, IsBoolean, IsArray, IsIn, IsInt, Matches, Max, Min } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsNumber, IsArray, IsIn, IsInt, Matches, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export class OverviewQueryDto {
@@ -75,8 +76,8 @@ export class CreatePlanDto {
   @IsOptional() @IsString()  description?: string;
   @IsNumber()  monthlyPrice: number;
   @IsNumber()  yearlyPrice: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
-  @IsOptional() @IsBoolean() isPublic?: boolean;
+  @IsOptional() @StrictBoolean() isActive?: boolean;
+  @IsOptional() @StrictBoolean() isPublic?: boolean;
   @IsOptional() @IsNumber()  trialDays?: number;
   @IsOptional() @IsNumber()  limMaxAgents?: number;
   @IsOptional() @IsNumber()  limMaxChannels?: number;
@@ -124,8 +125,8 @@ export class UpdatePlanDto {
   @IsOptional() @IsString()  name?: string;
   @IsOptional() @IsNumber()  monthlyPrice?: number;
   @IsOptional() @IsNumber()  yearlyPrice?: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
-  @IsOptional() @IsBoolean() isPublic?: boolean;
+  @IsOptional() @StrictBoolean() isActive?: boolean;
+  @IsOptional() @StrictBoolean() isPublic?: boolean;
   @IsOptional() @IsNumber()  limMaxAgents?: number;
   @IsOptional() @IsNumber()  limMaxContacts?: number;
   @IsOptional() @IsNumber()  limMessagesPerMonth?: number;
@@ -145,14 +146,14 @@ export class CreateAiPricingConfigDto {
   @IsNumber()  inputCostPerMillionUsd: number;
   @IsNumber()  outputCostPerMillionUsd: number;
   @IsNumber()  creditsPerUsd: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @StrictBoolean() isActive?: boolean;
 }
 
 export class UpdateAiPricingConfigDto {
   @IsOptional() @IsNumber()  inputCostPerMillionUsd?: number;
   @IsOptional() @IsNumber()  outputCostPerMillionUsd?: number;
   @IsOptional() @IsNumber()  creditsPerUsd?: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @StrictBoolean() isActive?: boolean;
 }
 
 export class CreateAiCreditPackageDto {
@@ -162,7 +163,7 @@ export class CreateAiCreditPackageDto {
   @IsOptional() @IsInt() @Min(0) bonusCredits?: number;
   @IsOptional() @IsNumber() priceGhs?: number;
   @IsOptional() @IsNumber() priceUsd?: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @StrictBoolean() isActive?: boolean;
   @IsOptional() @IsInt() displayOrder?: number;
 }
 
@@ -172,7 +173,7 @@ export class UpdateAiCreditPackageDto {
   @IsOptional() @IsInt() @Min(0) bonusCredits?: number;
   @IsOptional() @IsNumber() priceGhs?: number;
   @IsOptional() @IsNumber() priceUsd?: number;
-  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @StrictBoolean() isActive?: boolean;
   @IsOptional() @IsInt() displayOrder?: number;
 }
 
@@ -299,7 +300,7 @@ export class CreateFeatureFlagDto {
   @IsString() key: string;
   @IsString() name: string;
   @IsOptional() @IsString() description?: string;
-  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @StrictBoolean() enabled?: boolean;
   @IsOptional() @IsString() rolloutType?: string;
   @IsOptional() @IsNumber() rolloutPct?: number;
   @IsOptional() @IsArray() betaTenants?: string[];
@@ -310,15 +311,15 @@ export class CreateFeatureFlagDto {
 export class UpdateFeatureFlagDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() description?: string;
-  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @StrictBoolean() enabled?: boolean;
   @IsOptional() @IsString() rolloutType?: string;
   @IsOptional() @IsNumber() rolloutPct?: number;
   @IsOptional() @IsArray() betaTenants?: string[];
   @IsOptional() @IsString() environment?: string;
   @IsOptional() @IsString() category?: string;
-  @IsOptional() @IsBoolean() killSwitch?: boolean;
+  @IsOptional() @StrictBoolean() killSwitch?: boolean;
 }
 
 export class SetFlagRolloutDto {
-  @IsBoolean() enabled: boolean;
+  @StrictBoolean() enabled: boolean;
 }

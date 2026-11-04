@@ -1,6 +1,7 @@
-import { IsEnum, IsString, IsOptional, IsBoolean, IsObject, IsArray, ArrayMinSize } from 'class-validator';
+import { IsEnum, IsString, IsOptional, IsObject, IsArray, ArrayMinSize } from 'class-validator';
 import { ChannelType } from '@whatsapp-platform/shared-types';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 export class CreateChannelDto {
   @IsEnum(ChannelType)
   type: ChannelType;
@@ -35,7 +36,7 @@ export class UpdateChannelDto {
   name?: string;
 
   @IsOptional()
-  @IsBoolean()
+  @StrictBoolean()
   isActive?: boolean;
 
   @IsOptional()

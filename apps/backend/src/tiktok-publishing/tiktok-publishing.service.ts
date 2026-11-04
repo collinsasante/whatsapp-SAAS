@@ -80,9 +80,10 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.flags.isEnabled(TIKTOK_PUBLISHING_FLAG, tenantId))) throw new ForbiddenException('TikTok publishing is not enabled for this workspace.');
   }
 
-  private audited(tenantId: string, userId: string | undefined, resourceId: string, action: 'CREATE' | 'UPDATE', metadata: Record<string, unknown>) {
-    void this.audit.log({ tenantId, userId, action, resource: 'tiktok_publication', resourceId, metadata })
-      .catch((e) => this.logger.warn(`Audit write failed for TikTok publication ${resourceId}: ${e instanceof Error ? e.name : 'error'}`));
+  /** Written before the caller moves on, so a crash right after a state change cannot lose its audit entry. A failed write is logged and never breaks publishing. */
+  private async audited(tenantId: string, userId: string | undefined, resourceId: string, action: 'CREATE' | 'UPDATE', metadata: Record<string, unknown>): Promise<void> {
+    try { await this.audit.log({ tenantId, userId, action, resource: 'tiktok_publication', resourceId, metadata }); }
+    catch (e) { this.logger.warn(`Audit write failed for TikTok publication ${resourceId}: ${e instanceof Error ? e.name : 'error'}`); }
   }
 
   // ─── API operations (every query is scoped by tenantId) ───────────────────────────────────────────
@@ -107,9 +108,9 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
     const idempotencyKey = input.idempotencyKey?.slice(0, 100) || randomUUID();
     try {
       const row = await this.prisma.tikTokPublication.create({
-        data: { tenantId, channelId: channel.id, createdById: userId, idempotencyKey, caption, privacyLevel: privacy, mediaKey: input.mediaKey },
+        data: { tenantId, channelId: channel.id, createdById: userId, idempotencyKey, caption, privacyLevel: privacy, mediaKey: input.mediaKey, nextAttemptAt: new Date() },
       });
-      this.audited(tenantId, userId, row.id, 'CREATE', { action: 'TIKTOK_PUBLISH_REQUESTED', channelId: channel.id, privacyLevel: privacy });
+      await this.audited(tenantId, userId, row.id, 'CREATE', { action: 'TIKTOK_PUBLISH_REQUESTED', channelId: channel.id, privacyLevel: privacy });
       return toView(row);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -140,7 +141,7 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
       await this.get(tenantId, id); // 404 for another workspace's id
       throw new ConflictException('Only a post that has not started can be cancelled.');
     }
-    this.audited(tenantId, userId, id, 'UPDATE', { action: 'TIKTOK_PUBLISH_CANCELLED' });
+    await this.audited(tenantId, userId, id, 'UPDATE', { action: 'TIKTOK_PUBLISH_CANCELLED' });
     return this.get(tenantId, id);
   }
 
@@ -165,7 +166,7 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
       data: { status: next, nextAttemptAt: new Date(), lastError: null, completedAt: null, leaseOwner: null, leaseExpiresAt: null, ...(fresh && { publishId: null, attempts: 0 }) },
     });
     if (r.count === 0) throw new ConflictException('This post changed while you were retrying it. Refresh and look again.');
-    this.audited(tenantId, userId, id, 'UPDATE', { action: 'TIKTOK_PUBLISH_RETRIED', from: row.status, confirmedNotPosted: row.status === TikTokPublishStatus.UNCERTAIN });
+    await this.audited(tenantId, userId, id, 'UPDATE', { action: 'TIKTOK_PUBLISH_RETRIED', from: row.status, confirmedNotPosted: row.status === TikTokPublishStatus.UNCERTAIN });
     return this.get(tenantId, id);
   }
 
@@ -217,7 +218,7 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
         where: { id: row.id, status: TikTokPublishStatus.UPLOADING, leaseOwner: row.leaseOwner, leaseExpiresAt: { lt: now } },
         data: { ...data, leaseOwner: null, leaseExpiresAt: null, completedAt: now },
       });
-      if (r.count) this.audited(row.tenantId, undefined, row.id, 'UPDATE', { action: 'TIKTOK_PUBLISH_RECOVERED', to: data.status });
+      if (r.count) await this.audited(row.tenantId, undefined, row.id, 'UPDATE', { action: 'TIKTOK_PUBLISH_RECOVERED', to: data.status });
     }
   }
 
@@ -228,7 +229,7 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
       where: { id, leaseOwner: owner },
       data: { status, lastError, leaseOwner: null, leaseExpiresAt: null, ...(terminal && { completedAt: new Date() }), ...extra },
     });
-    if (r.count && terminal) this.audited(tenantId, undefined, id, 'UPDATE', { action: 'TIKTOK_PUBLISH_RESULT', status });
+    if (r.count && terminal) await this.audited(tenantId, undefined, id, 'UPDATE', { action: 'TIKTOK_PUBLISH_RESULT', status });
     return r.count > 0;
   }
 

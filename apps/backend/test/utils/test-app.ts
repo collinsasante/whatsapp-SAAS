@@ -17,6 +17,9 @@ export async function createTestingApp(opts: { validation?: boolean; configure?:
     }));
   }
   await app.init();
+  // One persistent listening server for the whole suite. Left to supertest, every request binds a fresh ephemeral port, and Node's keep-alive agent can hand a
+  // stale socket from a server that just closed to the next request on the recycled port ("Parse Error: Expected HTTP/..."), roughly once in forty runs.
+  await app.listen(0, '127.0.0.1');
   return app;
 }
 

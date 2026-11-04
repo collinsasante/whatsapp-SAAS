@@ -1,7 +1,8 @@
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsDateString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsDateString, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CallDirection, CallStatus } from '@whatsapp-platform/shared-types';
 
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 export class CreateCallDto {
   @ApiPropertyOptional() @IsOptional() @IsString() contactId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
@@ -49,11 +50,11 @@ export class TransferCallDto {
 }
 
 export class MuteCallDto {
-  @ApiProperty() @IsBoolean() muted: boolean;
+  @ApiProperty() @StrictBoolean() muted: boolean;
 }
 
 export class HoldCallDto {
-  @ApiProperty() @IsBoolean() held: boolean;
+  @ApiProperty() @StrictBoolean() held: boolean;
 }
 
 export class AnalyticsQueryDto {

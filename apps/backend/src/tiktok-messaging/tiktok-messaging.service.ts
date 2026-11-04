@@ -131,7 +131,7 @@ export class TikTokMessagingService {
       for (let n = 2; await this.prisma.channel.findFirst({ where: { tenantId, type: ChannelType.TIKTOK, name } }); n++) name = `TikTok messages ${n}`;
       channel = await this.prisma.channel.create({ data: { tenantId, type: ChannelType.TIKTOK, name, externalId, credentials: credentials as Prisma.InputJsonValue, metadata: {}, isActive: true } });
     }
-    void this.audit.log({ tenantId, userId, action: existing ? 'UPDATE' : 'CREATE', resource: 'channel', resourceId: channel.id, metadata: { action: 'TIKTOK_MESSAGING_CONNECTED' } })
+    await this.audit.log({ tenantId, userId, action: existing ? 'UPDATE' : 'CREATE', resource: 'channel', resourceId: channel.id, metadata: { action: 'TIKTOK_MESSAGING_CONNECTED' } })
       .catch((e) => this.logger.warn(`Audit write failed: ${e instanceof Error ? e.name : 'error'}`));
     return channel;
   }
@@ -361,7 +361,7 @@ export class TikTokMessagingService {
       if (!page.data.cursor) break;
       cursor = page.data.cursor;
     }
-    void this.audit.log({ tenantId, userId, action: 'UPDATE', resource: 'channel', resourceId: channel.id, metadata: { action: 'TIKTOK_HISTORY_IMPORTED', conversations: report.conversations, messagesImported: report.messagesImported } })
+    await this.audit.log({ tenantId, userId, action: 'UPDATE', resource: 'channel', resourceId: channel.id, metadata: { action: 'TIKTOK_HISTORY_IMPORTED', conversations: report.conversations, messagesImported: report.messagesImported } })
       .catch(() => undefined);
     return report;
   }
