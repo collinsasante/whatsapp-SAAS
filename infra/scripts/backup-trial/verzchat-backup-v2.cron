@@ -1,0 +1,6 @@
+# Parallel trial of the repaired backup (approved 2026-11-04). The existing jobs (root's 02:00 job and /etc/cron.d/verzchat-backup) are NOT touched.
+# Server time is CET. 02:30 sits after the existing 02:00 job and before certbot at 03:00.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 2 * * * root /opt/verz-backup-v2/run.sh
+15 8 * * * root /opt/verz-backup-v2/check.sh >> /var/log/verzchat-backup-v2-monitor.log 2>&1
