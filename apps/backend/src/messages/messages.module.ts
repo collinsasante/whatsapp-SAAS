@@ -19,10 +19,11 @@ import { LeadsModule } from '../leads/leads.module';
 import { FacebookMessengerModule } from '../facebook-messenger/facebook-messenger.module';
 import { WhatsAppWebModule } from '../whatsapp-web/whatsapp-web.module';
 import { TelegramModule } from '../telegram/telegram.module';
+import { TikTokMessagingModule } from '../tiktok-messaging/tiktok-messaging.module';
 import { DigitalSelfModule } from '../digital-self/digital-self.module';
 
 @Module({
-  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule, DigitalSelfModule, forwardRef(() => FacebookMessengerModule), forwardRef(() => WhatsAppWebModule), forwardRef(() => TelegramModule)],
+  imports: [WhatsappModule, ConversationsModule, ContactsModule, MediaModule, ChatbotFlowsModule, ActivityLogModule, AiModule, KnowledgeBaseModule, AiLogsModule, CommerceModule, FeatureFlagsModule, AiCoreModule, LeadsModule, DigitalSelfModule, forwardRef(() => FacebookMessengerModule), forwardRef(() => WhatsAppWebModule), forwardRef(() => TelegramModule), forwardRef(() => TikTokMessagingModule)],
   controllers: [MessagesController, LinkPreviewController, MessageSearchController],
   providers: [MessagesService],
   exports: [MessagesService],

@@ -46,7 +46,8 @@ export class TikTokTokenRefreshWorker {
     return {
       async listActive() {
         const rows = await prisma.channel.findMany({ where: { type: ChannelType.TIKTOK, isActive: true }, select: { id: true, tenantId: true, credentials: true } });
-        return rows.map((r) => ({ id: r.id, tenantId: r.tenantId, credentials: asRecord(r.credentials) }));
+        // Business Messaging connections use a different token endpoint and are renewed by the backend when used; refreshing them here with the Login Kit endpoint would fail.
+        return rows.map((r) => ({ id: r.id, tenantId: r.tenantId, credentials: asRecord(r.credentials) })).filter((r) => r.credentials['kind'] !== 'business_messaging');
       },
       async saveRefreshed(id, expectedRefreshToken, credentials) {
         const current = await prisma.channel.findUnique({ where: { id }, select: { metadata: true } });

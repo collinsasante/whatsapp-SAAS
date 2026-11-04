@@ -100,6 +100,7 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
     const channel = await this.prisma.channel.findFirst({ where: { id: input.channelId, tenantId, type: ChannelType.TIKTOK } });
     if (!channel || !channel.isActive) throw new BadRequestException('Connect a TikTok account in Channels first.');
     const creds = (channel.credentials ?? {}) as Record<string, unknown>;
+    if (creds['kind'] === 'business_messaging') throw new BadRequestException('This TikTok connection is for messaging. Connect a TikTok account for posting in Channels.');
     if (!hasPublishScope(creds['scope'])) throw new BadRequestException('This TikTok connection was not granted permission to post videos. Reconnect the account and allow posting.');
     if (this.needsReauth(channel.metadata)) throw new BadRequestException('TikTok needs this account to be reconnected before it can post.');
 
@@ -240,7 +241,7 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
     const channel = await this.prisma.channel.findFirst({ where: { id: channelId, tenantId, type: ChannelType.TIKTOK } });
     if (!channel || !channel.isActive || this.needsReauth(channel.metadata)) return { state: 'reconnect' };
     const creds = (channel.credentials ?? {}) as Record<string, unknown>;
-    if (typeof creds['accessToken'] !== 'string' || !creds['accessToken'] || !hasPublishScope(creds['scope'])) return { state: 'reconnect' };
+    if (creds['kind'] === 'business_messaging' || typeof creds['accessToken'] !== 'string' || !creds['accessToken'] || !hasPublishScope(creds['scope'])) return { state: 'reconnect' };
     const exp = typeof creds['tokenExpiresAt'] === 'string' ? Date.parse(creds['tokenExpiresAt']) : NaN;
     if (!Number.isNaN(exp) && exp <= now.getTime() + TOKEN_SKEW_MS) return { state: 'expired' };
     try { return { state: 'ok', token: this.encryption.decrypt(creds['accessToken']) }; } catch { return { state: 'reconnect' }; }

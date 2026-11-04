@@ -282,6 +282,17 @@ export const tiktokPublishingApi = {
   cancel: (id: string) => api.post<TikTokPublication>(`/tiktok/publications/${id}/cancel`),
 };
 
+export interface TikTokMessagingStatus {
+  flagEnabled: boolean; unmet: string[]; webhookUrl: string; requirements: string[];
+  accounts: Array<{ channelId: string; name: string; isActive: boolean; needsReconnect: boolean }>;
+  limits: { replyWindowHours: number; maxTextChars: number; outboundTypes: string[]; imageMaxBytes: number };
+}
+export const tiktokMessagingApi = {
+  status: () => api.get<TikTokMessagingStatus>('/tiktok/messaging/status'),
+  authorizeUrl: () => api.get<{ redirectUrl: string }>('/tiktok/messaging/authorize-url'),
+  importHistory: (channelId: string) => api.post<{ conversations: number; messagesImported: number; messagesSkipped: number; truncated: boolean; error?: string }>(`/tiktok/messaging/channels/${channelId}/import-history`),
+};
+
 export const mediaApi = {
   // `uniqueName` rejects a file whose name is already in the File Library -- pass it only from the Library page.
   upload: (file: File, onProgress?: (pct: number) => void, opts?: { uniqueName?: boolean }) => {

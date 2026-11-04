@@ -9,6 +9,8 @@ import { WhatsAppService, metaError } from '../whatsapp/whatsapp.service';
 import { FacebookMessengerService } from '../facebook-messenger/facebook-messenger.service';
 import { WhatsAppWebService } from '../whatsapp-web/whatsapp-web.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { TikTokMessagingService } from '../tiktok-messaging/tiktok-messaging.service';
+import { isReplyWindowOpen as isTikTokReplyWindowOpen } from '../tiktok-messaging/tiktok-messaging.util';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -75,7 +77,7 @@ const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
 
 /** Messenger, Instagram and Telegram (sent without parse_mode) replies are plain text with no WhatsApp *bold* markup; everything else keeps WhatsApp formatting. */
 export function aiChannelType(type: string | null | undefined): 'WHATSAPP' | 'FACEBOOK_MESSENGER' {
-  return type === 'FACEBOOK_MESSENGER' || type === 'INSTAGRAM' || type === 'TELEGRAM' ? 'FACEBOOK_MESSENGER' : 'WHATSAPP';
+  return type === 'FACEBOOK_MESSENGER' || type === 'INSTAGRAM' || type === 'TELEGRAM' || type === 'TIKTOK' ? 'FACEBOOK_MESSENGER' : 'WHATSAPP';
 }
 
 // Messenger's Send/Receive API attachment `type` values -- 'file' covers
@@ -194,6 +196,7 @@ export class MessagesService {
     @Optional() private securityRefusal?: SecurityRefusalService,
     // Optional for the same reason; provided by TelegramModule in the app. A Telegram conversation cannot send without it.
     @Optional() @Inject(forwardRef(() => TelegramService)) private telegramService?: TelegramService,
+    @Optional() @Inject(forwardRef(() => TikTokMessagingService)) private tiktokMessaging?: TikTokMessagingService,
   ) {}
 
   /**
@@ -252,6 +255,15 @@ export class MessagesService {
         tenantId, conversation.channel.id, contact.externalId, payload.mediaType,
         { buffer: loaded.buffer, mimeType, filename: `${payload.mediaType.toLowerCase()}.${ext}` }, payload.caption, payload.replyToProviderId,
       );
+    }
+
+    if (conversation.channel?.type === 'TIKTOK') {
+      if (!contact.externalId) throw new BadRequestException('This TikTok contact has no TikTok user on file.');
+      if (!this.tiktokMessaging) throw new BadRequestException('TikTok messaging is not available on this server.');
+      if (payload.kind === 'TEXT') return this.tiktokMessaging.sendText(tenantId, conversation.channel.id, contact.externalId, payload.text);
+      if (payload.mediaType !== MessageType.IMAGE) throw new BadRequestException('TikTok messages can contain text or one image.');
+      const loaded = await this.loadMediaBuffer(payload.mediaUrl, 'application/octet-stream');
+      return this.tiktokMessaging.sendImage(tenantId, conversation.channel.id, contact.externalId, { buffer: loaded.buffer, mimeType: loaded.mimeType }, payload.caption);
     }
 
     // Unofficial WhatsApp Web (QR/linked-device) -- unlike Messenger, this
@@ -338,6 +350,7 @@ export class MessagesService {
     // the 24h customer-service window) don't apply to it either.
     const isWhatsAppWeb = conversation.channel?.type === 'WHATSAPP_WEB';
     const isTelegram = conversation.channel?.type === 'TELEGRAM';
+    const isTikTok = conversation.channel?.type === 'TIKTOK';
 
     // A contact with neither identifier (e.g. a channel not yet supported at
     // all) has nothing this method can deliver to.
@@ -352,6 +365,14 @@ export class MessagesService {
     // Messenger or WhatsApp Web contact.
     if ((isMessenger || isWhatsAppWeb || isTelegram) && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
       throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? messengerLabel : isTelegram ? 'Telegram' : 'WhatsApp Web'}.`);
+    }
+    if (isTikTok) {
+      // TikTok accepts text or one image, and only while the person's last message is recent enough (the user must write first).
+      if (dto.type !== MessageType.TEXT && dto.type !== MessageType.IMAGE) throw new BadRequestException('TikTok messages can contain text or one image.');
+      const lastInbound = await this.prisma.message.findFirst({ where: { tenantId, conversationId, direction: MessageDirection.INBOUND }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+      if (!isTikTokReplyWindowOpen(lastInbound?.createdAt)) {
+        throw new BadRequestException('TikTok only lets you reply after the person messages you, and for a limited time (about 48 hours). Wait for their next message.');
+      }
     }
 
     // WhatsApp Cloud API only allows free-form (non-template) sends within 24h
@@ -810,7 +831,7 @@ export class MessagesService {
     // Instagram messaging arrives through the same Meta Messaging webhook and shares this handler; only the
     // contact identity differs (an Instagram-scoped id instead of a Page-scoped one). Telegram reuses the same
     // persistence, inbox, realtime and AI path with a chat-id identity.
-    platform: 'MESSENGER' | 'INSTAGRAM' | 'TELEGRAM' = 'MESSENGER',
+    platform: 'MESSENGER' | 'INSTAGRAM' | 'TELEGRAM' | 'TIKTOK' = 'MESSENGER',
   ) {
     // Pre-check (mirrors handleInbound's) plus a P2002 catch around the
     // actual create below -- defense-in-depth against the race between two
@@ -823,11 +844,13 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : platform === 'TELEGRAM' ? 'TELEGRAM_CHAT_ID' : 'MESSENGER_PSID';
-    let contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, senderPsid, ...(platform === 'TELEGRAM' ? [message.senderName] : []));
+    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : platform === 'TELEGRAM' ? 'TELEGRAM_CHAT_ID' : platform === 'TIKTOK' ? 'TIKTOK_USER_ID' : 'MESSENGER_PSID';
+    // Telegram sends a name with the message; TikTok sends none, so a short label keeps the inbox row readable.
+    const initialName = platform === 'TELEGRAM' ? message.senderName : platform === 'TIKTOK' ? `TikTok user ${senderPsid.slice(-4)}` : undefined;
+    let contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, senderPsid, ...(initialName ? [initialName] : []));
     // Meta only gives us an opaque id. Without a name the inbox shows "Unknown", so ask Meta for the display name
     // once, while the person is still writing to us. Never fatal, and the name itself is never logged.
-    if (!contact.name && platform !== 'TELEGRAM') {
+    if (!contact.name && (platform === 'MESSENGER' || platform === 'INSTAGRAM')) {
       try {
         const profile = await this.facebookMessengerService.fetchContactName(tenantId, channelId, platform, senderPsid);
         if (profile.name) {
@@ -855,7 +878,7 @@ export class MessagesService {
 
     const { content: ingestedContent, mediaUrl, mediaType, msgType } = message.prepared
       ? { content: message.text ?? message.displayText, mediaUrl: message.prepared.mediaUrl, mediaType: message.prepared.mediaType, msgType: message.prepared.msgType }
-      : await this.readMessengerAttachment(tenantId, platform === 'TELEGRAM' ? 'MESSENGER' : platform, message);
+      : await this.readMessengerAttachment(tenantId, platform === 'INSTAGRAM' ? 'INSTAGRAM' : 'MESSENGER', message);
     let content = ingestedContent;
 
     if (!content && !mediaUrl) {
@@ -931,7 +954,7 @@ export class MessagesService {
     customerId: string,
     message: { mid: string; text?: string; app_id?: number | string | null; attachments?: Array<{ type: string; payload: { url?: string } }> },
     timestamp: number | undefined,
-    platform: 'MESSENGER' | 'INSTAGRAM' = 'MESSENGER',
+    platform: 'MESSENGER' | 'INSTAGRAM' | 'TIKTOK' = 'MESSENGER',
   ): Promise<{ status: 'stored'; message: Message } | { status: 'duplicate' | 'own-app' | 'ignored' }> {
     const sentByApp = message.app_id != null && String(message.app_id) !== '' ? String(message.app_id) : null;
     if (sentByApp) {
@@ -945,7 +968,7 @@ export class MessagesService {
     const existing = await this.prisma.message.findFirst({ where: { whatsappMessageId: message.mid, tenantId }, select: { id: true } });
     if (existing) return { status: 'duplicate' };
 
-    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID';
+    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : platform === 'TIKTOK' ? 'TIKTOK_USER_ID' : 'MESSENGER_PSID';
     const contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, customerId);
     // The latest thread with this customer, whatever its status. findOrCreate() would reopen a resolved one and alert
     // every agent, which is wrong for a reply a person already sent.
@@ -959,7 +982,7 @@ export class MessagesService {
       await this.prisma.conversation.update({ where: { id: conversation.id }, data: { channelId } });
     }
 
-    const media = await this.readMessengerAttachment(tenantId, platform, message);
+    const media = await this.readMessengerAttachment(tenantId, platform === 'INSTAGRAM' ? 'INSTAGRAM' : 'MESSENGER', message);
     const content = message.text ?? media.content ?? (media.mediaUrl ? undefined : '[Sent a message type we can\'t display yet]');
     const at = timestamp && Number.isFinite(timestamp) ? new Date(timestamp) : new Date();
 

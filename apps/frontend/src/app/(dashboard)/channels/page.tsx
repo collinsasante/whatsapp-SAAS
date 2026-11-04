@@ -13,6 +13,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import { getSocket, SocketEvent } from '@/lib/socket';
 import { TikTokPublishPanel } from '@/components/channels/TikTokPublishPanel';
+import { TikTokMessagingPanel } from '@/components/channels/TikTokMessagingPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ interface ConnectedChannel {
   sessionId?: string;
   whatsappWebStatus?: 'QR_PENDING' | 'QR_EXPIRED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'LOGGED_OUT' | 'ERROR';
   lastError?: string | null;
+  /** A TikTok account can be connected for posting (Login Kit) or for messaging; only the latter says so. */
+  connectionKind?: string;
   /** TikTok: the refresh job records { tiktokAuth: { status: 'REAUTH_REQUIRED' } } when TikTok rejected the stored refresh token. */
   metadata?: { tiktokAuth?: { status?: string } } | null;
 }
@@ -1484,6 +1487,7 @@ function ChannelCard({
             </div>
 
             {connectedData?.type === 'TIKTOK' && isActive && !needsReconnect && <TikTokPublishPanel channelId={connectedData.id} />}
+            {ch.id === 'tiktok' && <TikTokMessagingPanel />}
 
             {/* Feature pills — shown only when disconnected */}
             {!isConnected && (
@@ -1516,6 +1520,7 @@ const OAUTH_SUCCESS: Record<string, string> = {
   facebook: 'Facebook Messenger connected!',
   instagram: 'Instagram connected!',
   tiktok: 'TikTok connected!',
+  'tiktok-messaging': 'TikTok messaging connected!',
 };
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -1582,7 +1587,7 @@ function ChannelsPageInner() {
   }, [searchParams]);
 
   const getConnectedData = (ch: ChannelDef): ConnectedChannel | undefined =>
-    connected.find(c => c.type?.toUpperCase() === TYPE_MAP[ch.id]);
+    connected.find(c => c.type?.toUpperCase() === TYPE_MAP[ch.id] && !(ch.id === 'tiktok' && c.connectionKind === 'business_messaging'));
 
   // Facebook can have multiple connected Pages (one Channel row each) --
   // every other platform's card assumes a single row via getConnectedData

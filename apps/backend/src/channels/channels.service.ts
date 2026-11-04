@@ -209,7 +209,9 @@ export class ChannelsService {
     const soft = channel.type === ChannelType.FACEBOOK_MESSENGER || hasHistory;
 
     // TikTok: end the authorization at TikTok first (best effort), and never keep tokens for an account that is no longer connected.
-    if (channel.type === ChannelType.TIKTOK) await this.revokeTikTokAuthorization(tenantId, channel);
+    // A Business Messaging connection holds Business API tokens, which the Login Kit revoke endpoint would not understand; its tokens are simply dropped below.
+    const isTikTokMessaging = channel.type === ChannelType.TIKTOK && (channel.credentials as Record<string, unknown> | null)?.['kind'] === 'business_messaging';
+    if (channel.type === ChannelType.TIKTOK && !isTikTokMessaging) await this.revokeTikTokAuthorization(tenantId, channel);
     if (channel.type === ChannelType.TELEGRAM) await this.deleteTelegramWebhook(tenantId, channel);
 
     if (channel.type === ChannelType.FACEBOOK_MESSENGER) {
@@ -225,6 +227,10 @@ export class ChannelsService {
       const externalId = identity['externalId'] ?? channel.externalId;
       if (typeof externalId === 'string' && externalId) keptIdentity['externalId'] = externalId;
       if (typeof identity['openId'] === 'string' && identity['openId']) keptIdentity['openId'] = identity['openId'];
+      if (isTikTokMessaging) {
+        keptIdentity['kind'] = 'business_messaging';
+        if (typeof identity['businessId'] === 'string') keptIdentity['businessId'] = identity['businessId'];
+      }
       await this.prisma.channel.update({
         where: { id },
         data: {
