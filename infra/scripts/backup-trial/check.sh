@@ -19,6 +19,11 @@ chk "new job: last run succeeded within ${FRESH_H} h (status file)" "$BASE/backu
 chk "new job: backup directory is mode 700" bash -c "[ \"\$(stat -c %a '$DEST')\" = 700 ]"
 if [ -n "$PG" ] && [ -n "$PREV" ]; then a=$(stat -c %s "$PG"); b=$(stat -c %s "$PREV"); chk "new job: size within 50%-200% of the previous backup ($a vs $b bytes)" bash -c "[ $a -ge $((b / 2)) ] && [ $a -le $((b * 2)) ]"; fi
 # The restore-test summary line carries no timestamp, so it is attributed to a run by position: the latest "=== <today> ... trial run start" marker must be followed by RESTORE-TEST: N pass, 0 fail.
+# From the second day, the SCHEDULED run must actually have happened: a run recorded since 02:25 today (a manual run on the install day does not count towards this).
+START_FILE=$STATE/trial-start-date; [ -f "$START_FILE" ] || date +%F > "$START_FILE"
+if [ "$(date +%F)" != "$(cat "$START_FILE")" ]; then
+  chk "new job: the 02:30 scheduled run happened today (run recorded since 02:25)" bash -c "last=\$(tail -1 '$STATE/runs.log' 2>/dev/null | cut -d' ' -f1); [ -n \"\$last\" ] && [ \"\$last\" -ge \$(date -d \"\$(date +%F) 02:25\" +%s) ]"
+fi
 today=$(date +%F); chk "new job: the latest run today had a passing restore test ('RESTORE-TEST: N pass, 0 fail' after its start marker)" bash -c "awk -v d='=== $today' 'index(\$0,d)==1 && /trial run start/{f=0; seen=1} seen && /RESTORE-TEST: [0-9]+ pass, 0 fail/{f=1} END{exit (seen && f)?0:1}' '$LOG'"
 chk "new job: free disk >= ${MIN_FREE_MB:-10240} MB" bash -c "[ \$(df -Pm '$DEST' | awk 'NR==2{print \$4}') -ge ${MIN_FREE_MB:-10240} ]"
 # the existing job: observed, never touched

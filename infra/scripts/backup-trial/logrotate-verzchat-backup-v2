@@ -1,4 +1,5 @@
 /var/log/verzchat-backup-v2.log /var/log/verzchat-backup-v2-monitor.log {
+    su root root
     weekly
     rotate 12
     compress

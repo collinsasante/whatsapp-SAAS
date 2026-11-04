@@ -35,4 +35,10 @@ printf '=== 2020-01-01 00:00:00 trial run start; x\nRESTORE-TEST: 6 pass, 0 fail
 printf '=== %s trial run start; x\nRESTORE-TEST: 6 pass, 0 fail\n=== %s trial run end rc=0\n=== %s trial run start; y\n(second run today died before its restore test)\n' "$(date '+%F %T')" "$(date '+%F %T')" "$(date '+%F %T')" > "$T/run.log"; bash "$TR/check.sh" > "$T/c8c.out" 2>&1; rc=$?; check "if the LATEST run today has no passing restore test, an earlier run's pass does not count" [ $rc = 1 ]
 printf '=== %s trial run start; x\nRESTORE-TEST: 6 pass, 0 fail\n' "$(date '+%F %T')" > "$T/run.log"
 rm -f "$T/old/"*; bash "$TR/check.sh" > "$T/c9.out" 2>&1; rc=$?; check "a missing dump from the EXISTING job is a FAIL too" bash -c "[ $rc = 1 ] && grep -q 'existing 02:00 job' '$T/c9.out'"
+echo "== scheduled-run presence (from the second day)"
+printf '=== %s trial run start; x\nRESTORE-TEST: 6 pass, 0 fail\n' "$(date '+%F %T')" > "$T/run.log"; : > "$T/alerts.txt"; mk_old() { head -c 100000 /dev/zero | tr '\0' 'a' | gzip > "$T/old/waplatform_20260102_020001.sql.gz"; }; mk_old
+printf '{\n  "result": "OK",\n  "finished_epoch": %s\n}\n' "$(date +%s)" > "$T/dest/.last-status.json"
+date +%F > "$T/state/trial-start-date"; echo "$(date +%s) x rc=0" > "$T/state/runs.log"; bash "$TR/check.sh" > "$T/d1.out" 2>&1; rc=$?; check "install day: a manual run is enough (no scheduled-run requirement yet)" [ $rc = 0 ]
+date -d 'yesterday' +%F > "$T/state/trial-start-date"; echo "$(date -d 'today 01:00' +%s) x rc=0" > "$T/state/runs.log"; bash "$TR/check.sh" > "$T/d2.out" 2>&1; rc=$?; check "later day: a run recorded before 02:25 today does NOT satisfy the schedule check" bash -c "[ $rc = 1 ] && grep -q 'FAIL  new job: the 02:30 scheduled run' '$T/d2.out'"
+echo "$(date -d 'today 02:31' +%s) x rc=0" > "$T/state/runs.log"; bash "$TR/check.sh" > "$T/d3.out" 2>&1; rc=$?; check "later day: a run recorded at 02:31 satisfies it" bash -c "grep -q 'PASS  new job: the 02:30 scheduled run' '$T/d3.out'"
 echo "BACKUP TRIAL TESTS: $PASS pass, $FAIL fail"; [ $FAIL = 0 ]
