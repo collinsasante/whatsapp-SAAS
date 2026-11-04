@@ -28,7 +28,7 @@ Legend: yes / no / n/a / unknown (not established by this programme) / pending (
 | Capability | Implemented | Tested | Provider-authorised | Real-integration verified |
 |---|---|---|---|---|
 | Connect account, token refresh with rotation, revoke on disconnect | yes (earlier work) | unit | account verification only | pending (a person must log in) |
-| Publish a video (queue, chunked upload, status polling, retries) | yes, behind flag `tiktok_publishing` | unit + db (mocked) | **no**: needs `video.publish` on the app and TikTok's audit for public visibility (until then "Only me") | no |
+| Publish a video (creator-info check, queue, chunked upload, status polling, retries) | yes, behind flag `tiktok_publishing`; **contract checked against TikTok's published documentation** (`docs/TIKTOK_CONTRACT_VERIFICATION.md`) | unit + db (mocked) | **no**: needs `video.publish` on the app and TikTok's audit for public visibility (until then "Only me") | no |
 | Duplicate-post protection, uncertain-outcome handling, audit trail | yes | db (race test mutation-checked) | n/a | no |
 | UI: post panel and statuses | yes | typechecked only (no component test on this branch) | n/a | no |
 

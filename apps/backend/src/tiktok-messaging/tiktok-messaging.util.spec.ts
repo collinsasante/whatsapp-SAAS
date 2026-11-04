@@ -15,7 +15,7 @@ describe('webhook signature', () => {
   it('accepts a correct signature within the tolerance', () => expect(verifyTikTokSignature(SECRET, header(t), body, now)).toBe(true));
   it.each([
     ['wrong secret', header(t, 'other')], ['tampered body', header(t, SECRET, '{"a":2}')], ['no header', undefined], ['garbage', 'x=y'],
-    ['stale', header(t - 6)], ['from the future', header(t + 6)], ['short digest', `t=${t},s=abcd`],
+    ['stale', header(t - 301)], ['from the future', header(t + 301)], ['short digest', `t=${t},s=abcd`],
   ])('rejects %s', (_n, h) => expect(verifyTikTokSignature(SECRET, h as string | undefined, body, now)).toBe(false));
   it('rejects when no secret is configured or the raw body is missing', () => {
     expect(verifyTikTokSignature('', header(t), body, now)).toBe(false);

@@ -30,5 +30,8 @@ Access tokens are decrypted only in memory. An expired access token makes the po
 ## Security and audit
 Writes need ADMIN or SUPER_ADMIN; reads also AGENT. Every query is scoped to the caller's workspace; the channel and the media key must belong to it. Requests, retries, cancellations and final results are written to the audit log (no tokens).
 
+## Contract: verified against TikTok's documentation, not against TikTok
+The endpoints, fields, chunk and status rules, error codes and `fail_reason` values were checked against TikTok's published Content Posting API pages on 2026-11-04 and corrected where they differed (creator-info pre-flight, brand toggles, 206/201 chunk statuses, documented error codes only, plain-language failure reasons). See `docs/TIKTOK_CONTRACT_VERIFICATION.md`.
+
 ## Not verified (needs a real account)
-Real posting, TikTok's real error codes and status strings (taken from the public documentation), the app review/audit, `video.publish` approval, and behaviour of very large uploads. Run the post-AP-3 sequence with a real account before enabling for anyone.
+Real posting, the app review/audit, `video.publish` approval, and behaviour of very large uploads. Run the post-AP-3 sequence with a real account before enabling for anyone.

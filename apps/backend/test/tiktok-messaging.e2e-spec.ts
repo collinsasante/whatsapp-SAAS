@@ -124,7 +124,7 @@ describe('TikTok messaging (e2e, mocked TikTok)', () => {
       await post(payload, null).expect(403);
       await post(payload, 'garbage').expect(403);
       await post(payload, sign(raw, Math.floor(Date.now() / 1000), 'wrong-secret')).expect(403);
-      await post(payload, sign(raw, Math.floor(Date.now() / 1000) - 60)).expect(403);                       // replay of an old delivery
+      await post(payload, sign(raw, Math.floor(Date.now() / 1000) - 301)).expect(403);                      // replay of an old delivery
       await post({ ...payload, content: payload.content.replace('hi', 'EVIL') }, sign(raw)).expect(403);    // body changed after signing
       expect(await testPrisma.message.count()).toBe(0);
     });

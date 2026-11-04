@@ -18,6 +18,7 @@ describe('TikTok publishing (e2e, mocked TikTok API)', () => {
   let tiktok: Array<{ url: string; method: string; headers: Record<string, string>; body: unknown }>;
   let initReply: () => Response | Promise<Response>;
   let statusReply: () => Response;
+  let creatorReply: () => Response;
   let putStatus: number;
   const ACCESS = 'ACCESS-TOKEN-ABCDEFGHIJ-1';
   const video = Buffer.alloc(2048, 7);
@@ -31,12 +32,14 @@ describe('TikTok publishing (e2e, mocked TikTok API)', () => {
     await resetTestDatabase();
     (app.get(FeatureFlagsService) as unknown as { cache: Map<string, unknown> }).cache.clear();
     tiktok = []; initReply = okInit; putStatus = 201;
+    creatorReply = () => json({ data: { privacy_level_options: ['SELF_ONLY', 'MUTUAL_FOLLOW_FRIENDS'], comment_disabled: false, duet_disabled: true, stitch_disabled: false, max_video_post_duration_sec: 600 }, error: { code: 'ok' } });
     statusReply = () => json({ data: { status: 'PUBLISH_COMPLETE', publicaly_available_post_id: ['7300000000000000001'] }, error: { code: 'ok' } });
     jest.spyOn(global, 'fetch').mockImplementation((async (input: unknown, init?: { method?: string; headers?: Record<string, string>; body?: unknown }) => {
       const url = String(input);
       if (!url.includes('tiktok')) throw new Error(`unexpected network call ${url}`);
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body;
       tiktok.push({ url, method: init?.method ?? 'GET', headers: (init?.headers ?? {}) as Record<string, string>, body });
+      if (url.endsWith('/creator_info/query/')) return creatorReply();
       if (url.endsWith('/video/init/')) return initReply();
       if (url.endsWith('/status/fetch/')) return statusReply();
       if (url.includes('upload.tiktok.test')) return new Response(null, { status: putStatus });
@@ -94,8 +97,9 @@ describe('TikTok publishing (e2e, mocked TikTok API)', () => {
     await run();
     const init = initCalls()[0]!;
     expect(init.headers['Authorization']).toBe(`Bearer ${ACCESS}`);
+    expect(tiktok.findIndex((c) => c.url.endsWith('/creator_info/query/'))).toBeLessThan(tiktok.findIndex((c) => c.url.endsWith('/video/init/')));   // TikTok requires the query first
     expect(init.body).toMatchObject({
-      post_info: { title: 'Launch day #verz', privacy_level: 'SELF_ONLY' },
+      post_info: { title: 'Launch day #verz', privacy_level: 'SELF_ONLY', brand_content_toggle: false, brand_organic_toggle: false, disable_comment: false, disable_duet: true, disable_stitch: false },
       source_info: { source: 'FILE_UPLOAD', video_size: 2048, chunk_size: 2048, total_chunk_count: 1 },
     });
     const put = tiktok.find((c) => c.method === 'PUT')!;
@@ -223,12 +227,12 @@ describe('TikTok publishing (e2e, mocked TikTok API)', () => {
     const w = await workspace();
     const post = (await create(w).expect(201)).body;
     await run();
-    statusReply = () => json({ data: { status: 'FAILED', fail_reason: 'video_pull_failed' }, error: { code: 'ok' } });
+    statusReply = () => json({ data: { status: 'FAILED', fail_reason: 'frame_rate_check_failed' }, error: { code: 'ok' } });
     await testPrisma.tikTokPublication.update({ where: { id: post.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
     await run();
     const row = await rowOf(post.id);
     expect(row.status).toBe('FAILED');
-    expect(row.lastError).toMatch(/video_pull_failed/);
+    expect(row.lastError).toMatch(/23 and 60 fps/);
     expect(initCalls()).toHaveLength(1);
   });
 
@@ -269,6 +273,66 @@ describe('TikTok publishing (e2e, mocked TikTok API)', () => {
     await request(app.getHttpServer()).post(`/tiktok/publications/${queued.id}/cancel`).set('Authorization', w.auth()).expect(200);
     expect((await rowOf(queued.id)).status).toBe('CANCELLED');
     await request(app.getHttpServer()).post(`/tiktok/publications/${queued.id}/cancel`).set('Authorization', w.auth()).expect(409);
+  });
+
+  it('stops before uploading when the account cannot post with that visibility, and says what it can use', async () => {
+    const w = await workspace();
+    process.env['TIKTOK_PUBLISH_ALLOWED_PRIVACY'] = 'SELF_ONLY,PUBLIC_TO_EVERYONE';
+    try {
+      const post = (await create(w, { privacyLevel: 'PUBLIC_TO_EVERYONE' }).expect(201)).body;
+      await run();
+      const row = await rowOf(post.id);
+      expect(row.status).toBe('FAILED');
+      expect(row.lastError).toMatch(/cannot post with that visibility. It allows: Only me, Friends/);
+      expect(initCalls()).toHaveLength(0);
+    } finally { delete process.env['TIKTOK_PUBLISH_ALLOWED_PRIVACY']; }
+  });
+
+  it('stops at TikTok\'s posting limits, which arrive as HTTP 200, without sending the video', async () => {
+    for (const code of ['spam_risk_too_many_posts', 'spam_risk_user_banned_from_posting', 'reached_active_user_cap']) {
+      const w = await workspace();
+      creatorReply = () => json({ data: {}, error: { code, message: 'limit' } });
+      const post = (await create(w).expect(201)).body;
+      await run();
+      expect(await rowOf(post.id)).toMatchObject({ status: 'FAILED' });
+      expect(tiktok.some((c) => c.method === 'PUT')).toBe(false);
+    }
+    expect(initCalls()).toHaveLength(0);
+  });
+
+  it('retries later when the creator query cannot be answered (it changes nothing at TikTok), and reconnects on a rejected token', async () => {
+    const w = await workspace();
+    creatorReply = () => new Response('<html>', { status: 502 });
+    const post = (await create(w).expect(201)).body;
+    await run();
+    expect(await rowOf(post.id)).toMatchObject({ status: 'QUEUED', attempts: 1 });
+    expect(initCalls()).toHaveLength(0);
+    creatorReply = () => json({ error: { code: 'access_token_invalid' } }, 401);
+    await testPrisma.tikTokPublication.update({ where: { id: post.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
+    await run();
+    expect(await rowOf(post.id)).toMatchObject({ status: 'NEEDS_RECONNECT' });
+  });
+
+  it('turns TikTok\'s documented failure reasons into plain advice; a removed authorisation ends the post and never reposts', async () => {
+    const w = await workspace();
+    const post = (await create(w).expect(201)).body;
+    await run();
+    statusReply = () => json({ data: { status: 'FAILED', fail_reason: 'auth_removed' }, error: { code: 'ok' } });
+    await testPrisma.tikTokPublication.update({ where: { id: post.id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
+    await run();
+    const row = await rowOf(post.id);
+    expect(row.status).toBe('FAILED');
+    expect(row.lastError).toMatch(/removed this app's access on TikTok. Reconnect/);
+    expect(initCalls()).toHaveLength(1);
+  });
+
+  it('treats an upload TikTok does not acknowledge with 201 as failed, never as processing', async () => {
+    const w = await workspace(); putStatus = 206;
+    const post = (await create(w).expect(201)).body;
+    await run();
+    const row = await rowOf(post.id);
+    expect(row.status).toBe('FAILED');
+    expect(row.lastError).toMatch(/expected 201/);
   });
 
   it('fails clearly for a file TikTok does not accept, without calling TikTok', async () => {

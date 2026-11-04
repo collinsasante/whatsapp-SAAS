@@ -27,8 +27,8 @@ TikTok's reference pages are rendered client-side and could not be read. Every w
 | Provenance | Items |
 |---|---|
 | official (TikTok docs) | host and `/open_api/v1.3/` prefix, the webhook-list endpoint, event type `DIRECT_MESSAGE`, users must write first, HTTP 200 required from the webhook, access needs approval and privacy/security reviews |
-| secondary (Chatwoot, Infobip) | signature header `Tiktok-Signature: t=..,s=..` and 5 s tolerance, failure = HTTP 200 with non-zero `code`, 48 h window, 6000 chars, text or one JPG/PNG < 3 MB, event names, business accounts only, blocked regions, 24 h access token |
-| **assumed** | the send, upload, download, conversation-list, message-list, webhook-update, token and refresh paths; request and response field names; the signed string (`<t>.<raw body>`); the webhook payload layout; the authorisation URL |
+| secondary (Chatwoot, Infobip; the signature scheme is also official for TikTok developer webhooks) | signature header `TikTok-Signature: t=..,s=..` signed over `<t>.<raw body>` with HMAC-SHA256 and the app secret, failure = HTTP 200 with non-zero `code`, 48 h window, 6000 chars, text or one JPG/PNG < 3 MB, event names, business accounts only, blocked regions, 24 h access token |
+| **assumed** | the send, upload, download, conversation-list, message-list, webhook-update, token and refresh paths; request and response field names; the webhook payload layout; the authorisation URL; the 300 s replay tolerance (TikTok states none) |
 
 The tests use these assumptions as fixtures. They prove our behaviour, not TikTok's.
 

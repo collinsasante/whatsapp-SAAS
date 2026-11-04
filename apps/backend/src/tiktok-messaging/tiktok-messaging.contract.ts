@@ -41,8 +41,10 @@ export const CONTRACT = {
   inboundTypes: item(['text', 'image', 'share_post', 'sticker'] as const, 'secondary'),
   // Webhook security
   signatureHeader: item('tiktok-signature', 'secondary', 'value "t=<unix seconds>,s=<hex>"'),
-  signatureAlgorithm: item('HMAC-SHA256 over "<t>.<raw body>" with the app secret', 'assumed', 'the header layout is reported; the exact signed string is not'),
-  signatureToleranceSeconds: item(5, 'secondary'),
+  signatureAlgorithm: item('HMAC-SHA256 over "<t>.<raw body>" with the app secret', 'secondary',
+    'OFFICIAL for TikTok developer webhooks (developers.tiktok.com/doc/webhooks-verification, read 2026-11-04): header TikTok-Signature "t=<timestamp>,s=<signature>", signed string t + "." + raw body, HMAC-SHA256 keyed with the client secret. The same layout is reported for Business Messaging by an integrator, but the Business Messaging page itself could not be read'),
+  signatureToleranceSeconds: item(300, 'assumed',
+    'TikTok states no window ("reject timestamps that are too old"); an integrator uses 5 s. 300 s tolerates clock drift and delayed redelivery, and replays are harmless because every message is de-duplicated by its id'),
   webhookNeedsHttp200: item(true, 'official'),
   eventNames: item({ message: 'im_send_msg', read: 'im_mark_read_msg' }, 'secondary'),
   // Account eligibility

@@ -9,7 +9,7 @@ import { StorageService } from '../media/storage.service';
 import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 import {
   TIKTOK_MAX_CAPTION, TIKTOK_MAX_VIDEO_BYTES, TIKTOK_PRIVACY_LEVELS, TIKTOK_VIDEO_MIME_TYPES, TikTokPrivacyLevel,
-  describeRefusal, fetchPublishStatus, hasPublishScope, initDirectPost, uploadVideo,
+  describeFailReason, describeRefusal, fetchPublishStatus, hasPublishScope, initDirectPost, queryCreatorInfo, uploadVideo,
 } from './tiktok-publish.util';
 
 export const TIKTOK_PUBLISHING_FLAG = 'tiktok_publishing';
@@ -266,7 +266,27 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
     if (!(TIKTOK_VIDEO_MIME_TYPES as readonly string[]).includes(mime)) return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, 'TikTok accepts MP4, MOV or WebM videos.');
     if (media.buffer.length === 0 || media.buffer.length > TIKTOK_MAX_VIDEO_BYTES) return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, `The video must be larger than 0 and at most ${TIKTOK_MAX_VIDEO_BYTES / 1024 / 1024} MB.`);
 
-    const init = await initDirectPost(this.http, t.token, { caption: row.caption, privacyLevel: row.privacyLevel as TikTokPrivacyLevel, videoSize: media.buffer.length });
+    // TikTok requires this query before a post. It changes nothing at TikTok, so an unclear answer is safe to retry; a posting limit or a bad token ends the attempt now.
+    const creator = await queryCreatorInfo(this.http, t.token);
+    if (creator.kind === 'unavailable' || (creator.kind === 'refused' && creator.retry)) {
+      const why = creator.kind === 'refused' ? describeRefusal(creator.code, creator.message) : 'TikTok could not be reached.';
+      if (row.attempts >= MAX_ATTEMPTS) return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, `${why} Gave up after ${row.attempts} attempts.`);
+      return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.QUEUED, why, { nextAttemptAt: new Date(now.getTime() + backoffMs(row.attempts)) });
+    }
+    if (creator.kind === 'refused') {
+      return void await this.settle(id, owner, row.tenantId, creator.reconnect ? TikTokPublishStatus.NEEDS_RECONNECT : TikTokPublishStatus.FAILED,
+        creator.reconnect ? 'TikTok no longer accepts this connection. Reconnect the account.' : describeRefusal(creator.code, creator.message));
+    }
+    if (!creator.privacyOptions.includes(row.privacyLevel)) {
+      const labels: Record<string, string> = { SELF_ONLY: 'Only me', FOLLOWER_OF_CREATOR: 'Followers', MUTUAL_FOLLOW_FRIENDS: 'Friends', PUBLIC_TO_EVERYONE: 'Everyone' };
+      return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, `This TikTok account cannot post with that visibility. It allows: ${creator.privacyOptions.map((p) => labels[p] ?? p).join(', ') || 'nothing right now'}.`);
+    }
+    if (creator.maxDurationSec !== undefined && creator.maxDurationSec <= 0) return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, 'This TikTok account cannot post videos right now.');
+
+    const init = await initDirectPost(this.http, t.token, {
+      caption: row.caption, privacyLevel: row.privacyLevel as TikTokPrivacyLevel, videoSize: media.buffer.length,
+      disableComment: creator.commentDisabled, disableDuet: creator.duetDisabled, disableStitch: creator.stitchDisabled,
+    });
     if (init.kind === 'unknown') {
       return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.UNCERTAIN, 'TikTok did not confirm this post. It may or may not have been published. Check TikTok before retrying.');
     }
@@ -301,7 +321,9 @@ export class TikTokPublishingService implements OnModuleInit, OnModuleDestroy {
 
     const s = await fetchPublishStatus(this.http, t.token, row.publishId);
     if (s.kind === 'published') return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.PUBLISHED, null, { tiktokPostId: s.postId });
-    if (s.kind === 'failed') return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, `TikTok could not publish this video: ${s.reason}`);
+    // TikTok has ended this post. Even when the reason is a removed authorisation (the message says to reconnect) the post itself cannot complete, so it is FAILED:
+    // a retry would only be told the same thing. The person reconnects and posts again.
+    if (s.kind === 'failed') return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.FAILED, describeFailReason(s.code).message);
     if (s.kind === 'reconnect') return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.NEEDS_RECONNECT, 'TikTok needs this account to be reconnected. The video was already sent; reconnect to see its result.');
     if (now.getTime() - row.createdAt.getTime() > GIVE_UP_AFTER_MS) {
       return void await this.settle(id, owner, row.tenantId, TikTokPublishStatus.UNCERTAIN, 'TikTok is still processing this video after an hour. It may still be published. Check TikTok.');

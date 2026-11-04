@@ -1,4 +1,4 @@
-import { describeRefusal, fetchPublishStatus, hasPublishScope, initDirectPost, planChunks, uploadVideo } from './tiktok-publish.util';
+import { describeFailReason, describeRefusal, fetchPublishStatus, hasPublishScope, initDirectPost, planChunks, queryCreatorInfo, uploadVideo } from './tiktok-publish.util';
 
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
 const TOKEN = 'TOKEN-0123456789-0123456789-0123456789-ABCDEF';
@@ -45,26 +45,86 @@ describe('initDirectPost', () => {
   });
 });
 
-describe('uploadVideo', () => {
+describe('uploadVideo (statuses as TikTok documents them)', () => {
   const MB = 1024 * 1024;
   const video = Buffer.alloc(75 * MB, 1);
-  it('sends contiguous ranges that cover the file', async () => {
-    const f = jest.fn().mockResolvedValue(new Response(null, { status: 206 }));
-    expect(await uploadVideo(f, 'https://u', video, 'video/mp4')).toBeNull();
+  const seq = (...statuses: number[]) => { const f = jest.fn(); statuses.forEach((st) => f.mockResolvedValueOnce(new Response(null, { status: st }))); return f; };
+  const nap = async () => undefined;
+  it('sends contiguous ranges that cover the file, 206 for each partial chunk and 201 for the last', async () => {
+    const f = seq(206, 206, 206, 206, 206, 206, 201);
+    expect(await uploadVideo(f, 'https://u', video, 'video/mp4', nap)).toBeNull();
     const ranges = f.mock.calls.map((c) => c[1].headers['Content-Range'] as string);
     expect(ranges).toHaveLength(7);
     expect(ranges[0]).toBe(`bytes 0-${10 * MB - 1}/${video.length}`);
     expect(ranges[6]).toBe(`bytes ${60 * MB}-${video.length - 1}/${video.length}`);
+    expect(f.mock.calls.every((c) => c[1].method === 'PUT')).toBe(true);
   });
-  it('retries a failed chunk and succeeds', async () => {
-    const f = jest.fn().mockResolvedValueOnce(new Response(null, { status: 500 })).mockResolvedValue(new Response(null, { status: 201 }));
-    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', async () => undefined)).toBeNull();
-    expect(f).toHaveBeenCalledTimes(2);
+  it('a small file goes in one request answered 201', async () => {
+    const f = seq(201);
+    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', nap)).toBeNull();
+    expect(f).toHaveBeenCalledTimes(1);
   });
-  it('reports failure after three attempts', async () => {
-    const f = jest.fn().mockResolvedValue(new Response(null, { status: 500 }));
-    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', async () => undefined)).toMatch(/chunk 1\/1/);
+  it('a final chunk answered 206 (TikTok does not consider the upload complete) is an error, not success', async () => {
+    expect(await uploadVideo(seq(206), 'https://u', Buffer.alloc(100), 'video/mp4', nap)).toMatch(/unexpected status \(HTTP 206, expected 201\)/);
+  });
+  it('retries a 5xx on the same range and then succeeds', async () => {
+    const f = seq(503, 201);
+    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', nap)).toBeNull();
+    expect(f.mock.calls.map((c) => c[1].headers['Content-Range'])).toEqual(['bytes 0-99/100', 'bytes 0-99/100']);
+  });
+  it('gives up after three attempts on repeated 5xx', async () => {
+    const f = seq(500, 502, 503);
+    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', nap)).toMatch(/chunk 1\/1/);
     expect(f).toHaveBeenCalledTimes(3);
+  });
+  it.each([[403, /expired/], [404, /no longer recognises/], [416, /rejected chunk/], [400, /rejected chunk/]])('HTTP %s is not retried', async (status, msg) => {
+    const f = seq(status as number, 201);
+    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', nap)).toMatch(msg as RegExp);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+  it('retries a network failure', async () => {
+    const f = jest.fn().mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValueOnce(new Response(null, { status: 201 }));
+    expect(await uploadVideo(f, 'https://u', Buffer.alloc(100), 'video/mp4', nap)).toBeNull();
+  });
+});
+
+describe('queryCreatorInfo', () => {
+  const info = (data: object, error: object = { code: 'ok' }, status = 200) => jest.fn().mockResolvedValue(json({ data, error }, status));
+  it('reads the allowed visibilities and the creator\'s settings', async () => {
+    const f = info({ privacy_level_options: ['PUBLIC_TO_EVERYONE', 'SELF_ONLY'], comment_disabled: true, duet_disabled: false, stitch_disabled: true, max_video_post_duration_sec: 600 });
+    expect(await queryCreatorInfo(f, TOKEN)).toEqual({ kind: 'ok', privacyOptions: ['PUBLIC_TO_EVERYONE', 'SELF_ONLY'], commentDisabled: true, duetDisabled: false, stitchDisabled: true, maxDurationSec: 600 });
+    expect(f.mock.calls[0][0].toString()).toBe('https://open.tiktokapis.com/v2/post/publish/creator_info/query/');
+  });
+  it.each([['spam_risk_too_many_posts', 200, false, false], ['spam_risk_user_banned_from_posting', 200, false, false], ['reached_active_user_cap', 200, false, false], ['access_token_invalid', 401, false, true], ['scope_not_authorized', 401, false, true], ['rate_limit_exceeded', 429, true, false]])(
+    'a posting limit or auth problem (%s, HTTP %s) is reported even when TikTok answers 200', async (code, status, retry, reconnect) => {
+      expect(await queryCreatorInfo(info({}, { code, message: 'm' }, status as number), TOKEN)).toMatchObject({ kind: 'refused', code, retry, reconnect });
+    });
+  it('treats a lost answer as unavailable (the query changes nothing, so retrying is safe)', async () => {
+    expect(await queryCreatorInfo(jest.fn().mockRejectedValue(Object.assign(new Error('t'), { name: 'TimeoutError' })), TOKEN)).toEqual({ kind: 'unavailable' });
+    expect(await queryCreatorInfo(jest.fn().mockResolvedValue(new Response('<html>', { status: 502 })), TOKEN)).toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('initDirectPost body (documented fields)', () => {
+  it('sends the required brand toggles and the creator\'s comment, duet and stitch settings', async () => {
+    const f = jest.fn().mockResolvedValue(json({ data: { publish_id: 'p', upload_url: 'https://u' }, error: { code: 'ok' } }));
+    await initDirectPost(f, TOKEN, { caption: 'hi', privacyLevel: 'SELF_ONLY', videoSize: 100, disableComment: true, disableDuet: true, disableStitch: false });
+    expect(JSON.parse(f.mock.calls[0][1].body).post_info).toEqual({ title: 'hi', privacy_level: 'SELF_ONLY', brand_content_toggle: false, brand_organic_toggle: false, disable_comment: true, disable_duet: true, disable_stitch: false });
+  });
+});
+
+describe('describeFailReason (documented fail_reason values)', () => {
+  it.each(['file_format_check_failed', 'duration_check_failed', 'frame_rate_check_failed', 'picture_size_check_failed', 'internal', 'publish_cancelled', 'auth_removed',
+    'spam_risk_too_many_posts', 'spam_risk_user_banned_from_posting', 'spam_risk_text', 'spam_risk'])('%s has a plain-language message', (code) => {
+    const d = describeFailReason(code);
+    expect(d.message.length).toBeGreaterThan(15);
+    expect(d.message).not.toContain(code);
+  });
+  it('only a temporary TikTok problem is worth retrying, and a removed authorisation asks for a reconnect', () => {
+    expect(describeFailReason('internal').retryable).toBe(true);
+    for (const c of ['file_format_check_failed', 'spam_risk', 'spam_risk_text', 'auth_removed']) expect(describeFailReason(c).retryable).toBe(false);
+    expect(describeFailReason('auth_removed').reconnect).toBe(true);
+    expect(describeFailReason('something_new').message).toMatch(/something_new/);
   });
 });
 
@@ -72,7 +132,7 @@ describe('fetchPublishStatus', () => {
   const st = (data: object, status = 200) => jest.fn().mockResolvedValue(json({ data, error: { code: 'ok' } }, status));
   it('maps each TikTok state', async () => {
     expect(await fetchPublishStatus(st({ status: 'PUBLISH_COMPLETE', publicaly_available_post_id: ['77'] }), TOKEN, 'p')).toEqual({ kind: 'published', postId: '77' });
-    expect(await fetchPublishStatus(st({ status: 'FAILED', fail_reason: 'bad_video' }), TOKEN, 'p')).toEqual({ kind: 'failed', reason: 'bad_video' });
+    expect(await fetchPublishStatus(st({ status: 'FAILED', fail_reason: 'picture_size_check_failed' }), TOKEN, 'p')).toMatchObject({ kind: 'failed', code: 'picture_size_check_failed', reason: expect.stringMatching(/360 and 4096/) });
     expect(await fetchPublishStatus(st({ status: 'PROCESSING_UPLOAD' }), TOKEN, 'p')).toMatchObject({ kind: 'processing' });
     expect(await fetchPublishStatus(st({ status: 'WHAT' }), TOKEN, 'p')).toEqual({ kind: 'unavailable' });
   });
