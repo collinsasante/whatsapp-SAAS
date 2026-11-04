@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   RefreshCw, Plus, Search, X, Eye, Trash2, Send, FileText, ChevronDown,
-  Type, Image, Video, FileIcon, Phone, Link2, MessageSquare, AlignLeft,
+  Type, Image as ImageIcon, Video, FileIcon, Phone, Link2, MessageSquare, AlignLeft,
   Check, ArrowLeft, Loader2, Copy, MoreVertical, ExternalLink, AlertTriangle } from 'lucide-react';
 import { templatesApi } from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -134,7 +134,7 @@ function PhonePreview({ b, examples }: { b: BuilderState; examples: Record<strin
                     )}
                     {b.headerType === 'IMAGE' && (
                       <div className="h-28 bg-gradient-to-br from-teal-100 to-teal-200 flex items-center justify-center">
-                        <Image className="w-8 h-8 text-teal-400" />
+                        <ImageIcon className="w-8 h-8 text-teal-400" />
                         <span className="text-teal-500 text-xs ml-1">Image</span>
                       </div>
                     )}
@@ -409,7 +409,7 @@ function TemplateBuilder({ initial, onSave, onBack }: {
                 <button key={ht} onClick={() => set('headerType', ht)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${b.headerType === ht ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-teal-300'}`}>
                   {ht === 'TEXT' && <Type className="w-3.5 h-3.5" />}
-                  {ht === 'IMAGE' && <Image className="w-3.5 h-3.5" />}
+                  {ht === 'IMAGE' && <ImageIcon className="w-3.5 h-3.5" />}
                   {ht === 'VIDEO' && <Video className="w-3.5 h-3.5" />}
                   {ht === 'DOCUMENT' && <FileIcon className="w-3.5 h-3.5" />}
                   {ht}
@@ -614,7 +614,7 @@ function TemplateCard({ template, onPreview, onEdit, onDelete }: {
         <div className="bg-white rounded-lg p-2.5 w-full max-w-[200px] shadow-sm">
           {header?.format === 'IMAGE' && (
             <div className="h-12 bg-teal-100 rounded flex items-center justify-center mb-1.5">
-              <Image className="w-4 h-4 text-teal-400" />
+              <ImageIcon className="w-4 h-4 text-teal-400" />
             </div>
           )}
           {header?.text && <p className="text-[10px] font-bold text-gray-900 mb-1 truncate">{header.text}</p>}
