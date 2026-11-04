@@ -218,6 +218,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # Same key as the backend and whatsapp-web. Empty = credentials are read and written as plaintext (current production state). Once a key is set it
+      # must be set on ALL of them in the same deploy, because the worker reads WhatsApp tokens and would fail on ciphertext without it.
+      CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004

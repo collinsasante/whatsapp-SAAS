@@ -47,3 +47,15 @@ Staging already runs with the key set; rehearse stage 4's script and the `--decr
 
 ## 6. Approval wording (unchanged in substance)
 "Approve enabling credential encryption in production in a window I will name." Prerequisite work (stage 0) and the staging rehearsal need no production access and can proceed first.
+
+
+## 7. Implementation status (2026-11-04 evening)
+Done and tested locally (nothing enabled, no key generated, no server touched):
+* `apps/backend/src/common/crypto/credential-reencryption.ts` (engine), `credential-reencryption.targets.ts` (eight locations), `credential-reencryption.cli.ts`, script `pnpm --filter @whatsapp-platform/backend credentials:reencrypt`. Production image command: `docker exec <backend> node dist/common/crypto/credential-reencryption.cli.js [--decrypt] [--apply --i-have-a-verified-backup]`.
+* Targets: `whatsapp_numbers.access_token`, `facebook_page_connections.page_access_token`, `oauth_connect_sessions.user_access_token`, `tenants.access_token`, `tenant_settings.airtable_api_key`, `webhooks.secret`, `whatsapp_web_sessions.encrypted_auth_state`, and the `accessToken`, `refreshToken`, `botToken` fields of `channels.credentials`.
+* Properties proven by 27 tests (21 in-memory, 6 on a real PostgreSQL through the real Prisma adapters; a mutation that removes the compare-and-set condition makes one fail): dry run writes nothing; refuses without a valid key; KEY CHECK aborts before any write if any stored ciphertext does not open with the supplied key, even when the data is partly encrypted; idempotent; compare-and-set so a value the application rewrites mid-run is kept (and verification then asks for a re-run); rollback (`--decrypt`) restores the exact original bytes; pagination; reports contain counts only (no value, id or tenant id) and an 8-hex key fingerprint.
+* Application paths changed so the key can be turned on safely (`5d05af4`): the legacy tenant token, Telegram bot token and Airtable key are encrypted on write and decrypted on read (dual-read: plaintext rows keep working), the worker resolver decrypts the legacy tenant token, and `GET /tenant` no longer returns credentials.
+* Compose: the production worker now receives `CREDENTIALS_ENCRYPTION_KEY` (empty by default, so no behaviour change until a key is set).
+
+Order for the production window (unchanged in principle, now concrete): (1) verified dump; (2) key from the password manager into the production env file; (3) recreate backend, worker and whatsapp-web together (the worker only after this release is deployed); (4) smoke tests (WhatsApp send, Messenger reply, campaign send, WhatsApp Web reconnect); (5) dry run, review counts and the key fingerprint; (6) `--apply --i-have-a-verified-backup`, re-run until `changedConcurrently` is 0 and verification is ok; (7) new dump check; (8) record the fingerprint. Rollback: `--decrypt --apply` with the same key, then unset the key and recreate.
+Not yet done: the staging rehearsal (needs the staging deploy), key generation and custody (done by you; I will not generate or see the key), and the production window itself.

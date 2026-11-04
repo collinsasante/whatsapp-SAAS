@@ -20,6 +20,7 @@
     "digital-self:validate": "ts-node src/digital-self/validation/staging-validation.cli.ts",
     "dataset:export": "ts-node src/ai-learning/dataset/conversation-export.cli.ts",
     "webhooks:encrypt-secrets": "ts-node src/manage/webhooks/webhook-secret-backfill.cli.ts",
+    "credentials:reencrypt": "ts-node src/common/crypto/credential-reencryption.cli.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
