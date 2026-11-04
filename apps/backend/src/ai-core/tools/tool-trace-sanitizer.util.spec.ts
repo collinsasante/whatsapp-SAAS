@@ -155,3 +155,30 @@ describe('sanitizeToolTrace -- second hardening pass, Section 2', () => {
     expect(() => sanitizeToolTrace(trace)).not.toThrow();
   });
 });
+
+describe('sanitizeToolTrace masks personal and secret values (not only secret-named keys)', () => {
+  const call = (args: unknown, result: unknown) => [{ name: 'create_lead', args, result, durationMs: 5 }] as never;
+
+  it('masks emails, phones and secrets inside free-text arguments and results', () => {
+    const [t] = sanitizeToolTrace(call(
+      { note: 'customer ama@shop.com +233244123456 said password: hunter2xyz', nested: { list: ['kofi@team.com'] } },
+      { saved: true, echo: 'call 0244123456' },
+    ));
+    const text = JSON.stringify(t);
+    for (const raw of ['ama@shop.com', '+233244123456', 'hunter2xyz', 'kofi@team.com', '0244123456']) expect(text).not.toContain(raw);
+    expect(text).toContain('[EMAIL]');
+    expect(text).toContain('[PHONE]');
+  });
+
+  it('masks a value that would otherwise be hidden by truncation', () => {
+    const long = `${'x'.repeat(480)} ama@shop.com tail`;
+    const [t] = sanitizeToolTrace(call({ note: long }, {}));
+    expect(JSON.stringify(t)).not.toContain('ama@shop.com');
+  });
+
+  it('masks the failure message too', () => {
+    const [t] = sanitizeToolTrace(call({}, { error: 'lookup failed for ama@shop.com' }));
+    expect(t!.success).toBe(false);
+    expect(t!.errorMessage).toBe('lookup failed for [EMAIL]');
+  });
+});

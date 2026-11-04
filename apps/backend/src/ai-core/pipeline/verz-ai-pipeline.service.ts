@@ -9,6 +9,7 @@ import { PolicyStage } from './stages/policy.stage';
 import { EscalationStage } from './stages/escalation.stage';
 import { newTrace, PipelineContext, PipelineInput, PipelineStage, VerzAiResult } from './pipeline.types';
 import { resolveToolNames } from './tool-capability.util';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 @Injectable()
 export class VerzAiPipelineService {
@@ -81,7 +82,7 @@ export class VerzAiPipelineService {
         ctx.result = { response: '', confidence: null, blocked: false };
       }
     } catch (err) {
-      this.logger.error(`Pipeline run failed unexpectedly for conversation ${input.conversationId}`, err instanceof Error ? err.stack : String(err));
+      this.logger.error(`Pipeline run failed unexpectedly for conversation ${input.conversationId}`, describeErrorForLog(err));
       ctx.trace.status = 'PROVIDER_ERROR';
       ctx.trace.errorCode = 'network';
       ctx.trace.errorMessage = err instanceof Error ? err.message : String(err);

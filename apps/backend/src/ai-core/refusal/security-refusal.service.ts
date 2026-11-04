@@ -9,6 +9,7 @@ import { AiExecutionsService } from '../executions/ai-executions.service';
 import { newTrace } from '../pipeline/pipeline.types';
 import { sanitizeForMessenger, sanitizeForWhatsApp } from '../pipeline/whatsapp-format.util';
 import { formatHandoffBlock, HandoffOutcome } from '../prompts/handoff-context';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 /** Refusals sent per conversation per window. Beyond this the guard still blocks, but nothing is generated or sent. */
 export const SECURITY_REFUSAL_MAX_PER_WINDOW = 2;
@@ -138,7 +139,7 @@ export class SecurityRefusalService {
     trace.latencyMs = Date.now() - startedAt;
     // Traceability only: the provider call above already holds and settles its own credits, so this must not charge again.
     await this.executions.record({ tenantId, conversationId, taskType }, trace, { meterCredits: false }).catch((err) => {
-      this.logger.warn(`Security refusal execution not recorded for conversation ${conversationId}: ${String(err)}`);
+      this.logger.warn(`Security refusal execution not recorded for conversation ${conversationId}: ${describeErrorForLog(err)}`);
     });
     return reply;
   }

@@ -32,6 +32,20 @@ function buildService(deps: ReturnType<typeof buildDeps>) {
 
 describe('AiExecutionsService', () => {
   describe('record', () => {
+    it('masks personal and secret values in the stored error text, and caps its length', async () => {
+      const deps = buildDeps();
+      const service = buildService(deps);
+      const trace = { ...newTrace(), status: 'PROVIDER_ERROR' as const, errorCode: 'server_error', errorMessage: `Invalid prisma insert for ama@shop.com +233244123456 password: hunter2xyz ${'x'.repeat(900)}` };
+
+      await service.record({ tenantId: 't1', taskType: 'RESPONDER' }, trace);
+
+      const stored = (deps.prisma.aiExecution.create.mock.calls[0]![0] as { data: { errorMessage: string } }).data.errorMessage;
+      expect(stored).toContain('[EMAIL]');
+      expect(stored).toContain('[PHONE]');
+      expect(stored).not.toMatch(/ama@shop\.com|233244123456|hunter2xyz/);
+      expect(stored.length).toBeLessThanOrEqual(500);
+    });
+
     it('always writes the AiExecution row', async () => {
       const deps = buildDeps();
       const service = buildService(deps);

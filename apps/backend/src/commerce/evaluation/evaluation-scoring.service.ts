@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../../common/deepseek';
+import { PromptRedactionSession, describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 import { ToolCallTrace as CommerceAiToolCallTrace } from '../../ai-core/tools/tool-calling.service';
 import { ToolSideEffect } from '../../ai-core/tools/tool-registry.types';
 import { EvaluationScenario, ScenarioTurn } from './evaluation.types';
@@ -400,13 +401,14 @@ export class EvaluationScoringService {
   private async callJson(systemPrompt: string, userContent: string): Promise<Record<string, unknown> | null> {
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) return null;
+    const redaction = new PromptRedactionSession();
     try {
       const res = await axios.post(
         DEEPSEEK_API_URL,
         {
           model: DEEPSEEK_MODEL,
           max_tokens: 300,
-          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userContent }],
+          messages: [{ role: 'system', content: redaction.redact(systemPrompt) }, { role: 'user', content: redaction.redact(userContent) }],
           response_format: { type: 'json_object' },
         },
         { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 15_000 },
@@ -414,7 +416,7 @@ export class EvaluationScoringService {
       const raw = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim();
       return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
     } catch (err) {
-      this.logger.warn(`Evaluation judge call failed: ${String(err)}`);
+      this.logger.warn(`Evaluation judge call failed: ${describeErrorForLog(err)}`);
       return null;
     }
   }

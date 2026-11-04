@@ -5,6 +5,7 @@ import { AiProviderError, ChatMessage } from '../providers/ai-provider.interface
 import { AiExecutionsService } from '../executions/ai-executions.service';
 import { DEFAULT_MODEL_KEY, estimateCostUsd } from '../models/model-catalog';
 import { AiMeteredProviderService } from './ai-metered-provider.service';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 export interface AiCompletionRequest {
   tenantId: string;
@@ -71,7 +72,7 @@ export class AiCompletionService {
           stageTimings: {},
           ...(reservationId && { reservationIds: [reservationId] }),
         },
-      ).catch((err) => this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`));
+      ).catch((err) => this.logger.warn(`Failed to record AiExecution trace: ${describeErrorForLog(err)}`));
 
       return { content: result.content, failed: false };
     } catch (err) {

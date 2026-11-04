@@ -9,6 +9,7 @@ import { isToolResultEnvelope, ToolExecutionContext, ToolSideEffect } from './to
 import { sanitizeToolTrace } from './tool-trace-sanitizer.util';
 import { AiMeteredProviderService } from '../completion/ai-metered-provider.service';
 import { checkCustomerText, parseStructuredReply, ReplyProblem } from '../completion/model-output.util';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 const DEFAULT_MAX_ITERATIONS = 4;
 
@@ -242,7 +243,7 @@ export class ToolCallingService {
         },
       )
       .catch((err) => {
-        this.logger.warn(`Failed to record AiExecution trace: ${String(err)}`);
+        this.logger.warn(`Failed to record AiExecution trace: ${describeErrorForLog(err)}`);
         return null;
       });
     return execution?.id;

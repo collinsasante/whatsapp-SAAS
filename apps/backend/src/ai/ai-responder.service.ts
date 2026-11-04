@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { KnowledgeBaseService } from '../knowledge-base/knowledge-base.service';
 import { ApprovedCorrectionsService } from '../ai-learning/corrections/approved-corrections.service';
 import { DEEPSEEK_API_URL, DEEPSEEK_MODEL } from '../common/deepseek';
+import { PromptRedactionSession, describeErrorForLog } from '../common/privacy/prompt-redaction.util';
 import { buildHistoryWhere } from '../ai-core/context/history-scope.util';
 import { detectInjection } from '../ai-core/guards/injection-patterns';
 import { loadHistory } from '../ai-core/context/history-loader.util';
@@ -258,13 +259,16 @@ export class AiResponderService {
       { role: 'user', content: userContent },
     ];
 
+    // Same boundary rule as the v2 provider: the model sees redacted text; placeholders are restored only in its reply.
+    const redaction = new PromptRedactionSession();
+    const safeMessages = chatMessages.map((m) => ({ ...m, content: redaction.redact(String(m.content ?? '')) }));
     try {
       const providerCall = () => axios.post(
         DEEPSEEK_API_URL,
         {
           model: DEEPSEEK_MODEL,
           max_tokens: 400,
-          messages: chatMessages,
+          messages: safeMessages,
           response_format: { type: 'json_object' },
         },
         {
@@ -274,7 +278,7 @@ export class AiResponderService {
       );
       const res = await (providerCallWrapper ? providerCallWrapper(providerCall) : providerCall());
 
-      const raw = (res.data?.choices?.[0]?.message?.content as string | undefined)?.trim() ?? '';
+      const raw = redaction.restore((res.data?.choices?.[0]?.message?.content as string | undefined)?.trim() ?? '');
 
       // Never send what the model returned unless it is a clean reply: cut-off or malformed JSON, provider error
       // text and the like are dropped here. An empty response is what the caller already treats as "the AI could not
@@ -296,7 +300,8 @@ export class AiResponderService {
 
       return { response, confidence, blocked: false };
     } catch (err) {
-      this.logger.error('AI responder error', err);
+      // An HTTP client error carries the whole request (the API key header and the customer's messages): log only what it is, never the object.
+      this.logger.error(`AI responder error: ${describeErrorForLog(err)}`);
       return { response: '', confidence: null, blocked: false };
     }
   }

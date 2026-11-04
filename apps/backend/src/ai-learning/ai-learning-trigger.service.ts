@@ -5,6 +5,7 @@ import { QueueName, AiInteractionEvalJob, AiTaskType } from '@whatsapp-platform/
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { SimulationLimitsService } from '../ai-core/simulation/simulation-limits.service';
 import { LEARNING_JOB_OPTIONS } from './learning-queue.constants';
+import { describeErrorForLog } from '../common/privacy/prompt-redaction.util';
 
 /** The one feature flag key that gates the entire AI Learning system --
  * created via the existing feature-flags admin API/UI, rolloutType
@@ -70,7 +71,7 @@ export class AiLearningTriggerService {
         { jobId: evalJobId(input.aiExecutionId), ...LEARNING_JOB_OPTIONS },
       );
     } catch (err) {
-      this.logger.warn(`Failed to enqueue AI interaction evaluation for execution ${input.aiExecutionId}: ${String(err)}`);
+      this.logger.warn(`Failed to enqueue AI interaction evaluation for execution ${input.aiExecutionId}: ${describeErrorForLog(err)}`);
     }
   }
 }

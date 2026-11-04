@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { lockDigitalSelf, rebuildFromEvents } from '../digital-self/evidence.util';
 import { evalJobId } from './ai-learning-trigger.service';
+import { describeErrorForLog } from '../common/privacy/prompt-redaction.util';
 
 const BATCH = 500;
 /** Longest list of example ids kept on an audit row; the full count is always recorded. */
@@ -163,7 +164,7 @@ export class LearningErasureService {
         link: '/ai/learning',
       })));
     } catch (err) {
-      this.logger.warn(`Could not notify admins of ${summary.approvedExampleIds.length} removed approved examples for tenant ${tenantId}: ${String(err)}`);
+      this.logger.warn(`Could not notify admins of ${summary.approvedExampleIds.length} removed approved examples for tenant ${tenantId}: ${describeErrorForLog(err)}`);
     }
   }
 
@@ -175,7 +176,7 @@ export class LearningErasureService {
           await this.evalQueue!.remove(evalJobId(executionId));
         } catch (err) {
           // A job that is running right now cannot be removed (it holds its lock); the processor's own checks cover it.
-          this.logger.debug(`Evaluation job for execution ${executionId} not removed: ${String(err)}`);
+          this.logger.debug(`Evaluation job for execution ${executionId} not removed: ${describeErrorForLog(err)}`);
         }
       }));
     }

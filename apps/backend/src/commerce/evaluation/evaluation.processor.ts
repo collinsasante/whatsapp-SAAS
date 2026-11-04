@@ -6,6 +6,7 @@ import { EvaluationCaseStatus, EvaluationVerdict } from '@prisma/client';
 import { EvaluationRunService } from './evaluation-run.service';
 import { EvaluationRunnerService, RunScenarioResult } from './evaluation-runner.service';
 import { COMMERCE_EVAL_SCENARIOS } from './scenarios/commerce-eval-scenarios';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 const CONCURRENCY = 4;
 const RESPONSE_QUALITY_PASS_THRESHOLD = 3.5;
@@ -77,7 +78,7 @@ export class EvaluationProcessor extends WorkerHost {
         },
       });
     } catch (err) {
-      this.logger.error(`Evaluation run ${evaluationRunId} failed`, err);
+      this.logger.error(`Evaluation run ${evaluationRunId} failed` + `: ${describeErrorForLog(err)}`);
       await this.runService.failRun(evaluationRunId, err instanceof Error ? err.message : String(err));
     }
   }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
 import { DEEPSEEK_API_URL } from '../../common/deepseek';
+import { PromptRedactionSession, redactChatMessages } from '../../common/privacy/prompt-redaction.util';
 import { AiProvider, AiProviderError, ChatCompletionRequest, ChatCompletionResult, ChatToolCall } from './ai-provider.interface';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -89,8 +90,17 @@ export class DeepSeekProvider implements AiProvider {
       'timeout', deadlineHit ? 'DeepSeek total deadline exceeded' : 'DeepSeek request cancelled', true, cause, true,
     );
 
+    // Everything the model sees goes through the redactor once, here, so no retry, tool round or caller can send the raw text: secrets become
+    // [SECRET], emails and phones become placeholders that are put back only in what the model returns (the reply and its tool arguments).
+    const session = new PromptRedactionSession();
+    const redacted: ChatCompletionRequest = { ...req, messages: redactChatMessages(req.messages, session) };
     try {
-      return await this.attempts(req, apiKey, maxAttempts, controller.signal, cancelled);
+      const result = await this.attempts(redacted, apiKey, maxAttempts, controller.signal, cancelled);
+      return {
+        ...result,
+        content: session.restore(result.content),
+        toolCalls: result.toolCalls.map((tc) => ({ ...tc, arguments: session.restore(tc.arguments) })),
+      };
     } finally {
       if (deadlineTimer) clearTimeout(deadlineTimer);
       req.signal?.removeEventListener('abort', abortFromCaller);

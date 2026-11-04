@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getModelCatalogEntry } from '../models/model-catalog';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 /** Seeded automatically when no AiPricingConfig row exists yet for a
  * provider/model, so credit charging works correctly on day one without
@@ -88,7 +89,7 @@ export class AiPricingService {
       row = await this.prisma.aiPricingConfig.findFirst({ where: { provider, modelKey, isActive: true } });
     } catch (err) {
       if (failClosed) throw err;
-      this.logger.warn(`Failed to load AiPricingConfig for ${cacheKey}: ${String(err)}`);
+      this.logger.warn(`Failed to load AiPricingConfig for ${cacheKey}: ${describeErrorForLog(err)}`);
       row = null;
     }
 

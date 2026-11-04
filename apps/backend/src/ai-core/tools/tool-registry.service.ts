@@ -12,6 +12,7 @@ import { buildMediaTools } from './media.tools';
 import { buildStateTools } from './state.tools';
 import { buildDeliveryTools } from './delivery.tools';
 import { ToolDefinition, ToolExecutionContext } from './tool-registry.types';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 /**
  * Verz-AI unification, Phase A: a single shared tool registry so Commerce's tools
@@ -70,7 +71,7 @@ export class ToolRegistryService implements OnModuleInit {
     try {
       return await tool.execute(ctx, args);
     } catch (err) {
-      this.logger.warn(`Tool ${name} failed: ${String(err)}`);
+      this.logger.warn(`Tool ${name} failed: ${describeErrorForLog(err)}`);
       // Verz-AI unification, Phase H: a deliberately-worded HttpException (e.g.
       // OrdersService's NotFoundException('No order has been started yet')) is
       // already customer-safe -- but a raw Error/Prisma/axios failure previously

@@ -6,6 +6,7 @@ import { HybridRetriever, readHybridConfig, RetrievalResult, SelectedArticle } f
 import { RetrievalTrace } from '../../knowledge-base/rag/retrieval-trace';
 import { VECTOR_STORE, VectorStore } from '../../knowledge-base/rag/vector-store';
 import { KnowledgeContextSource } from './knowledge-context.source';
+import { describeErrorForLog } from '../../common/privacy/prompt-redaction.util';
 
 const formatArticle = (a: SelectedArticle): string => `## ${a.title}${a.heading ? ` - ${a.heading}` : ''}\n${a.content}`;
 
@@ -45,7 +46,7 @@ export class HybridKnowledgeContextSource implements KnowledgeContextSource {
       result = await this.retriever.retrieve(tenantId, query, previousCustomerMessages);
     } catch (err) {
       // Anything unexpected falls back to the existing keyword path, which behaves (and fails) exactly as before this feature.
-      this.logger.warn(`Hybrid retrieval failed for tenant ${tenantId}; using keyword retrieval: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(`Hybrid retrieval failed for tenant ${tenantId}; using keyword retrieval: ${describeErrorForLog(err)}`);
       const articles = await this.knowledgeBase.getRelevant(tenantId, query, previousCustomerMessages);
       result = {
         articles: articles.map((a) => ({ id: '', title: a.title, heading: null, content: a.content })),

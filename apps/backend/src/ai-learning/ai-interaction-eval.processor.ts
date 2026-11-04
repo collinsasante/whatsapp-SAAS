@@ -10,6 +10,7 @@ import { AiInteractionEvaluatorService, LearningFencedError, LearningSkippedErro
 import { LEARNING_WORKER_OPTIONS } from './learning-queue.constants';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { AI_LEARNING_FLAG_KEY } from './ai-learning-trigger.service';
+import { describeErrorForLog } from '../common/privacy/prompt-redaction.util';
 
 const CRITICAL_TASK_SEVERITIES: FailureSeverity[] = ['CRITICAL', 'HIGH'];
 
@@ -175,7 +176,7 @@ export class AiInteractionEvalProcessor extends WorkerHost {
 
     await this.prisma.aiLearningAuditLog.create({
       data: { tenantId, action: 'evaluation.completed', targetType: 'evaluation', targetId: stored.id, newState: { status, overallScore: result.overallScore, severity: result.severity } as Prisma.InputJsonValue },
-    }).catch((err) => this.logger.warn(`Failed to write AI learning audit log: ${String(err)}`));
+    }).catch((err) => this.logger.warn(`Failed to write AI learning audit log: ${describeErrorForLog(err)}`));
 
     await this.reviewTaskStep(tenantId, {
       id: stored.id, status, severity: result.severity, failureCategories: result.failureCategories,
@@ -268,7 +269,7 @@ export class AiInteractionEvalProcessor extends WorkerHost {
       await this.ensureReviewTask(tenantId, evaluation);
     } catch (err) {
       if (!isLastAttempt) throw err;
-      this.logger.warn(`Failed to ensure the AI review task for evaluation ${evaluation.id}: ${String(err)}`);
+      this.logger.warn(`Failed to ensure the AI review task for evaluation ${evaluation.id}: ${describeErrorForLog(err)}`);
     }
   }
 

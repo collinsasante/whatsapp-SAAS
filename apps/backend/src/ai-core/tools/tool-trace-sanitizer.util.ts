@@ -1,4 +1,5 @@
 import { ToolCallTrace } from './tool-calling.service';
+import { redactForDiagnostics } from '../../common/privacy/prompt-redaction.util';
 
 /** Second hardening pass, Section 2: this is what gets persisted to
  * AiExecution.toolTrace -- one entry per tool call, in execution order. */
@@ -27,7 +28,9 @@ function sanitizeValue(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) return value;
 
   if (typeof value === 'string') {
-    return value.length > MAX_STRING_LENGTH ? `${value.slice(0, MAX_STRING_LENGTH)}… [truncated]` : value;
+    // Personal and secret values are masked BEFORE truncation, so a long string cannot hide one past the cut.
+    const safe = redactForDiagnostics(value);
+    return safe.length > MAX_STRING_LENGTH ? `${safe.slice(0, MAX_STRING_LENGTH)}… [truncated]` : safe;
   }
   if (typeof value === 'number' || typeof value === 'boolean') return value;
 
@@ -65,7 +68,7 @@ export function sanitizeToolTrace(trace: ToolCallTrace[]): SanitizedToolCall[] {
         input: sanitizeValue(call.args),
         result: sanitizedResult,
         success: !failed,
-        ...(failed && { errorMessage: String((call.result as Record<string, unknown>)['error']).slice(0, MAX_STRING_LENGTH) }),
+        ...(failed && { errorMessage: redactForDiagnostics(String((call.result as Record<string, unknown>)['error'])).slice(0, MAX_STRING_LENGTH) }),
         durationMs: call.durationMs ?? null,
       };
     });

@@ -6,6 +6,7 @@ import { PipelineTrace } from '../pipeline/pipeline.types';
 import { AiCreditsService } from '../credits/ai-credits.service';
 import { AiPricingService } from '../pricing/ai-pricing.service';
 import { AiLearningTriggerService } from '../../ai-learning/ai-learning-trigger.service';
+import { describeErrorForLog, redactForDiagnostics } from '../../common/privacy/prompt-redaction.util';
 
 /** agentId is optional here (unlike PipelineInput) -- non-pipeline callers
  * (summarize, KB-learn) have no AiAgent to attribute the call to. */
@@ -62,7 +63,8 @@ export class AiExecutionsService {
         confidence: trace.confidence,
         safetyFlags: trace.safetyFlags as Prisma.InputJsonValue,
         errorCode: trace.errorCode,
-        errorMessage: trace.errorMessage,
+        // A provider or database error can quote the request; mask personal and secret values before it is stored where staff can read it.
+        errorMessage: trace.errorMessage ? redactForDiagnostics(trace.errorMessage).slice(0, 500) : trace.errorMessage,
         stageTimings: trace.stageTimings as Prisma.InputJsonValue,
         toolTrace: trace.toolTrace as Prisma.InputJsonValue | undefined,
       },
@@ -86,7 +88,7 @@ export class AiExecutionsService {
       } catch (err) {
         // Credit settlement must never be why a customer doesn't get a reply --
         // the AI call and its response already happened by this point.
-        this.logger.error(`Failed to settle credits for AiExecution ${execution.id}`, err instanceof Error ? err.stack : String(err));
+        this.logger.error(`Failed to settle credits for AiExecution ${execution.id}`, describeErrorForLog(err));
       }
     }
 
