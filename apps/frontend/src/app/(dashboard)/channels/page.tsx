@@ -8,7 +8,7 @@ import {
   Plug2, PlugZap, Plus, PowerOff, Power, QrCode, LogOut, TriangleAlert, Copy, Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { channelsApi, facebookPagesApi, whatsappWebApi, tenantApi } from '@/lib/api';
+import { channelsApi, facebookPagesApi, historySyncApi, type HistorySyncStatus, whatsappWebApi, tenantApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { cn } from '@/lib/utils';
 import { getSocket, SocketEvent } from '@/lib/socket';
@@ -26,6 +26,8 @@ interface ConnectedChannel {
   sessionId?: string;
   whatsappWebStatus?: 'QR_PENDING' | 'QR_EXPIRED' | 'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'LOGGED_OUT' | 'ERROR';
   lastError?: string | null;
+  /** TikTok: the refresh job records { tiktokAuth: { status: 'REAUTH_REQUIRED' } } when TikTok rejected the stored refresh token. */
+  metadata?: { tiktokAuth?: { status?: string } } | null;
 }
 
 interface ChannelDef {
@@ -720,6 +722,62 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
 // section mirroring the WhatsApp Numbers row-list pattern (Settings page),
 // the only existing precedent in this codebase for a real multi-account list.
 
+/**
+ * Import status of a connected Facebook Page's existing conversations. Webhooks only deliver NEW messages, so on first sight of a Page that was
+ * never imported this starts the import once (admins only; others just see the status) and polls while it runs.
+ */
+function HistorySyncLine({ channelId, isActive }: { channelId: string; isActive: boolean }) {
+  const [sync, setSync] = useState<HistorySyncStatus | null>(null);
+  const [failedToLoad, setFailedToLoad] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async (autoStart: boolean) => {
+    try {
+      const res = await historySyncApi.get(channelId);
+      setFailedToLoad(false);
+      if (autoStart && isActive && res.data.status === 'NOT_STARTED') {
+        try { setSync((await historySyncApi.start(channelId)).data); return; } catch { /* not an admin, or Meta unavailable: show the status as it is */ }
+      }
+      setSync(res.data);
+    } catch { setFailedToLoad(true); }
+  }, [channelId, isActive]);
+
+  useEffect(() => { void load(true); }, [load]);
+  useEffect(() => {
+    if (sync?.status !== 'SYNCING' && sync?.status !== 'PENDING') return;
+    const t = setInterval(() => { void load(false); }, 4000);
+    return () => clearInterval(t);
+  }, [sync?.status, load]);
+
+  const retry = async () => {
+    setBusy(true);
+    try { setSync((await historySyncApi.start(channelId)).data); toast.success('Import started.'); }
+    catch { toast.error('Could not start the import. Only admins can do this, and the Page must be connected.'); }
+    finally { setBusy(false); }
+  };
+
+  if (failedToLoad) return <p className="text-xs text-gray-400 mt-0.5">Import status unavailable right now.</p>;
+  if (!sync || sync.status === 'NOT_STARTED') return null;
+  const n = sync.conversations.imported + sync.conversations.skipped;
+  const text =
+    sync.status === 'SYNCING' || sync.status === 'PENDING' ? `Importing earlier conversations… ${n} so far (${sync.messages.imported} messages)`
+    : sync.status === 'COMPLETED' ? `Earlier conversations imported: ${sync.conversations.imported} conversations, ${sync.messages.imported} new messages`
+    : sync.status === 'PARTIAL' ? `Partly imported (${sync.conversations.imported} conversations, ${sync.messages.imported} messages). ${sync.lastError ?? 'Some conversations could not be imported.'}`
+    : `Import failed. ${sync.lastError ?? 'Please try again.'}`;
+  const tone = sync.status === 'COMPLETED' ? 'text-emerald-700' : sync.status === 'SYNCING' || sync.status === 'PENDING' ? 'text-gray-500' : 'text-amber-700';
+  return (
+    <div className="flex items-center gap-2 mt-0.5" role="status" aria-live="polite">
+      <p className={cn('text-xs', tone)}>{text}</p>
+      {(sync.status === 'PARTIAL' || sync.status === 'FAILED' || sync.status === 'COMPLETED') && (
+        <button onClick={() => { void retry(); }} disabled={busy || !isActive}
+          className="text-xs font-semibold text-teal-600 hover:underline disabled:opacity-50">
+          {busy ? 'Starting…' : sync.status === 'COMPLETED' ? 'Check for more' : sync.resumable ? 'Resume' : 'Retry'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function FacebookPagesSection({ platform = 'facebook', pages, onChanged, onConnectMore }: { platform?: PickerProvider; pages: ConnectedChannel[]; onChanged: () => void; onConnectMore: () => void }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const fbDef = CHANNELS.find(c => c.id === platform)!;
@@ -785,6 +843,7 @@ function FacebookPagesSection({ platform = 'facebook', pages, onChanged, onConne
                 {!page.isActive && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">Disconnected</span>}
               </div>
               <p className="text-xs text-gray-400 mt-0.5">{isInstagram ? 'Instagram account' : 'Facebook Page'}</p>
+              {!isInstagram && <HistorySyncLine channelId={page.id} isActive={page.isActive} />}
             </div>
             <button
               onClick={() => { void handleToggle(page.id); }}
@@ -1306,6 +1365,7 @@ function ChannelCard({
 }) {
   const isConnected = !!connectedData;
   const isActive = connectedData?.isActive ?? false;
+  const needsReconnect = connectedData?.type === 'TIKTOK' && connectedData.metadata?.tiktokAuth?.status === 'REAUTH_REQUIRED';
   const [disconnecting, setDisconnecting] = useState(false);
 
   return (
@@ -1378,9 +1438,10 @@ function ChannelCard({
               <div className="flex flex-col items-end gap-2.5 flex-shrink-0">
                 {isConnected ? (
                   <>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-green-700 bg-green-50 border border-green-200 px-2.5 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                      {isActive ? 'Connected' : 'Inactive'}
+                    <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border',
+                      needsReconnect ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-green-700 bg-green-50 border-green-200')}>
+                      <span className={cn('w-1.5 h-1.5 rounded-full', needsReconnect ? 'bg-amber-500' : 'bg-green-500')} />
+                      {needsReconnect ? 'Reconnect needed' : isActive ? 'Connected' : 'Inactive'}
                     </span>
                     <button
                       onClick={onConnect}
@@ -1486,7 +1547,9 @@ function ChannelsPageInner() {
       toast.success(OAUTH_SUCCESS[success] ?? `${success} connected!`);
       void loadConnected();
     } else if (error) {
-      const msg = OAUTH_ERRORS[error] ?? decodeURIComponent(error);
+      // searchParams.get() has already decoded the value; decoding again throws URIError on a stray '%' (TikTok descriptions are free text).
+      let msg = OAUTH_ERRORS[error] ?? error;
+      if (!(error in OAUTH_ERRORS)) { try { msg = decodeURIComponent(error); } catch { msg = error; } }
       const prefix = provider ? `${provider.charAt(0).toUpperCase() + provider.slice(1)}: ` : '';
       toast.error(`${prefix}${msg}`);
     }

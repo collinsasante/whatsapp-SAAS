@@ -370,6 +370,23 @@ export const channelsApi = {
   getOAuthUrl: (provider: string) => api.get<{ redirectUrl: string }>(`/channels/oauth/${provider}`),
 };
 
+export interface HistorySyncStatus {
+  status: 'NOT_STARTED' | 'PENDING' | 'SYNCING' | 'COMPLETED' | 'PARTIAL' | 'FAILED';
+  startedAt: string | null;
+  finishedAt: string | null;
+  conversations: { discovered: number; imported: number; skipped: number; failed: number };
+  messages: { discovered: number; imported: number; skipped: number };
+  lastErrorCode: number | null;
+  lastError: string | null;
+  resumable: boolean;
+}
+
+// Importing a connected Facebook Page's existing Messenger conversations (webhooks only deliver new messages).
+export const historySyncApi = {
+  get: (channelId: string) => api.get<HistorySyncStatus>(`/channels/${channelId}/history-sync`),
+  start: (channelId: string) => api.post<HistorySyncStatus>(`/channels/${channelId}/history-sync`),
+};
+
 export const facebookPagesApi = {
   session: (sessionId: string) => api.get(`/channels/oauth/sessions/${sessionId}`),
   select: (sessionId: string, pageIds: string[]) => api.post(`/channels/oauth/sessions/${sessionId}/select`, { pageIds }),

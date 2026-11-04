@@ -5,3 +5,5 @@ export * from './template-variables';
 export * from './credentials-encryption';
 export * from './contact-identity';
 export * from './simulated-recipient';
+export * from './tiktok-oauth';
+export * from './tiktok-refresh';
