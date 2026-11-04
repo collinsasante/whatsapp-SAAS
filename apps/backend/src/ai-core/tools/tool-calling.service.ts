@@ -177,6 +177,9 @@ export class ToolCallingService {
         for (const call of completion.toolCalls) {
           let args: Record<string, unknown> = {};
           try { args = JSON.parse(call.arguments || '{}'); } catch { /* tool handler validates required fields */ }
+          // Arguments are model output: anything that is not a plain object (null, a string, an array) becomes an empty object so a handler never
+          // indexes into a non-object, and the handler's own required-field validation answers the model.
+          if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
           const toolStartedAt = Date.now();
           const rawResult = offeredTools.has(call.name)
             ? await this.tools.execute(call.name, req.toolContext, args)
