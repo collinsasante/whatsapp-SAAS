@@ -44,6 +44,32 @@ const mockCompletion = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('ToolCallingService', () => {
+  it('refuses a tool call for a tool that was NOT offered in this run, never executes it, and tells the model so', async () => {
+    const deps = buildDeps();
+    deps.tools.execute.mockResolvedValue({ ok: true });
+    deps.complete
+      .mockResolvedValueOnce(mockCompletion({ toolCalls: [{ id: 'c1', name: 'submit_order_for_payment', arguments: '{"orderId":"o1"}' }, { id: 'c2', name: 'search_products', arguments: '{"q":"x"}' }], finishReason: 'tool_calls' }))
+      .mockResolvedValueOnce(mockCompletion({ content: 'Done.' }));
+    const result = await buildService(deps).complete(baseReq());
+
+    expect(deps.tools.execute).toHaveBeenCalledTimes(1);                                   // only the offered tool ran
+    expect(deps.tools.execute).toHaveBeenCalledWith('search_products', expect.anything(), { q: 'x' });
+    const secondCall = deps.complete.mock.calls[1]![0] as { messages: Array<{ role: string; content: string; toolCallId?: string }> };
+    const refusal = secondCall.messages.find((m) => m.role === 'tool' && m.toolCallId === 'c1');
+    expect(refusal?.content).toContain('not available');                                  // the model is told, and can continue
+    expect(result.content).toBe('Done.');
+    expect(result.toolTrace.map((t) => t.name)).toEqual(['submit_order_for_payment', 'search_products']);
+  });
+
+  it('refuses an unknown or empty tool name the same way', async () => {
+    const deps = buildDeps();
+    deps.complete
+      .mockResolvedValueOnce(mockCompletion({ toolCalls: [{ id: 'c1', name: '', arguments: '{}' }, { id: 'c2', name: 'rm -rf /', arguments: '{}' }], finishReason: 'tool_calls' }))
+      .mockResolvedValueOnce(mockCompletion({ content: 'ok' }));
+    await buildService(deps).complete(baseReq());
+    expect(deps.tools.execute).not.toHaveBeenCalled();
+  });
+
   it('returns the final answer directly when the model calls no tools', async () => {
     const deps = buildDeps();
     deps.complete.mockResolvedValue(mockCompletion({ content: 'We have labels in stock.' }));

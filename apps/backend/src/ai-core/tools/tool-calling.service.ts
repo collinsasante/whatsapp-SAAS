@@ -122,6 +122,10 @@ export class ToolCallingService {
     const maxIterations = req.maxIterations ?? DEFAULT_MAX_ITERATIONS;
     const provider = this.registry.forModel(modelKey);
     const toolDefs = this.tools.getDefs(req.toolNames);
+    // Execution-time authorization: only tools that were actually OFFERED to the model in this run may execute. The registry holds every tool on the
+    // platform; without this check a model that hallucinates, or is steered by a prompt injection, could call a tool that was not offered (for example an
+    // order or payment tool during a read-only suggestion run).
+    const offeredTools = new Set(toolDefs.map((d) => d.name));
     const toolTrace: ToolCallTrace[] = [];
     const sideEffects: ToolSideEffect[] = [];
     const messages: ChatMessage[] = [
@@ -174,7 +178,9 @@ export class ToolCallingService {
           let args: Record<string, unknown> = {};
           try { args = JSON.parse(call.arguments || '{}'); } catch { /* tool handler validates required fields */ }
           const toolStartedAt = Date.now();
-          const rawResult = await this.tools.execute(call.name, req.toolContext, args);
+          const rawResult = offeredTools.has(call.name)
+            ? await this.tools.execute(call.name, req.toolContext, args)
+            : this.refuseUnofferedTool(call.name, req.conversationId);
           // A tool may return a { forModel, sideEffect? } envelope instead of a bare
           // result -- only forModel goes back into the model's own context; the side
           // effect (e.g. "send this image") is pulled out for the caller to deliver.
@@ -201,6 +207,12 @@ export class ToolCallingService {
       }, toolTrace, reservationIds);
       return { content: '', toolTrace, failed: true, hitMaxIterations: false, sideEffects, executionId };
     }
+  }
+
+  private refuseUnofferedTool(name: string, conversationId?: string): { error: string } {
+    const safeName = String(name).replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 64);
+    this.logger.warn(`Refused a call to a tool that was not offered in this run (${safeName || 'unnamed'}) for conversation ${conversationId ?? 'unknown'}`);
+    return { error: 'That tool is not available in this conversation.' };
   }
 
   private async trace(
