@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type JSX } from 'react';
 import { Loader2, X, CheckCircle2, XCircle, MinusCircle, AlertTriangle } from 'lucide-react';
 import { aiExecutionsApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
