@@ -15,7 +15,7 @@
     "@emoji-mart/react": "^1.1.1",
     "@ffmpeg/ffmpeg": "^0.12.10",
     "@ffmpeg/util": "^0.12.1",
-    "@sentry/nextjs": "^10.53.1",
+    "@sentry/nextjs": "^10.75.2",
     "@stripe/react-stripe-js": "^6.7.0",
     "@stripe/stripe-js": "^9.9.0",
     "@tanstack/react-virtual": "^3.13.24",
