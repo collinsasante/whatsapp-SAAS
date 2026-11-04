@@ -251,6 +251,9 @@ model TenantSettings {
   businessWebsite             String?   @map("business_website")
   businessDescription         String?   @map("business_description")
   timezone                    String    @default("UTC")
+  // Most AI credits this workspace may spend in one day (its own timezone). Null = no cap. Set by platform admins only; enforced when credits are
+  // reserved for a provider call (AiCreditsService). 0 blocks all AI replies.
+  aiDailyCreditCap            Int?      @map("ai_daily_credit_cap")
   autoReply                   Boolean   @default(false) @map("auto_reply")
   autoReplyMessage            String?   @map("auto_reply_message")
   maxAgents                   Int       @default(10) @map("max_agents")

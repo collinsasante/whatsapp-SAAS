@@ -402,6 +402,15 @@ export class PlatformAdminController {
     return result;
   }
 
+  @Patch('workspaces/:id/ai-daily-credit-cap')
+  @UseGuards(PlatformAdminGuard)
+  @RequirePlatformRole('SUPER_ADMIN')
+  async setAiDailyCreditCap(@Param('id') id: string, @Body('cap') cap: number | null, @Req() req: AdminRequest) {
+    const result = await this.adminService.setAiDailyCreditCap(id, cap === undefined ? null : cap);
+    await this.auditService.log({ adminId: req.adminId, action: 'workspace.set_ai_daily_credit_cap', resourceType: 'Tenant', resourceId: id, metadata: { cap: result.aiDailyCreditCap } });
+    return result;
+  }
+
   @Patch('workspaces/:id/commerce')
   @UseGuards(PlatformAdminGuard)
   @RequirePlatformRole('SUPER_ADMIN')

@@ -53,6 +53,8 @@ function buildPrismaMock(overrides: Partial<Record<string, unknown>> = {}) {
         return Promise.resolve({ count: 1 });
       }),
     },
+    // no settings row = no daily spend cap (the cap itself is covered against a real database in ai-credits.spend-cap.db.spec.ts)
+    tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn().mockResolvedValue([{ id: 't1' }]),
     $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(base)),
     ...overrides,
@@ -347,6 +349,8 @@ describe('AiCreditsService', () => {
       const summary = await service.getUsageSummary('t1');
 
       expect(summary).toEqual({
+        dailyCreditCap: null,   // new: the workspace has no cap configured in this fake
+        spentToday: 0,
         currentBalance: 100,
         usedThisMonth: 30,
         purchasedThisMonth: 1000,

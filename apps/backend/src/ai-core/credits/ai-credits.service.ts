@@ -14,6 +14,18 @@ export class InsufficientAiCreditsError extends Error {
   }
 }
 
+/**
+ * The workspace's daily AI spend cap would be exceeded by this reservation. It IS an InsufficientAiCreditsError on purpose: every caller already
+ * treats that as "do not call the provider, leave the conversation for a person", so the cap needs no new handling at the call sites.
+ */
+export class AiSpendCapReachedError extends InsufficientAiCreditsError {
+  constructor(readonly cap: number, readonly spentToday: number) {
+    super();
+    this.message = `Daily AI spend cap reached (${spentToday} of ${cap} credits used today).`;
+    this.name = 'AiSpendCapReachedError';
+  }
+}
+
 export interface SettleResult {
   /** False when neither the unreserved balance nor this reservation can cover
    * the settlement; provider output may already have been delivered. */
@@ -84,6 +96,7 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
       const tenant = await this.lockTenant(tx, tenantId);
       const heldCredits = await this.getHeldCredits(tx, tenantId);
       if (tenant.aiCredits - heldCredits < quote.reservedCredits) throw new InsufficientAiCreditsError();
+      await this.assertWithinDailyCap(tx, tenantId, heldCredits, quote.reservedCredits);
 
       return tx.aiCreditReservation.create({
         data: {
@@ -107,6 +120,7 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
       const tenant = await this.lockTenant(tx, tenantId);
       const heldCredits = await this.getHeldCredits(tx, tenantId);
       if (tenant.aiCredits - heldCredits < credits) throw new InsufficientAiCreditsError();
+      await this.assertWithinDailyCap(tx, tenantId, heldCredits, credits);
 
       return tx.aiCreditReservation.create({
         data: {
@@ -423,7 +437,12 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
       Math.abs(rows.find((r) => r.type === type)?._sum.credits ?? 0);
     const aiRequestsThisMonth = thisMonth.find((r) => r.type === AiCreditTransactionType.AI_USAGE)?._count ?? 0;
 
+    const capRow = await this.prisma.tenantSettings.findUnique({ where: { tenantId }, select: { aiDailyCreditCap: true } });
+    const spentToday = await this.prisma.$transaction((tx) => this.getSettledToday(tx, tenantId));
+
     return {
+      dailyCreditCap: capRow?.aiDailyCreditCap ?? null,
+      spentToday,
       currentBalance: balance,
       usedThisMonth: sumFor(thisMonth, AiCreditTransactionType.AI_USAGE),
       purchasedThisMonth: sumFor(thisMonth, AiCreditTransactionType.PURCHASE),
@@ -431,6 +450,37 @@ export class AiCreditsService implements OnModuleInit, OnModuleDestroy {
       totalPurchased: sumFor(lifetime, AiCreditTransactionType.PURCHASE),
       totalUsed: sumFor(lifetime, AiCreditTransactionType.AI_USAGE),
     };
+  }
+
+  /**
+   * Daily cap, enforced inside the reservation transaction that already holds the tenant row lock, so concurrent reservations (several replicas, a retry
+   * storm) are serialised and cannot jointly exceed it. Spent = credits settled today (AI_USAGE net of REFUND) in the workspace's own timezone
+   * + credits currently held by open reservations + this request. Releasing a reservation frees its headroom immediately.
+   */
+  private async assertWithinDailyCap(tx: Prisma.TransactionClient, tenantId: string, heldCredits: number, requested: number): Promise<void> {
+    const settings = await tx.tenantSettings.findUnique({ where: { tenantId }, select: { aiDailyCreditCap: true } });
+    const cap = settings?.aiDailyCreditCap;
+    if (cap === null || cap === undefined) return;
+    const spentToday = await this.getSettledToday(tx, tenantId);
+    if (spentToday + heldCredits + requested > cap) throw new AiSpendCapReachedError(cap, spentToday + heldCredits);
+  }
+
+  /**
+   * Credits settled since local midnight in the workspace's timezone (an unknown timezone name falls back to UTC). `created_at` is a naive UTC
+   * timestamp, so the local-midnight boundary is converted to naive UTC explicitly instead of relying on the session time zone.
+   */
+  private async getSettledToday(tx: Prisma.TransactionClient, tenantId: string): Promise<number> {
+    const rows = await tx.$queryRaw<Array<{ spent: bigint | number | null }>>`
+      WITH tz AS (
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_timezone_names n WHERE n.name = s.timezone) THEN s.timezone ELSE 'UTC' END AS name
+        FROM (SELECT COALESCE((SELECT timezone FROM tenant_settings WHERE tenant_id = ${tenantId}), 'UTC') AS timezone) s
+      )
+      SELECT COALESCE(-SUM(t.credits), 0) AS spent
+      FROM ai_credit_transactions t, tz
+      WHERE t.tenant_id = ${tenantId}
+        AND t.type IN ('AI_USAGE', 'REFUND')
+        AND t.created_at >= ((date_trunc('day', now() AT TIME ZONE tz.name) AT TIME ZONE tz.name) AT TIME ZONE 'UTC')`;
+    return Math.max(0, Number(rows[0]?.spent ?? 0));
   }
 
   private isUniqueConstraintError(err: unknown): boolean {

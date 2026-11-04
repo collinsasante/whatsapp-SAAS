@@ -47,3 +47,11 @@ v1 remains for every non-commerce tenant without `verz_ai_v2` and for the `/ai-l
 * REAL-DB TESTED: conversation lease; Messenger import (not AI).
 * NEEDS STAGING/PROVIDER before any readiness claim: real provider replies, malformed/truncated handling against the real API, BullMQ/PostgreSQL queue behaviour, v2 vs v1 quality.
 * NOT IMPLEMENTED: voice transcription, image understanding, spend caps and alerts, prompt PII redaction.
+
+
+## 7. Update: per-tenant daily spend cap IMPLEMENTED (backend) 2026-11-04
+* `tenant_settings.ai_daily_credit_cap` (nullable integer, CHECK >= 0; migration `20261106120000_ai_daily_credit_cap`, metadata-only). Null = no cap, 0 = block all AI.
+* Enforced in `AiCreditsService.reserveForProviderCall` and `reserveFixedCredits` (so every provider path, including the legacy flat-cost path, is covered) inside the transaction that already holds the tenant row lock: spent today (settled `AI_USAGE` net of `REFUND`, since local midnight in the workspace's timezone; unknown timezone falls back to UTC) + credits held by open reservations + the request must not exceed the cap. Over the cap throws `AiSpendCapReachedError`, a subtype of `InsufficientAiCreditsError`, so existing call sites already do the right thing (no provider call, conversation left for a person).
+* Set by platform super-admins only: `PATCH /platform-admin/workspaces/:id/ai-daily-credit-cap { cap }` (audited as `workspace.set_ai_daily_credit_cap`). `getUsageSummary` now also returns `dailyCreditCap` and `spentToday`.
+* Tests: 12 on a real PostgreSQL including 20 concurrent reservations from two independent connections (exactly 5 of 10 credits fit in 50), held credits, release freeing headroom, cap 0, lowering and removing the cap, refunds, local-midnight boundary in Auckland / Honolulu / UTC, invalid timezone, no settings row, tenant isolation, the CHECK constraint; two mutations (cap check removed, held credits ignored) each fail 6-7 of them. 11 unit tests of the setter's validation.
+* NOT done: alerts at a threshold (no notification record was added), a tenant-visible display in the dashboard, and default cap values (product decision). Until then the cap is an operational control set by VerzChat staff.

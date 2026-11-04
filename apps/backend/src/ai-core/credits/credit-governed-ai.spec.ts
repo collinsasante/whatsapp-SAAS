@@ -63,6 +63,8 @@ function buildPrismaMock(startingCredits = 100) {
         return Promise.resolve({ count: 1 });
       }),
     },
+    // no settings row = no daily spend cap (the cap itself is covered against a real database in ai-credits.spend-cap.db.spec.ts)
+    tenantSettings: { findUnique: jest.fn().mockResolvedValue(null) },
     $queryRaw: jest.fn().mockResolvedValue([{ id: 't1' }]),
     $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(base)),
     ...overrides,

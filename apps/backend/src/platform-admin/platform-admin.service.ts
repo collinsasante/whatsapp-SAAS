@@ -1006,6 +1006,20 @@ export class PlatformAdminService {
     return { success: true, tenantId, plan: plan.name, periodEnd };
   }
 
+  /** Platform-admin-only: how many AI credits a workspace may spend per day (its own timezone). `null` removes the cap; 0 blocks AI replies. */
+  async setAiDailyCreditCap(tenantId: string, cap: number | null) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } });
+    if (!tenant) throw new NotFoundException('Workspace not found');
+    if (cap !== null && (!Number.isSafeInteger(cap) || cap < 0)) throw new BadRequestException('cap must be a whole number of credits (0 or more), or null for no cap');
+    const settings = await this.prisma.tenantSettings.upsert({
+      where: { tenantId },
+      create: { tenantId, aiDailyCreditCap: cap },
+      update: { aiDailyCreditCap: cap },
+      select: { aiDailyCreditCap: true },
+    });
+    return { success: true, tenantId, ...settings };
+  }
+
   /**
    * Managed Commerce is deliberately platform-admin-only to configure (see the
    * TenantSettings.takeRatePct schema comment): the take rate is VerzChat's own
