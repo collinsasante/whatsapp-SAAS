@@ -52,6 +52,18 @@ restores the saved listing in one atomic transaction and then re-runs `staging-8
 exception by the elapsed time; reproduced at +54 s), never resurrects an exception that expired meanwhile, is bounded (boot step limited; 5.3 s with a held script lock, 0.3 s on `fail`),
 is idempotent, and touches no other table. The comparison ignores counters, expiry timers and the admin sets.
 
+## 4b. Recovery snapshots
+
+`last-good` is the only snapshot the boot unit loads. A second, independent recovery copy can be pinned without touching anything live:
+
+```bash
+staging-8443-fw snapshot    # validated copy of last-good -> snapshots/<id>, pointer `recovery` (pinned against pruning); live table, last-good and policy untouched
+staging-8443-fw status      # shows recovery_snapshot and previous_snapshot
+staging-8443-fw recover     # if last-good is corrupt/unusable: validate `recovery` (refused if tampered), make it last-good, load it; refused while the rollback marker exists
+```
+Validated in isolation (38 checks): creation changes nothing live; restore after corrupting last-good restores the exact signature and keeps the admin exception's absolute expiry; a tampered recovery snapshot is refused with
+nothing changed; pruning never removes the pinned snapshot (13 newer promotions); a refresh through a local feed and a `recover` afterwards round-trip. `promote()` no longer points `previous` at a deleted directory.
+
 ## 5. Acceptance record (2026-11-03)
 
 | Stage | Result | Evidence |
@@ -71,7 +83,7 @@ Docker restart on the production-shared VPS (AP-3); fail-closed boot with a corr
 
 ## 6. AP-3: Docker restart and reboot (NEEDS A PRODUCTION MAINTENANCE WINDOW)
 
-**Impact.** Docker has `live-restore=false` and all 18 containers (10 production, 8 staging) are `restart: always`. `systemctl restart docker` and a reboot stop and restart EVERY container, including production.
+**Impact.** Docker has `live-restore=false` and all 18 containers (9 production, 9 staging) are `restart: always`. `systemctl restart docker` and a reboot stop and restart EVERY container, including production.
 Estimates from the 2026-11-01 boot timeline (not measured under this change): Docker active ~20 s after it starts, containers up ~4 s after Docker starts, plus application warm-up: roughly 1-3 min for a Docker
 restart and 2-5 min for a reboot.
 
@@ -79,6 +91,14 @@ restart and 2-5 min for a reboot.
 REFUSES connections (it must be enabled in the Customer Panel and, per Contabo, the server rebooted before it works), so the fallback is the Contabo Customer Panel: Reboot and **Rescue System** (SSH as root into a live system,
 mount the root disk, fix, reboot). Confirm you can log in to the panel BEFORE the window. No refresh timer within 24 h; admin exception not expiring inside the window; `acceptance/ap2-00-preflight.sh` all PASS;
 `nftables.service` disabled (its `/etc/nftables.conf` begins with `flush ruleset` and would delete every table); rollback marker absent; `systemd-analyze verify` clean (it is today).
+
+**Gate and verification scripts.** `acceptance/ap3-pre.sh <EV>` (read-only; any FAIL = NO-GO) checks invariants, a validated recovery snapshot, a fresh (< 2 h) valid production dump and a staging dump, no cron collision, unit hashes, and captures the pre-state
+(boot id, timeline, containers, listeners, hashes). `acceptance/ap3-post.sh <EV> docker|reboot` verifies the result, including the gate-before-Docker ordering, real-packet access control in IPv4 and IPv6, ports 22/80/443/8080, and the old layer. Both were dry-run in steady state on 2026-11-04.
+
+**Facts that shape the window (observed 2026-11-04).** Cron (server time CET): production DB backup 02:00 (`/root/whatsapp-platform/infra/scripts/backup.sh`), `certbot renew` 03:00 with an nginx reload post-hook, and a health check every 5 minutes
+(`/usr/local/bin/verzchat-healthcheck.sh`) that runs `docker start` on `wa_nginx wa_backend wa_frontend wa_worker wa_realtime` if they are not running (harmless next to `restart: always`, but avoid a */5 tick). Latest production dump: `waplatform_20261103_020001.sql.gz` (77 MB, gzip OK, 105 tables);
+staging release backup 9 h old (106 data entries). A manual fresh production dump is required immediately before the window. Suggested start: after 03:30 CET and not on a */5 minute. Production services interrupted: nginx (80/443), backend, frontend, realtime, worker,
+whatsapp-web, postgres, redis, minio. **Risk to call out:** `wa_whatsapp_web` holds a live WhatsApp Web session; a stop that exceeds Docker's 10 s grace is SIGKILLed and the session may need to re-link. Meta Cloud API webhooks are retried by Meta, and Socket.io clients reconnect.
 
 **C1: Docker restart.**
 ```bash
@@ -114,7 +134,15 @@ Procedure (when approved): arm a watchdog variant that re-applies the old layer 
 re-run B3-live packet-level (an admin exception for a test address now works end-to-end); soak 25 min; keep the legacy scripts and unit file for 30 days. Rollback: `systemctl enable --now staging-8443-firewall.service`
 (or `legacy-iptables/staging-8443-firewall apply`).
 
+## 7b. Cloudflare IPv6 evidence (2026-11-04)
+
+Observed: the VPS has a working global IPv6 (outbound ICMPv6 and TCP/443 succeed; default route present). Production nginx logs (2026-09-19 to 2026-11-03) contain **1,211 requests whose connecting address is a Cloudflare IPv6 address** (`2a06:98c0::/29`), i.e.
+Cloudflare does reach this VPS over IPv6 for production on port 443. Staging port 8443: 7,116 retained requests, all IPv4 (5,035 from Cloudflare IPv4), none over IPv6. 40 real requests through Cloudflare to `https://verzchat.com:8443/api/v1/public/version` from an IPv4-only client also arrived
+over IPv4. NOT verified: a real Cloudflare IPv6 connection to port 8443 and the staging origin DNS records (the Cloudflare API was not used: the only credential on the host is certbot's DNS-01 token, and using it for another purpose needs the owner's decision). Test that closes it: from an IPv6-capable client
+(a phone on mobile data) open `https://verzchat.com:8443/api/v1/public/version` and `https://staging.verzchat.com:8443/api/v1/public/version`, then check `docker logs --since 5m wa_staging_nginx` for a connecting address inside `2400:cb00::/32`, `2606:4700::/32`, `2803:f800::/32`, `2405:b500::/32`, `2405:8100::/32`, `2a06:98c0::/29` or `2c0f:f248::/32`.
+If Cloudflare mirrors the client's IP version, an IPv6 client will show IPv6; if the staging record has no AAAA, it will stay IPv4 (that is then the documented answer: the IPv6 gate path is verified with real Cloudflare prefixes but unused by staging).
+
 ## 8. Known risks and limitations
 
-Only one snapshot exists (no `previous`). A reload resets counters. The 5-second verify timer is journal-noisy (~20 lines/min). The admin exception expires 2026-11-10T19:13:50Z and is not to be renewed; the
+One validated recovery snapshot can be pinned with `staging-8443-fw snapshot` (done on staging 2026-11-04). A reload resets counters. The 5-second verify timer is journal-noisy (~20 lines/min). The admin exception expires 2026-11-10T19:13:50Z and is not to be renewed; the
 SSH tunnel replaces it. `/etc/nftables.conf` contains `flush ruleset` (service disabled, must stay disabled). Docker restart/reboot behaviour on the shared VPS is validated only in isolation until AP-3.

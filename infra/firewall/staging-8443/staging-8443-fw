@@ -318,11 +318,11 @@ def point(name, sid):
 
 
 def promote(sid):
-    if os.path.islink(sdir("last-good")):
+    if os.path.islink(sdir("last-good")) and os.path.isdir(os.path.realpath(sdir("last-good"))):
         point("previous", os.path.basename(os.path.realpath(sdir("last-good"))))
     point("last-good", sid)
     keep = int(POLICY["SNAPSHOTS_KEEP"])
-    pinned = {os.path.basename(os.path.realpath(sdir(n))) for n in ("last-good", "previous") if os.path.islink(sdir(n))}
+    pinned = {os.path.basename(os.path.realpath(sdir(n))) for n in ("last-good", "previous", "recovery") if os.path.islink(sdir(n))}
     allsnaps = sorted(os.listdir(sdir("snapshots")))
     for s in allsnaps[:-keep]:
         if s not in pinned:
@@ -498,6 +498,30 @@ def act_verify(_):
         return 0
 
 
+def act_snapshot(_):
+    """Pin an additional, independently validated recovery copy of last-good (pointer `recovery`). Changes NOTHING live: not the table, not last-good, not the policy."""
+    with Lock():
+        v4, v6, meta = read_snapshot("last-good")  # re-validates hashes and content first
+        sid = write_snapshot(v4, v6, "recovery-copy-of:" + meta["id"])
+        point("recovery", sid)
+        read_snapshot("recovery")  # prove the new copy parses and validates
+        log("INFO", f"recovery snapshot {sid} pinned from last-good {meta['id']} ({len(v4)} v4 + {len(v6)} v6 ranges); live rules, last-good and policy unchanged")
+        return 0
+
+
+def act_recover(_):
+    """Make the pinned `recovery` snapshot the last-good one (validated first, refused if tampered) and load it. For when last-good is corrupt or unusable."""
+    with Lock():
+        if disabled():
+            log("WARN", "firewall is explicitly disabled (rollback marker present); run `staging-8443-fw restore` first")
+            return 1
+        v4, v6, meta = read_snapshot("recovery")  # raises V (nothing changes) if missing, tampered or invalid
+        promote(meta["id"])
+        apply_last_good(allow_fallback=False)
+        log("INFO", f"recovered: {meta['id']} is now last-good")
+        return 0
+
+
 def act_status(_):
     with Lock():
         st = json.load(open(sdir("status.json"))) if os.path.exists(sdir("status.json")) else {}
@@ -505,6 +529,8 @@ def act_status(_):
         admin, _e = read_admin()
         print(json.dumps({"table_present": table_exists(), "disabled": disabled(), "last_good": lg, "live_signature": (live_signature() or "")[:16],
                           "expected_signature": (open(sdir("live.sig")).read().strip()[:16] if os.path.exists(sdir("live.sig")) else None),
+                          "recovery_snapshot": (os.path.basename(os.path.realpath(sdir("recovery"))) if os.path.islink(sdir("recovery")) else None),
+                          "previous_snapshot": (os.path.basename(os.path.realpath(sdir("previous"))) if os.path.islink(sdir("previous")) else None),
                           "admin_exceptions": [{"ip": "<hidden>", "expires": stamp(e)} for _i, e in admin], **st}, indent=1))
     return 0
 
@@ -550,7 +576,7 @@ def main():
     load_policy()
     ap = argparse.ArgumentParser(prog="staging-8443-fw")
     sub = ap.add_subparsers(dest="action", required=True)
-    for n in ("boot", "apply", "refresh", "verify", "status", "rollback", "restore"):
+    for n in ("boot", "apply", "refresh", "verify", "status", "rollback", "restore", "snapshot", "recover"):
         sub.add_parser(n)
     ad = sub.add_parser("admin")
     ad.add_argument("cmd", choices=["add", "del", "list"])
@@ -560,7 +586,7 @@ def main():
     signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(V("download exceeded its overall time limit")))
     os.makedirs(STATE, exist_ok=True)
     fn = {"boot": act_boot, "apply": act_apply, "refresh": act_refresh, "verify": act_verify, "status": act_status,
-          "rollback": act_rollback, "restore": act_restore, "admin": act_admin}[a.action]
+          "rollback": act_rollback, "restore": act_restore, "admin": act_admin, "snapshot": act_snapshot, "recover": act_recover}[a.action]
     try:
         sys.exit(fn(a))
     except V as e:

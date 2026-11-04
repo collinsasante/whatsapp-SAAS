@@ -47,6 +47,8 @@ Idempotent: a second run installs nothing and touches no unit. An existing `poli
 staging-8443-fw status                       # table, last-good, signatures, last refresh, admin entries (addresses hidden)
 staging-8443-fw refresh                      # fetch -> validate -> nft -c -> atomic load -> post-check -> promote
 staging-8443-fw admin add <ip> --ttl 7d      # temporary exception (prefer an SSH tunnel to 127.0.0.1:8080)
+staging-8443-fw snapshot                     # pin a validated second recovery snapshot (nothing live changes)
+staging-8443-fw recover                      # load the pinned recovery snapshot if last-good is unusable
 staging-8443-fw-rollback                     # remove the gate (only its own table)
 staging-8443-fw restore && systemctl enable --now staging-8443-fw.service staging-8443-fw-verify.timer staging-8443-fw-refresh.timer
 ```

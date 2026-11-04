@@ -5,11 +5,13 @@
 #   <dir> must hold pre.nft (nft list table inet staging8443) and rollback.nft (add table + delete table + the pre.nft listing); see docs/STAGING_8443_FIREWALL.md
 # Cancel:  touch <dir>/confirm      Immediate rollback:  touch <dir>/fail      Otherwise: rolls back when the deadline passes.
 D=$1; DL=$2; NS=$3; NSX=(); [ -n "$NS" ] && NSX=(ip netns exec "$NS")
+rm -f "$D/result" "$D/after-rollback.nft"   # a result left by an earlier run must never be mistaken for this run's outcome
 LOG=$D/watchdog.log; log() { echo "$(date -u +%FT%TZ) $*" >> "$LOG"; }
 # Admin sets are excluded from the comparison on purpose: their elements are re-derived from admin.txt by 'boot' (and may legitimately have expired meanwhile).
 strip_admin() { awk '/^[ \t]*set admin[46] \{/{skip=1} !skip{print} skip && /^[ \t]*\}/{skip=0}'; }
 norm() { strip_admin | sed -E 's/packets [0-9]+ bytes [0-9]+//; s/ expires [0-9a-z.]+//; s/ timeout [0-9dhms]+//g'; }
 BOOT_TO=${WD_BOOT_TIMEOUT:-150}   # 'boot' waits up to LOCK_WAIT (120 s) for the script lock; never let the watchdog outlive that
+[ -s "$D/rollback.nft" ] && [ -s "$D/pre.nft" ] || { log "ABORT: $D/pre.nft or rollback.nft missing or empty; nothing armed"; echo NOT_ARMED > "$D/result"; exit 2; }
 END=$(( $(date +%s) + DL )); log "armed: deadline ${DL}s ns=${NS:-host}"
 while :; do
   [ -e "$D/confirm" ] && { log "CONFIRMED: watchdog cancelled, no rollback performed"; echo CANCELLED > "$D/result"; exit 0; }
