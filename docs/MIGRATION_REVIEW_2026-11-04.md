@@ -1,20 +1,21 @@
-# Review of the two pending migrations (2026-11-04)
+# Review of the three pending migrations (2026-11-04)
 
-Scope: `20261104120000_channel_history_sync` and `20261105120000_ai_conversation_leases`, on `integration/staging-candidate-v2`. Verified locally against a real PostgreSQL 17 (the servers run 16): nothing was applied to staging or production.
+Scope: `20261104120000_channel_history_sync`, `20261105120000_ai_conversation_leases` and (added later the same day) `20261106120000_ai_daily_credit_cap`, on `integration/staging-candidate-v2`. Verified locally against a real PostgreSQL 17 (the servers run 16): nothing was applied to staging or production.
 
 ## What they do
 | Migration | Changes |
 |---|---|
 | `20261104120000_channel_history_sync` | creates enum `ChannelHistorySyncStatus` (inside a `DO` block that tolerates "already exists"), table `channel_history_syncs`, a unique index on `channel_id`, an index on `tenant_id`, and foreign keys to `tenants(id)` and `channels(id)` with `ON DELETE CASCADE` |
 | `20261105120000_ai_conversation_leases` | creates table `ai_conversation_leases` (primary key `conversation_id`) and an index on `expires_at`; **no foreign keys on purpose** |
-Neither alters, renames, drops or rewrites any existing table, column, index or row. All statements use `IF NOT EXISTS` or tolerant `DO` blocks, so a manual re-run is harmless (tested).
+| `20261106120000_ai_daily_credit_cap` | `ALTER TABLE tenant_settings ADD COLUMN ai_daily_credit_cap INTEGER` (nullable, no default: metadata-only, no table rewrite) and a `CHECK (cap IS NULL OR cap >= 0)` constraint (validated by scanning `tenant_settings`, one row per workspace, so effectively instant). It takes a brief ACCESS EXCLUSIVE lock on `tenant_settings`: if a long transaction holds that table the statement waits and queues new readers behind it, so apply it when no long-running transaction is open (the release script stops the staging writers first). Existing rows keep every value and get a NULL cap (no cap). Rollback: drop the constraint, then the column; the cap values are the only data lost. |
+The first two alter nothing that exists. The third is the only one that touches an existing table. All statements use `IF NOT EXISTS` or tolerant `DO` blocks, so a manual re-run is harmless (tested).
 
 ## Verification performed
-* Full 100-migration history on a blank database via the repo's own `prisma migrate deploy`: applied; `migrate status` up to date.
+* Full 101-migration history on a blank database via the repo's own `prisma migrate deploy`: applied; `migrate status` up to date.
 * Incremental: with everything applied except these two (their tables, type and history rows removed), `migrate deploy` applies exactly these two, in order.
 * Idempotent: each SQL file run a second time with `ON_ERROR_STOP` succeeds.
 * Rollback SQL (`DROP TABLE ai_conversation_leases; DROP TABLE channel_history_syncs; DROP TYPE "ChannelHistorySyncStatus";`) succeeds.
-* Staging gate preflight (read-only, 2026-11-04): 98 migrations applied there, all present in the candidate with identical checksums, exactly these two pending.
+* Staging gate preflight (read-only, 2026-11-04): 98 migrations applied there, all present in the candidate with identical checksums, exactly these pending (the third was added after that preflight and must be re-checked the same way before deploy).
 * Both real-database suites (Messenger import, AI lease) run against a schema built from `schema.prisma` and pass.
 
 ## Locking and data safety

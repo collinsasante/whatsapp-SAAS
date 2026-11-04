@@ -47,11 +47,11 @@ The script recreates only backend, worker, realtime, whatsapp-web and frontend w
 vps 'docker ps -q | wc -l'                                           # 18
 vps 'for c in wa_staging_postgres wa_staging_redis wa_staging_minio wa_staging_nginx; do docker inspect -f "{{.Name}} {{.State.StartedAt}}" $c; done'   # unchanged
 vps 'for c in $(docker ps --format "{{.Names}}" | grep -v staging); do docker inspect -f "{{.Name}} {{.State.StartedAt}}" $c; done'                # 9 production: unchanged
-vps 'docker exec wa_staging_postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -Atc \"select migration_name from _prisma_migrations where migration_name in (\$\$20261104120000_channel_history_sync\$\$,\$\$20261105120000_ai_conversation_leases\$\$) and finished_at is not null\""'   # both lines
+vps 'docker exec wa_staging_postgres sh -c "psql -U \$POSTGRES_USER -d \$POSTGRES_DB -Atc \"select migration_name from _prisma_migrations where migration_name in (\$\$20261104120000_channel_history_sync\$\$,\$\$20261105120000_ai_conversation_leases\$\$,\$\$20261106120000_ai_daily_credit_cap\$\$) and finished_at is not null\""'   # three lines
 curl -sk -o /dev/null -w '%{http_code}\n' https://staging.verzchat.com:8443/health
 vps 'docker logs --since 10m wa_staging_backend 2>&1 | grep -ciE "error|exception" ; docker logs --since 10m wa_staging_worker 2>&1 | grep -E "TikTokTokenRefresh|Worker started" | head'
 ```
-Pass: 18 containers; the four infrastructure containers and all nine production containers keep their start times; both migrations finished; HTTPS 200; the worker logs `[TikTokTokenRefresh] Worker started`. Failure: use the documented code-only rollback (`rollback <tag>`); the migrations are additive and harmless to older code.
+Pass: 18 containers; the four infrastructure containers and all nine production containers keep their start times; all three migrations finished; HTTPS 200; the worker logs `[TikTokTokenRefresh] Worker started`. Failure: use the documented code-only rollback (`rollback <tag>`); the migrations are additive and harmless to older code.
 
 ## 2. Messenger history import (real Meta, real staging database)
 Known source figure from Meta before the work: 2 conversations, 13 messages for the staging test Page, versus 1 conversation and 4 messages already in the database (allow for changes in the live source; recount from Meta first).
