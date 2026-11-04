@@ -297,13 +297,11 @@ export class WhatsAppNumbersService {
     // Legacy denormalized fields on Tenant -- still read as a fallback by
     // WhatsAppService.resolveCredentials() when no WhatsAppNumber-specific
     // resolution is available, so kept in sync here rather than removed.
-    // Stored in plaintext deliberately: Tenant.accessToken predates this
-    // encryption layer and every legacy read site expects plaintext; migrating
-    // it is out of scope here since WhatsAppNumber is the actual source of
-    // truth going forward (see Phase 3).
+    // Callers pass the PLAIN token. It is stored encrypted when a key is configured (a no-op otherwise); every read site decrypts with the
+    // dual-read helpers, so rows written before encryption was enabled keep working.
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { phoneNumberId, wabaId, accessToken },
+      data: { phoneNumberId, wabaId, accessToken: this.encryption.encrypt(accessToken) },
     });
   }
 

@@ -21,7 +21,7 @@ export interface WhatsAppCredentials {
  * WhatsAppNumbersService. Resolves from WhatsAppNumber (decrypted) when a
  * number id is given -- so a campaign/automation/retry send always goes out
  * from the exact number it actually belongs to -- falling back to the
- * tenant's legacy default fields (always stored plaintext, see
+ * tenant's legacy default fields (stored encrypted when a key is configured, see
  * WhatsAppNumbersService.syncDefaultToTenant) only when no number is
  * specified at all. Returns null when nothing usable was found, matching
  * this file's callers' existing "skip if not configured" behavior.
@@ -44,5 +44,6 @@ export async function resolveWhatsAppCredentials(
     select: { phoneNumberId: true, accessToken: true },
   });
   if (!tenant?.phoneNumberId || !tenant.accessToken) return null;
-  return { phoneNumberId: tenant.phoneNumberId, accessToken: tenant.accessToken };
+  // The legacy tenant column is stored encrypted when a key is configured; plaintext rows pass through unchanged.
+  return { phoneNumberId: tenant.phoneNumberId, accessToken: decryptCredential(tenant.accessToken, ENCRYPTION_KEY) };
 }

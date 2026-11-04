@@ -147,7 +147,8 @@ export class WhatsAppService {
       throw new BadRequestException('WhatsApp Business API not configured for this workspace');
     }
 
-    return tenant;
+    // The legacy tenant column holds ciphertext once credential encryption is on (plaintext rows pass through unchanged).
+    return { ...tenant, accessToken: this.encryption.decrypt(tenant.accessToken) };
   }
 
   async sendTextMessage(tenantId: string, to: string, text: string, contextMessageId?: string, whatsappNumberId?: string | null): Promise<string> {
@@ -634,11 +635,10 @@ export class WhatsAppService {
       );
     }
 
-    const tokenPreview = tenant.accessToken
-      ? `${tenant.accessToken.slice(0, 8)}...${tenant.accessToken.slice(-4)}`
-      : 'MISSING';
+    // Never log or return any part of the token (a previous version printed its first 8 and last 4 characters into the log and the API error).
+    const tokenState = tenant.accessToken ? 'present' : 'MISSING';
     this.logger.log(
-      `Submitting template "${templateData.name}" to WABA ${tenant.wabaId} (token: ${tokenPreview})`,
+      `Submitting template "${templateData.name}" to WABA ${tenant.wabaId} (token: ${tokenState})`,
     );
 
     const client = this.getClient(tenant.accessToken!);
@@ -656,10 +656,10 @@ export class WhatsAppService {
     } catch (error: unknown) {
       const msg = metaError(error);
       this.logger.error(
-        `Template submission failed, wabaId=${tenant.wabaId} token=${tokenPreview} error="${msg}"`,
+        `Template submission failed, wabaId=${tenant.wabaId} token=${tokenState} error="${msg}"`,
       );
       throw new BadRequestException(
-        `Template submission failed: ${msg}\n\nDebug info: wabaId=${tenant.wabaId} | token=${tokenPreview}\n\nFix: verify your WABA ID and access token in Settings → Channels.`,
+        `Template submission failed: ${msg}\n\nDebug info: wabaId=${tenant.wabaId} | token=${tokenState}\n\nFix: verify your WABA ID and access token in Settings → Channels.`,
       );
     }
   }

@@ -68,7 +68,8 @@ describe('WhatsAppNumbersService webhook subscription is best effort', () => {
 
     const result = await service.update('t1', 'n1', { wabaId: 'w1', accessToken: TOKEN });
 
-    expect(prisma.tenant.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ wabaId: 'w1', accessToken: TOKEN }) }));
+    // the legacy tenant column now goes through the same encryption service as the number row (this stub prefixes 'enc:')
+    expect(prisma.tenant.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ wabaId: 'w1', accessToken: `enc:${TOKEN}` }) }));
     expect(result).toMatchObject({ webhookSubscription: { subscribed: false, reason: 'Unsupported post request' } });
   });
 

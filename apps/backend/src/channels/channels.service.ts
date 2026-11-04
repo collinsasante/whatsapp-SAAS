@@ -419,9 +419,12 @@ export class ChannelsService {
     // Telegram's own numeric bot ID (from getMe) is the stable identity for
     // this bot -- using it (not just tenantId+type) lets a tenant connect a
     // second, third bot without silently overwriting the first.
-    const botId = String(verifyData.result?.id ?? botToken);
+    // The token itself is never used as an identifier (it would end up in the indexed, unencrypted externalId column).
+    if (verifyData.result?.id === undefined) throw new BadRequestException('Telegram did not return a bot id for this token.');
+    const botId = String(verifyData.result.id);
 
-    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken }, botId, actorId);
+    // Stored encrypted when a key is configured (a no-op otherwise).
+    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken: this.encryption.encrypt(botToken) }, botId, actorId);
   }
 
   // Keyed on tenantId + type + externalId (the provider's own stable account/

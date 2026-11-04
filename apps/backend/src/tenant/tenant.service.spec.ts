@@ -23,7 +23,7 @@ function buildDeps(existingTenant: Record<string, unknown>) {
 
 function buildService(deps: ReturnType<typeof buildDeps>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new TenantService(deps.prisma as any, deps.whatsAppNumbers as any);
+  return new TenantService(deps.prisma as any, deps.whatsAppNumbers as any, { encrypt: (v: string) => v, decrypt: (v: string) => v, isEncrypted: () => false } as any);
 }
 
 describe('TenantService', () => {

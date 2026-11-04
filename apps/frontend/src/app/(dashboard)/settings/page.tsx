@@ -21,7 +21,7 @@ interface TenantData {
     businessPhone: string | null; businessDescription: string | null;
     businessAddress: string | null; businessWebsite: string | null;
     timezone: string; autoReply: boolean; autoReplyMessage: string | null;
-    airtableEnabled: boolean; airtableApiKey: string | null;
+    airtableEnabled: boolean; airtableApiKeyConfigured?: boolean;
     airtableBaseId: string | null; airtableTableName: string | null;
   } | null;
 }
@@ -136,7 +136,7 @@ export default function SettingsPage() {
             businessWebsite: data.settings.businessWebsite ?? '',
           });
           setAutoForm({ autoReply: data.settings.autoReply, autoReplyMessage: data.settings.autoReplyMessage ?? '', timezone: data.settings.timezone });
-          setAirtableForm({ airtableEnabled: data.settings.airtableEnabled ?? false, airtableApiKey: data.settings.airtableApiKey ?? '', airtableBaseId: data.settings.airtableBaseId ?? '', airtableTableName: data.settings.airtableTableName ?? '' });
+          setAirtableForm({ airtableEnabled: data.settings.airtableEnabled ?? false, airtableApiKey: '', airtableBaseId: data.settings.airtableBaseId ?? '', airtableTableName: data.settings.airtableTableName ?? '' });
         }
       } finally { setLoading(false); }
     };
@@ -759,7 +759,8 @@ export default function SettingsPage() {
                 {airtableForm.airtableEnabled && (
                   <div className="space-y-3 ml-9">
                     <Field label="Airtable Personal Access Token">
-                      <input type="password" value={airtableForm.airtableApiKey} placeholder="patXXXXXXXXXXXXXX.XXXX…"
+                      <input type="password" value={airtableForm.airtableApiKey} autoComplete="off"
+                        placeholder={tenant?.settings?.airtableApiKeyConfigured ? 'A token is saved. Enter a new one to replace it.' : 'patXXXXXXXXXXXXXX.XXXX…'}
                         onChange={(e) => setAirtableForm(f => ({ ...f, airtableApiKey: e.target.value }))} className={INPUT} />
                     </Field>
                     <Field label="Base ID">

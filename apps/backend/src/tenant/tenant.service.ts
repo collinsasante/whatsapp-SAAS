@@ -2,12 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppNumbersService, WebhookSubscriptionResult } from '../whatsapp-numbers/whatsapp-numbers.service';
 import { UpdateTenantDto, UpdateTenantSettingsDto } from './dto/update-tenant.dto';
+import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
+import { toPublicTenant, toPublicTenantSettings } from './tenant-public.util';
 
 @Injectable()
 export class TenantService {
   constructor(
     private prisma: PrismaService,
     private whatsAppNumbers: WhatsAppNumbersService,
+    private encryption: CredentialsEncryptionService,
   ) {}
 
   async findById(tenantId: string) {
@@ -16,7 +19,7 @@ export class TenantService {
       include: { settings: true },
     });
     if (!tenant) throw new NotFoundException('Tenant not found');
-    return tenant;
+    return toPublicTenant(tenant);
   }
 
   async update(tenantId: string, dto: UpdateTenantDto) {
@@ -45,7 +48,8 @@ export class TenantService {
     if (existing) {
       const mergedPhoneNumberId = phoneNumberId ?? existing.phoneNumberId;
       const mergedWabaId = wabaId ?? existing.wabaId;
-      const mergedAccessToken = accessToken ?? existing.accessToken;
+      // The legacy column may hold ciphertext once credential encryption is on; the number service expects the plain token.
+      const mergedAccessToken = accessToken ?? (existing.accessToken ? this.encryption.decrypt(existing.accessToken) : existing.accessToken);
       if (mergedPhoneNumberId && mergedWabaId && mergedAccessToken) {
         const saved = await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, {
           phoneNumberId: mergedPhoneNumberId, wabaId: mergedWabaId, accessToken: mergedAccessToken,
@@ -55,15 +59,22 @@ export class TenantService {
     }
 
     const tenant = await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    return webhookSubscription ? { ...tenant, webhookSubscription } : tenant;
+    const publicTenant = toPublicTenant(tenant);
+    return webhookSubscription ? { ...publicTenant, webhookSubscription } : publicTenant;
   }
 
   async updateSettings(tenantId: string, dto: UpdateTenantSettingsDto) {
-    return this.prisma.tenantSettings.upsert({
+    // The Airtable key is never returned to the browser, so the form cannot send it back: an empty value means "unchanged", and a new value is
+    // stored encrypted (a no-op while credential encryption is off). A value that already carries the ciphertext prefix is kept as is.
+    const { airtableApiKey, ...rest } = dto;
+    const data: Record<string, unknown> = { ...rest };
+    if (airtableApiKey) data['airtableApiKey'] = this.encryption.isEncrypted(airtableApiKey) ? airtableApiKey : this.encryption.encrypt(airtableApiKey);
+    const saved = await this.prisma.tenantSettings.upsert({
       where: { tenantId },
-      create: { tenantId, ...dto },
-      update: dto,
+      create: { tenantId, ...data } as never,
+      update: data as never,
     });
+    return toPublicTenantSettings(saved as unknown as { airtableApiKey?: unknown } & Record<string, unknown>);
   }
 
   async updateOnboarding(tenantId: string, data: {
@@ -111,7 +122,8 @@ export class TenantService {
     if (existing) {
       const mergedPhoneNumberId = phoneNumberId ?? existing.phoneNumberId;
       const mergedWabaId = wabaId ?? existing.wabaId;
-      const mergedAccessToken = accessToken ?? existing.accessToken;
+      // The legacy column may hold ciphertext once credential encryption is on; the number service expects the plain token.
+      const mergedAccessToken = accessToken ?? (existing.accessToken ? this.encryption.decrypt(existing.accessToken) : existing.accessToken);
       if (mergedPhoneNumberId && mergedWabaId && mergedAccessToken) {
         await this.whatsAppNumbers.upsertByPhoneNumberId(tenantId, {
           phoneNumberId: mergedPhoneNumberId, wabaId: mergedWabaId, accessToken: mergedAccessToken,
@@ -119,7 +131,7 @@ export class TenantService {
       }
     }
 
-    return this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    return toPublicTenant(await this.prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }));
   }
 
   async getStats(tenantId: string) {

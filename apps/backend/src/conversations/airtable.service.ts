@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CredentialsEncryptionService } from '../common/crypto/credentials-encryption.service';
 
 @Injectable()
 export class AirtableService {
   private readonly logger = new Logger(AirtableService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly encryption: CredentialsEncryptionService) {}
 
   async pushNewLead(tenantId: string, contact: { name: string | null; phone: string }, firstMessage?: string | null) {
     const raw = await this.prisma.tenantSettings.findUnique({ where: { tenantId } });
@@ -27,7 +28,8 @@ export class AirtableService {
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${settings.airtableApiKey}`,
+          // stored encrypted once credential encryption is on; plaintext values (older rows) pass through unchanged
+          Authorization: `Bearer ${this.encryption.decrypt(settings.airtableApiKey)}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ records: [{ fields }] }),
