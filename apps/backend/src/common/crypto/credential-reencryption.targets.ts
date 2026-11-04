@@ -30,7 +30,8 @@ export function buildTargets(prisma: PrismaClient): CredentialTarget[] {
   stringTarget('whatsapp_web_sessions.encrypted_auth_state', prisma.whatsAppWebSession as never, 'encryptedAuthState', true),
   {
     name: 'channels.credentials',
-    jsonFields: ['accessToken', 'refreshToken', 'botToken'],
+    // botToken and webhookSecret: Telegram. accessToken and refreshToken: Instagram, Facebook, TikTok (both the Login Kit and the Business Messaging connections).
+    jsonFields: ['accessToken', 'refreshToken', 'botToken', 'webhookSecret'],
     async list(afterId, take) {
       const rows = await prisma.channel.findMany({ where: afterId ? { id: { gt: afterId } } : {}, orderBy: { id: 'asc' }, take, select: { id: true, credentials: true } });
       return rows.map((r) => ({ id: r.id, raw: r.credentials }));

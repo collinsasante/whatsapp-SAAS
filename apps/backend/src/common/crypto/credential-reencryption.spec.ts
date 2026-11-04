@@ -123,3 +123,20 @@ describe('reencryptCredentials', () => {
     expect(r.keyFingerprint).toMatch(/^[0-9a-f]{8}$/);
   });
 });
+
+describe('buildTargets: what the tool covers', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { buildTargets } = require('./credential-reencryption.targets') as typeof import('./credential-reencryption.targets');
+  const targets = buildTargets({} as never);
+
+  it('covers exactly the eight credential locations', () => {
+    expect(targets.map((t) => t.name).sort()).toEqual([
+      'channels.credentials', 'facebook_page_connections.page_access_token', 'oauth_connect_sessions.user_access_token', 'tenant_settings.airtable_api_key',
+      'tenants.access_token', 'webhooks.secret', 'whatsapp_numbers.access_token', 'whatsapp_web_sessions.encrypted_auth_state',
+    ]);
+  });
+  it('covers every token field kept inside channels.credentials (Instagram/Facebook/TikTok tokens, Telegram bot token and webhook secret)', () => {
+    const channels = targets.find((t) => t.name === 'channels.credentials')!;
+    expect([...channels.jsonFields].sort()).toEqual(['accessToken', 'botToken', 'refreshToken', 'webhookSecret']);
+  });
+});
