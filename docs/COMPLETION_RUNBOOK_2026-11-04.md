@@ -46,3 +46,8 @@ Minimum access: a Cloudflare API token with **Analytics Read** on the zone, or d
 * No ESLint configuration exists at app level, so lint cannot run (installing a config is a repo-wide decision).
 * The frontend has no test runner; the new UI code is typechecked only.
 * The BullMQ + real PostgreSQL AI queue tests, real-provider AI validation and the full product regression on staging have not been run (they need the staging deploy, which waits for the AP-3 check).
+
+## 7. Release candidate base (corrected 2026-11-04)
+`origin/staging` (5ff4a0e) is **not** what staging runs. Staging runs `131a2ae` (images tagged with that sha), which is 103 commits ahead of `origin/staging` and contains Digital Self and its migrations; 5ff4a0e is an ancestor of 131a2ae. A candidate built on 5ff4a0e would have removed those features and failed the migration gate. The candidate is therefore `integration/staging-candidate-v2`, built on 131a2ae.
+Preflight (read-only, 2026-11-04): staging has 98 migrations applied; all exist in the candidate with identical checksums; exactly two are pending, both additive: `20261104120000_channel_history_sync`, `20261105120000_ai_conversation_leases`. The release script rebuilds and recreates only backend, worker, realtime, whatsapp-web and frontend (`--no-deps`); PostgreSQL, Redis, MinIO and nginx are never recreated.
+Test status of the candidate: backend 3945 passed (including two real-Postgres suites for the Messenger import and the AI lease), 0 failed; backend, worker and frontend typechecks 0 errors.
