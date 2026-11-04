@@ -23,7 +23,7 @@ type Conv = { id: string; updated_time: string; psid: string; name: string; mess
 describeDb('MessengerHistorySyncService (real database, faked Meta)', () => {
   const prisma = new PrismaClient({ datasources: { db: { url: url ?? 'postgresql://skipped:skipped@127.0.0.1:1/skipped' } } });
   const encryption = { decrypt: (v: string) => v.replace(/^enc:/, ''), encrypt: (v: string) => `enc:${v}` };
-  const service = new MessengerHistorySyncService(prisma as never, encryption as never, new ContactsService(prisma as never));
+  const service = new MessengerHistorySyncService(prisma as never, encryption as never, new ContactsService(prisma as never, {} as never));
   service.sleep = async () => undefined;
   const logs: string[] = [];
   const realFetch = global.fetch;

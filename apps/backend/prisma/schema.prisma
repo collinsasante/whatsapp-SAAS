@@ -3303,6 +3303,7 @@ model DigitalSelfLearningEvent {
   @@index([tenantId, digitalSelfId])
   @@index([tenantId, conversationId])
   @@map("digital_self_learning_events")
+}
 
 enum ChannelHistorySyncStatus {
   PENDING
