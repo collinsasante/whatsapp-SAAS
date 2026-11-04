@@ -54,8 +54,17 @@ Legend: yes / no / n/a / unknown (not established by this programme) / pending (
 | Instagram messaging | yes | unit | unknown | unknown |
 | WhatsApp via QR (unofficial) | yes | unit | **no**: against WhatsApp's terms by design | pre-existing, unofficial |
 
-## Not implemented (do not read these as "partly done")
-Voice-note transcription, image understanding, AI spend-cap alerts and screens, prompt redaction: see the programme list in the completion report; none is in this table because none exists yet.
+## AI and platform capabilities (same four columns)
+| Capability | Implemented | Tested | Provider-authorised | Real-integration verified |
+|---|---|---|---|---|
+| Voice-note transcription (all inbound channels) | yes, workspace opt-in + provider keys | unit + db (mocked provider) | **no**: no speech provider is configured or contracted | no |
+| Image understanding | yes, workspace opt-in + vision-capable model only (the platform chat model is text-only and is refused) | unit + db (mocked provider) | **no**: no vision provider is configured or contracted | no |
+| Daily AI spend cap, warning and cap-reached alerts, usage screens | yes | unit + db (real Postgres, concurrency, isolation) + e2e | n/a | no (not yet deployed anywhere) |
+| Prompt, log and stored-diagnostic redaction | yes (model boundary, tool traces, execution errors, error logging) | unit + provider-boundary tests + structural guards | n/a | no |
+| Per-tool authorisation (validated arguments, verified context, bounded and replay-safe calls) | yes | unit + db (two workspaces) | n/a | no |
+| Credential encryption tooling | yes (encrypt, verify, roll back), production **disabled** | unit + db + 34-check rehearsal on a disposable database | n/a | no (staging run on production-shaped data still to do; production key not generated) |
+| Off-host backup | tooling complete, **disabled** until a destination is approved | 25 local checks (a local directory stands in for the remote) | **no destination, region or key holders recorded** | no: nothing has been uploaded anywhere |
+| Backup trial monitor | yes (extended); installed monitor on the VPS is the earlier version until updated after the gate | 44 hermetic checks on Linux | n/a | the trial has not yet produced a scheduled run (first: 2026-11-05 02:30 CET) |
 
 ## Rules for changing this file
 A cell moves to "yes" in **Real-integration verified** only with a dated note saying who ran what against which real account. A mock never moves it.
