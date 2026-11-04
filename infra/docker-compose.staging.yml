@@ -269,6 +269,9 @@ services:
       INTERNAL_SECRET: ${INTERNAL_SECRET:-}
       # Same key as the backend: the worker opens the stored WhatsApp credentials to send campaigns. Without it every send fails.
       CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
+      # TikTok token refresh (worker job tiktok-token-refresh) calls TikTok's token endpoint with the app credentials
+      TIKTOK_CLIENT_ID: ${TIKTOK_CLIENT_ID:-}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       # Internal calls to the backend must include the global API prefix.
       BACKEND_URL: http://backend:3001/api/v1

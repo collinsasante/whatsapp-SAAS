@@ -33,3 +33,9 @@ Decisions needed before any data leaves the VPS:
 
 ## E. Production release of the reviewed work (later)
 After staging verification: the TikTok fix, Messenger history import, AI tool-authorization fix and AI lease, with the two additive migrations. Requires its own approval and a window; not requested yet.
+
+## F. Credential encryption is OFF in production (new finding, read-only check)
+* **Now:** `CREDENTIALS_ENCRYPTION_KEY` is empty on the production backend and whatsapp-web containers, and the production worker is not given it at all. All 8 stored WhatsApp access tokens in production are plaintext in the database (`enc:v1:` prefix count 0). Staging has the key set. Production is consistent (every service reads and writes plaintext), so nothing is broken today; the exposure is that a database dump or backup contains usable tokens (the new TikTok tokens and Facebook Page tokens would be stored the same way).
+* **Change (when approved):** generate a 32-byte key and keep it in a password manager and the offline custody set (losing it makes every stored token unreadable); set it on backend, worker and whatsapp-web; run the existing `scripts/encrypt-existing-credentials.ts` after taking a verified database dump; verify; recreate those production containers in a window.
+* **Risk / rollback:** a wrong or missing key on any one service breaks reads; rollback is restoring the dump plus unsetting the key. Needs a window and a backup first.
+* **To approve:** "Approve enabling credential encryption in production in a window I will name."

@@ -223,6 +223,9 @@ services:
       WHATSAPP_WEB_INTERNAL_URL: http://whatsapp-web:3004
       WHATSAPP_WEB_INTERNAL_API_KEY: ${WHATSAPP_WEB_INTERNAL_API_KEY:-}
       INTERNAL_SECRET: ${INTERNAL_SECRET:-}
+      # TikTok token refresh (worker job tiktok-token-refresh) calls TikTok's token endpoint with the app credentials
+      TIKTOK_CLIENT_ID: ${TIKTOK_CLIENT_ID:-}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
