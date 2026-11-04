@@ -185,11 +185,14 @@ describe('ChannelsService: TikTok disconnect', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('other channel types are untouched: no TikTok call for a Telegram bot', async () => {
-    global.fetch = jest.fn() as never;
+  it('other channel types are untouched: no TikTok call for a Telegram bot (only Telegram\'s own deleteWebhook)', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, result: true }))) as never;
     const { service, prisma } = build();
     prisma.channel.findFirst.mockResolvedValue({ id: 'ch-2', tenantId: 'tenant-A', type: ChannelType.TELEGRAM, name: 'bot', credentials: { botToken: 'x' } });
     await service.remove('tenant-A', 'ch-2');
-    expect(global.fetch).not.toHaveBeenCalled();
+    const urls = (global.fetch as jest.Mock).mock.calls.map(([u]) => String(u));
+    expect(urls.some((u) => u.includes('tiktok'))).toBe(false);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toMatch(/^https:\/\/api\.telegram\.org\/bot.*\/deleteWebhook$/);
   });
 });

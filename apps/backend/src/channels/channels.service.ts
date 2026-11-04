@@ -6,6 +6,8 @@ import { CredentialsEncryptionService } from '../common/crypto/credentials-encry
 import { AuditService } from '../audit/audit.service';
 import { CreateChannelDto, UpdateChannelDto } from './dto/channel.dto';
 import { ChannelType, Prisma } from '@prisma/client';
+import * as crypto from 'crypto';
+import { telegramCall } from '../telegram/telegram-api.util';
 import {
   TIKTOK_HTTP_TIMEOUT_MS, TIKTOK_REVOKE_URL, TIKTOK_TOKEN_URL, TIKTOK_USER_INFO_URL,
   describeTikTokFailure, parseTikTokTokenResponse, sanitiseText, tiktokExchangeBody, tiktokRevokeBody,
@@ -208,6 +210,7 @@ export class ChannelsService {
 
     // TikTok: end the authorization at TikTok first (best effort), and never keep tokens for an account that is no longer connected.
     if (channel.type === ChannelType.TIKTOK) await this.revokeTikTokAuthorization(tenantId, channel);
+    if (channel.type === ChannelType.TELEGRAM) await this.deleteTelegramWebhook(tenantId, channel);
 
     if (channel.type === ChannelType.FACEBOOK_MESSENGER) {
       await this.prisma.facebookPageConnection.updateMany({
@@ -226,7 +229,7 @@ export class ChannelsService {
         where: { id },
         data: {
           isActive: false,
-          ...(channel.type === ChannelType.TIKTOK && { credentials: keptIdentity as Prisma.InputJsonValue }),
+          ...((channel.type === ChannelType.TIKTOK || channel.type === ChannelType.TELEGRAM) && { credentials: keptIdentity as Prisma.InputJsonValue }),
         },
       });
     } else {
@@ -401,30 +404,49 @@ export class ChannelsService {
   }
 
   async connectTelegramBot(tenantId: string, botToken: string, actorId?: string) {
-    const verifyRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
-    const verifyData = await verifyRes.json() as {
-      ok: boolean;
-      result?: { id?: number; username?: string; first_name?: string };
-      description?: string;
-    };
-
-    if (!verifyData.ok) {
-      throw new Error(verifyData.description ?? 'Invalid bot token');
-    }
-
-    const botName = verifyData.result?.username
-      ? `@${verifyData.result.username}`
-      : (verifyData.result?.first_name ?? 'Telegram Bot');
-
-    // Telegram's own numeric bot ID (from getMe) is the stable identity for
-    // this bot -- using it (not just tenantId+type) lets a tenant connect a
-    // second, third bot without silently overwriting the first.
+    const me = await telegramCall<{ id?: number; username?: string; first_name?: string }>(botToken, 'getMe', {});
+    if (!me.ok) throw new BadRequestException(me.errorCode === 401 ? 'Telegram rejected this bot token. Copy it again from @BotFather.' : 'Telegram could not verify this bot token. Try again in a moment.');
+    // Telegram's own numeric bot ID (from getMe) is the stable identity for this bot -- using it (not just tenantId+type)
+    // lets a tenant connect a second, third bot without silently overwriting the first.
     // The token itself is never used as an identifier (it would end up in the indexed, unencrypted externalId column).
-    if (verifyData.result?.id === undefined) throw new BadRequestException('Telegram did not return a bot id for this token.');
-    const botId = String(verifyData.result.id);
+    if (me.result?.id === undefined) throw new BadRequestException('Telegram did not return a bot id for this token.');
+    const botId = String(me.result.id);
+    const botName = me.result.username ? `@${me.result.username}` : (me.result.first_name ?? 'Telegram Bot');
 
-    // Stored encrypted when a key is configured (a no-op otherwise).
-    return this.upsertOAuthChannel(tenantId, ChannelType.TELEGRAM, botName, { botToken: this.encryption.encrypt(botToken) }, botId, actorId);
+    // Telegram echoes this secret on every webhook call; it is the only thing that proves a request came from Telegram for this channel.
+    const webhookSecret = crypto.randomBytes(32).toString('hex');
+    const channel = await this.upsertOAuthChannel(
+      tenantId, ChannelType.TELEGRAM, botName,
+      { botToken: this.encryption.encrypt(botToken), webhookSecret: this.encryption.encrypt(webhookSecret) },
+      botId, actorId,
+    );
+
+    const base = (this.config.get<string>('PUBLIC_URL') ?? '').replace(/\/+$/, '');
+    const hook = await telegramCall(botToken, 'setWebhook', {
+      url: `${base}/api/v1/webhook/telegram/${channel.id}`,
+      secret_token: webhookSecret,
+      allowed_updates: ['message'],
+      drop_pending_updates: false,
+    });
+    if (!hook.ok) {
+      // Without a webhook the bot would look connected and never receive anything, so it is not left active.
+      await this.prisma.channel.update({ where: { id: channel.id }, data: { isActive: false } });
+      this.logger.warn(`Telegram webhook registration failed for channel ${channel.id} (tenant ${tenantId}): code ${hook.errorCode ?? '?'} ${hook.description ?? ''}`.slice(0, 220));
+      throw new BadRequestException('The bot token is valid, but Telegram would not accept this server\'s webhook address. Telegram needs a public HTTPS address on port 443, 80, 88 or 8443.');
+    }
+    return channel;
+  }
+
+  /** Best effort on disconnect: stop Telegram sending updates for this bot. The caller drops the token regardless. */
+  private async deleteTelegramWebhook(tenantId: string, channel: { id: string; credentials: unknown }) {
+    const t = (channel.credentials as Record<string, unknown> | null)?.['botToken'];
+    if (typeof t !== 'string' || !t) return;
+    try {
+      const r = await telegramCall(this.encryption.decrypt(t), 'deleteWebhook', { drop_pending_updates: true });
+      if (!r.ok) this.logger.warn(`Telegram deleteWebhook was refused for channel ${channel.id} (tenant ${tenantId}): code ${r.errorCode ?? '?'}`);
+    } catch (e) {
+      this.logger.warn(`Telegram deleteWebhook could not be completed for channel ${channel.id} (tenant ${tenantId}): ${e instanceof Error ? e.name : 'error'}`);
+    }
   }
 
   // Keyed on tenantId + type + externalId (the provider's own stable account/

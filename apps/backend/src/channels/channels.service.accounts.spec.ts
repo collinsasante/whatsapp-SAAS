@@ -202,9 +202,9 @@ describe('ChannelsService.remove: disconnect without losing history', () => {
     prisma.conversation.count.mockResolvedValue(4);
     await expect(service.remove('t1', 'c1', 'u1')).resolves.toEqual({ success: true, removed: false });
     expect(prisma.channel.delete).not.toHaveBeenCalled();
-    // TikTok additionally drops every stored token on disconnect (an empty credentials object here, as this channel had none);
+    // TikTok and Telegram additionally drop every stored token/secret on disconnect (an empty credentials object here, as this channel had none);
     // the other types are unchanged.
-    expect(prisma.channel.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: type === 'TIKTOK' ? { isActive: false, credentials: {} } : { isActive: false } });
+    expect(prisma.channel.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: type === 'TIKTOK' || type === 'TELEGRAM' ? { isActive: false, credentials: {} } : { isActive: false } });
     expect(prisma.conversation.count).toHaveBeenCalledWith({ where: { tenantId: 't1', channelId: 'c1' } });
   });
 

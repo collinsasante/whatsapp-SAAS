@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService, metaError } from '../whatsapp/whatsapp.service';
 import { FacebookMessengerService } from '../facebook-messenger/facebook-messenger.service';
 import { WhatsAppWebService } from '../whatsapp-web/whatsapp-web.service';
+import { TelegramService } from '../telegram/telegram.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { RealtimeService } from '../realtime/realtime.service';
@@ -72,9 +73,9 @@ interface UnifiedAiResult {
  * data exists, not a final business decision baked into code. */
 const LEGACY_RESPONDER_FLAT_CREDIT_COST = 2;
 
-/** Messenger and Instagram replies are plain text with no WhatsApp *bold* markup; everything else keeps WhatsApp formatting. */
+/** Messenger, Instagram and Telegram (sent without parse_mode) replies are plain text with no WhatsApp *bold* markup; everything else keeps WhatsApp formatting. */
 export function aiChannelType(type: string | null | undefined): 'WHATSAPP' | 'FACEBOOK_MESSENGER' {
-  return type === 'FACEBOOK_MESSENGER' || type === 'INSTAGRAM' ? 'FACEBOOK_MESSENGER' : 'WHATSAPP';
+  return type === 'FACEBOOK_MESSENGER' || type === 'INSTAGRAM' || type === 'TELEGRAM' ? 'FACEBOOK_MESSENGER' : 'WHATSAPP';
 }
 
 // Messenger's Send/Receive API attachment `type` values -- 'file' covers
@@ -191,6 +192,8 @@ export class MessagesService {
     // Optional only so existing constructors need not change; always provided by AiCoreModule in the app. Without it a blocked
     // message gets no reply (the safe default).
     @Optional() private securityRefusal?: SecurityRefusalService,
+    // Optional for the same reason; provided by TelegramModule in the app. A Telegram conversation cannot send without it.
+    @Optional() @Inject(forwardRef(() => TelegramService)) private telegramService?: TelegramService,
   ) {}
 
   /**
@@ -233,6 +236,21 @@ export class MessagesService {
       return this.facebookMessengerService.sendInstagramMediaMessage(
         tenantId, conversation.channel.id, contact.externalId, payload.mediaType.toLowerCase(), payload.mediaUrl, payload.caption,
         { file: await this.prepareMetaFile(payload.mediaType, payload.mediaUrl), replyToMid: payload.replyToProviderId },
+      );
+    }
+
+    if (conversation.channel?.type === 'TELEGRAM') {
+      if (!contact.externalId) throw new BadRequestException('This Telegram contact has no chat on file.');
+      if (!this.telegramService) throw new BadRequestException('Telegram is not available on this server.');
+      if (payload.kind === 'TEXT') {
+        return this.telegramService.sendText(tenantId, conversation.channel.id, contact.externalId, payload.text, payload.replyToProviderId);
+      }
+      const loaded = await this.loadMediaBuffer(payload.mediaUrl, 'application/octet-stream');
+      const mimeType = loaded.mimeType.split(';')[0]!;
+      const ext = mimeType.split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'bin';
+      return this.telegramService.sendMedia(
+        tenantId, conversation.channel.id, contact.externalId, payload.mediaType,
+        { buffer: loaded.buffer, mimeType, filename: `${payload.mediaType.toLowerCase()}.${ext}` }, payload.caption, payload.replyToProviderId,
       );
     }
 
@@ -319,6 +337,7 @@ export class MessagesService {
     // the Cloud API Graph client -- Meta-specific concepts below (templates,
     // the 24h customer-service window) don't apply to it either.
     const isWhatsAppWeb = conversation.channel?.type === 'WHATSAPP_WEB';
+    const isTelegram = conversation.channel?.type === 'TELEGRAM';
 
     // A contact with neither identifier (e.g. a channel not yet supported at
     // all) has nothing this method can deliver to.
@@ -331,8 +350,8 @@ export class MessagesService {
     // by the Baileys session-manager either) -- fail loudly rather than
     // attempt (and silently mis-send via) a Cloud-API-shaped call for a
     // Messenger or WhatsApp Web contact.
-    if ((isMessenger || isWhatsAppWeb) && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
-      throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? messengerLabel : 'WhatsApp Web'}.`);
+    if ((isMessenger || isWhatsAppWeb || isTelegram) && ([MessageType.TEMPLATE, MessageType.LOCATION, MessageType.CONTACTS] as MessageType[]).includes(dto.type as MessageType)) {
+      throw new BadRequestException(`${dto.type} messages are not supported on ${isMessenger ? messengerLabel : isTelegram ? 'Telegram' : 'WhatsApp Web'}.`);
     }
 
     // WhatsApp Cloud API only allows free-form (non-template) sends within 24h
@@ -782,10 +801,16 @@ export class MessagesService {
     tenantId: string,
     channelId: string,
     senderPsid: string,
-    message: { mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }> },
+    message: {
+      mid: string; text?: string; attachments?: Array<{ type: string; payload: { url?: string } }>;
+      // Telegram only: the display name from the update, and media the Telegram service already downloaded and stored
+      // (Telegram files need the bot token to fetch, which this handler must never see).
+      senderName?: string; displayText?: string; prepared?: { mediaUrl: string; mediaType: string; msgType: MessageType };
+    },
     // Instagram messaging arrives through the same Meta Messaging webhook and shares this handler; only the
-    // contact identity differs (an Instagram-scoped id instead of a Page-scoped one).
-    platform: 'MESSENGER' | 'INSTAGRAM' = 'MESSENGER',
+    // contact identity differs (an Instagram-scoped id instead of a Page-scoped one). Telegram reuses the same
+    // persistence, inbox, realtime and AI path with a chat-id identity.
+    platform: 'MESSENGER' | 'INSTAGRAM' | 'TELEGRAM' = 'MESSENGER',
   ) {
     // Pre-check (mirrors handleInbound's) plus a P2002 catch around the
     // actual create below -- defense-in-depth against the race between two
@@ -798,11 +823,11 @@ export class MessagesService {
     });
     if (alreadyProcessed) return alreadyProcessed;
 
-    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : 'MESSENGER_PSID';
-    let contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, senderPsid);
+    const externalIdType = platform === 'INSTAGRAM' ? 'INSTAGRAM_IGSID' : platform === 'TELEGRAM' ? 'TELEGRAM_CHAT_ID' : 'MESSENGER_PSID';
+    let contact = await this.contactsService.findOrCreateByExternalId(tenantId, externalIdType, senderPsid, ...(platform === 'TELEGRAM' ? [message.senderName] : []));
     // Meta only gives us an opaque id. Without a name the inbox shows "Unknown", so ask Meta for the display name
     // once, while the person is still writing to us. Never fatal, and the name itself is never logged.
-    if (!contact.name) {
+    if (!contact.name && platform !== 'TELEGRAM') {
       try {
         const profile = await this.facebookMessengerService.fetchContactName(tenantId, channelId, platform, senderPsid);
         if (profile.name) {
@@ -828,11 +853,13 @@ export class MessagesService {
       await this.conversationsService.request(tenantId, conversation.id);
     }
 
-    const { content: ingestedContent, mediaUrl, mediaType, msgType } = await this.readMessengerAttachment(tenantId, platform, message);
+    const { content: ingestedContent, mediaUrl, mediaType, msgType } = message.prepared
+      ? { content: message.text ?? message.displayText, mediaUrl: message.prepared.mediaUrl, mediaType: message.prepared.mediaType, msgType: message.prepared.msgType }
+      : await this.readMessengerAttachment(tenantId, platform === 'TELEGRAM' ? 'MESSENGER' : platform, message);
     let content = ingestedContent;
 
     if (!content && !mediaUrl) {
-      content = '[Sent a message type we can\'t display yet]';
+      content = message.displayText ?? '[Sent a message type we can\'t display yet]';
     }
 
     let created: Message;

@@ -311,6 +311,7 @@ describe('AI, chatbot and automation on inbound Messenger and Instagram', () => 
   it('formats AI replies as plain text on Messenger and Instagram, and keeps WhatsApp formatting everywhere else', () => {
     expect(aiChannelType('FACEBOOK_MESSENGER')).toBe('FACEBOOK_MESSENGER');
     expect(aiChannelType('INSTAGRAM')).toBe('FACEBOOK_MESSENGER');
-    for (const other of ['WHATSAPP', 'WHATSAPP_WEB', 'TELEGRAM', undefined, null]) expect(aiChannelType(other as string)).toBe('WHATSAPP');
+    expect(aiChannelType('TELEGRAM')).toBe('FACEBOOK_MESSENGER'); // sent without parse_mode, so no WhatsApp *bold* markup
+    for (const other of ['WHATSAPP', 'WHATSAPP_WEB', undefined, null]) expect(aiChannelType(other as string)).toBe('WHATSAPP');
   });
 });
