@@ -18,7 +18,8 @@ chk "new job: last run succeeded within ${FRESH_H} h (status file)" "$BASE/backu
 [ -n "$RD" ] && chk "new job: Redis snapshot sha256 matches and mode is 600" bash -c "cd '$DEST' && sha256sum -c --quiet '$(basename "$RD").sha256' && [ \"\$(stat -c %a '$RD')\" = 600 ]" || fail "new job: no Redis snapshot found"
 chk "new job: backup directory is mode 700" bash -c "[ \"\$(stat -c %a '$DEST')\" = 700 ]"
 if [ -n "$PG" ] && [ -n "$PREV" ]; then a=$(stat -c %s "$PG"); b=$(stat -c %s "$PREV"); chk "new job: size within 50%-200% of the previous backup ($a vs $b bytes)" bash -c "[ $a -ge $((b / 2)) ] && [ $a -le $((b * 2)) ]"; fi
-today=$(date +%F); chk "new job: today's restore test passed ('RESTORE-TEST: N pass, 0 fail' in the log)" bash -c "awk -v d='[$today' 'index(\$0,d)==1 && /RESTORE-TEST: [0-9]+ pass, 0 fail/{f=1} END{exit f?0:1}' '$LOG'"
+# The restore-test summary line carries no timestamp, so it is attributed to a run by position: the latest "=== <today> ... trial run start" marker must be followed by RESTORE-TEST: N pass, 0 fail.
+today=$(date +%F); chk "new job: the latest run today had a passing restore test ('RESTORE-TEST: N pass, 0 fail' after its start marker)" bash -c "awk -v d='=== $today' 'index(\$0,d)==1 && /trial run start/{f=0; seen=1} seen && /RESTORE-TEST: [0-9]+ pass, 0 fail/{f=1} END{exit (seen && f)?0:1}' '$LOG'"
 chk "new job: free disk >= ${MIN_FREE_MB:-10240} MB" bash -c "[ \$(df -Pm '$DEST' | awk 'NR==2{print \$4}') -ge ${MIN_FREE_MB:-10240} ]"
 # the existing job: observed, never touched
 OLD=$(ls -t -- "$OLD_DIR"/waplatform_*.sql.gz 2>/dev/null | grep -v _ap3 | head -1)
