@@ -301,6 +301,15 @@ describe('WhatsApp webhook signature registry (e2e)', () => {
     });
   });
 
+  describe('discovery request validation', () => {
+    it('apply must be a real boolean: the string "false" is read as false, and "yes" or 1 are refused (never silently switched on)', async () => {
+      const root = await platformAdmin('SUPER_ADMIN');
+      const url = '/platform-admin/whatsapp-webhook-security/discover';
+      await api().post(url).set(root.auth).send({ apply: 'yes' }).expect(400);
+      await api().post(url).set(root.auth).send({ apply: 1 }).expect(400);
+    });
+  });
+
   describe('discovery (Meta is faked; nothing leaves the test)', () => {
     function withFake(results: Record<string, SubscribedAppsResult>) {
       const client = { list: jest.fn(async (waba: string) => results[waba] ?? { ok: false as const, status: 400, code: 100, message: 'missing' }) } as unknown as MetaSubscribedAppsClient;

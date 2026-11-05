@@ -1,6 +1,6 @@
-import { IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, Max, Min } from 'class-validator';
+import { StrictBoolean } from '../../common/validation/strict-boolean.decorator';
 
 export const META_APP_ID = /^\d{5,25}$/;
 export const WABA_ID = /^\d{5,25}$/;
@@ -25,5 +25,5 @@ export class SummaryQueryDto {
 export class DiscoverDto {
   @IsOptional() @IsString() @MaxLength(64) tenantId?: string;
   /** false (default) only reports what would be mapped; true creates mappings for apps that are already registered. */
-  @IsOptional() @IsBoolean() apply?: boolean;
+  @IsOptional() @StrictBoolean() apply?: boolean;
 }
