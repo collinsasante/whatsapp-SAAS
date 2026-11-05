@@ -20,6 +20,8 @@ const LOG_THROTTLE_MS = 60_000;
 const ENCRYPTED_PREFIX = 'enc:v1:';
 
 export const LEGACY_ENV_APP_ID = 'env:WHATSAPP_APP_SECRET';
+/** Statistics bucket for WABA ids this platform does not have (see recordStats). */
+export const UNKNOWN_WABA_BUCKET = 'unknown';
 
 export interface WebhookSignatureVerdict extends SignatureDecision {
   mode: SignatureMode;
@@ -34,7 +36,7 @@ export interface WebhookSignatureVerdict extends SignatureDecision {
 export class WhatsappWebhookSignatureService {
   private readonly logger = new Logger(WhatsappWebhookSignatureService.name);
   readonly mode: SignatureMode;
-  private cache: { apps: SigningApp[]; loadedAt: number } | null = null;
+  private cache: { apps: SigningApp[]; knownWabas: ReadonlySet<string>; loadedAt: number } | null = null;
   private lastLogged = new Map<string, number>();
   private suppressed = new Map<string, number>();
 
@@ -66,17 +68,18 @@ export class WhatsappWebhookSignatureService {
     if (this.mode === 'off') {
       return { mode: this.mode, accept: true, degraded: false, evaluation: { outcome: 'no_secrets', appId: null, wabaIds: [] } };
     }
-    const apps = await this.loadApps();
+    const { apps, knownWabas } = await this.loadRegistry();
     const evaluation = evaluateSignature({ rawBody, header: signatureHeader, apps, wabaIds: extractWabaIds(entries) });
     const decision = decideSignature(this.mode, evaluation.outcome);
     this.report(evaluation, decision);
-    void this.recordStats(evaluation).catch((err) => this.logger.warn(`Could not record webhook signature statistics: ${err instanceof Error ? err.message : 'unknown error'}`));
+    void this.recordStats(evaluation, knownWabas).catch((err) => this.logger.warn(`Could not record webhook signature statistics: ${err instanceof Error ? err.message : 'unknown error'}`));
     return { mode: this.mode, ...decision, evaluation };
   }
 
-  private async loadApps(): Promise<SigningApp[]> {
-    if (this.cache && Date.now() - this.cache.loadedAt < REGISTRY_TTL_MS) return this.cache.apps;
+  private async loadRegistry(): Promise<{ apps: SigningApp[]; knownWabas: ReadonlySet<string> }> {
+    if (this.cache && Date.now() - this.cache.loadedAt < REGISTRY_TTL_MS) return this.cache;
     const apps: SigningApp[] = [];
+    let knownWabas: ReadonlySet<string> = this.cache?.knownWabas ?? new Set();
     try {
       const rows = await this.prisma.whatsappMetaApp.findMany({
         where: { status: 'ACTIVE', secretEnc: { not: null } },
@@ -96,15 +99,16 @@ export class WhatsappWebhookSignatureService {
         }
         apps.push({ appId: row.appId, secret, wabaIds: new Set(row.mappings.map((m) => m.wabaId)) });
       }
+      knownWabas = new Set((await this.prisma.whatsAppNumber.findMany({ select: { wabaId: true }, distinct: ['wabaId'] })).map((n) => n.wabaId));
     } catch (err) {
       // A stale registry is better than none: reuse the last good copy rather than treating every webhook as unverifiable.
       this.logger.error(`Could not load the Meta app registry: ${err instanceof Error ? err.message : 'unknown error'}${this.cache ? ' (using the previous copy)' : ''}`);
-      if (this.cache) return this.cache.apps;
+      if (this.cache) return this.cache;
     }
     const legacy = this.config.get<string>('WHATSAPP_APP_SECRET');
     if (legacy) apps.push({ appId: LEGACY_ENV_APP_ID, secret: legacy, wabaIds: 'all' });
-    this.cache = { apps, loadedAt: Date.now() };
-    return apps;
+    this.cache = { apps, knownWabas, loadedAt: Date.now() };
+    return this.cache;
   }
 
   /** Structured, rate-limited log lines. Valid requests are not logged at all (they are counted). WABA ids are shortened to their last four digits. */
@@ -128,11 +132,16 @@ export class WhatsappWebhookSignatureService {
     else this.logger.log(line);
   }
 
-  private async recordStats(evaluation: SignatureEvaluation): Promise<void> {
+  /**
+   * Counters are keyed by WABA, and the WABA id comes from a payload nobody has authenticated yet. Only ids of WABAs this platform actually has are
+   * recorded under their own name; anything else shares one bucket, so a flood of invented ids cannot create unbounded rows.
+   */
+  private async recordStats(evaluation: SignatureEvaluation, knownWabas: ReadonlySet<string>): Promise<void> {
     const now = new Date();
     const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const appId = evaluation.appId ?? '';
-    for (const wabaId of evaluation.wabaIds.length > 0 ? evaluation.wabaIds : ['']) {
+    const buckets = new Set(evaluation.wabaIds.map((w) => (knownWabas.has(w) ? w : UNKNOWN_WABA_BUCKET)));
+    for (const wabaId of buckets.size > 0 ? buckets : new Set([''])) {
       const key = { day, wabaId, appId, outcome: evaluation.outcome };
       try {
         await this.prisma.whatsappWebhookSignatureStat.upsert({

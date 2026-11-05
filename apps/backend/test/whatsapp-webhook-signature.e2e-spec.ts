@@ -94,6 +94,19 @@ describe('WhatsApp webhook signature registry (e2e)', () => {
       expect(await stat('missing_signature')).toBe(1);
     });
 
+    it('invented WABA ids cannot create statistics rows: unknown ids share one bucket, known ones keep their own', async () => {
+      const { t1 } = await registerBoth();
+      for (let i = 0; i < 8; i++) {
+        const fake = String(900000000000 + i);
+        await post(t1.id, payload(fake), sign(payload(fake), 'attacker-secret-0000')).expect(400);
+      }
+      await post(t1.id, payload(W1), sign(payload(W1), 'attacker-secret-0000')).expect(400);
+      await settle(); await settle();
+      const rows = await testPrisma.whatsappWebhookSignatureStat.findMany({ select: { wabaId: true, outcome: true, count: true } });
+      expect(rows.map((r) => r.wabaId).sort()).toEqual([W1, 'unknown']);
+      expect(rows.find((r) => r.wabaId === 'unknown')).toMatchObject({ outcome: 'invalid', count: 8 });
+    });
+
     it('is not fooled by editing the body after it was signed', async () => {
       const { t1 } = await registerBoth();
       const signed = sign(payload(W1), S1);
