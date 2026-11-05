@@ -11,7 +11,7 @@ ADMIN=${MIGREHEARSAL_ADMIN_URL:-}; [ -n "$ADMIN" ] || { echo "Set MIGREHEARSAL_A
 case "$ADMIN" in *verzchat*|*prod*) echo "Refusing: looks like production." >&2; exit 2;; esac
 PGB=${PG_BIN_DIR:+$PG_BIN_DIR/}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); BE=$ROOT/apps/backend; MIG=$BE/prisma/migrations; RB=$BE/prisma/rollbacks
-NEW=(20261104120000_channel_history_sync 20261105120000_ai_conversation_leases 20261106120000_ai_daily_credit_cap 20261107120000_tiktok_publications 20261108120000_ai_cap_alerts 20261109120000_message_enrichments)
+NEW=(20261104120000_channel_history_sync 20261105120000_ai_conversation_leases 20261106120000_ai_daily_credit_cap 20261107120000_tiktok_publications 20261108120000_ai_cap_alerts 20261109120000_message_enrichments 20261110120000_campaign_recipient_claims)
 BLANK=migrehearsal_blank; INCR=migrehearsal_incr; T=$(mktemp -d); PASS=0; FAIL=0
 trap 'rm -rf "$T"; "${PGB}psql" "$ADMIN/postgres" -qc "DROP DATABASE IF EXISTS $BLANK" -c "DROP DATABASE IF EXISTS $INCR" >/dev/null 2>&1 || true' EXIT
 ok() { echo "PASS  $1"; PASS=$((PASS + 1)); }; bad() { echo "FAIL  $1"; FAIL=$((FAIL + 1)); }; check() { local l=$1; shift; if "$@" >/dev/null; then ok "$l"; else bad "$l"; fi; }
