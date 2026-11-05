@@ -1,0 +1,59 @@
+name: Validate linux/amd64 release images
+
+# The VPS runs linux/amd64. Local arm64 builds prove nothing about native modules, so this builds all five images for amd64 on an amd64 runner,
+# asserts the architecture, loads the native modules (bcrypt, the Prisma query engine, the patched Baileys audio parser), then runs the
+# least-privilege runtime test (non-root, migrations, health checks, SIGTERM) against them. Nothing is pushed or deployed.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  amd64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build all five images for linux/amd64
+        run: |
+          set -euo pipefail
+          for s in backend worker realtime whatsapp-web frontend; do
+            args=()
+            if [ "$s" = frontend ]; then args=(--build-arg NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1 --build-arg NEXT_PUBLIC_SOCKET_URL=http://localhost:3002); fi
+            docker build --platform linux/amd64 "${args[@]}" -f "apps/$s/Dockerfile" -t "verz-local/$s:amd64" .
+          done
+
+      - name: Every image really is amd64
+        run: |
+          for s in backend worker realtime whatsapp-web frontend; do
+            arch=$(docker image inspect "verz-local/$s:amd64" --format '{{.Os}}/{{.Architecture}}')
+            echo "$s: $arch"; [ "$arch" = linux/amd64 ] || { echo "::error::$s is $arch"; exit 1; }
+            m=$(docker run --rm --entrypoint node "verz-local/$s:amd64" -p 'process.arch')
+            [ "$m" = x64 ] || { echo "::error::$s runs node on $m"; exit 1; }
+          done
+
+      - name: Native modules load on amd64
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint node verz-local/backend:amd64 -e "
+            const b=require('bcrypt'); if(!b.compareSync('x', b.hashSync('x',4))) process.exit(1);
+            const {PrismaClient}=require('@prisma/client'); new PrismaClient(); console.log('bcrypt and prisma client ok')"
+          docker run --rm --entrypoint sh verz-local/backend:amd64 -c 'ls /app/node_modules/.prisma/client/ | grep -E "libquery_engine.*(linux-musl|debian)" '
+          docker run --rm --entrypoint node verz-local/whatsapp-web:amd64 -e "
+            const b=require('@whiskeysockets/baileys');
+            b.getAudioDuration(Buffer.from('3026b2758e66cf11a6d900aa0062ce6c0000000000000000','hex')).then(()=>console.log('parsed'),e=>console.log('rejected cleanly:',e.constructor.name))"
+          docker run --rm --entrypoint node verz-local/worker:amd64 -e "require('@prisma/client'); require('bullmq'); console.log('worker deps ok')"
+
+      - name: Least-privilege runtime test on the amd64 images
+        run: bash infra/scripts/tests/container-nonroot.test.sh runtime amd64 pgvector/pgvector:pg16
+
+      - name: Frontend image serves
+        run: |
+          docker run -d --name fe -p 3900:3000 verz-local/frontend:amd64
+          for i in $(seq 1 30); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3900/login)" = 200 ] && break; sleep 1; done
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3900/login)" = 200 ]
+          [ "$(docker exec fe id -u)" != 0 ]
