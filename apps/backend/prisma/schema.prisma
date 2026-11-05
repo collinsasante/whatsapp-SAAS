@@ -107,12 +107,12 @@ model Tenant {
   facebookPageConnections         FacebookPageConnection[]
   oauthConnectSessions            OAuthConnectSession[]
   whatsAppWebSessions             WhatsAppWebSession[]
+  channelHistorySyncs             ChannelHistorySync[]
+  aiCapAlerts                     AiCapAlert[]
+  messageEnrichments              MessageEnrichment[]
+  tikTokPublications              TikTokPublication[]
 
   @@map("tenants")
-  channelHistorySyncs    ChannelHistorySync[]
-  aiCapAlerts            AiCapAlert[]
-  messageEnrichments     MessageEnrichment[]
-  tikTokPublications     TikTokPublication[]
 }
 
 model WhatsAppNumber {
@@ -496,48 +496,48 @@ model Lead {
 }
 
 model Conversation {
-  id               String             @id @default(uuid())
-  tenantId         String             @map("tenant_id")
-  contactId        String             @map("contact_id")
-  assignedToId     String?            @map("assigned_to_id")
-  resolvedById     String?            @map("resolved_by_id")
-  channelId        String?            @map("channel_id")
-  whatsappNumberId String?            @map("whatsapp_number_id")
-  status           ConversationStatus @default(OPEN)
-  priority         Int                @default(0)
-  unreadCount      Int                @default(0) @map("unread_count")
-  reopenedCount    Int                @default(0) @map("reopened_count")
-  lastMessageAt    DateTime?          @map("last_message_at")
-  snoozedUntil     DateTime?          @map("snoozed_until")
-  requestedAt      DateTime?          @map("requested_at")
-  intervenedAt     DateTime?          @map("intervened_at")
-  resolvedAt       DateTime?          @map("resolved_at")
-  reopenedAt       DateTime?          @map("reopened_at")
-  slaDeadline      DateTime?          @map("sla_deadline")
-  slaBreached      Boolean            @default(false) @map("sla_breached")
-  csatScore        Int?               @map("csat_score")
-  csatComment      String?            @map("csat_comment")
-  csatSubmittedAt  DateTime?          @map("csat_submitted_at")
-  labels           String[]           @default([])
-  contactSource    String             @default("organic") @map("contact_source")
-  adSourceId       String?            @map("ad_source_id")
-  adHeadline       String?            @map("ad_headline")
-  adImageUrl       String?            @map("ad_image_url")
+  id                              String             @id @default(uuid())
+  tenantId                        String             @map("tenant_id")
+  contactId                       String             @map("contact_id")
+  assignedToId                    String?            @map("assigned_to_id")
+  resolvedById                    String?            @map("resolved_by_id")
+  channelId                       String?            @map("channel_id")
+  whatsappNumberId                String?            @map("whatsapp_number_id")
+  status                          ConversationStatus @default(OPEN)
+  priority                        Int                @default(0)
+  unreadCount                     Int                @default(0) @map("unread_count")
+  reopenedCount                   Int                @default(0) @map("reopened_count")
+  lastMessageAt                   DateTime?          @map("last_message_at")
+  snoozedUntil                    DateTime?          @map("snoozed_until")
+  requestedAt                     DateTime?          @map("requested_at")
+  intervenedAt                    DateTime?          @map("intervened_at")
+  resolvedAt                      DateTime?          @map("resolved_at")
+  reopenedAt                      DateTime?          @map("reopened_at")
+  slaDeadline                     DateTime?          @map("sla_deadline")
+  slaBreached                     Boolean            @default(false) @map("sla_breached")
+  csatScore                       Int?               @map("csat_score")
+  csatComment                     String?            @map("csat_comment")
+  csatSubmittedAt                 DateTime?          @map("csat_submitted_at")
+  labels                          String[]           @default([])
+  contactSource                   String             @default("organic") @map("contact_source")
+  adSourceId                      String?            @map("ad_source_id")
+  adHeadline                      String?            @map("ad_headline")
+  adImageUrl                      String?            @map("ad_image_url")
   // Verz-AI unification, Phase F: advisory cross-turn state (current intent, known
   // facts, selected product, active order, last topic) -- read/rendered into the
   // prompt as a compact summary, never branched on by application code. Nullable/
   // additive; absence just means "no state tracked yet," not an error.
-  aiState          Json?              @map("ai_state")
+  aiState                         Json?              @map("ai_state")
   // AI Digital Self: which agent's communication style the AI uses for this conversation. Style only -- it never
   // changes assignedToId (human ownership) and never enables AI replies. Tenant match is enforced in DigitalSelfService.
-  digitalSelfId    String?            @map("digital_self_id")
+  digitalSelfId                   String?            @map("digital_self_id")
   // Privacy: when true, nothing in this conversation is learned from, and evidence already taken from it is removed. This is
   // separate from the tenant flag and a per-agent pause, which say nothing about one particular conversation.
-  digitalSelfLearningExcluded     Boolean   @default(false) @map("digital_self_learning_excluded")
-  digitalSelfLearningExcludedAt   DateTime? @map("digital_self_learning_excluded_at")
-  digitalSelfLearningExcludedById String?   @map("digital_self_learning_excluded_by_id")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
+  digitalSelfLearningExcluded     Boolean            @default(false) @map("digital_self_learning_excluded")
+  digitalSelfLearningExcludedAt   DateTime?          @map("digital_self_learning_excluded_at")
+  digitalSelfLearningExcludedById String?            @map("digital_self_learning_excluded_by_id")
+  createdAt                       DateTime           @default(now()) @map("created_at")
+  updatedAt                       DateTime           @updatedAt @map("updated_at")
 
   tenant                   Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   contact                  Contact                   @relation(fields: [contactId], references: [id])
@@ -669,18 +669,19 @@ model Message {
   errorCode          Int?             @map("error_code")
   createdAt          DateTime         @default(now()) @map("created_at")
 
-  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  contact          Contact           @relation(fields: [contactId], references: [id])
-  sender           User?             @relation("MessageSender", fields: [senderId], references: [id])
-  replyTo          Message?          @relation("MessageReplies", fields: [replyToId], references: [id])
-  replies          Message[]         @relation("MessageReplies")
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation     Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contact          Contact             @relation(fields: [contactId], references: [id])
+  sender           User?               @relation("MessageSender", fields: [senderId], references: [id])
+  replyTo          Message?            @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies          Message[]           @relation("MessageReplies")
   reactions        MessageReaction[]
   pinnedIn         PinnedMessage[]
   editHistory      MessageEdit[]
   messageDeletions MessageDeletion[]
-  whatsappNumber   WhatsAppNumber?   @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
-  channel          Channel?          @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  whatsappNumber   WhatsAppNumber?     @relation(fields: [whatsappNumberId], references: [id], onDelete: SetNull)
+  channel          Channel?            @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  enrichments      MessageEnrichment[]
 
   @@unique([tenantId, whatsappMessageId])
   @@index([tenantId])
@@ -692,7 +693,6 @@ model Message {
   @@index([whatsappNumberId])
   @@index([channelId])
   @@map("messages")
-  enrichments MessageEnrichment[]
 }
 
 model MessageEdit {
@@ -778,13 +778,13 @@ model Channel {
   whatsAppNumber         WhatsAppNumber?
   facebookPageConnection FacebookPageConnection?
   whatsAppWebSession     WhatsAppWebSession?
+  historySync            ChannelHistorySync?
+  tikTokPublications     TikTokPublication[]
 
   @@unique([tenantId, type, name])
   @@unique([tenantId, type, externalId])
   @@index([tenantId])
   @@map("channels")
-  historySync            ChannelHistorySync?
-  tikTokPublications     TikTokPublication[]
 }
 
 // Facebook Page connection details for a FACEBOOK_MESSENGER-type Channel --
@@ -1141,15 +1141,20 @@ enum CampaignStatus {
 }
 
 model CampaignRecipient {
-  id           String          @id @default(uuid())
-  campaignId   String          @map("campaign_id")
-  contactId    String          @map("contact_id")
-  status       RecipientStatus @default(PENDING)
-  messageId    String?         @map("message_id")
-  errorMessage String?         @map("error_message")
-  errorCode    Int?            @map("error_code")
-  sentAt       DateTime?       @map("sent_at")
-  repliedAt    DateTime?       @map("replied_at")
+  id                String          @id @default(uuid())
+  campaignId        String          @map("campaign_id")
+  contactId         String          @map("contact_id")
+  status            RecipientStatus @default(PENDING)
+  messageId         String?         @map("message_id")
+  errorMessage      String?         @map("error_message")
+  errorCode         Int?            @map("error_code")
+  sentAt            DateTime?       @map("sent_at")
+  repliedAt         DateTime?       @map("replied_at")
+  // Durable send idempotency (see apps/worker/src/lib/campaign-claims.ts). While a worker is sending, claimedAt/claimToken are set and
+  // status stays PENDING; whatsappMessageId is written the moment Meta accepts the message, before the Message row exists.
+  claimedAt         DateTime?       @map("claimed_at")
+  claimToken        String?         @map("claim_token")
+  whatsappMessageId String?         @map("whatsapp_message_id")
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact  Contact  @relation(fields: [contactId], references: [id])
@@ -2604,7 +2609,7 @@ model AiInteractionLog {
   feedbackNote     String?  @map("feedback_note")
   createdAt        DateTime @default(now()) @map("created_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   // Added NOT VALID (migration 20261102130000): new rows must reference a real conversation, so a log can no longer be written for a
   // conversation that is being deleted; rows that already orphan are tolerated until an operator cleans them up and validates.
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -3008,22 +3013,22 @@ model AiLearningAuditLog {
 // `learningPaused` stops that spend without losing the opt-in, `approvedGuidanceEnabled` only controls whether reviewed guidance is
 // injected into replies. Budget overrides are in micro-USD (1 USD = 1_000_000); null means "use the platform default".
 model AiLearningSettings {
-  id                      String   @id @default(uuid())
-  tenantId                String   @unique @map("tenant_id")
-  learningEnabled         Boolean  @default(false) @map("learning_enabled")
-  learningPaused          Boolean  @default(false) @map("learning_paused")
-  approvedGuidanceEnabled Boolean  @default(true) @map("approved_guidance_enabled")
-  monthlyBudgetMicros     BigInt?  @map("monthly_budget_micros")
-  enabledAt               DateTime? @map("enabled_at")
-  enabledById             String?  @map("enabled_by_id")
+  id                         String    @id @default(uuid())
+  tenantId                   String    @unique @map("tenant_id")
+  learningEnabled            Boolean   @default(false) @map("learning_enabled")
+  learningPaused             Boolean   @default(false) @map("learning_paused")
+  approvedGuidanceEnabled    Boolean   @default(true) @map("approved_guidance_enabled")
+  monthlyBudgetMicros        BigInt?   @map("monthly_budget_micros")
+  enabledAt                  DateTime? @map("enabled_at")
+  enabledById                String?   @map("enabled_by_id")
   // The disclosure the workspace administrator last acknowledged: its version (a content hash, see learning-disclosure.ts), who, and when.
   // Learning runs only while this equals the CURRENT version, so any change to the disclosure needs a fresh acknowledgement. No foreign
   // key on the administrator: the record of who agreed must outlive the user row.
-  disclosureVersion            String?   @map("disclosure_version")
-  disclosureAcknowledgedAt     DateTime? @map("disclosure_acknowledged_at")
-  disclosureAcknowledgedById   String?   @map("disclosure_acknowledged_by_id")
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+  disclosureVersion          String?   @map("disclosure_version")
+  disclosureAcknowledgedAt   DateTime? @map("disclosure_acknowledged_at")
+  disclosureAcknowledgedById String?   @map("disclosure_acknowledged_by_id")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -3183,9 +3188,9 @@ model AiCreditTransaction {
   metadata         Json?
   createdAt        DateTime                @default(now()) @map("created_at")
 
-  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  aiExecution    AiExecution?    @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
-  creditPurchase CreditPurchase? @relation(fields: [creditPurchaseId], references: [id], onDelete: SetNull)
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiExecution    AiExecution?         @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  creditPurchase CreditPurchase?      @relation(fields: [creditPurchaseId], references: [id], onDelete: SetNull)
   reservation    AiCreditReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
@@ -3193,23 +3198,23 @@ model AiCreditTransaction {
 }
 
 model AiCreditReservation {
-  id                            String                    @id @default(uuid())
-  tenantId                      String                    @map("tenant_id")
-  aiExecutionId                 String?                   @map("ai_execution_id")
-  idempotencyKey                String                    @map("idempotency_key")
-  reservedCredits               Int                       @map("reserved_credits")
-  settledCredits                Int?                      @map("settled_credits")
-  maxCreditsPerAttempt          Int                       @map("max_credits_per_attempt")
-  pricingCreditsPerUsd          Float                     @map("pricing_credits_per_usd")
-  pricingInputCostPerMillionUsd Float                     @map("pricing_input_cost_per_million_usd")
-  pricingOutputCostPerMillionUsd Float                    @map("pricing_output_cost_per_million_usd")
-  status                        AiCreditReservationStatus @default(RESERVED)
-  expiresAt                     DateTime                  @map("expires_at")
-  createdAt                     DateTime                  @default(now()) @map("created_at")
-  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+  id                             String                    @id @default(uuid())
+  tenantId                       String                    @map("tenant_id")
+  aiExecutionId                  String?                   @map("ai_execution_id")
+  idempotencyKey                 String                    @map("idempotency_key")
+  reservedCredits                Int                       @map("reserved_credits")
+  settledCredits                 Int?                      @map("settled_credits")
+  maxCreditsPerAttempt           Int                       @map("max_credits_per_attempt")
+  pricingCreditsPerUsd           Float                     @map("pricing_credits_per_usd")
+  pricingInputCostPerMillionUsd  Float                     @map("pricing_input_cost_per_million_usd")
+  pricingOutputCostPerMillionUsd Float                     @map("pricing_output_cost_per_million_usd")
+  status                         AiCreditReservationStatus @default(RESERVED)
+  expiresAt                      DateTime                  @map("expires_at")
+  createdAt                      DateTime                  @default(now()) @map("created_at")
+  updatedAt                      DateTime                  @updatedAt @map("updated_at")
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  aiExecution AiExecution? @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  aiExecution AiExecution?         @relation(fields: [aiExecutionId], references: [id], onDelete: SetNull)
   transaction AiCreditTransaction?
 
   @@unique([tenantId, idempotencyKey])
@@ -3445,7 +3450,7 @@ model MessageEnrichment {
   id             String    @id @default(uuid())
   tenantId       String    @map("tenant_id")
   messageId      String    @map("message_id")
-  kind           String    // TRANSCRIPT | IMAGE_ANALYSIS
+  kind           String // TRANSCRIPT | IMAGE_ANALYSIS
   status         String    @default("PENDING")
   text           String?
   language       String?

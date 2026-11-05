@@ -5,12 +5,6 @@ export interface CampaignSendJob {
   recipientIds: string[];
 }
 
-export interface MessageRetryJob {
-  messageId: string;
-  tenantId: string;
-  attempt: number;
-}
-
 export interface AutomationTriggerJob {
   tenantId: string;
   ruleId: string;
@@ -60,7 +54,6 @@ export interface DigitalSelfLearnJob {
 
 export enum QueueName {
   CAMPAIGN_SEND = 'campaign-send',
-  MESSAGE_RETRY = 'message-retry',
   AUTOMATION_TRIGGER = 'automation-trigger',
   SCHEDULED_CAMPAIGN = 'scheduled-campaign',
   WEBHOOK_PROCESS = 'webhook-process',

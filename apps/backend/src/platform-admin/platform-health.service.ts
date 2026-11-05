@@ -21,7 +21,6 @@ export class PlatformHealthService {
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QueueName.CAMPAIGN_SEND) private campaignSendQueue: Queue,
-    @InjectQueue(QueueName.MESSAGE_RETRY) private messageRetryQueue: Queue,
     @InjectQueue(QueueName.AUTOMATION_TRIGGER) private automationQueue: Queue,
     @InjectQueue(QueueName.SCHEDULED_CAMPAIGN) private scheduledCampaignQueue: Queue,
     @InjectQueue(QueueName.SNOOZE) private snoozeQueue: Queue,
@@ -36,7 +35,6 @@ export class PlatformHealthService {
   private get queues(): { name: string; queue: Queue }[] {
     return [
       { name: QueueName.CAMPAIGN_SEND, queue: this.campaignSendQueue },
-      { name: QueueName.MESSAGE_RETRY, queue: this.messageRetryQueue },
       { name: QueueName.AUTOMATION_TRIGGER, queue: this.automationQueue },
       { name: QueueName.SCHEDULED_CAMPAIGN, queue: this.scheduledCampaignQueue },
       { name: QueueName.SNOOZE, queue: this.snoozeQueue },

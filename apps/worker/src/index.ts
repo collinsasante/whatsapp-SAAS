@@ -2,7 +2,6 @@ import { Redis } from 'ioredis';
 import { PrismaClient } from '@prisma/client';
 import { CampaignSendWorker } from './processors/campaign-send.processor';
 import { AutomationWorker } from './processors/automation.processor';
-import { MessageRetryWorker } from './processors/message-retry.processor';
 import { SnoozeWorker } from './processors/snooze.processor';
 import { AiTrialWorker } from './processors/ai-trial.processor';
 import { BillingCronWorker } from './processors/billing-cron.processor';
@@ -38,7 +37,6 @@ async function bootstrap(): Promise<() => Promise<void>> {
 
   const campaignWorker = new CampaignSendWorker(prisma, connection);
   const automationWorker = new AutomationWorker(prisma, connection);
-  const retryWorker = new MessageRetryWorker(prisma, connection);
   const snoozeWorker = new SnoozeWorker(prisma, connection);
   const aiTrialWorker = new AiTrialWorker(prisma, connection);
   const billingCronWorker = new BillingCronWorker(prisma);
@@ -52,7 +50,6 @@ async function bootstrap(): Promise<() => Promise<void>> {
 
   campaignWorker.start();
   automationWorker.start();
-  retryWorker.start();
   snoozeWorker.start();
   aiTrialWorker.start();
   billingCronWorker.start();
@@ -68,7 +65,7 @@ async function bootstrap(): Promise<() => Promise<void>> {
 
   return async () => {
     billingCronWorker.stop();
-    await Promise.all([campaignWorker.stop(), automationWorker.stop(), retryWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop(), slaMonitorWorker.stop(), inactivityWorker.stop(), analyticsRollupWorker.stop(), whatsappQualitySyncWorker.stop(), platformRollupWorker.stop(), commerceReconciliationWorker.stop(), tiktokTokenRefreshWorker.stop()]);
+    await Promise.all([campaignWorker.stop(), automationWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop(), slaMonitorWorker.stop(), inactivityWorker.stop(), analyticsRollupWorker.stop(), whatsappQualitySyncWorker.stop(), platformRollupWorker.stop(), commerceReconciliationWorker.stop(), tiktokTokenRefreshWorker.stop()]);
     await prisma.$disconnect();
     redis.disconnect();
   };

@@ -26,7 +26,6 @@ import { PlatformHealthService } from './platform-health.service';
     JwtModule.register({}),
     BullModule.registerQueue(
       { name: QueueName.CAMPAIGN_SEND },
-      { name: QueueName.MESSAGE_RETRY },
       { name: QueueName.AUTOMATION_TRIGGER },
       { name: QueueName.SCHEDULED_CAMPAIGN },
       { name: QueueName.SNOOZE },
