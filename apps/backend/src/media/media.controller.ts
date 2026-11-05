@@ -1,6 +1,7 @@
 import { isSafeStorageKey } from '../common/security/storage-key.util';
 import { Throttle } from '@nestjs/throttler';
 import {
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -14,6 +15,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { LARGEST_UPLOAD_BYTES, mediaFileFilter, sizeLimitedMemoryStorage } from './upload-limits';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { MediaService } from './media.service';
@@ -37,18 +39,22 @@ export class MediaController {
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: 512 * 1024 * 1024 },
+      storage: sizeLimitedMemoryStorage(),
+      fileFilter: mediaFileFilter,
+      // fileSize is the hard outer bound; the storage engine enforces the (lower) ceiling of each file type.
+      limits: { fileSize: LARGEST_UPLOAD_BYTES, files: 1, fields: 5, parts: 8 },
     }),
   )
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
-  @ApiOperation({ summary: 'Upload a media file (max 100MB)' })
+  @ApiOperation({ summary: 'Upload a media file (images 16MB, audio 64MB, documents 100MB, video 512MB)' })
   upload(
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: JwtPayload,
     @UploadedFile() file: Express.Multer.File,
     @Query('uniqueName') uniqueName?: string,
   ) {
+    if (!file) throw new BadRequestException('No file provided');
     return this.mediaService.upload(tenantId, user.sub, file, uniqueName === 'true');
   }
 

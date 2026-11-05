@@ -15,8 +15,21 @@ function build() {
   return { service, prisma, storageService };
 }
 
+// Smallest byte strings that carry the real signature of each allowed type, so these tests exercise the same content
+// check as production instead of bypassing it.
+const SAMPLE_BYTES: Record<string, Buffer> = {
+  'image/jpeg': Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]),
+  'image/png': Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]),
+  'application/pdf': Buffer.from('%PDF-1.7\n'),
+  'audio/webm': Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0, 0]),
+  'audio/mp4': Buffer.from([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]),
+  'audio/ogg': Buffer.from('OggS\0\0\0\0'),
+};
+
 function file(mimetype: string, originalname = 'upload.bin'): Express.Multer.File {
-  return { mimetype, originalname, size: 100 } as Express.Multer.File;
+  const bare = (mimetype.split(';')[0] ?? '').trim().toLowerCase();
+  const buffer = SAMPLE_BYTES[bare] ?? Buffer.from('arbitrary');
+  return { mimetype, originalname, size: buffer.length, buffer } as Express.Multer.File;
 }
 
 describe('MediaService.upload -- file-type allowlist (stored XSS regression)', () => {
@@ -146,5 +159,31 @@ describe('MediaService.remove / deduplicateAssets -- files still shown in conver
     await expect(service.deduplicateAssets('tenant-1')).resolves.toEqual({ removed: 1 });
     expect(storageService.delete).not.toHaveBeenCalled();
     expect(prisma.mediaAsset.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['old'] } } });
+  });
+});
+
+describe('MediaService.upload -- declared type must match the content', () => {
+  const upload = (mimetype: string, bytes: Buffer) => {
+    const ctx = build();
+    const f = { mimetype, originalname: 'x.bin', size: bytes.length, buffer: bytes } as Express.Multer.File;
+    return { ...ctx, result: ctx.service.upload('tenant-1', 'user-1', f) };
+  };
+
+  it.each([
+    ['HTML declared as a PNG', 'image/png', Buffer.from('<html><script>alert(1)</script></html>')],
+    ['an executable declared as a PDF', 'application/pdf', Buffer.from('MZ\x90\x00\x03')],
+    ['an ASF container declared as OGG audio', 'audio/ogg', Buffer.from('3026b2758e66cf11a6d900aa0062ce6c', 'hex')],
+    ['a JPEG declared as a PNG', 'image/png', Buffer.from([0xff, 0xd8, 0xff, 0xe0])],
+    ['an empty file', 'image/png', Buffer.alloc(0)],
+  ])('rejects %s and never stores it', async (_label, mimetype, bytes) => {
+    const { result, storageService, prisma } = upload(mimetype, bytes);
+    await expect(result).rejects.toThrow(BadRequestException);
+    expect(storageService.upload).not.toHaveBeenCalled();
+    expect(prisma.mediaAsset.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a request that carries no buffer at all', async () => {
+    const ctx = build();
+    await expect(ctx.service.upload('tenant-1', 'user-1', { mimetype: 'image/png', originalname: 'x.png', size: 1 } as Express.Multer.File)).rejects.toThrow(BadRequestException);
   });
 });

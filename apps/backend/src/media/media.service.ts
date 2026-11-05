@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
+import { contentMatchesDeclaredType } from './file-signature.util';
 import { buildMediaWhere, MEDIA_JOINS, MediaLibraryFilters, normalizeMediaFilters } from './media-library.query';
 import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/shared-utils';
 
@@ -11,7 +12,7 @@ import { buildPaginationMeta, getPaginationSkip } from '@whatsapp-platform/share
 // .html/.svg file, have it served back with a matching Content-Type from
 // the same origin, and use it for stored XSS (GET /media/serve/:fileKey is
 // @Public() and echoes the stored mimeType verbatim).
-const MIME_TO_MEDIA_TYPE: Record<string, 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'> = {
+export const MIME_TO_MEDIA_TYPE: Record<string, 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'> = {
   'image/jpeg': 'IMAGE',
   'image/png': 'IMAGE',
   'image/gif': 'IMAGE',
@@ -68,6 +69,11 @@ export class MediaService {
     }
     // Store and serve the bare type; the parameter adds nothing and would not match the allowlist later.
     file.mimetype = mimeType;
+
+    // The declared type is client-controlled: confirm the bytes agree before anything is stored, served or parsed.
+    if (!contentMatchesDeclaredType(mimeType, file.buffer)) {
+      throw new BadRequestException(`The file content does not match its declared type (${mimeType})`);
+    }
 
     if (enforceUniqueName) {
       const existing = await this.prisma.mediaAsset.findFirst({
