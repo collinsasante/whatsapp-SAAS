@@ -1,4 +1,3 @@
-import { HANDOFF_FAILED_TEXT, MAX_ITERATIONS_FALLBACK_TEXT, PROVIDER_FAILURE_FALLBACK_TEXT } from '../../ai-core/prompts/escalation-messages.util';
 import { checkFacts, compareStyles, measureReply, type FactRules, type StyleMetrics } from './style-compare.util';
 
 /**
@@ -26,7 +25,7 @@ export interface ValidationConfig {
   /** Replaceable so tests do not really wait. */
   sleep?: (ms: number) => Promise<void>;
   /**
-   * How many times to ask again, in a fresh conversation, when the AI returns its canned fallback instead of an answer. Staging's
+   * How many times to ask again, in a fresh conversation, when the AI returns no answer. Staging's
    * model has been seen to return empty answers intermittently (also before Digital Self existed), which would otherwise hide what
    * is being measured. Retries are counted and reported, never hidden. Default 2.
    */
@@ -69,9 +68,11 @@ export function assertSafeTarget(apiUrl: string, confirmSyntheticData: boolean):
   if (!local && !staging) throw new Error(`Refusing to run against "${host}": only a staging or local host is allowed.`);
 }
 
-/** A canned apology or hand-off, not an answer: the model call failed or gave up. It says nothing about style or facts. */
-const FALLBACK_TEXTS = [PROVIDER_FAILURE_FALLBACK_TEXT, HANDOFF_FAILED_TEXT, MAX_ITERATIONS_FALLBACK_TEXT];
-export const isFallbackReply = (reply: string): boolean => FALLBACK_TEXTS.some((t) => reply.includes(t));
+/**
+ * No answer at all: the model call failed or gave up. The AI no longer writes canned apologies or hand-off text (they were retired with
+ * the no-canned-replies work), so a failed turn comes back empty. It says nothing about style or facts.
+ */
+export const isFallbackReply = (reply: string): boolean => reply.trim().length === 0;
 
 /**
  * Tools the AI uses for its own bookkeeping. Whether it jots a note or scores a lead varies from run to run and says nothing about
@@ -142,7 +143,7 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const attemptStats = { firstAttemptFallbacks: 0, retries: 0, runs: 0 };
   const maxEmptyRetries = cfg.maxEmptyRetries ?? 2;
 
-  /** One run: a fresh conversation, retried (also fresh) if the AI only produced its canned fallback. The last attempt's reply is kept. */
+  /** One run: a fresh conversation, retried (also fresh) if the AI produced no answer. The last attempt's reply is kept. */
   async function ask(label: keyof typeof replies, digitalSelfId: string | null): Promise<void> {
     attemptStats.runs++;
     for (let attempt = 0; ; attempt++) {
@@ -150,7 +151,7 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
       if (!isFallbackReply(reply) || attempt >= maxEmptyRetries) { replies[label].push(reply); return; }
       if (attempt === 0) attemptStats.firstAttemptFallbacks++;
       attemptStats.retries++;
-      cfg.onProgress?.(`The AI returned its fallback instead of an answer; asking again (${attempt + 1}/${maxEmptyRetries})...`);
+      cfg.onProgress?.(`The AI returned no answer; asking again (${attempt + 1}/${maxEmptyRetries})...`);
     }
   }
 
@@ -196,16 +197,16 @@ export async function runValidation(cfg: ValidationConfig, fetchFn: Fetch): Prom
   const fallbacks = (['A', 'B', 'none', 'insufficient'] as const).reduce((n, l) => n + replies[l].filter(isFallbackReply).length, 0);
   const total = (['A', 'B', 'none', 'insufficient'] as const).reduce((n, l) => n + replies[l].length, 0);
   const retryNote = attemptStats.retries > 0
-    ? ` ${attemptStats.firstAttemptFallbacks} of ${attemptStats.runs} runs returned the canned fallback on the first try and needed ${attemptStats.retries} retr${attemptStats.retries === 1 ? 'y' : 'ies'}: the staging model returns empty answers intermittently (this pre-dates Digital Self; see ai_executions history). It is a finding in its own right.`
+    ? ` ${attemptStats.firstAttemptFallbacks} of ${attemptStats.runs} runs returned no answer on the first try and needed ${attemptStats.retries} retr${attemptStats.retries === 1 ? 'y' : 'ies'}: the staging model returns empty answers intermittently (this pre-dates Digital Self; see ai_executions history). It is a finding in its own right.`
     : '';
   add('The AI gave real answers (no provider failures or hand-offs)', fallbacks === 0, fallbacks === 0
     ? `all ${total} final replies were real answers.${retryNote}`
-    : `${fallbacks} of ${total} final replies were still the canned "trouble on my end" or hand-off text after ${maxEmptyRetries} retr${maxEmptyRetries === 1 ? 'y' : 'ies'}: the model call failed or gave up, so those replies say nothing about style or facts. Check the staging provider and the backend logs.${retryNote}`);
+    : `${fallbacks} of ${total} final replies were still empty (no answer) after ${maxEmptyRetries} retr${maxEmptyRetries === 1 ? 'y' : 'ies'}: the model call failed or gave up, so those replies say nothing about style or facts. Check the staging provider and the backend logs.${retryNote}`);
 
   for (const label of ['A', 'B', 'none', 'insufficient'] as const) {
     if (replies[label].length === 0) continue;
     const title = `Facts are correct and nothing is invented (${label === 'none' ? 'no Digital Self' : label === 'insufficient' ? 'too little learned' : `agent ${label}`})`;
-    if (real(label).length === 0) { skip(title, 'inconclusive: every reply was a fallback, so there was no answer to check'); continue; }
+    if (real(label).length === 0) { skip(title, 'inconclusive: every reply was empty, so there was no answer to check'); continue; }
     add(title, real(label).flatMap((r, i) => checkFacts(r, cfg.facts).map((p) => `reply ${i + 1}: ${p}`)));
   }
 

@@ -168,11 +168,12 @@ describe('harness mismatch', () => {
 });
 
 describe('provider failures are reported as such, not as wrong answers', () => {
-  const FALLBACK = "Give me a moment -- I'm having a little trouble on my end. Let me get someone to pick this up.";
-  it('marks facts and style inconclusive (not failed) when every reply is the canned fallback', async () => {
+  const FALLBACK = '';
+  it('marks facts and style inconclusive (not failed) when every reply is empty (no answer)', async () => {
     const report = await runValidation(cfg(), fakeApi({ replyFor: { dsAma: FALLBACK, dsKofi: FALLBACK, none: FALLBACK } }).fetchFn);
     expect(report.ok).toBe(false);
-    expect(failed(report)).toEqual(['The AI gave real answers (no provider failures or hand-offs)']);
+    // An empty reply is both "nothing came back" and "the model gave up"; the two checks report the same fact from two angles.
+    expect(failed(report)).toEqual(['Every run produced a reply', 'The AI gave real answers (no provider failures or hand-offs)']);
     expect(report.checks.filter((c) => c.status === 'skipped').map((c) => c.detail)).toEqual(expect.arrayContaining([expect.stringContaining('inconclusive')]));
     expect(report.checks.find((c) => c.name.startsWith('The AI gave real answers'))!.detail).toMatch(/\d+ of \d+ final replies/);
   });
@@ -188,7 +189,7 @@ describe('provider failures are reported as such, not as wrong answers', () => {
 });
 
 describe('intermittent empty answers', () => {
-  const FALLBACK = "Give me a moment -- I'm having a little trouble on my end. Let me get someone to pick this up.";
+  const FALLBACK = '';
   it('retries a fallback in a fresh conversation, keeps the real answer, and reports how many retries it took', async () => {
     let n = 0;
     const base = fakeApi();
