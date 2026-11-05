@@ -1,0 +1,47 @@
+name: Frontend quality
+
+# Typecheck, lint and component tests for the dashboard. `next build` ignores type and lint errors (see next.config.js), so these jobs are the only gate.
+# No secrets are needed.
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Typecheck, lint, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages
+        run: |
+          pnpm --filter @whatsapp-platform/shared-types build
+          pnpm --filter @whatsapp-platform/shared-utils build
+
+      - name: Typecheck
+        run: pnpm --filter @whatsapp-platform/frontend typecheck
+
+      - name: Lint (errors fail; warnings are the current baseline)
+        run: pnpm --filter @whatsapp-platform/frontend lint
+
+      - name: Component and unit tests
+        run: pnpm --filter @whatsapp-platform/frontend test

@@ -273,8 +273,8 @@ function WorkspaceSwitcher() {
         user: { id: string; email: string; name: string; role: string; tenantId: string; avatarUrl?: string | null };
         tenant: { id: string; name: string; onboardingCompleted?: boolean };
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setAuth(user as any, newTenant, accessToken);
+      // The response types `role` as a plain string (it can be a workspace role such as OWNER); setAuth normalises it to a UserRole.
+      setAuth(user as Parameters<typeof setAuth>[0], newTenant, accessToken);
       setOpen(false);
       // Full page reload so all queries re-fetch with the new tenantId JWT
       window.location.href = '/dashboard';
