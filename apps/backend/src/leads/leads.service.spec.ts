@@ -48,7 +48,7 @@ describe('LeadsService', () => {
 
       const result = await service.scoreConversation('t1', 'c1', 'ct1');
 
-      expect(aiCompletion.complete).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't1', taskType: 'LEAD_SCORE', conversationId: 'c1', jsonMode: true }));
+      expect(aiCompletion.complete).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 't1', taskType: 'LEAD_SCORE', conversationId: 'c1', jsonMode: true, disableThinking: true }));
       expect(prisma.lead.upsert).toHaveBeenCalledWith(expect.objectContaining({
         where: { conversationId: 'c1' },
         create: expect.objectContaining({ tenantId: 't1', contactId: 'ct1', conversationId: 'c1', score: 85, status: 'HOT' }),
