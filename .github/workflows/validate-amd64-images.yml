@@ -45,7 +45,8 @@ jobs:
           docker run --rm --entrypoint node verz-local/backend:amd64 -e "
             const b=require('bcrypt'); if(!b.compareSync('x', b.hashSync('x',4))) process.exit(1);
             const {PrismaClient}=require('@prisma/client'); new PrismaClient(); console.log('bcrypt and prisma client ok')"
-          docker run --rm --entrypoint sh verz-local/backend:amd64 -c 'ls /app/node_modules/.prisma/client/ | grep -E "libquery_engine.*(linux-musl|debian)" '
+          # pnpm keeps the generated client under node_modules/.pnpm, so search for the query engine instead of assuming a path.
+          docker run --rm --entrypoint sh verz-local/backend:amd64 -c 'f=$(find /app/node_modules -name "libquery_engine*.so.node" | head -1); echo "engine: $f"; [ -n "$f" ] && echo "$f" | grep -q musl'
           docker run --rm --entrypoint node verz-local/whatsapp-web:amd64 -e "
             const b=require('@whiskeysockets/baileys');
             b.getAudioDuration(Buffer.from('3026b2758e66cf11a6d900aa0062ce6c0000000000000000','hex')).then(()=>console.log('parsed'),e=>console.log('rejected cleanly:',e.constructor.name))"
