@@ -13,7 +13,7 @@ Produced on the release candidate (`integration/staging-candidate-v2`) on a lapt
 | Frontend | `pnpm --filter @whatsapp-platform/frontend typecheck`, `lint`, `test`, and `next build` | typecheck clean; lint 0 errors, 30 warnings (classified in `docs/FRONTEND_QUALITY.md`); 6 tests passed; build succeeds |
 | Type checks and builds | `tsc --noEmit` in backend, worker, whatsapp-web, realtime; `nest build` | all clean |
 | Browser journeys (real Chromium, production build, freshly migrated and seeded database) | described in `docs/CONTAINER_AND_QUEUE_VALIDATION.md` section 4 | 38 of 38 checks |
-| Release images (arm64, isolated network, throwaway Postgres and Redis) | `docs/CONTAINER_AND_QUEUE_VALIDATION.md` section 1 | backend, worker, realtime, whatsapp-web built and ran; **frontend image not committed (local Docker disk full)** |
+| Release images (arm64, isolated network, throwaway Postgres and Redis) | `docs/CONTAINER_AND_QUEUE_VALIDATION.md` section 1 | all five (backend, worker, realtime, whatsapp-web, frontend) built and ran |
 | Infra shell suites (need GNU coreutils: Linux) | `bash infra/scripts/tests/backup.test.sh`, `backup-trial.test.sh`, `offhost-backup.test.sh` | 44, 44, 25 (last run 2026-11-04; unchanged since) |
 | Credential encryption rehearsal | `infra/scripts/credential-encryption-rehearsal.sh` | 34 of 34 (2026-11-04; unchanged since) |
 | Migration rehearsal | `infra/scripts/migration-rehearsal.sh` | 26 of 26 (2026-11-04; unchanged since) |
