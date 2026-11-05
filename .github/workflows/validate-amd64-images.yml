@@ -6,6 +6,9 @@ name: Validate linux/amd64 release images
 on:
   pull_request:
     branches: [main]
+  # push on the release-candidate branch: workflow_dispatch only works once a workflow exists on the default branch, and nothing is merged to main for this.
+  push:
+    branches: [integration/staging-candidate-v2]
   workflow_dispatch:
 
 permissions:
