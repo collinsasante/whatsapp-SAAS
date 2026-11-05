@@ -194,6 +194,7 @@ export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors flex-shrink-0 active:scale-90"
           >
             <X size={14} />

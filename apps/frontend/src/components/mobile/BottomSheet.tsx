@@ -90,6 +90,7 @@ export function BottomSheet({
             <h3 className="font-bold text-gray-900 text-[15px]">{title}</h3>
             <button
               onClick={onClose}
+              aria-label="Close"
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors active:scale-95"
             >
               <X size={14} />

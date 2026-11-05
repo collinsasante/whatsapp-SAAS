@@ -1,4 +1,5 @@
 'use client';
+import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -222,9 +223,10 @@ const OAUTH_INFO: Record<string, { permissions: string[] }> = {
 };
 
 function ModalShell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const panelRef = useDialogBehavior<HTMLDivElement>(onClose);
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" onClick={e => e.stopPropagation()}>
+      <div ref={panelRef} role="dialog" aria-modal="true" className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200 focus:outline-none" onClick={e => e.stopPropagation()}>
         {children}
       </div>
     </div>
@@ -264,7 +266,7 @@ function OAuthModal({ channel, onClose }: { channel: ChannelDef; onClose: () => 
               <p className="text-xs text-gray-500 mt-0.5">OAuth authorization required</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1">
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 transition-colors p-1">
             <X size={16} />
           </button>
         </div>
@@ -384,7 +386,7 @@ function WhatsAppModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               <p className="text-xs text-gray-500 mt-0.5">Step {step === 'webhook' ? '1' : '2'} of 2: {step === 'webhook' ? 'Configure your webhook' : 'Enter your credentials'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
         </div>
       </div>
 
@@ -501,7 +503,7 @@ function TelegramModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               <p className="text-xs text-gray-500 mt-0.5">Paste your BotFather token</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
         </div>
       </div>
       <div className="px-6 py-4 space-y-3">
@@ -644,7 +646,7 @@ function FacebookPagePicker({ provider, sessionId, onClose, onConnected }: { pro
             <h2 className="text-base font-bold text-gray-900">{copy.title}</h2>
             <p className="text-xs text-gray-500 mt-0.5">{copy.hint}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
         </div>
       </div>
       <div className="px-6 py-4 max-h-80 overflow-y-auto">
@@ -1000,7 +1002,7 @@ function WhatsAppQrModal({ onClose, onConnected }: { onClose: () => void; onConn
               <p className="text-xs text-gray-500 mt-0.5">Unofficial, linked-device connection</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 transition-colors p-1"><X size={16} /></button>
         </div>
       </div>
 
@@ -1661,10 +1663,11 @@ function ChannelsPageInner() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search channels…"
+                aria-label="Search channels"
                 className="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors shadow-sm"
               />
               {search && (
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <button onClick={() => setSearch('')} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   <X size={13} />
                 </button>
               )}

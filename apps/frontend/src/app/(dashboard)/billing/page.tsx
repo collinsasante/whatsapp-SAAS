@@ -1,4 +1,5 @@
 'use client';
+import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle, BarChart3, Bot, CheckCircle2,
@@ -159,6 +160,7 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
   onClose: () => void;
   onPurchased: () => void;
 }) {
+  const panelRef = useDialogBehavior<HTMLDivElement>(onClose);
   const userEmail = useAuthStore((st) => st.user?.email);
   // The purchase needs a receipt address. Use the signed-in user's email, and let them change it.
   const [email, setEmail] = useState(userEmail ?? '');
@@ -191,10 +193,10 @@ function CreditCheckoutModal({ pack, onClose, onPurchased }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div ref={panelRef} role="dialog" aria-modal="true" className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden focus:outline-none">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="font-bold text-gray-900">Buy {pack.name}</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
+          <button onClick={onClose} aria-label="Close" className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
             <X size={16} />
           </button>
         </div>
