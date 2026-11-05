@@ -119,6 +119,8 @@ export class SecurityRefusalService {
         modelKey,
         messages: [{ role: 'system', content: system }, { role: 'user', content: 'Write your reply now.' }],
         maxTokens: REFUSAL_MAX_TOKENS,
+        // 160 tokens is far too small for a reasoning model: its hidden reasoning used it all and the refusal came back empty on staging.
+        disableThinking: true,
       });
       const completion = metered.result;
       trace.provider = completion.provider;

@@ -39,6 +39,8 @@ describe('SecurityRefusalService', () => {
     expect(request.messages[0].content).toContain('Acme');
     expect(request.messages[0].content).toContain('Warm and a little playful.');
     expect(request.messages[0].content).toContain('STYLE: short and warm.');
+    // The 160-token budget cannot also hold a reasoning model's hidden reasoning (the refusal came back empty on staging).
+    expect(request.disableThinking).toBe(true);
   });
 
   describe('attack text isolation', () => {
