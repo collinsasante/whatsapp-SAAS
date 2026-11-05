@@ -32,12 +32,12 @@ Real `redis:7.4` container with `--requirepass` from the environment, using the 
     container_name: wa_redis
     restart: always
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDISCLI_AUTH: ${REDIS_PASSWORD}          # lets the healthcheck and docker exec redis-cli authenticate
     command: ["sh", "-c", "[ -n \"$$REDIS_PASSWORD\" ] || exit 1; exec redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
 ```
 
-The `${…:?}` guard and the `[ -n … ]` test make an empty password a start-up failure instead of silently starting an open Redis. The healthcheck stays `redis-cli ping`.
+The `[ -n … ]` test in the command makes an empty password a start-up failure instead of silently starting an open Redis (a `${…:?}` guard in the compose file was tried and rejected: it stops the file from rendering when nothing is set, which the repository's own contract test requires; `production-recreate.sh` already aborts on unset variables). The healthcheck stays `redis-cli ping`.
 
 ## Steps
 

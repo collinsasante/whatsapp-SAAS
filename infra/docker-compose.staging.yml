@@ -84,7 +84,13 @@ services:
     image: redis:7-alpine
     container_name: wa_staging_redis
     restart: always
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    # Authenticated (rehearsal of the production change in docs/REDIS_AUTH_IMPLEMENTATION_PLAN.md). The password reaches the server through the
+    # environment, so it is not in `docker inspect` Cmd; REDISCLI_AUTH lets the healthcheck and `docker exec redis-cli` authenticate. The command refuses to start with
+    # an empty password (instead of silently starting an open Redis), and staging-required-settings.sh refuses a release without one.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    command: ["sh", "-c", "[ -n \"$$REDIS_PASSWORD\" ] || exit 1; exec redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
     volumes:
       - redis_staging_data:/data
     networks:
