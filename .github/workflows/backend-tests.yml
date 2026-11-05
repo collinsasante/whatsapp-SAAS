@@ -128,7 +128,7 @@ jobs:
         run: |
           psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE e2e_test"
           DATABASE_URL="$PGBASE/e2e_test" pnpm --filter @whatsapp-platform/backend exec prisma migrate deploy
-          for db in ailearn ailiso ailease capalert dself media msgsync reenc spend tenant rag; do
+          for db in ailearn ailiso ailease capalert dself media msgsync reenc spend tenant rag drift; do
             psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ${db}_test TEMPLATE e2e_test"
           done
           psql -h 127.0.0.1 -U postgres -d rag_test -c "CREATE EXTENSION IF NOT EXISTS vector"
@@ -150,6 +150,7 @@ jobs:
           SPENDCAP_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/spend_test
           TENANT_ISOLATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tenant_test
           RAG_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rag_test
+          SCHEMA_DRIFT_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/drift_test
         run: pnpm --filter @whatsapp-platform/backend exec jest --ci --runInBand
 
       - name: Run the e2e suites (real HTTP stack, PostgreSQL and Redis)

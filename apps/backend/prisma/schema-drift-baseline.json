@@ -1,0 +1,251 @@
+{
+ "description": "Frozen schema drift: what `prisma migrate diff` (database built from the migrations -> schema.prisma) proposes. None of it is applied, because most statements are DROPs of legacy objects that hold data in at least one real database. The build fails on ANY statement not listed here, and when a listed one disappears. See docs/SCHEMA_DRIFT.md.",
+ "generated": "2026-11-05",
+ "statements": [
+  {
+   "id": 1,
+   "statement": "-- DropForeignKey ALTER TABLE \"ai_knowledge_gaps\" DROP CONSTRAINT \"ai_knowledge_gaps_tenant_id_fkey\";",
+   "class": "LEGACY_TABLE",
+   "inRestoredProductionCopy": true,
+   "note": "Legacy retrieval table the schema no longer models. Kept: production has 0 rows, staging holds 630 pgvector chunks in knowledge_base_chunks. Dropping it would destroy data."
+  },
+  {
+   "id": 2,
+   "statement": "-- DropForeignKey ALTER TABLE \"call_logs\" DROP CONSTRAINT \"call_logs_contact_id_fkey\";",
+   "class": "FK_SEMANTICS",
+   "inRestoredProductionCopy": false,
+   "note": "The schema and the databases disagree on a foreign key (present in staging and a fresh build, absent in production; delete behaviour differs: call_logs.contact_id is RESTRICT in the database but SET NULL in the schema). Changing it alters delete semantics: owner decision."
+  },
+  {
+   "id": 3,
+   "statement": "-- DropForeignKey ALTER TABLE \"campaign_clicks\" DROP CONSTRAINT \"campaign_clicks_campaign_id_fkey\";",
+   "class": "FK_SEMANTICS",
+   "inRestoredProductionCopy": false,
+   "note": "The schema and the databases disagree on a foreign key (present in staging and a fresh build, absent in production; delete behaviour differs: call_logs.contact_id is RESTRICT in the database but SET NULL in the schema). Changing it alters delete semantics: owner decision."
+  },
+  {
+   "id": 4,
+   "statement": "-- DropForeignKey ALTER TABLE \"conversation_events\" DROP CONSTRAINT \"conversation_events_actor_id_fkey\";",
+   "class": "LEGACY_CONSTRAINT",
+   "inRestoredProductionCopy": false,
+   "note": "A foreign key the migrations create on a relation the schema does not model. Present in staging and a fresh build, absent in production. Not dropped."
+  },
+  {
+   "id": 5,
+   "statement": "-- DropForeignKey ALTER TABLE \"conversations\" DROP CONSTRAINT \"conversations_resolved_by_id_fkey\";",
+   "class": "LEGACY_CONSTRAINT",
+   "inRestoredProductionCopy": false,
+   "note": "A foreign key the migrations create on a relation the schema does not model. Present in staging and a fresh build, absent in production. Not dropped."
+  },
+  {
+   "id": 6,
+   "statement": "-- DropForeignKey ALTER TABLE \"knowledge_base_chunks\" DROP CONSTRAINT \"knowledge_base_chunks_article_id_fkey\";",
+   "class": "LEGACY_TABLE",
+   "inRestoredProductionCopy": true,
+   "note": "Legacy retrieval table the schema no longer models. Kept: production has 0 rows, staging holds 630 pgvector chunks in knowledge_base_chunks. Dropping it would destroy data."
+  },
+  {
+   "id": 7,
+   "statement": "-- DropForeignKey ALTER TABLE \"knowledge_base_chunks\" DROP CONSTRAINT \"knowledge_base_chunks_tenant_id_fkey\";",
+   "class": "LEGACY_TABLE",
+   "inRestoredProductionCopy": true,
+   "note": "Legacy retrieval table the schema no longer models. Kept: production has 0 rows, staging holds 630 pgvector chunks in knowledge_base_chunks. Dropping it would destroy data."
+  },
+  {
+   "id": 8,
+   "statement": "-- DropForeignKey ALTER TABLE \"subscriptions\" DROP CONSTRAINT \"subscriptions_plan_id_fkey\";",
+   "class": "FK_SEMANTICS",
+   "inRestoredProductionCopy": false,
+   "note": "The schema and the databases disagree on a foreign key (present in staging and a fresh build, absent in production; delete behaviour differs: call_logs.contact_id is RESTRICT in the database but SET NULL in the schema). Changing it alters delete semantics: owner decision."
+  },
+  {
+   "id": 9,
+   "statement": "-- DropIndex DROP INDEX \"analytics_daily_conversation_stats_date_idx\";",
+   "class": "LEGACY_INDEX",
+   "inRestoredProductionCopy": true,
+   "note": "An index the migrations create that the schema does not declare. Harmless (performance only). Not dropped."
+  },
+  {
+   "id": 10,
+   "statement": "-- DropIndex DROP INDEX \"analytics_daily_message_stats_date_idx\";",
+   "class": "LEGACY_INDEX",
+   "inRestoredProductionCopy": true,
+   "note": "An index the migrations create that the schema does not declare. Harmless (performance only). Not dropped."
+  },
+  {
+   "id": 11,
+   "statement": "-- DropIndex DROP INDEX \"analytics_daily_revenue_stats_date_idx\";",
+   "class": "LEGACY_INDEX",
+   "inRestoredProductionCopy": true,
+   "note": "An index the migrations create that the schema does not declare. Harmless (performance only). Not dropped."
+  },
+  {
+   "id": 12,
+   "statement": "-- DropIndex DROP INDEX \"conversation_events_tenant_id_idx\";",
+   "class": "LEGACY_INDEX",
+   "inRestoredProductionCopy": false,
+   "note": "An index the migrations create that the schema does not declare. Harmless (performance only). Not dropped."
+  },
+  {
+   "id": 13,
+   "statement": "-- DropIndex DROP INDEX \"conversations_whatsapp_number_id_idx\";",
+   "class": "LEGACY_INDEX",
+   "inRestoredProductionCopy": false,
+   "note": "An index the migrations create that the schema does not declare. Harmless (performance only). Not dropped."
+  },
+  {
+   "id": 14,
+   "statement": "-- DropIndex DROP INDEX \"platform_admins_email_idx\";",
+   "class": "LEGACY_INDEX",
+   "inRestoredProductionCopy": false,
+   "note": "An index the migrations create that the schema does not declare. Harmless (performance only). Not dropped."
+  },
+  {
+   "id": 15,
+   "statement": "-- AlterTable ALTER TABLE \"ai_interaction_logs\" DROP COLUMN \"action\", DROP COLUMN \"edit_distance_ratio\", DROP COLUMN \"escalation_reason\", DROP COLUMN \"sources\", DROP COLUMN \"unverified_detail\", DROP COLUMN \"verification_fail_reason\", DROP COLUMN \"verification_passed\";",
+   "class": "LEGACY_COLUMNS_WITH_DATA",
+   "inRestoredProductionCopy": true,
+   "note": "Seven legacy verification columns still hold history in production and staging. Not dropped."
+  },
+  {
+   "id": 16,
+   "statement": "-- AlterTable ALTER TABLE \"call_logs\" ALTER COLUMN \"status\" DROP DEFAULT, ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 17,
+   "statement": "-- AlterTable ALTER TABLE \"call_notes\" ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 18,
+   "statement": "-- AlterTable ALTER TABLE \"campaign_clicks\" ALTER COLUMN \"id\" DROP DEFAULT, ALTER COLUMN \"clicked_at\" SET DATA TYPE TIMESTAMP(3), ALTER COLUMN \"created_at\" SET DATA TYPE TIMESTAMP(3);",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 19,
+   "statement": "-- AlterTable ALTER TABLE \"canned_responses\" DROP COLUMN \"category\", ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "LEGACY_COLUMN",
+   "inRestoredProductionCopy": false,
+   "note": "A column the migrations create (or an old duplicate such as rollout_type next to \"rolloutType\") that the schema no longer models. Not dropped: rename-like, needs a data inspection first."
+  },
+  {
+   "id": 20,
+   "statement": "-- AlterTable ALTER TABLE \"channels\" ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 21,
+   "statement": "-- AlterTable ALTER TABLE \"chatbot_flows\" ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 22,
+   "statement": "-- AlterTable ALTER TABLE \"contact_segments\" ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 23,
+   "statement": "-- AlterTable ALTER TABLE \"conversation_events\" DROP COLUMN \"metadata\";",
+   "class": "LEGACY_COLUMN",
+   "inRestoredProductionCopy": false,
+   "note": "A column the migrations create (or an old duplicate such as rollout_type next to \"rolloutType\") that the schema no longer models. Not dropped: rename-like, needs a data inspection first."
+  },
+  {
+   "id": 24,
+   "statement": "-- AlterTable ALTER TABLE \"feature_flags\" DROP COLUMN \"rollout_type\", ALTER COLUMN \"beta_tenants\" DROP DEFAULT, ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "LEGACY_COLUMN",
+   "inRestoredProductionCopy": false,
+   "note": "A column the migrations create (or an old duplicate such as rollout_type next to \"rolloutType\") that the schema no longer models. Not dropped: rename-like, needs a data inspection first."
+  },
+  {
+   "id": 25,
+   "statement": "-- AlterTable ALTER TABLE \"platform_settings\" DROP COLUMN \"updatedBy\";",
+   "class": "LEGACY_COLUMN",
+   "inRestoredProductionCopy": false,
+   "note": "A column the migrations create (or an old duplicate such as rollout_type next to \"rolloutType\") that the schema no longer models. Not dropped: rename-like, needs a data inspection first."
+  },
+  {
+   "id": 26,
+   "statement": "-- AlterTable ALTER TABLE \"tenant_settings\" DROP COLUMN \"ai_confidence_threshold\", DROP COLUMN \"ai_debounce_enabled\", DROP COLUMN \"ai_holding_message\", DROP COLUMN \"ai_max_consecutive_replies\", DROP COLUMN \"ai_verification_enabled\";",
+   "class": "LEGACY_COLUMNS_WITH_DATA",
+   "inRestoredProductionCopy": true,
+   "note": "Five legacy AI settings columns with defaults; may still hold per-workspace values. Not dropped."
+  },
+  {
+   "id": 27,
+   "statement": "-- AlterTable ALTER TABLE \"tenants\" ALTER COLUMN \"plan\" SET DEFAULT 'free';",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 28,
+   "statement": "-- AlterTable ALTER TABLE \"webhooks\" ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 29,
+   "statement": "-- AlterTable ALTER TABLE \"workspace_members\" ALTER COLUMN \"updated_at\" DROP DEFAULT;",
+   "class": "DEFAULT_OR_TYPE",
+   "inRestoredProductionCopy": false,
+   "note": "A column default or timestamp type that differs from the schema. No functional effect (Prisma supplies the values). Not changed."
+  },
+  {
+   "id": 30,
+   "statement": "-- DropTable DROP TABLE \"ai_knowledge_gaps\";",
+   "class": "LEGACY_TABLE",
+   "inRestoredProductionCopy": true,
+   "note": "Legacy retrieval table the schema no longer models. Kept: production has 0 rows, staging holds 630 pgvector chunks in knowledge_base_chunks. Dropping it would destroy data."
+  },
+  {
+   "id": 31,
+   "statement": "-- DropTable DROP TABLE \"knowledge_base_chunks\";",
+   "class": "LEGACY_TABLE",
+   "inRestoredProductionCopy": true,
+   "note": "Legacy retrieval table the schema no longer models. Kept: production has 0 rows, staging holds 630 pgvector chunks in knowledge_base_chunks. Dropping it would destroy data."
+  },
+  {
+   "id": 32,
+   "statement": "-- CreateIndex CREATE UNIQUE INDEX \"messages_tenant_id_whatsapp_message_id_key\" ON \"messages\"(\"tenant_id\", \"whatsapp_message_id\");",
+   "class": "NOT_EXPRESSIBLE",
+   "inRestoredProductionCopy": true,
+   "note": "The index exists everywhere as a PARTIAL unique index (WHERE whatsapp_message_id IS NOT NULL, migration 20260513000000). Prisma cannot express a partial index, so it always reports it. Duplicate-delivery protection is in place."
+  },
+  {
+   "id": 33,
+   "statement": "-- AddForeignKey ALTER TABLE \"call_logs\" ADD CONSTRAINT \"call_logs_contact_id_fkey\" FOREIGN KEY (\"contact_id\") REFERENCES \"contacts\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;",
+   "class": "FK_SEMANTICS",
+   "inRestoredProductionCopy": true,
+   "note": "The schema and the databases disagree on a foreign key (present in staging and a fresh build, absent in production; delete behaviour differs: call_logs.contact_id is RESTRICT in the database but SET NULL in the schema). Changing it alters delete semantics: owner decision."
+  },
+  {
+   "id": 34,
+   "statement": "-- AddForeignKey ALTER TABLE \"campaign_clicks\" ADD CONSTRAINT \"campaign_clicks_campaign_id_fkey\" FOREIGN KEY (\"campaign_id\") REFERENCES \"campaigns\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;",
+   "class": "FK_SEMANTICS",
+   "inRestoredProductionCopy": true,
+   "note": "The schema and the databases disagree on a foreign key (present in staging and a fresh build, absent in production; delete behaviour differs: call_logs.contact_id is RESTRICT in the database but SET NULL in the schema). Changing it alters delete semantics: owner decision."
+  },
+  {
+   "id": 35,
+   "statement": "-- AddForeignKey ALTER TABLE \"subscriptions\" ADD CONSTRAINT \"subscriptions_plan_id_fkey\" FOREIGN KEY (\"plan_id\") REFERENCES \"billing_plans\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;",
+   "class": "FK_SEMANTICS",
+   "inRestoredProductionCopy": true,
+   "note": "The schema and the databases disagree on a foreign key (present in staging and a fresh build, absent in production; delete behaviour differs: call_logs.contact_id is RESTRICT in the database but SET NULL in the schema). Changing it alters delete semantics: owner decision."
+  }
+ ]
+}
