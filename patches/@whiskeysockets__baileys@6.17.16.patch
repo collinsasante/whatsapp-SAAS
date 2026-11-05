@@ -1,0 +1,14 @@
+diff --git a/lib/Utils/messages-media.js b/lib/Utils/messages-media.js
+index 38794d7db2d8708e57a3ab03064bd62c8d54c12b..71f0825e4e04462d3d1ea05cdc0d30d9faa08ad0 100644
+--- a/lib/Utils/messages-media.js
++++ b/lib/Utils/messages-media.js
+@@ -190,7 +190,8 @@ const mediaMessageSHA256B64 = (message) => {
+ };
+ exports.mediaMessageSHA256B64 = mediaMessageSHA256B64;
+ async function getAudioDuration(buffer) {
+-    const musicMetadata = await Promise.resolve().then(() => __importStar(require('music-metadata')));
++    // music-metadata >= 11 is ESM-only, so it cannot be require()d; load it the same way audio-decode is loaded below.
++    const musicMetadata = await eval('import(\'music-metadata\')');
+     let metadata;
+     if (Buffer.isBuffer(buffer)) {
+         metadata = await musicMetadata.parseBuffer(buffer, undefined, { duration: true });

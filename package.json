@@ -21,9 +21,12 @@
   "packageManager": "pnpm@9.1.0",
   "pnpm": {
     "patchedDependencies": {
-      "expo-web-browser@14.1.6": "patches/expo-web-browser@14.1.6.patch"
+      "expo-web-browser@14.1.6": "patches/expo-web-browser@14.1.6.patch",
+      "@whiskeysockets/baileys@6.17.16": "patches/@whiskeysockets__baileys@6.17.16.patch",
+      "decode-uri-component@0.2.2": "patches/decode-uri-component@0.2.2.patch"
     },
     "overrides": {
+      "music-metadata@<11.16.1": "^11.16.1",
       "multer@<2.5.0": "^2.5.0",
       "axios@<1.20.0": "^1.20.0",
       "follow-redirects@<1.16.2": "^1.16.2",
