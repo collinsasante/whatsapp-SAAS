@@ -57,7 +57,7 @@ umask 077
 openssl rand -base64 36 | tr -d '\n=+/' > /root/redis-password.new       # about 48 characters, no characters that need quoting
 test "$(wc -c < /root/redis-password.new)" -ge 32 && echo "length OK"
 ```
-Store a copy in your password manager first. Keep the previous `.env` as `.env.pre-redis-auth` (mode 600).
+Store a copy in your password manager first. Before changing anything, keep the previous settings as `infra/.env.pre-redis-auth` and the previous compose file as `infra/docker-compose.yml.pre-redis-auth` (both mode 600; the rollback plan restores them).
 
 **4. Install (operator).** Edit `/root/whatsapp-platform/infra/.env` in an editor and replace the value of `REDIS_PASSWORD`, or: `sed -i.pre-redis-auth "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(cat /root/redis-password.new)|" /root/whatsapp-platform/infra/.env` (the substitution is expanded by the shell, not shown). Apply the compose change from above (a reviewed git commit on the server checkout, or the approved patch).
 
