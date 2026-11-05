@@ -53,15 +53,18 @@ jobs:
         run: pnpm --filter @whatsapp-platform/backend exec jest --ci --maxWorkers=2
 
   # ── 2. Database tests (disposable Postgres + Redis) ─────────────────────────
-  # Runs the two suites that are skipped in the unit job. Both refuse any database that is not clearly a throwaway one,
-  # and the services below exist only for the lifetime of this job.
+  # Everything the unit job cannot run: every real-PostgreSQL suite, the BullMQ-on-Redis suites, the pgvector retrieval suite, and the e2e suites that
+  # drive the whole app over HTTP. Each real-database suite refuses any database that is not clearly a throwaway one (name ends in "test", local host),
+  # truncates tables, and so gets its own database; they are cloned from one migrated template, which is faster than migrating each.
+  # The services below exist only for the lifetime of this job. The local MiniLM model suite stays skipped here: it needs model weights that are not in the repo.
   database:
-    name: Backend database tests
+    name: Backend database, queue and e2e tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
-        image: postgres:16-alpine
+        # pgvector image: the retrieval suite needs the extension; it is otherwise plain PostgreSQL 16.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -82,10 +85,17 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # Digital Self requires a local database whose name ends in "test"; the media suite truncates tenants, so it gets its own.
-      DIGITAL_SELF_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dstest
-      DIGITAL_SELF_TEST_REDIS_URL: redis://127.0.0.1:6379
-      MEDIA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mediatest
+      PGPASSWORD: postgres
+      PGBASE: postgresql://postgres:postgres@127.0.0.1:5432
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      NODE_ENV: test
+      JWT_SECRET: ci-test-jwt-secret-not-for-production
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-not-for-production
+      INTERNAL_SECRET: ci-internal-secret-0123456789abcdef
+      WHATSAPP_WEB_INTERNAL_API_KEY: ci-wa-web-key-0123456789abcdef
+      WHATSAPP_APP_SECRET: ci-app-secret-0123456789abcdef
+      FRONTEND_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v4
 
@@ -98,6 +108,11 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
 
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -109,11 +124,76 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @whatsapp-platform/backend prisma:generate
 
-      - name: Create test databases and apply migrations
+      - name: Create test databases (migrate once, clone per suite)
         run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE dstest" -c "CREATE DATABASE mediatest"
-          DATABASE_URL="$DIGITAL_SELF_TEST_DATABASE_URL" pnpm --filter @whatsapp-platform/backend exec prisma migrate deploy
-          DATABASE_URL="$MEDIA_TEST_DATABASE_URL" pnpm --filter @whatsapp-platform/backend exec prisma migrate deploy
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE e2e_test"
+          DATABASE_URL="$PGBASE/e2e_test" pnpm --filter @whatsapp-platform/backend exec prisma migrate deploy
+          for db in ailearn ailiso ailease capalert dself media msgsync reenc spend tenant rag; do
+            psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE ${db}_test TEMPLATE e2e_test"
+          done
+          psql -h 127.0.0.1 -U postgres -d rag_test -c "CREATE EXTENSION IF NOT EXISTS vector"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE unit_test TEMPLATE e2e_test"
 
-      - name: Run backend database tests
-        run: pnpm --filter @whatsapp-platform/backend exec jest --ci --maxWorkers=2 digital-self.db.integration media-library.db
+      - name: Run the full backend suite with every real-database suite enabled
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/unit_test
+          AI_LEARNING_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ailearn_test
+          AI_LEARNING_TEST_ISOLATED_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ailiso_test
+          AI_LEARNING_TEST_REDIS_URL: redis://127.0.0.1:6379
+          AILEASE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/ailease_test
+          CAPALERT_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capalert_test
+          DIGITAL_SELF_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/dself_test
+          DIGITAL_SELF_TEST_REDIS_URL: redis://127.0.0.1:6379
+          MEDIA_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/media_test
+          MSGSYNC_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/msgsync_test
+          REENCRYPT_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/reenc_test
+          SPENDCAP_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/spend_test
+          TENANT_ISOLATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/tenant_test
+          RAG_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/rag_test
+        run: pnpm --filter @whatsapp-platform/backend exec jest --ci --runInBand
+
+      - name: Run the e2e suites (real HTTP stack, PostgreSQL and Redis)
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/e2e_test
+          LOCAL_UPLOAD_PATH: ${{ runner.temp }}/e2e-uploads
+        run: pnpm --filter @whatsapp-platform/backend test:e2e --runInBand
+
+  # ── 3. Worker and WhatsApp-Web service tests ─────────────────────────────────
+  # The worker suite starts its own redis-server and runs the real BullMQ workers against it (outage and recovery, graceful stop, duplicate and delayed
+  # jobs). The whatsapp-web suite runs Baileys' real audio-duration parser, which needs ffmpeg to synthesise its fixtures.
+  services:
+    name: Worker and WhatsApp-Web tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install redis-server and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server ffmpeg
+          sudo systemctl stop redis-server || true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared packages and generate the Prisma client
+        run: |
+          pnpm --filter @whatsapp-platform/shared-types build
+          pnpm --filter @whatsapp-platform/shared-utils build
+          pnpm --filter @whatsapp-platform/backend prisma:generate
+
+      - name: Worker tests
+        run: pnpm --filter @whatsapp-platform/worker test
+
+      - name: WhatsApp-Web tests
+        run: pnpm --filter @whatsapp-platform/whatsapp-web test
