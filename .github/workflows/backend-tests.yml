@@ -156,6 +156,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/e2e_test
           LOCAL_UPLOAD_PATH: ${{ runner.temp }}/e2e-uploads
+          # Opt-in e2e suites (they refuse anything but a local throwaway database and a local Redis).
+          AI_LEARNING_PG_TESTS: '1'
+          AI_LIMITS_REDIS_TESTS: '1'
+          AI_LIMITS_REDIS_URL: redis://127.0.0.1:6379
         run: pnpm --filter @whatsapp-platform/backend test:e2e --runInBand
 
   # ── 3. Worker and WhatsApp-Web service tests ─────────────────────────────────
