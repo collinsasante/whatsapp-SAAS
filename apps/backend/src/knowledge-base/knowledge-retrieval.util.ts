@@ -160,7 +160,8 @@ export function scoreArticles(articles: RankableArticle[], query: RetrievalQuery
 }
 
 const TYPO_WEIGHT = 0.8;
-const TYPO_MIN_LENGTH = 5;
+// 6, not 5: at 5 letters one substitution joins unrelated words ("leave" matched the stem of "loaves", so "where can I leave my car" found the bread menu).
+const TYPO_MIN_LENGTH = 6;
 
 /** True when `a` and `b` differ by exactly one inserted, deleted or substituted letter (or one swap of neighbours). */
 export function withinOneEdit(a: string, b: string): boolean {
@@ -177,7 +178,7 @@ export function withinOneEdit(a: string, b: string): boolean {
 
 /**
  * Customers misspell ("delivary", "recieve"). A query word that appears in no article is matched to an article word that is one
- * edit away, at slightly lower weight. Deliberately narrow so it cannot manufacture a match: only words of 5+ letters, only when the
+ * edit away, at slightly lower weight. Deliberately narrow so it cannot manufacture a match: only words of 6+ letters, only when the
  * word matches nothing exactly, only the same first letter, and only one edit.
  */
 function withTypoTolerance(terms: Map<string, number>, docs: Array<{ title: Set<string>; body: Set<string> }>): Map<string, number> {

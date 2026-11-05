@@ -174,6 +174,10 @@ describe('typo tolerance in ranking', () => {
     expect(best('elivery')).toBeNull(); // first letter dropped: not the same first letter, so not matched
     expect(best('xyzzy plugh')).toBeNull();
   });
+  it('does not turn a five-letter word into an unrelated one ("leave" is one edit from the stem of "loaves")', () => {
+    const arts = [{ title: 'Daily bread menu', content: 'Loaves sell out by early afternoon.' }, { title: 'Location and parking', content: 'Free parking behind the shop.' }];
+    expect(scoreArticles(arts, buildRetrievalQuery('Where can I leave my car?', []))[0]).toBe(0); // the bread menu must not score
+  });
   it('an exact match is never replaced by a near one', () => {
     const scores = scoreArticles([{ title: 'Delivery', content: 'x' }, { title: 'Delivered goods', content: 'y' }], buildRetrievalQuery('delivery', []));
     expect(scores[0]).toBeGreaterThan(scores[1]!);
