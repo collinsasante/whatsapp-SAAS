@@ -51,7 +51,7 @@ export class SnoozeWorker {
 
     // A job that fires for an older snooze (the conversation was snoozed again for later while this one was already
     // running, so the replacement could not displace it) must not cut the new snooze short. The new job wakes it.
-    
+    if (conv.snoozedUntil.getTime() > Date.now() + SNOOZE_CLOCK_TOLERANCE_MS) return;
 
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
