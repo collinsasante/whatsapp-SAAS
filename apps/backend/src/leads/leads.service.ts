@@ -128,6 +128,9 @@ export class LeadsService {
 
     const result = await this.aiCompletion.complete({
       tenantId, taskType: 'LEAD_SCORE', conversationId, messages, jsonMode: true, maxTokens: 400,
+      // A 400-token JSON budget cannot also hold a reasoning model's hidden reasoning: recent staging runs hit the cap and the cut-off JSON was
+      // dropped as unparseable, silently leaving the old score. See ChatCompletionRequest.disableThinking.
+      disableThinking: true,
     });
     if (result.failed || !result.content) return existing;
 

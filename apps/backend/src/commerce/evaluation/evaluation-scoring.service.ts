@@ -408,6 +408,8 @@ export class EvaluationScoringService {
         {
           model: DEEPSEEK_MODEL,
           max_tokens: 300,
+          // Same reason as the live replies: reasoning would spend this 300-token JSON budget (see ChatCompletionRequest.disableThinking).
+          thinking: { type: 'disabled' },
           messages: [{ role: 'system', content: redaction.redact(systemPrompt) }, { role: 'user', content: redaction.redact(userContent) }],
           response_format: { type: 'json_object' },
         },
