@@ -111,6 +111,7 @@ model Tenant {
   aiCapAlerts                     AiCapAlert[]
   messageEnrichments              MessageEnrichment[]
   tikTokPublications              TikTokPublication[]
+  whatsappWabaApps                WhatsappWabaApp[]
 
   @@map("tenants")
 }
@@ -3473,4 +3474,57 @@ model MessageEnrichment {
   @@index([status, nextAttemptAt])
   @@index([tenantId, createdAt])
   @@map("message_enrichments")
+}
+
+// Per-app WhatsApp webhook signing. Meta signs every webhook with the secret of the Meta APP that owns the subscription, and a production platform
+// serves several apps (one global secret cannot verify them all). The secret is stored encrypted (CredentialsEncryptionService); the row is refused
+// when no encryption key is configured. secretFingerprint is the first 8 hex of sha256(secret): enough for an operator to compare against the app
+// dashboard's value, not enough to recover it.
+model WhatsappMetaApp {
+  id                String   @id @default(uuid())
+  appId             String   @unique @map("app_id")
+  label             String
+  secretEnc         String?  @map("secret_enc")
+  secretFingerprint String?  @map("secret_fingerprint")
+  status            String   @default("ACTIVE")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  mappings WhatsappWabaApp[]
+
+  @@map("whatsapp_meta_apps")
+}
+
+// Which Meta app(s) deliver webhooks for a tenant's WhatsApp Business Account. A WABA can have more than one app subscribed (one production WABA has two).
+model WhatsappWabaApp {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  wabaId    String   @map("waba_id")
+  metaAppId String   @map("meta_app_id")
+  source    String   @default("manual")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  app    WhatsappMetaApp @relation(fields: [metaAppId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, wabaId, metaAppId])
+  @@index([wabaId])
+  @@map("whatsapp_waba_apps")
+}
+
+// Daily counters of what signature verification concluded, per WABA and matched app. No payload, no signature, no secret: only identifiers and counts.
+// outcome: valid | valid_no_waba | app_not_mapped | invalid | missing_signature | no_secrets.
+model WhatsappWebhookSignatureStat {
+  id          String   @id @default(uuid())
+  day         DateTime @db.Date
+  wabaId      String   @default("") @map("waba_id")
+  appId       String   @default("") @map("app_id")
+  outcome     String
+  count       Int      @default(0)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@unique([day, wabaId, appId, outcome])
+  @@index([day])
+  @@map("whatsapp_webhook_signature_stats")
 }

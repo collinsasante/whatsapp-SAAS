@@ -26,7 +26,7 @@ import { MessageStatus } from '@whatsapp-platform/shared-types';
 import { WebhookSource } from '@prisma/client';
 import { notify } from '../common/notifier';
 import { WebhookEventService } from '../common/monitoring/webhook-event.service';
-import { checkWebhookSignature } from './webhook-signature.util';
+import { WhatsappWebhookSignatureService } from './webhook-signature/whatsapp-webhook-signature.service';
 
 interface CallEvent {
   id: string;
@@ -112,13 +112,13 @@ const STATUS_MAP: Record<string, MessageStatus> = {
 @Controller('webhook/whatsapp')
 export class WhatsAppWebhookController {
   private readonly logger = new Logger(WhatsAppWebhookController.name);
-  private warnedUnconfiguredSecret = false;
 
   constructor(
     private prisma: PrismaService,
     private messagesService: MessagesService,
     @Inject(forwardRef(() => CallsService)) private callsService: CallsService,
     private webhookEventService: WebhookEventService,
+    private signatures: WhatsappWebhookSignatureService,
   ) {}
 
   @Get(':tenantId')
@@ -142,32 +142,6 @@ export class WhatsAppWebhookController {
     return res.status(403).send('Forbidden');
   }
 
-  /**
-   * Verifies Meta's x-hub-signature-256 against WHATSAPP_APP_SECRET before any tenant fan-out. All tenants are
-   * onboarded under one Meta app, so one global secret is correct here, not a per-tenant one.
-   *
-   * A signature that does not match a configured secret is always rejected. With no secret configured the request is
-   * rejected in production (anyone who knows a tenant id could otherwise forge customer messages into that workspace) and
-   * accepted with a once-per-start warning elsewhere, so local development does not need Meta credentials.
-   */
-  private assertValidSignature(raw: Buffer | undefined, signature: string | undefined): void {
-    const result = checkWebhookSignature(raw, signature, process.env['WHATSAPP_APP_SECRET']);
-    if (result === 'invalid') throw new BadRequestException('Invalid webhook signature');
-    if (result === 'unconfigured') {
-      if (process.env['NODE_ENV'] === 'production') {
-        if (!this.warnedUnconfiguredSecret) {
-          this.warnedUnconfiguredSecret = true;
-          this.logger.error('WHATSAPP_APP_SECRET is not configured: inbound WhatsApp webhooks are being REFUSED. Set it to accept messages.');
-        }
-        throw new BadRequestException('Webhook signature verification is not configured');
-      }
-      if (!this.warnedUnconfiguredSecret) {
-        this.warnedUnconfiguredSecret = true;
-        this.logger.warn('WHATSAPP_APP_SECRET is not configured: inbound WhatsApp webhook signatures are NOT being verified (non-production).');
-      }
-    }
-  }
-
   @Post(':tenantId')
   @HttpCode(HttpStatus.OK)
   async receive(
@@ -176,7 +150,10 @@ export class WhatsAppWebhookController {
     @Body() body: { object: string; entry: WebhookEntry[] },
     @Headers('x-hub-signature-256') signature: string,
   ) {
-    this.assertValidSignature(req.rawBody, signature);
+    // Signature policy: see webhook-signature/signature-policy.util.ts. Several Meta apps deliver webhooks, each signing with its own secret, so the
+    // check is made against the per-app registry. In "observe" mode (the production default) this records the result and never rejects.
+    const verdict = await this.signatures.verify(req.rawBody, signature, body?.entry);
+    if (!verdict.accept) throw new BadRequestException('Invalid webhook signature');
     if (body.object !== 'whatsapp_business_account') return { status: 'ok' };
 
     // Collect all phone_number_ids present in this webhook batch.

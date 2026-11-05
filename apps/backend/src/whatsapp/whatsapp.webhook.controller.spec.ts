@@ -1,60 +1,41 @@
-import * as crypto from 'crypto';
 import { BadRequestException } from '@nestjs/common';
 import { WhatsAppWebhookController } from './whatsapp.webhook.controller';
+import { WebhookSignatureVerdict } from './webhook-signature/whatsapp-webhook-signature.service';
 
-const SECRET = 'meta-app-secret';
-const body = Buffer.from(JSON.stringify({ object: 'whatsapp_business_account', entry: [] }));
-const sign = (b: Buffer, s: string) => 'sha256=' + crypto.createHmac('sha256', s).update(b).digest('hex');
-
-type Guarded = { assertValidSignature(raw: Buffer | undefined, sig: string | undefined): void };
-
-function build() {
-  const warn = jest.fn();
-  const controller = Object.create(WhatsAppWebhookController.prototype) as Guarded & Record<string, unknown>;
-  Object.assign(controller, { logger: { warn }, warnedUnconfiguredSecret: false });
-  return { controller, warn };
+/**
+ * The controller's part of signature handling: it must ask the signature service BEFORE doing anything with the body, pass it the raw bytes,
+ * the header and the entries, and refuse exactly when the service says so. The policy itself (apps, mappings, modes) is tested in
+ * webhook-signature/signature-policy.util.spec.ts and, against the real route and database, in test/whatsapp-webhook-signature.e2e-spec.ts.
+ */
+function build(verdict: Partial<WebhookSignatureVerdict>) {
+  const verify = jest.fn().mockResolvedValue({ mode: 'enforce', accept: true, degraded: false, evaluation: { outcome: 'valid', appId: '1', wabaIds: [] }, ...verdict });
+  const prisma = { whatsAppNumber: { findMany: jest.fn().mockResolvedValue([]) }, tenant: { findUnique: jest.fn().mockResolvedValue(null) } };
+  const webhookEvents = { record: jest.fn(), markProcessed: jest.fn(), markFailed: jest.fn() };
+  const controller = new WhatsAppWebhookController(prisma as never, {} as never, {} as never, webhookEvents as never, { verify } as never);
+  return { controller, verify, prisma, webhookEvents };
 }
 
-describe('WhatsAppWebhookController signature guard', () => {
-  const saved = { secret: process.env['WHATSAPP_APP_SECRET'], env: process.env['NODE_ENV'] };
-  afterEach(() => {
-    if (saved.secret === undefined) delete process.env['WHATSAPP_APP_SECRET']; else process.env['WHATSAPP_APP_SECRET'] = saved.secret;
-    if (saved.env === undefined) delete process.env['NODE_ENV']; else process.env['NODE_ENV'] = saved.env;
+const raw = Buffer.from('{"object":"whatsapp_business_account","entry":[{"id":"123456","changes":[]}]}');
+const req = { rawBody: raw } as never;
+
+describe('WhatsAppWebhookController signature handling', () => {
+  it('passes the raw body, the header and the entries to the signature service', async () => {
+    const { controller, verify } = build({});
+    const entries = [{ id: '123456', changes: [] }];
+    await controller.receive('tenant-1', req, { object: 'whatsapp_business_account', entry: entries }, 'sha256=abc');
+    expect(verify).toHaveBeenCalledWith(raw, 'sha256=abc', entries);
   });
 
-  it('in production with no secret configured it refuses every request, signed or not, and logs the cause once', () => {
-    delete process.env['WHATSAPP_APP_SECRET'];
-    process.env['NODE_ENV'] = 'production';
-    const { controller } = build();
-    const error = jest.fn();
-    Object.assign(controller, { logger: { error, warn: jest.fn() } });
-    expect(() => controller.assertValidSignature(body, undefined)).toThrow(BadRequestException);
-    expect(() => controller.assertValidSignature(body, 'sha256=forged')).toThrow(BadRequestException);
-    expect(error).toHaveBeenCalledTimes(1);
-    expect(error.mock.calls[0][0]).toContain('WHATSAPP_APP_SECRET is not configured');
+  it('refuses the request, touching nothing else, when the service does not accept it', async () => {
+    const { controller, prisma, webhookEvents } = build({ accept: false, evaluation: { outcome: 'invalid', appId: null, wabaIds: ['123456'] } });
+    await expect(controller.receive('tenant-1', req, { object: 'whatsapp_business_account', entry: [] }, 'sha256=bad')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.whatsAppNumber.findMany).not.toHaveBeenCalled();
+    expect(webhookEvents.record).not.toHaveBeenCalled();
   });
 
-  it('outside production with no secret configured it accepts and warns once, so local development needs no Meta credentials', () => {
-    delete process.env['WHATSAPP_APP_SECRET'];
-    process.env['NODE_ENV'] = 'development';
-    const { controller, warn } = build();
-    expect(() => controller.assertValidSignature(body, undefined)).not.toThrow();
-    expect(() => controller.assertValidSignature(body, 'sha256=forged')).not.toThrow();
-    expect(warn).toHaveBeenCalledTimes(1);
-  });
-
-  it('once a secret is configured a wrong or missing signature is rejected, in production too', () => {
-    process.env['WHATSAPP_APP_SECRET'] = SECRET;
-    process.env['NODE_ENV'] = 'production';
-    const { controller, warn } = build();
-    expect(() => controller.assertValidSignature(body, sign(body, 'someone-elses-secret'))).toThrow(BadRequestException);
-    expect(() => controller.assertValidSignature(body, undefined)).toThrow(BadRequestException);
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it('accepts a correctly signed message when the secret is configured', () => {
-    process.env['WHATSAPP_APP_SECRET'] = SECRET;
-    const { controller } = build();
-    expect(() => controller.assertValidSignature(body, sign(body, SECRET))).not.toThrow();
+  it('carries on when the service accepts, including in observe mode where a bad signature is only counted', async () => {
+    const { controller, verify } = build({ mode: 'observe', accept: true, evaluation: { outcome: 'invalid', appId: null, wabaIds: [] } });
+    await expect(controller.receive('tenant-1', req, { object: 'something_else', entry: [] }, undefined as never)).resolves.toEqual({ status: 'ok' });
+    expect(verify).toHaveBeenCalledTimes(1);
   });
 });

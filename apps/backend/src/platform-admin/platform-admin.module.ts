@@ -16,6 +16,8 @@ import { PlatformAdminGuard } from './platform-admin.guard';
 import { PlatformAuditService } from './platform-audit.service';
 import { PlatformAdminOperationsService } from './platform-admin-operations.service';
 import { PlatformHealthService } from './platform-health.service';
+import { WebhookSignatureModule } from '../whatsapp/webhook-signature/webhook-signature.module';
+import { WebhookSecurityAdminController } from '../whatsapp/webhook-signature/webhook-security-admin.controller';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { PlatformHealthService } from './platform-health.service';
     AiCoreModule,
     CommerceModule,
     FeatureFlagsModule,
+    WebhookSignatureModule,
     JwtModule.register({}),
     BullModule.registerQueue(
       { name: QueueName.CAMPAIGN_SEND },
@@ -37,7 +40,7 @@ import { PlatformHealthService } from './platform-health.service';
       { name: 'inactivity-trigger' },
     ),
   ],
-  controllers: [PlatformAdminController, PromptsController],
+  controllers: [PlatformAdminController, PromptsController, WebhookSecurityAdminController],
   providers: [PlatformAdminOperationsService, PlatformAdminAuthService, PlatformAdminService, PlatformAdminAnalyticsService, PlatformAdminGuard, PlatformAuditService, PlatformHealthService, EmailService],
 })
 export class PlatformAdminModule {}
