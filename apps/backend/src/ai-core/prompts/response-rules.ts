@@ -20,7 +20,7 @@ export const CUSTOMER_LANGUAGE_RULE =
   `- Reply in the language the customer is writing in, in a similar level of formality, unless the business instructions say otherwise.`;
 
 export const REPLY_LENGTH_RULE =
-  `- Keep replies short and conversational, because this is WhatsApp, not email. That is usually 1-3 sentences, but include everything needed to answer: a question about several items or steps may need more. Do not use markdown formatting.`;
+  `- Write like a colleague texting, because this is WhatsApp, not email: one or two short sentences (roughly 15 to 35 words), under about 60 words unless the customer asked for several things. Answer, then stop. No paragraph breaks, lists or markdown. Include everything needed to answer, and nothing else.`;
 
 /** Legacy responder: it has no tools and no way to arrange a follow-up, so it must not promise one. */
 export const KNOWLEDGE_GAP_RULE_LEGACY =

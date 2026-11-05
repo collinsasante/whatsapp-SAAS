@@ -4,7 +4,7 @@ import { RESPONDER_SYSTEM_BODY, RESPONDER_SYSTEM_BODY_V1_0_0, RESPONDER_SYSTEM_V
 import { renderPromptTemplate } from './prompt-render.util';
 import { buildIdentityAndSafetyBlock } from './shared-identity-block';
 import { SHARED_STYLE_RULES } from './shared-style-rules';
-import { CUSTOMER_NAME_RULE, KNOWLEDGE_GAP_RULE_LEGACY, KNOWLEDGE_GAP_RULE_V2 } from './response-rules';
+import { CUSTOMER_NAME_RULE, KNOWLEDGE_GAP_RULE_LEGACY, KNOWLEDGE_GAP_RULE_V2, REPLY_LENGTH_RULE } from './response-rules';
 
 jest.mock('axios');
 
@@ -148,8 +148,21 @@ describe('v2 responder template (D11)', () => {
   });
 
   it('the shared style rules now allow a longer answer where the question needs one', () => {
-    expect(SHARED_STYLE_RULES).toMatch(/include everything needed to actually answer/);
+    // Short by default, but never so short that a multi-part question is squashed into one line.
+    expect(SHARED_STYLE_RULES).toMatch(/If the answer genuinely needs more \(several items or steps\)/);
     expect(SHARED_STYLE_RULES).toMatch(/Do not use Markdown/);
+  });
+
+  it('gives a concrete length target and a natural-voice instruction, so replies are short and do not read as scripted', () => {
+    expect(SHARED_STYLE_RULES).toMatch(/roughly 15 to 35 words/);
+    expect(SHARED_STYLE_RULES).toMatch(/under about 60 words/);
+    for (const stock of ["I'd be happy to", 'certainly', 'absolutely', "please don't hesitate", 'feel free to']) expect(SHARED_STYLE_RULES).toContain(stock);
+    expect(SHARED_STYLE_RULES).toMatch(/Don't narrate your own actions/);
+    expect(SHARED_STYLE_RULES).toMatch(/at most one exclamation mark/);
+  });
+
+  it('the legacy responder gets the same length target', () => {
+    expect(REPLY_LENGTH_RULE).toMatch(/roughly 15 to 35 words/);
   });
 
   it('gives each rule once (no duplicated instruction between the template and the shared blocks)', () => {
