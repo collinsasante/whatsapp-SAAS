@@ -27,6 +27,12 @@ export interface ChatCompletionRequest {
   modelKey: string; // catalog key, e.g. the DEEPSEEK_MODEL constant
   messages: ChatMessage[];
   maxTokens?: number;
+  /**
+   * Ask a reasoning-capable model not to think before answering. deepseek-v4-flash spends hidden reasoning tokens out of max_tokens, so on
+   * a live customer reply a normal prompt used the whole budget and the answer came back truncated (finish_reason=length) and was dropped.
+   * Opt-in: callers that benefit from reasoning (summaries, evaluation judges) leave it unset and behave as before.
+   */
+  disableThinking?: boolean;
   temperature?: number;
   jsonMode?: boolean;
   /** Accepted by the interface and the DeepSeek adapter; the Phase 1 pipeline never passes this. */

@@ -68,6 +68,8 @@ export interface ToolCallingRequest {
   toolContext: ToolExecutionContext;
   modelKey?: string;
   maxTokens?: number;
+  /** See ChatCompletionRequest.disableThinking. */
+  disableThinking?: boolean;
   maxIterations?: number;
   /** How the final answer is read: see judgeFinalAnswer. Defaults to 'plain', so callers that do not ask for JSON are unchanged. */
   replyFormat?: ReplyFormat;
@@ -162,6 +164,7 @@ export class ToolCallingService {
           modelKey,
           messages,
           maxTokens: req.maxTokens,
+          ...(req.disableThinking && { disableThinking: true }),
           ...(toolDefs.length && { tools: toolDefs }),
         });
         const completion = meteredCompletion.result;

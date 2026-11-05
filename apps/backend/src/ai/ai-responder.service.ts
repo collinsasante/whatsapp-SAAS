@@ -268,6 +268,8 @@ export class AiResponderService {
         {
           model: DEEPSEEK_MODEL,
           max_tokens: 400,
+          // Reasoning would spend this budget and truncate the JSON reply (the legacy path's EMPTY results); see ChatCompletionRequest.disableThinking.
+          thinking: { type: 'disabled' },
           messages: safeMessages,
           response_format: { type: 'json_object' },
         },

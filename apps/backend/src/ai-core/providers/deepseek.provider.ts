@@ -125,6 +125,7 @@ export class DeepSeekProvider implements AiProvider {
           {
             model: req.modelKey,
             max_tokens: req.maxTokens ?? 400,
+            ...(req.disableThinking && { thinking: { type: 'disabled' } }),
             ...(req.temperature !== undefined && { temperature: req.temperature }),
             messages: req.messages.map((m) => ({
               role: m.role,

@@ -15,6 +15,7 @@ export interface AiCompletionRequest {
   maxTokens?: number;
   jsonMode?: boolean;
   modelKey?: string;
+  disableThinking?: boolean;
 }
 
 export interface AiCompletionResult {
@@ -54,6 +55,7 @@ export class AiCompletionService {
         messages: req.messages,
         maxTokens: req.maxTokens,
         jsonMode: req.jsonMode,
+        ...(req.disableThinking && { disableThinking: true }),
       });
       const result = completion.result;
       reservationId = completion.reservationId;

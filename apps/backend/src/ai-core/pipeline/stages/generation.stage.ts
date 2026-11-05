@@ -53,6 +53,7 @@ export class GenerationStage implements PipelineStage {
           toolContext: ctx.toolContext,
           modelKey: ctx.modelKey,
           maxTokens: ctx.maxResponseTokens,
+          disableThinking: true,
           // The responder prompt asks for {"response","confidence"}, as on the single-shot path below.
           replyFormat: 'structured',
           ...(ctx.retrievalTrace && { traceMetadata: { retrieval: ctx.retrievalTrace } }),
@@ -119,6 +120,7 @@ export class GenerationStage implements PipelineStage {
         modelKey: ctx.modelKey,
         messages,
         maxTokens: ctx.maxResponseTokens,
+        disableThinking: true,
         jsonMode: catalogEntry.capabilities.includes('jsonMode'),
       });
       const completion = meteredCompletion.result;

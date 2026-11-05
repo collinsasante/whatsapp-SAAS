@@ -97,6 +97,23 @@ describe('GenerationStage', () => {
       }));
     });
 
+    it('asks the model not to reason on the tool-calling path (its hidden reasoning used the whole token budget and truncated every reply)', async () => {
+      const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'ok', toolTrace: [], failed: false, hitMaxIterations: false }) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stage = new GenerationStage({ forModel: jest.fn() } as any, toolCalling as any, conversationState as any, { complete: jest.fn() } as any);
+      await stage.execute(buildCtx({ tools: ['search_products'], toolContext }));
+      expect(toolCalling.complete).toHaveBeenCalledWith(expect.objectContaining({ disableThinking: true }));
+    });
+
+    it('asks the model not to reason on the single-shot path too', async () => {
+      const complete = jest.fn().mockResolvedValue({ content: '{"response":"Hi","confidence":90}', toolCalls: [], finishReason: 'stop', usage: { inputTokens: 5, outputTokens: 5 }, provider: 'deepseek', model: DEFAULT_MODEL_KEY, latencyMs: 5 });
+      const meteredProvider = { complete: jest.fn(async (p: { complete: (r: unknown) => Promise<unknown> }, _t: string, _k: string, request: unknown) => ({ result: await p.complete(request), reservationId: 'r1' })) };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stage = new GenerationStage({ forModel: jest.fn().mockReturnValue({ complete }) } as any, { complete: jest.fn() } as any, conversationState as any, meteredProvider as any);
+      await stage.execute(buildCtx());
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ disableThinking: true }));
+    });
+
     it('passes a simulated run through to the tool-calling run (as the unmetered TEST task), and leaves a real run untagged', async () => {
       const toolCalling = { complete: jest.fn().mockResolvedValue({ content: 'We have that in stock.', toolTrace: [], failed: false, hitMaxIterations: false }) };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

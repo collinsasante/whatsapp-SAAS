@@ -40,6 +40,15 @@ describe('DeepSeekProvider', () => {
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
   });
 
+  it('sends thinking: disabled only when the caller asks, so reasoning callers (summaries, judges) are unchanged', async () => {
+    const ok = { data: { model: 'deepseek-v4-flash', choices: [{ message: { content: 'hi' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } } };
+    mockedAxios.post.mockResolvedValue(ok);
+    await provider.complete({ modelKey: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'hi' }] });
+    await provider.complete({ modelKey: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'hi' }], disableThinking: true });
+    expect(mockedAxios.post.mock.calls[0]![1]).not.toHaveProperty('thinking');
+    expect(mockedAxios.post.mock.calls[1]![1]).toMatchObject({ thinking: { type: 'disabled' } });
+  });
+
   it('maps tool calls when present', async () => {
     mockedAxios.post.mockResolvedValueOnce({
       data: {
