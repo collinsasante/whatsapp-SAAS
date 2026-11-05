@@ -26,9 +26,11 @@ function build(opts: { campaign?: Record<string, unknown> | null; recipients?: R
     tenant: { findUnique: jest.fn().mockResolvedValue(opts.tenant === undefined ? { phoneNumberId: 'pn1', accessToken: 'token-not-real' } : opts.tenant) },
     whatsAppNumber: { findFirst: jest.fn().mockResolvedValue(null) },
     campaignRecipient: {
-      findMany: jest.fn().mockResolvedValue(recipients),
+      // Two reads: already-accepted-but-unlinked recipients (status SENT; none by default) and the still-claimable PENDING ones.
+      findMany: jest.fn().mockImplementation(async (args: { where: { status?: string } }) => (args.where.status === 'SENT' ? [] : recipients)),
       update: jest.fn().mockResolvedValue({}),
-      updateMany: jest.fn().mockResolvedValue({ count: recipients.length }),
+      // claim, accept, fail and stale-claim closing all go through updateMany and expect { count }: 1 means "this caller won".
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(opts.pendingAfter ?? 0),
     },
     campaignClick: { create: jest.fn().mockResolvedValue({}) },
@@ -43,6 +45,10 @@ function build(opts: { campaign?: Record<string, unknown> | null; recipients?: R
 }
 
 const recipientUpdates = (prisma: ReturnType<typeof build>['prisma']) => prisma.campaignRecipient.update.mock.calls.map((c: unknown[]) => c[0] as { where: { id: string }; data: Record<string, unknown> });
+/** The outcome written for each recipient by the claim holder: accepted by Meta (SENT) or closed as FAILED. Claims and bulk closes are not outcomes. */
+const outcomes = (prisma: ReturnType<typeof build>['prisma']) => prisma.campaignRecipient.updateMany.mock.calls
+  .map((c: unknown[]) => c[0] as { where: { id: string; claimToken?: string }; data: Record<string, unknown> })
+  .filter((c) => c.where.claimToken !== undefined && (c.data['status'] === 'SENT' || c.data['status'] === 'FAILED'));
 const counterUpdates = (prisma: ReturnType<typeof build>['prisma']) => prisma.campaign.update.mock.calls.map((c: unknown[]) => (c[0] as { data: Record<string, unknown> }).data);
 
 describe('CampaignSendWorker', () => {
@@ -58,7 +64,9 @@ describe('CampaignSendWorker', () => {
       expect(post.mock.calls[0][0]).toMatch(/\/pn1\/messages$/);
       expect(post.mock.calls[0][1]).toMatchObject({ messaging_product: 'whatsapp', to: '+233555000111', type: 'template', template: { name: 'promo', language: { code: 'en' } } });
       expect(prisma.message.create).toHaveBeenCalledWith({ data: expect.objectContaining({ tenantId: 't1', whatsappMessageId: 'wamid.1', type: 'TEMPLATE', direction: 'OUTBOUND', status: 'SENT' }) });
-      expect(recipientUpdates(prisma)).toEqual([{ where: { id: 'r1' }, data: expect.objectContaining({ status: 'SENT', messageId: 'm1' }) }]);
+      // Meta's acceptance is written down first, by the claim holder, then the inbox record is linked.
+      expect(outcomes(prisma)).toEqual([{ where: { id: 'r1', claimToken: expect.any(String), status: 'PENDING' }, data: expect.objectContaining({ status: 'SENT', whatsappMessageId: 'wamid.1' }) }]);
+      expect(recipientUpdates(prisma)).toEqual([{ where: { id: 'r1' }, data: { messageId: 'm1' } }]);
       expect(counterUpdates(prisma)).toContainEqual({ sentCount: { increment: 1 } });
     });
 
@@ -71,9 +79,9 @@ describe('CampaignSendWorker', () => {
       ] });
       await run();
       expect(post).toHaveBeenCalledTimes(2);
-      const updates = recipientUpdates(prisma);
-      expect(updates[0]).toEqual({ where: { id: 'r1' }, data: expect.objectContaining({ status: 'FAILED', errorCode: 131026 }) });
-      expect(updates[1]).toEqual({ where: { id: 'r2' }, data: expect.objectContaining({ status: 'SENT' }) });
+      const done = outcomes(prisma);
+      expect(done[0]).toEqual({ where: expect.objectContaining({ id: 'r1' }), data: expect.objectContaining({ status: 'FAILED', errorCode: 131026 }) });
+      expect(done[1]).toEqual({ where: expect.objectContaining({ id: 'r2' }), data: expect.objectContaining({ status: 'SENT' }) });
       expect(counterUpdates(prisma)).toEqual(expect.arrayContaining([{ failedCount: { increment: 1 } }, { sentCount: { increment: 1 } }]));
     });
 
@@ -84,7 +92,7 @@ describe('CampaignSendWorker', () => {
       const { prisma, run } = build({ recipients: [{ id: 'r1', contactId: 'k1', contact: { phone: '+233555000111', ...flags } }] });
       await run();
       expect(post).not.toHaveBeenCalled();
-      expect(recipientUpdates(prisma)[0].data).toMatchObject({ status: 'FAILED', errorMessage: 'Contact blocked or opted out' });
+      expect(outcomes(prisma)[0]!.data).toMatchObject({ status: 'FAILED', errorMessage: 'Contact blocked or opted out' });
       expect(prisma.message.create).not.toHaveBeenCalled();
     });
 
@@ -92,15 +100,15 @@ describe('CampaignSendWorker', () => {
       const { prisma, run } = build({ recipients: [{ id: 'r1', contactId: 'k1', contact: { phone: simulatedPhoneFor('review') } }] });
       await run();
       expect(post).not.toHaveBeenCalled();
-      expect(recipientUpdates(prisma)[0].data).toMatchObject({ status: 'FAILED' });
+      expect(outcomes(prisma)[0]!.data).toMatchObject({ status: 'FAILED' });
     });
   });
 
   describe('retry safety and scoping', () => {
-    it('only still-PENDING recipients of this batch are read, so a retried job cannot message anyone twice', async () => {
+    it('only still-PENDING, never-claimed recipients of this batch are read, so a retried job cannot message anyone twice', async () => {
       const { prisma, run } = build();
       await run();
-      expect(prisma.campaignRecipient.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['r1'] }, campaignId: 'c1', status: 'PENDING' } }));
+      expect(prisma.campaignRecipient.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['r1'] }, campaignId: 'c1', status: 'PENDING', claimedAt: null } }));
     });
 
     it('the campaign is read inside the job\'s own workspace, so a job for another workspace finds nothing and sends nothing', async () => {
@@ -111,11 +119,13 @@ describe('CampaignSendWorker', () => {
       expect(prisma.campaignRecipient.update).not.toHaveBeenCalled();
     });
 
-    it.each(['PAUSED', 'COMPLETED', 'FAILED', 'DRAFT', 'SCHEDULED'])('a %s campaign sends nothing and touches no recipient', async (status) => {
+    it.each(['PAUSED', 'COMPLETED', 'FAILED', 'DRAFT', 'SCHEDULED'])('a %s campaign sends nothing and claims or closes no recipient', async (status) => {
       const { prisma, run } = build({ campaign: { status } });
       await run();
       expect(post).not.toHaveBeenCalled();
-      expect(prisma.campaignRecipient.findMany).not.toHaveBeenCalled();
+      // The one read allowed is for messages Meta ALREADY accepted but whose inbox record is missing (it never sends, so it is safe in any state).
+      // The still-claimable recipients are never read, and nothing is claimed, updated or closed.
+      for (const [args] of prisma.campaignRecipient.findMany.mock.calls as Array<[{ where: { status?: string } }]>) expect(args.where.status).toBe('SENT');
       expect(prisma.campaignRecipient.update).not.toHaveBeenCalled();
       expect(prisma.campaignRecipient.updateMany).not.toHaveBeenCalled();
     });
