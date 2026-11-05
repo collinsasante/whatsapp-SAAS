@@ -47,5 +47,7 @@ COPY --from=builder /prod/whatsapp-web/node_modules ./node_modules
 COPY --from=builder /app/apps/whatsapp-web/dist ./dist
 COPY --from=builder /app/apps/whatsapp-web/package.json ./
 
+# Least privilege: nothing here needs root and nothing writes outside /tmp.
+USER node
 EXPOSE 3004
 CMD ["node", "dist/index.js"]

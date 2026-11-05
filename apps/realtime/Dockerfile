@@ -26,5 +26,8 @@ ENV NODE_ENV=production
 COPY --from=builder /prod/realtime/node_modules ./node_modules
 COPY --from=builder /app/apps/realtime/dist ./dist
 
+# Least privilege: nothing here needs root and nothing writes outside /tmp.
+USER node
 EXPOSE 3002
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD wget -qO- http://127.0.0.1:3002/health || exit 1
 CMD ["node", "dist/index.js"]

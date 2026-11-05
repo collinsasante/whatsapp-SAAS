@@ -29,7 +29,7 @@ RUN cp -r apps/backend/prisma /prod/backend/prisma && \
     /app/apps/backend/node_modules/.bin/prisma generate
 
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl ffmpeg
+RUN apk add --no-cache openssl ffmpeg su-exec
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -40,7 +40,11 @@ COPY --from=builder /app/apps/backend/prisma ./prisma
 RUN node -e "const v=require('./node_modules/@prisma/client/package.json').version; \
     const {execSync}=require('child_process'); \
     execSync('npm install -g prisma@'+v,{stdio:'inherit'})"
-RUN mkdir -p uploads
+RUN mkdir -p uploads && chown node:node uploads
+COPY apps/backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
+# Starts as root only to fix ownership of an existing uploads volume, then runs everything as `node` (see the script).
 EXPOSE 3001
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["sh", "-c", "prisma migrate deploy --schema prisma/schema.prisma && node dist/main"]

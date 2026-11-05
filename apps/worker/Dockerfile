@@ -43,5 +43,7 @@ COPY --from=builder /prod/worker/node_modules ./node_modules
 COPY --from=builder /app/apps/worker/dist ./dist
 COPY --from=builder /app/apps/worker/package.json ./
 
+# Least privilege: nothing here needs root and nothing writes outside /tmp.
+USER node
 EXPOSE 3003
 CMD ["node", "dist/index.js"]
