@@ -17,7 +17,7 @@ function buildService(prismaOverrides: Record<string, unknown> = {}) {
   };
   const q = buildQueueStub();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = new PlatformHealthService(prisma as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any);
+  const service = new PlatformHealthService(prisma as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any, q as any);
   return { service, prisma };
 }
 
