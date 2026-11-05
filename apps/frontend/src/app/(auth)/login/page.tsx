@@ -3,13 +3,14 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, ShieldCheck, RefreshCw, CheckCircle2, Building2, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, ArrowRight, Loader2, RefreshCw, CheckCircle2, Building2 } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { auth, googleProvider } from '@/lib/firebase';
 import { signInWithPopup } from 'firebase/auth';
 import { disconnectSocket } from '@/lib/socket';
 import { useAuthStore } from '@/store/auth.store';
 import { UserRole } from '@whatsapp-platform/shared-types';
+import { CodeInput, type CodeInputHandle, type CodeStatus } from '@/components/auth/CodeInput';
 
 function GoogleIcon() {
   return (
@@ -25,59 +26,17 @@ function GoogleIcon() {
 type Step = 'credentials' | 'pin' | 'pin-setup' | 'unverified' | 'workspace-picker';
 type Workspace = { id: string; name: string; logoUrl: string | null };
 
-// Reusable 6-digit PIN input row
-function PinInput({
-  value,
-  onChange,
-  onSubmit,
-  label,
-}: {
-  value: string[];
-  onChange: (next: string[]) => void;
-  onSubmit?: () => void;
-  label?: string;
-}) {
-  const refs = useRef<Array<HTMLInputElement | null>>([]);
-
-  const handleChange = (i: number, val: string) => {
-    const cleaned = val.replace(/\D/g, '').slice(-1);
-    const next = [...value];
-    next[i] = cleaned;
-    onChange(next);
-    if (cleaned && i < 5) setTimeout(() => refs.current[i + 1]?.focus(), 0);
-  };
-
-  const handleKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !value[i] && i > 0) refs.current[i - 1]?.focus();
-    if (e.key === 'Enter' && value.join('').length === 6) onSubmit?.();
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (text.length === 6) {
-      onChange(text.split(''));
-      refs.current[5]?.focus();
-    }
-  };
-
+// One live region under the tiles: what is happening, in as few words as possible.
+function CodeFeedback({ status, message, verifying, success }: { status: CodeStatus; message: string; verifying: string; success: string }) {
   return (
-    <div>
-      {label && <p className="text-sm text-gray-500 text-center mb-3">{label}</p>}
-      <div className="flex items-center justify-center gap-3" onPaste={handlePaste}>
-        {value.map((digit, i) => (
-          <input
-            key={i}
-            ref={(el) => { refs.current[i] = el; }}
-            type="password"
-            inputMode="numeric"
-            maxLength={1}
-            value={digit}
-            onChange={(e) => handleChange(i, e.target.value)}
-            onKeyDown={(e) => handleKeyDown(i, e)}
-            className="w-14 h-14 text-center text-2xl font-bold border-2 rounded-xl focus:outline-none focus:border-teal-500 transition-colors bg-gray-50 focus:bg-white tracking-widest"
-          />
-        ))}
-      </div>
+    <div className="mt-4 flex h-5 items-center justify-center text-sm" role="status" aria-live="polite">
+      {status === 'verifying' ? (
+        <span className="inline-flex items-center gap-1.5 text-gray-500"><Loader2 className="h-3.5 w-3.5 animate-spin" />{verifying}</span>
+      ) : status === 'success' ? (
+        <span className="inline-flex items-center gap-1.5 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{success}</span>
+      ) : message ? (
+        <span className="text-red-600">{message}</span>
+      ) : null}
     </div>
   );
 }
@@ -94,8 +53,13 @@ function LoginPage() {
 
   const [tempToken, setTempToken] = useState('');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [pin, setPin] = useState(['', '', '', '', '', '']);
-  const [pinConfirm, setPinConfirm] = useState(['', '', '', '', '', '']);
+  const [pin, setPin] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [codeStatus, setCodeStatus] = useState<CodeStatus>('idle');
+  const [codeMessage, setCodeMessage] = useState('');
+  // A code that is being verified must never be submitted again (autofill, paste and Enter can all complete the same code).
+  const submittingRef = useRef(false);
+  const confirmRef = useRef<CodeInputHandle>(null);
   const [resending, setResending] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
 
@@ -132,12 +96,12 @@ function LoginPage() {
         setStep('workspace-picker');
       } else if ('requiresPinSetup' in data) {
         setTempToken(data.tempToken);
-        setPin(['', '', '', '', '', '']);
-        setPinConfirm(['', '', '', '', '', '']);
+        setPin('');
+        setPinConfirm('');
         setStep('pin-setup');
       } else if ('requiresPin' in data) {
         setTempToken(data.tempToken);
-        setPin(['', '', '', '', '', '']);
+        setPin('');
         setStep('pin');
       } else {
         finishLogin(data as Parameters<typeof finishLogin>[0]);
@@ -159,36 +123,58 @@ function LoginPage() {
     }
   };
 
-  const handleVerifyPin = async () => {
-    const code = pin.join('');
-    if (code.length !== 6) { toast.error('Enter your 6-digit PIN'); return; }
+  const resetCodeFeedback = () => { setCodeStatus('idle'); setCodeMessage(''); };
+
+  const failCode = (message: string, clear: () => void) => {
+    setCodeStatus('error');
+    setCodeMessage(message);
+    // Let the shake finish, then clear the tiles so the user can type again straight away.
+    setTimeout(() => { clear(); setCodeStatus('idle'); }, 380);
+  };
+
+  const apiMessage = (err: unknown, fallback: string): string => {
+    const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    return typeof message === 'string' && message ? message : fallback;
+  };
+
+  const handleVerifyPin = async (submitted?: string) => {
+    const code = submitted ?? pin;
+    if (code.length !== 6 || submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
+    setCodeStatus('verifying');
+    setCodeMessage('');
     try {
       const res = await authApi.verify2FA(tempToken, code);
+      setCodeStatus('success');
       finishLogin(res.data as Parameters<typeof finishLogin>[0]);
+      // submittingRef stays set: this screen is being left, nothing may submit again.
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Incorrect PIN';
-      toast.error(typeof message === 'string' ? message : 'Incorrect PIN');
-      setPin(['', '', '', '', '', '']);
-    } finally {
+      submittingRef.current = false;
       setLoading(false);
+      failCode(apiMessage(err, 'Incorrect PIN'), () => setPin(''));
     }
   };
 
-  const handleSetupPin = async () => {
-    const code = pin.join('');
-    const confirm = pinConfirm.join('');
-    if (code.length !== 6) { toast.error('Enter a 6-digit PIN'); return; }
-    if (code !== confirm) { toast.error('PINs do not match'); setPinConfirm(['', '', '', '', '', '']); return; }
+  const handleSetupPin = async (submittedConfirm?: string) => {
+    const confirm = submittedConfirm ?? pinConfirm;
+    if (pin.length !== 6 || confirm.length !== 6 || submittingRef.current) return;
+    if (pin !== confirm) {
+      failCode("PINs don't match", () => { setPinConfirm(''); confirmRef.current?.focus(); });
+      return;
+    }
+    submittingRef.current = true;
     setLoading(true);
+    setCodeStatus('verifying');
+    setCodeMessage('');
     try {
-      const res = await authApi.setupPin(tempToken, code);
+      const res = await authApi.setupPin(tempToken, pin);
+      setCodeStatus('success');
       finishLogin(res.data as Parameters<typeof finishLogin>[0]);
     } catch (err: unknown) {
-      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to set PIN';
-      toast.error(typeof message === 'string' ? message : 'Failed to set PIN');
-    } finally {
+      submittingRef.current = false;
       setLoading(false);
+      failCode(apiMessage(err, 'Could not set the PIN'), () => setPinConfirm(''));
     }
   };
 
@@ -327,43 +313,34 @@ function LoginPage() {
   // ── STEP: ENTER PIN ────────────────────────────────────────────────────────
   if (step === 'pin') {
     return (
-      <div className="w-full max-w-[420px]">
+      <div className="w-full max-w-[400px]">
         <div className="lg:hidden flex items-center mb-8 justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="VerzChat" className="h-9" />
         </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          <div className="flex items-center justify-center mb-5">
-            <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center">
-              <ShieldCheck className="w-7 h-7 text-teal-600" />
-            </div>
-          </div>
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Enter your PIN</h1>
-            <p className="text-gray-500 text-sm mt-2">
-              Enter the 6-digit PIN for <span className="font-semibold text-gray-700">{form.email}</span>
-            </p>
+        <div className="auth-pearl rounded-3xl p-8 ring-1 ring-black/[0.05] shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_40px_-18px_rgba(15,23,42,0.2)]">
+          <div className="mb-7 text-center">
+            <h1 className="text-xl font-semibold text-gray-900">Enter your PIN</h1>
+            <p className="mt-1.5 truncate text-sm text-gray-500">{form.email}</p>
           </div>
 
-          <div className="mb-6">
-            <PinInput value={pin} onChange={setPin} onSubmit={() => void handleVerifyPin()} />
-          </div>
+          <CodeInput
+            aria-label="6-digit PIN"
+            mask
+            autoFocus
+            value={pin}
+            status={codeStatus}
+            onChange={(next) => { setPin(next); if (codeMessage) setCodeMessage(''); }}
+            onComplete={(code) => void handleVerifyPin(code)}
+          />
 
-          <button
-            onClick={() => void handleVerifyPin()}
-            disabled={loading || pin.join('').length < 6}
-            className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors mb-4"
-          >
-            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying...</> : <><CheckCircle2 className="w-4 h-4" /> Sign In</>}
-          </button>
+          <CodeFeedback status={codeStatus} message={codeMessage} verifying="Verifying" success="Signed in" />
 
-          <div className="flex items-center justify-between text-sm">
-            <Link href="/forgot-password" className="text-teal-600 hover:text-teal-700 font-medium transition-colors text-xs">
-              Forgot PIN? Reset password
-            </Link>
+          <div className="mt-5 flex items-center justify-between text-xs">
+            <Link href="/forgot-password" className="font-medium text-teal-700 transition-colors hover:text-teal-800">Forgot PIN?</Link>
             <button
-              onClick={() => { setStep('credentials'); setPin(['', '', '', '', '', '']); }}
-              className="text-gray-400 hover:text-gray-600 transition-colors text-xs"
+              onClick={() => { setStep('credentials'); setPin(''); resetCodeFeedback(); submittingRef.current = false; setLoading(false); }}
+              className="text-gray-500 transition-colors hover:text-gray-700"
             >
               Change account
             </button>
@@ -376,42 +353,51 @@ function LoginPage() {
   // ── STEP: SET UP PIN (first login) ─────────────────────────────────────────
   if (step === 'pin-setup') {
     return (
-      <div className="w-full max-w-[420px]">
+      <div className="w-full max-w-[400px]">
         <div className="lg:hidden flex items-center mb-8 justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="VerzChat" className="h-9" />
         </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          <div className="flex items-center justify-center mb-5">
-            <div className="w-14 h-14 bg-teal-50 rounded-2xl flex items-center justify-center">
-              <KeyRound className="w-7 h-7 text-teal-600" />
+        <div className="auth-pearl rounded-3xl p-8 ring-1 ring-black/[0.05] shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_40px_-18px_rgba(15,23,42,0.2)]">
+          <div className="mb-7 text-center">
+            <h1 className="text-xl font-semibold text-gray-900">Set your PIN</h1>
+            <p className="mt-1.5 text-sm text-gray-500">Six digits, used each time you sign in.</p>
+          </div>
+
+          <div className="space-y-5">
+            <div>
+              <p className="mb-2 text-center text-xs font-medium text-gray-500">Choose</p>
+              <CodeInput
+                aria-label="Choose a 6-digit PIN"
+                mask
+                autoFocus
+                value={pin}
+                status="idle"
+                onChange={(next) => { setPin(next); if (codeMessage) setCodeMessage(''); }}
+                onComplete={() => confirmRef.current?.focus()}
+              />
+            </div>
+            <div>
+              <p className="mb-2 text-center text-xs font-medium text-gray-500">Confirm</p>
+              <CodeInput
+                ref={confirmRef}
+                aria-label="Confirm your 6-digit PIN"
+                mask
+                value={pinConfirm}
+                status={codeStatus}
+                onChange={(next) => { setPinConfirm(next); if (codeMessage) setCodeMessage(''); }}
+                onComplete={(code) => void handleSetupPin(code)}
+              />
             </div>
           </div>
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Set your login PIN</h1>
-            <p className="text-gray-500 text-sm mt-2">
-              Choose a 6-digit PIN you&apos;ll use every time you sign in. Keep it safe, it replaces your email code.
-            </p>
-          </div>
 
-          <div className="space-y-5 mb-6">
-            <PinInput value={pin} onChange={setPin} label="Choose a PIN" />
-            <PinInput value={pinConfirm} onChange={setPinConfirm} onSubmit={() => void handleSetupPin()} label="Confirm PIN" />
-          </div>
+          <CodeFeedback status={codeStatus} message={codeMessage} verifying="Saving" success="Signed in" />
 
           <button
-            onClick={() => void handleSetupPin()}
-            disabled={loading || pin.join('').length < 6 || pinConfirm.join('').length < 6}
-            className="w-full flex items-center justify-center gap-2 bg-teal-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            onClick={() => { setStep('credentials'); setPin(''); setPinConfirm(''); resetCodeFeedback(); submittingRef.current = false; setLoading(false); }}
+            className="mt-5 w-full text-center text-xs text-gray-500 transition-colors hover:text-gray-700"
           >
-            {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving PIN...</> : <><CheckCircle2 className="w-4 h-4" /> Set PIN & Sign In</>}
-          </button>
-
-          <button
-            onClick={() => { setStep('credentials'); setPin(['', '', '', '']); setPinConfirm(['', '', '', '']); }}
-            className="w-full text-sm text-gray-400 hover:text-gray-600 py-3 mt-2 transition-colors"
-          >
-            ← Back to sign in
+            Back to sign in
           </button>
         </div>
       </div>
