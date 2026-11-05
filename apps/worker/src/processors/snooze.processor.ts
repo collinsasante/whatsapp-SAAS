@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import { QueueName, SnoozeWakeJob } from '@whatsapp-platform/shared-types';
 
+// Timers and the database clock are not perfectly aligned; a wake this close to its time still counts as due.
+const SNOOZE_CLOCK_TOLERANCE_MS = 2000;
 const REALTIME_URL = process.env['REALTIME_URL'] ?? 'http://realtime:3002';
 
 const CONV_INCLUDE = {
@@ -46,6 +48,10 @@ export class SnoozeWorker {
 
     // Already unsnooze or missing — skip
     if (!conv || !conv.snoozedUntil) return;
+
+    // A job that fires for an older snooze (the conversation was snoozed again for later while this one was already
+    // running, so the replacement could not displace it) must not cut the new snooze short. The new job wakes it.
+    
 
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },

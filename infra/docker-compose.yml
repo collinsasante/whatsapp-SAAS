@@ -227,6 +227,8 @@ services:
       dockerfile: apps/worker/Dockerfile
     container_name: wa_worker
     restart: always
+    # The worker stops its queues gracefully (bounded at 25 s in apps/worker/src/lib/lifecycle.ts); Docker's default 10 s would SIGKILL it first.
+    stop_grace_period: 30s
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-waplatform}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-waplatform}

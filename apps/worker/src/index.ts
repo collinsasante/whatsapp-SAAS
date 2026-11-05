@@ -13,6 +13,7 @@ import { WhatsAppQualitySyncWorker } from './processors/whatsapp-quality-sync.pr
 import { PlatformRollupWorker } from './processors/platform-rollup.processor';
 import { CommerceReconciliationWorker } from './processors/commerce-reconciliation.processor';
 import { TikTokTokenRefreshWorker } from './processors/tiktok-token-refresh.processor';
+import { runWithLifecycle } from './lib/lifecycle';
 
 const REDIS_HOST = process.env['REDIS_HOST'] ?? 'localhost';
 const REDIS_PORT = parseInt(process.env['REDIS_PORT'] ?? '6379', 10);
@@ -29,7 +30,7 @@ const prisma = new PrismaClient({
   log: process.env['NODE_ENV'] === 'development' ? ['error', 'warn'] : ['error'],
 });
 
-async function bootstrap() {
+async function bootstrap(): Promise<() => Promise<void>> {
   await prisma.$connect();
   console.log('Worker: Database connected');
 
@@ -65,14 +66,12 @@ async function bootstrap() {
 
   console.log('All workers started');
 
-  process.on('SIGTERM', async () => {
-    console.log('Worker: Graceful shutdown...');
+  return async () => {
     billingCronWorker.stop();
     await Promise.all([campaignWorker.stop(), automationWorker.stop(), retryWorker.stop(), snoozeWorker.stop(), aiTrialWorker.stop(), slaMonitorWorker.stop(), inactivityWorker.stop(), analyticsRollupWorker.stop(), whatsappQualitySyncWorker.stop(), platformRollupWorker.stop(), commerceReconciliationWorker.stop(), tiktokTokenRefreshWorker.stop()]);
     await prisma.$disconnect();
     redis.disconnect();
-    process.exit(0);
-  });
+  };
 }
 
-bootstrap().catch(console.error);
+void runWithLifecycle(bootstrap);
