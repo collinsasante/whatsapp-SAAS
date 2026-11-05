@@ -1,0 +1,8 @@
+/var/log/staging-8443.log /var/log/staging-8443-alerts.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    create 0640 root adm
+}

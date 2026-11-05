@@ -1,0 +1,598 @@
+#!/usr/bin/env python3
+"""staging-8443-fw: native nftables gate for the staging origin port (default 8443).
+
+Owns exactly ONE nftables table, `inet staging8443`. It never reads, edits or deletes any other table, chain, set or rule (Docker, UFW,
+fail2ban and everything else are untouched). Both IP families live in that one table, so an update is one atomic kernel transaction.
+
+Design rules
+  * Base chains end with their own drop after the jump: if the gate chain is ever emptied or flushed, traffic to the port is dropped, not passed.
+  * Fail closed: with no valid snapshot the table still loads, allowing only the host's own loopback/Docker bridges (and an optional admin).
+  * Fail static: a refresh that cannot download or validate NEVER touches the running rules or the last-known-good snapshot.
+  * Boot never uses the network: it loads the stored last-known-good snapshot, before Docker starts (see the systemd unit).
+  * One lock (flock) serialises every action; the kernel drops it if a process is killed.
+
+Actions: boot | apply | refresh | verify | status | rollback | restore | admin
+"""
+import argparse, datetime, fcntl, hashlib, ipaddress, json, os, re, secrets, signal, subprocess, sys, syslog, time
+import urllib.error, urllib.request
+
+CONF_PATH = os.environ.get("STG8443_CONF", "/etc/staging-8443/policy.conf")
+STATE = os.environ.get("STG8443_STATE", "/var/lib/staging-8443")
+LOCKFILE = os.environ.get("STG8443_LOCK", "/run/staging-8443.lock")
+ADMIN_FILE = os.environ.get("STG8443_ADMIN", "/etc/staging-8443/admin.txt")
+FAMILY, TABLE = "inet", "staging8443"
+
+POLICY = {
+    "PORT": "8443",
+    "FEED_V4": "https://www.cloudflare.com/ips-v4",
+    "FEED_V6": "https://www.cloudflare.com/ips-v6",
+    "FEED_TIMEOUT": "15",
+    "V4_COUNT_MIN": "8", "V4_COUNT_MAX": "64", "V6_COUNT_MIN": "3", "V6_COUNT_MAX": "32",
+    "V4_PREFIX_MIN": "12", "V4_PREFIX_MAX": "32", "V6_PREFIX_MIN": "29", "V6_PREFIX_MAX": "64",
+    "MAX_REMOVED_PCT": "30",
+    "REQUIRE_GLOBAL": "yes",
+    "POSTCHECK_CMD": "",
+    "ALERT_CMD": "/usr/local/sbin/staging-8443-alert",
+    "SNAPSHOTS_KEEP": "10",
+    "LOCK_WAIT": "120",
+    "STALE_DAYS": "14",
+    "ADMIN_MAX_TTL_DAYS": "30",
+    "LOG_FILE": "/var/log/staging-8443.log",
+}
+
+
+class V(Exception):
+    """A validation or safety failure: the running rules must stay as they are."""
+
+
+# ----------------------------------------------------------------------------- logging, alerting, locking
+def utcnow():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def stamp(dt=None):
+    return (dt or utcnow()).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def log(level, msg):
+    line = f"{stamp()} {level} {msg}"
+    try:
+        syslog.openlog("staging-8443-fw")
+        syslog.syslog({"ERROR": syslog.LOG_ERR, "ALERT": syslog.LOG_CRIT, "WARN": syslog.LOG_WARNING}.get(level, syslog.LOG_INFO), f"{level} {msg}")
+    except Exception:
+        pass
+    try:
+        with open(POLICY["LOG_FILE"], "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    print(line, file=sys.stderr if level in ("ERROR", "ALERT", "WARN") else sys.stdout)
+
+
+def alert(event, msg):
+    log("ALERT", f"{event}: {msg}")
+    cmd = POLICY.get("ALERT_CMD")
+    if cmd and os.access(cmd, os.X_OK):
+        try:
+            subprocess.run([cmd, event, str(msg)[:400]], timeout=25, check=False, capture_output=True)
+        except Exception as e:
+            log("WARN", f"alert command failed: {e}")
+
+
+def trace(what):
+    """Opt-in lock tracing for tests (STG8443_TRACE=/path). Inert in production."""
+    t = os.environ.get("STG8443_TRACE")
+    if t:
+        with open(t, "a") as f:
+            f.write(f"{time.time():.6f} {os.getpid()} {what} {sys.argv[1] if len(sys.argv) > 1 else ''}\n")
+
+
+class Lock:
+    def __enter__(self):
+        self.f = open(LOCKFILE, "a+")
+        deadline = time.time() + int(POLICY["LOCK_WAIT"])
+        while True:
+            try:
+                fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                trace("enter")
+                return self
+            except BlockingIOError:
+                if time.time() > deadline:
+                    log("ERROR", "another staging-8443-fw action holds the lock; gave up waiting")
+                    sys.exit(75)
+                time.sleep(0.05)
+
+    def __exit__(self, *a):
+        trace("exit")
+        self.f.close()
+
+
+def load_policy():
+    if os.path.exists(CONF_PATH):
+        for raw in open(CONF_PATH):
+            line = raw.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                if k.strip() in POLICY:
+                    POLICY[k.strip()] = v.strip().strip('"')
+
+
+# ----------------------------------------------------------------------------- validation
+def parse_ranges(text, fam, pol=None):
+    """Strict. Anything unexpected rejects the WHOLE list (no partial acceptance)."""
+    pol = pol or POLICY
+    if len(text) > 100_000:
+        raise V("feed too large")
+    nets = set()
+    for raw in text.replace("\r", "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if not re.fullmatch(r"[0-9A-Fa-f:.]+/[0-9]{1,3}", line):
+            raise V(f"not a CIDR range: {line[:40]!r}")
+        try:
+            net = ipaddress.ip_network(line, strict=True)
+        except ValueError as e:
+            raise V(f"invalid range {line[:40]!r}: {e}")
+        if net.version != fam:
+            raise V(f"IPv{net.version} range in the IPv{fam} list: {line}")
+        lo, hi = (int(pol["V4_PREFIX_MIN"]), int(pol["V4_PREFIX_MAX"])) if fam == 4 else (int(pol["V6_PREFIX_MIN"]), int(pol["V6_PREFIX_MAX"]))
+        if net.prefixlen < lo:
+            raise V(f"range too broad (/{net.prefixlen} < /{lo}): {line}")
+        if net.prefixlen > hi:
+            raise V(f"range too narrow (/{net.prefixlen} > /{hi}): {line}")
+        if net.is_multicast or net.is_loopback or net.is_link_local or net.is_unspecified or net.is_reserved:
+            raise V(f"special-purpose range: {line}")
+        if pol["REQUIRE_GLOBAL"] == "yes" and not net.is_global:
+            raise V(f"not a public range: {line}")
+        nets.add(net)
+    lo_n, hi_n = (int(pol["V4_COUNT_MIN"]), int(pol["V4_COUNT_MAX"])) if fam == 4 else (int(pol["V6_COUNT_MIN"]), int(pol["V6_COUNT_MAX"]))
+    if not lo_n <= len(nets) <= hi_n:
+        raise V(f"IPv{fam} range count {len(nets)} outside [{lo_n}, {hi_n}]")
+    return [str(n) for n in sorted(nets, key=lambda n: (int(n.network_address), n.prefixlen))]
+
+
+def check_delta(new, cur, fam):
+    if not cur:
+        return
+    removed = len(set(cur) - set(new))
+    pct = removed * 100 / len(cur)
+    if pct > int(POLICY["MAX_REMOVED_PCT"]):
+        raise V(f"IPv{fam} list would drop {removed} of {len(cur)} ranges ({pct:.0f}% > {POLICY['MAX_REMOVED_PCT']}%)")
+
+
+# ----------------------------------------------------------------------------- admin exceptions (always expiring)
+def read_admin():
+    out, expired = [], []
+    if not os.path.exists(ADMIN_FILE):
+        return out, expired
+    for raw in open(ADMIN_FILE):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        m = re.fullmatch(r"(\S+)\s+expires=(\S+)", line)
+        if not m:
+            log("WARN", f"ignoring malformed admin line: {line[:60]!r}")
+            continue
+        try:
+            ip = ipaddress.ip_address(m.group(1))
+            exp = datetime.datetime.strptime(m.group(2), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            log("WARN", f"ignoring invalid admin line: {line[:60]!r}")
+            continue
+        if ip.is_multicast or ip.is_unspecified or ip.is_loopback:
+            continue
+        (out if exp > utcnow() else expired).append((ip, exp))
+    return out, expired
+
+
+def write_admin(entries):
+    tmp = ADMIN_FILE + ".new"
+    with open(tmp, "w") as f:
+        f.write("# Emergency direct access. Entries expire automatically. Manage with: staging-8443-fw admin add|del|list\n")
+        for ip, exp in entries:
+            f.write(f"{ip} expires={stamp(exp)}\n")
+    os.chmod(tmp, 0o640)
+    os.replace(tmp, ADMIN_FILE)
+
+
+# ----------------------------------------------------------------------------- nftables
+def nft(args, text=None, timeout=30):
+    return subprocess.run(["nft"] + args, input=text, capture_output=True, text=True, timeout=timeout)
+
+
+def render(v4, v6, admin):
+    port = int(POLICY["PORT"])
+    a4 = [(ip, exp) for ip, exp in admin if ip.version == 4]
+    a6 = [(ip, exp) for ip, exp in admin if ip.version == 6]
+
+    def elems(items):
+        return f" elements = {{ {', '.join(items)} }};" if items else ""
+
+    def timed(items):
+        return " elements = { " + ", ".join(f"{ip} timeout {max(1, int((exp - utcnow()).total_seconds()))}s" for ip, exp in items) + " };" if items else ""
+
+    return f"""add table {FAMILY} {TABLE}
+delete table {FAMILY} {TABLE}
+table {FAMILY} {TABLE} {{
+  set cf4 {{ type ipv4_addr; flags interval; auto-merge;{elems(v4)} }}
+  set cf6 {{ type ipv6_addr; flags interval; auto-merge;{elems(v6)} }}
+  set admin4 {{ type ipv4_addr; flags timeout;{timed(a4)} }}
+  set admin6 {{ type ipv6_addr; flags timeout;{timed(a6)} }}
+  chain stg_gate {{
+    ct state established,related accept
+    iifname {{ "lo", "docker0" }} accept
+    iifname "br-*" accept
+    ip saddr @cf4 accept
+    ip6 saddr @cf6 accept
+    ip saddr @admin4 accept
+    ip6 saddr @admin6 accept
+    counter drop
+  }}
+  chain stg_forward {{
+    type filter hook forward priority -10; policy accept;
+    meta l4proto tcp ct original proto-dst {port} jump stg_gate
+    meta l4proto tcp ct original proto-dst {port} counter drop
+  }}
+  chain stg_input {{
+    type filter hook input priority -10; policy accept;
+    meta l4proto tcp tcp dport {port} jump stg_gate
+    meta l4proto tcp tcp dport {port} counter drop
+  }}
+}}
+"""
+
+
+def table_exists():
+    return nft(["list", "table", FAMILY, TABLE]).returncode == 0
+
+
+def _norm(o):
+    if isinstance(o, dict):
+        if "counter" in o and isinstance(o["counter"], dict):
+            return {"counter": None}
+        return {k: _norm(v) for k, v in o.items() if k != "handle"}
+    if isinstance(o, list):
+        return [_norm(x) for x in o]
+    return o
+
+
+def live_signature():
+    """Hash of the structure of our table: hooks, priorities, rules, the two range sets. Counters, handles and admin timeouts are ignored."""
+    r = nft(["-j", "list", "table", FAMILY, TABLE])
+    if r.returncode != 0:
+        return None
+    items = []
+    for it in json.loads(r.stdout)["nftables"]:
+        if "metainfo" in it:
+            continue
+        if "set" in it:
+            s = dict(it["set"])
+            if s.get("name", "").startswith("admin"):
+                s.pop("elem", None)
+            elif "elem" in s:
+                s["elem"] = sorted(json.dumps(e, sort_keys=True) for e in s["elem"])
+            it = {"set": s}
+        items.append(_norm(it))
+    return hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
+
+
+# ----------------------------------------------------------------------------- snapshots (all writes are atomic renames)
+def sdir(*p):
+    return os.path.join(STATE, *p)
+
+
+def sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def write_snapshot(v4, v6, source):
+    os.makedirs(sdir("snapshots"), exist_ok=True)
+    sid = f"{utcnow().strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(2)}"
+    tmp = sdir(f"tmp-{sid}")
+    os.makedirs(tmp)
+    b4, b6 = ("\n".join(v4) + "\n").encode(), ("\n".join(v6) + "\n").encode()
+    open(f"{tmp}/v4.txt", "wb").write(b4)
+    open(f"{tmp}/v6.txt", "wb").write(b6)
+    json.dump({"id": sid, "created": stamp(), "source": source, "v4_sha256": sha(b4), "v6_sha256": sha(b6), "v4_count": len(v4), "v6_count": len(v6)}, open(f"{tmp}/meta.json", "w"))
+    os.rename(tmp, sdir("snapshots", sid))
+    return sid
+
+
+def read_snapshot(ref):
+    """Returns (v4, v6, meta) only if the files match their recorded hashes AND pass the full validation again."""
+    d = os.path.realpath(sdir(ref) if not os.path.isabs(ref) else ref)
+    meta = json.load(open(f"{d}/meta.json"))
+    b4, b6 = open(f"{d}/v4.txt", "rb").read(), open(f"{d}/v6.txt", "rb").read()
+    if sha(b4) != meta["v4_sha256"] or sha(b6) != meta["v6_sha256"]:
+        raise V(f"snapshot {meta['id']} does not match its recorded hashes (corrupt or edited)")
+    return parse_ranges(b4.decode(), 4), parse_ranges(b6.decode(), 6), meta
+
+
+def point(name, sid):
+    tmp = sdir(name + ".new")
+    if os.path.lexists(tmp):
+        os.unlink(tmp)
+    os.symlink(os.path.join("snapshots", sid), tmp)
+    os.replace(tmp, sdir(name))
+
+
+def promote(sid):
+    if os.path.islink(sdir("last-good")) and os.path.isdir(os.path.realpath(sdir("last-good"))):
+        point("previous", os.path.basename(os.path.realpath(sdir("last-good"))))
+    point("last-good", sid)
+    keep = int(POLICY["SNAPSHOTS_KEEP"])
+    pinned = {os.path.basename(os.path.realpath(sdir(n))) for n in ("last-good", "previous", "recovery") if os.path.islink(sdir(n))}
+    allsnaps = sorted(os.listdir(sdir("snapshots")))
+    for s in allsnaps[:-keep]:
+        if s not in pinned:
+            for f in os.listdir(sdir("snapshots", s)):
+                os.unlink(sdir("snapshots", s, f))
+            os.rmdir(sdir("snapshots", s))
+
+
+def status_write(**kw):
+    p = sdir("status.json")
+    cur = json.load(open(p)) if os.path.exists(p) else {}
+    cur.update(kw)
+    tmp = p + ".new"
+    json.dump(cur, open(tmp, "w"), indent=1)
+    os.replace(tmp, p)
+
+
+# ----------------------------------------------------------------------------- load / apply
+def load_ruleset(v4, v6):
+    admin, expired = read_admin()
+    if expired:
+        write_admin(admin)
+        log("INFO", f"pruned {len(expired)} expired admin exception(s)")
+    text = render(v4, v6, admin)
+    r = nft(["-c", "-f", "-"], text)
+    if r.returncode != 0:
+        raise V("nft check failed: " + r.stderr.strip()[:300])
+    r = nft(["-f", "-"], text)  # one transaction: the old table is replaced atomically, or nothing changes
+    if r.returncode != 0:
+        raise V("nft load failed: " + r.stderr.strip()[:300])
+    sig = live_signature()
+    if not sig:
+        raise V("table missing right after load")
+    open(sdir("live.sig"), "w").write(sig)
+    return sig
+
+
+def apply_last_good(allow_fallback):
+    try:
+        v4, v6, meta = read_snapshot("last-good")
+        sig = load_ruleset(v4, v6)
+        log("INFO", f"loaded last-good snapshot {meta['id']} ({len(v4)} v4 + {len(v6)} v6 ranges), signature {sig[:12]}")
+        status_write(applied=meta["id"], applied_at=stamp(), mode="snapshot")
+        return True
+    except (V, OSError, ValueError, KeyError) as e:
+        if not allow_fallback:
+            raise
+        alert("no-valid-snapshot", f"{e}; loading the fail-closed fallback (only loopback, Docker bridges, admin)")
+        sig = load_ruleset([], [])
+        log("WARN", f"fail-closed fallback loaded, signature {sig[:12]}")
+        status_write(applied="FALLBACK-DENY", applied_at=stamp(), mode="fallback")
+        return False
+
+
+def disabled():
+    return os.path.exists(sdir("disabled"))
+
+
+# ----------------------------------------------------------------------------- actions
+def fetch(url):
+    signal.alarm(int(POLICY["FEED_TIMEOUT"]) * 2 + 5)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "staging-8443-fw"})
+        with urllib.request.urlopen(req, timeout=int(POLICY["FEED_TIMEOUT"])) as r:
+            if r.status != 200:
+                raise V(f"HTTP {r.status} from {url}")
+            return r.read(200_000).decode("utf-8", "strict")
+    except V:
+        raise
+    except (urllib.error.URLError, OSError, UnicodeDecodeError, TimeoutError) as e:
+        raise V(f"cannot download {url}: {e}")
+    finally:
+        signal.alarm(0)
+
+
+def act_boot(_):
+    with Lock():
+        if disabled():
+            log("WARN", "firewall is explicitly disabled (rollback marker present); not loading")
+            return 0
+        ok = apply_last_good(allow_fallback=True)
+        return 0 if table_exists() else 1
+
+
+def act_apply(_):
+    with Lock():
+        try:
+            apply_last_good(allow_fallback=not table_exists())
+            return 0
+        except (V, OSError, ValueError, KeyError) as e:
+            alert("apply-failed", str(e))
+            return 1
+
+
+def act_restore(_):
+    with Lock():
+        if os.path.exists(sdir("disabled")):
+            os.unlink(sdir("disabled"))
+        ok = apply_last_good(allow_fallback=True)
+        return 0 if table_exists() else 1
+
+
+def act_refresh(_):
+    with Lock():
+        try:
+            if disabled():
+                log("INFO", "refresh skipped: the firewall is explicitly disabled (rolled back); run `staging-8443-fw restore` to re-enable")
+                return 0
+            n4 = parse_ranges(fetch(POLICY["FEED_V4"]), 4)
+            n6 = parse_ranges(fetch(POLICY["FEED_V6"]), 6)
+            try:
+                c4, c6, cmeta = read_snapshot("last-good")
+            except (V, OSError, KeyError, ValueError):
+                c4, c6, cmeta = [], [], None
+            check_delta(n4, c4, 4)
+            check_delta(n6, c6, 6)
+            if cmeta and n4 == c4 and n6 == c6:
+                log("INFO", "refresh: lists unchanged")
+                status_write(last_refresh_ok=stamp(), last_refresh_result="unchanged", last_refresh_error=None)
+                return 0
+            sid = write_snapshot(n4, n6, "refresh")
+            load_ruleset(n4, n6)
+            pc = POLICY["POSTCHECK_CMD"]
+            if pc and subprocess.run(pc, shell=True, timeout=30).returncode != 0:
+                log("ERROR", "post-load check failed; restoring the last-known-good rules")
+                apply_last_good(allow_fallback=False)
+                raise V("post-load check failed after applying the new lists; previous rules restored")
+            promote(sid)
+            added, removed = len(set(n4) - set(c4)) + len(set(n6) - set(c6)), len(set(c4) - set(n4)) + len(set(c6) - set(n6))
+            log("INFO", f"refresh: applied {sid}: {len(n4)} v4 + {len(n6)} v6 ranges (+{added}/-{removed})")
+            status_write(last_refresh_ok=stamp(), last_refresh_result=f"applied +{added}/-{removed}", last_refresh_error=None, applied=sid, applied_at=stamp(), mode="snapshot")
+            return 0
+        except V as e:
+            log("ERROR", f"refresh rejected: {e}; running rules and last-known-good snapshot are unchanged")
+            alert("refresh-failed", str(e))
+            try:
+                status_write(last_refresh_failed=stamp(), last_refresh_error=str(e)[:300])
+            except Exception:
+                pass
+            return 1
+
+
+def act_verify(_):
+    with Lock():
+        if disabled():
+            return 0
+        problem = None
+        if not table_exists():
+            problem = "table inet staging8443 is missing"
+        else:
+            expected = open(sdir("live.sig")).read().strip() if os.path.exists(sdir("live.sig")) else None
+            if live_signature() != expected:
+                problem = "table differs from the last loaded ruleset (drift)"
+        admin, expired = read_admin()
+        if expired and not problem:
+            problem = None
+            write_admin(admin)
+            apply_last_good(allow_fallback=False)
+            log("INFO", "verify: expired admin exceptions pruned and rules reloaded")
+        if problem:
+            alert("drift", problem + "; repairing from the last-known-good snapshot")
+            apply_last_good(allow_fallback=True)
+            if not table_exists():
+                alert("repair-failed", "the firewall table is still missing after repair")
+                return 1
+        st = json.load(open(sdir("status.json"))) if os.path.exists(sdir("status.json")) else {}
+        ok = st.get("last_refresh_ok")
+        if ok:
+            age = (utcnow() - datetime.datetime.strptime(ok, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)).days
+            if age >= int(POLICY["STALE_DAYS"]) and not os.path.exists(sdir("stale-alerted-" + utcnow().strftime("%Y%m%d"))):
+                open(sdir("stale-alerted-" + utcnow().strftime("%Y%m%d")), "w").close()
+                alert("stale-ranges", f"the Cloudflare range lists have not been refreshed successfully for {age} days")
+        return 0
+
+
+def act_snapshot(_):
+    """Pin an additional, independently validated recovery copy of last-good (pointer `recovery`). Changes NOTHING live: not the table, not last-good, not the policy."""
+    with Lock():
+        v4, v6, meta = read_snapshot("last-good")  # re-validates hashes and content first
+        sid = write_snapshot(v4, v6, "recovery-copy-of:" + meta["id"])
+        point("recovery", sid)
+        read_snapshot("recovery")  # prove the new copy parses and validates
+        log("INFO", f"recovery snapshot {sid} pinned from last-good {meta['id']} ({len(v4)} v4 + {len(v6)} v6 ranges); live rules, last-good and policy unchanged")
+        return 0
+
+
+def act_recover(_):
+    """Make the pinned `recovery` snapshot the last-good one (validated first, refused if tampered) and load it. For when last-good is corrupt or unusable."""
+    with Lock():
+        if disabled():
+            log("WARN", "firewall is explicitly disabled (rollback marker present); run `staging-8443-fw restore` first")
+            return 1
+        v4, v6, meta = read_snapshot("recovery")  # raises V (nothing changes) if missing, tampered or invalid
+        promote(meta["id"])
+        apply_last_good(allow_fallback=False)
+        log("INFO", f"recovered: {meta['id']} is now last-good")
+        return 0
+
+
+def act_status(_):
+    with Lock():
+        st = json.load(open(sdir("status.json"))) if os.path.exists(sdir("status.json")) else {}
+        lg = os.path.basename(os.path.realpath(sdir("last-good"))) if os.path.islink(sdir("last-good")) else None
+        admin, _e = read_admin()
+        print(json.dumps({"table_present": table_exists(), "disabled": disabled(), "last_good": lg, "live_signature": (live_signature() or "")[:16],
+                          "expected_signature": (open(sdir("live.sig")).read().strip()[:16] if os.path.exists(sdir("live.sig")) else None),
+                          "recovery_snapshot": (os.path.basename(os.path.realpath(sdir("recovery"))) if os.path.islink(sdir("recovery")) else None),
+                          "previous_snapshot": (os.path.basename(os.path.realpath(sdir("previous"))) if os.path.islink(sdir("previous")) else None),
+                          "admin_exceptions": [{"ip": "<hidden>", "expires": stamp(e)} for _i, e in admin], **st}, indent=1))
+    return 0
+
+
+def act_rollback(_):
+    """Removes ONLY inet staging8443. Marks the firewall disabled so boot/verify do not bring it back until `restore`."""
+    with Lock():
+        os.makedirs(STATE, exist_ok=True)
+        open(sdir("disabled"), "w").write(stamp() + "\n")
+        if table_exists():
+            r = nft(["delete", "table", FAMILY, TABLE])
+            if r.returncode != 0:
+                log("ERROR", "could not delete the table: " + r.stderr.strip()[:200])
+                return 1
+        log("INFO", "rollback: table inet staging8443 removed; no other table touched; firewall marked disabled")
+        return 0
+
+
+def act_admin(a):
+    with Lock():
+        admin, _e = read_admin()
+        if a.cmd == "list":
+            for ip, exp in admin:
+                print(ip, "expires", stamp(exp))
+            return 0
+        ip = ipaddress.ip_address(a.ip)
+        if a.cmd == "add":
+            m = re.fullmatch(r"(\d+)([smhd])", a.ttl or "1d")
+            if not m:
+                raise SystemExit("--ttl like 3600s, 90m, 12h, 7d")
+            secs = int(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+            if secs > int(POLICY["ADMIN_MAX_TTL_DAYS"]) * 86400:
+                raise SystemExit(f"ttl above the {POLICY['ADMIN_MAX_TTL_DAYS']}-day maximum")
+            admin = [(i, e) for i, e in admin if i != ip] + [(ip, utcnow() + datetime.timedelta(seconds=secs))]
+        else:
+            admin = [(i, e) for i, e in admin if i != ip]
+        write_admin(admin)
+        apply_last_good(allow_fallback=False)
+        return 0
+
+
+def main():
+    load_policy()
+    ap = argparse.ArgumentParser(prog="staging-8443-fw")
+    sub = ap.add_subparsers(dest="action", required=True)
+    for n in ("boot", "apply", "refresh", "verify", "status", "rollback", "restore", "snapshot", "recover"):
+        sub.add_parser(n)
+    ad = sub.add_parser("admin")
+    ad.add_argument("cmd", choices=["add", "del", "list"])
+    ad.add_argument("ip", nargs="?")
+    ad.add_argument("--ttl")
+    a = ap.parse_args()
+    signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(V("download exceeded its overall time limit")))
+    os.makedirs(STATE, exist_ok=True)
+    fn = {"boot": act_boot, "apply": act_apply, "refresh": act_refresh, "verify": act_verify, "status": act_status,
+          "rollback": act_rollback, "restore": act_restore, "admin": act_admin, "snapshot": act_snapshot, "recover": act_recover}[a.action]
+    try:
+        sys.exit(fn(a))
+    except V as e:
+        log("ERROR", str(e))
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

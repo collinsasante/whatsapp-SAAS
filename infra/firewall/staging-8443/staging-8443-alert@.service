@@ -1,0 +1,6 @@
+[Unit]
+Description=Staging 8443 gate alert for %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/staging-8443-alert unit-failed %i

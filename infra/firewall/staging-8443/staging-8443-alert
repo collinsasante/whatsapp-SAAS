@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Failure/drift alert for the staging 8443 gate. Always writes to the journal and a local alert log; additionally posts to a notification
+# URL if (and only if) the root-only file /etc/staging-8443/alert-url exists. The URL is a secret: it is never logged or echoed.
+ev=${1:-unknown}; msg=${2:-}
+ts=$(date -u +%FT%TZ)
+logger -t staging-8443-alert -p user.crit "$ev: $msg"
+umask 027; echo "$ts $ev $msg" >> /var/log/staging-8443-alerts.log
+if [ -r /etc/staging-8443/alert-url ]; then
+  curl -fsS -m 10 -H "Title: staging 8443 firewall: $ev" -d "$msg" "$(cat /etc/staging-8443/alert-url)" >/dev/null 2>&1 || true
+fi
+exit 0

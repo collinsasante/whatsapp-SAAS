@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Complete, self-contained rollback of the staging 8443 restriction. Removes ONLY what staging-8443-firewall added:
+#   the DOCKER-USER jump, the ip6tables INPUT jump, chains STG-8443 and STG-8443-V6, and the boot unit. Config files are kept.
+set -u
+JUMP4=(-p tcp -m conntrack --ctorigdstport 8443 --ctdir ORIGINAL -j STG-8443); JUMP6=(-p tcp --dport 8443 -j STG-8443-V6)
+systemctl disable --now staging-8443-firewall.service >/dev/null 2>&1 || true   # ExecStop removes the rules too; the lines below make it exact regardless
+while iptables -C DOCKER-USER "${JUMP4[@]}" 2>/dev/null; do iptables -D DOCKER-USER "${JUMP4[@]}"; done
+while ip6tables -C INPUT "${JUMP6[@]}" 2>/dev/null; do ip6tables -D INPUT "${JUMP6[@]}"; done
+iptables -F STG-8443 2>/dev/null && iptables -X STG-8443 2>/dev/null
+ip6tables -F STG-8443-V6 2>/dev/null && ip6tables -X STG-8443-V6 2>/dev/null
+echo "rollback complete: chains present now: v4=$(iptables -S | grep -c 'STG-8443') v6=$(ip6tables -S | grep -c 'STG-8443') (both must be 0); unit enabled: $(systemctl is-enabled staging-8443-firewall.service 2>&1 | head -1)"

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Rollback of the staging 8443 gate. Removes ONLY the nftables table `inet staging8443` and disables this gate's units.
+# It never flushes the ruleset and never touches Docker, UFW, fail2ban or any other table. State and snapshots are kept
+# (restore with: staging-8443-fw restore && systemctl enable --now staging-8443-fw.service staging-8443-fw-verify.timer staging-8443-fw-refresh.timer).
+set -u
+systemctl disable --now staging-8443-fw-verify.timer staging-8443-fw-refresh.timer >/dev/null 2>&1 || true
+systemctl disable staging-8443-fw.service >/dev/null 2>&1 || true
+/usr/local/sbin/staging-8443-fw rollback
+echo "table inet staging8443 present: $(nft list tables | grep -c staging8443) (must be 0); other tables left: $(nft list tables | tr '\n' ';')"

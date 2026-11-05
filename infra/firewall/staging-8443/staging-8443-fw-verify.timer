@@ -1,0 +1,10 @@
+[Unit]
+Description=Staging 8443 gate: integrity check every 5 seconds
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

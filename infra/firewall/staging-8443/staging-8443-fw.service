@@ -1,0 +1,18 @@
+[Unit]
+Description=Staging origin port 8443: native nftables gate (loaded before Docker)
+Documentation=file:///usr/share/doc/staging-8443/README
+DefaultDependencies=no
+After=local-fs.target systemd-sysctl.service systemd-modules-load.service
+Before=network-pre.target docker.service containerd.service sysinit.target
+Conflicts=shutdown.target
+Before=shutdown.target
+OnFailure=staging-8443-alert@%n.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/staging-8443-fw boot
+TimeoutStartSec=60
+
+[Install]
+WantedBy=sysinit.target

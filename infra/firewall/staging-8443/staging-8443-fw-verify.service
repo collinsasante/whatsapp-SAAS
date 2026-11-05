@@ -1,0 +1,8 @@
+[Unit]
+Description=Staging 8443 gate: integrity check and self-repair
+After=staging-8443-fw.service
+OnFailure=staging-8443-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/staging-8443-fw verify

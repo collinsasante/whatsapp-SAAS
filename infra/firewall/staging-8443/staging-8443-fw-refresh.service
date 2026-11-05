@@ -1,0 +1,10 @@
+[Unit]
+Description=Staging 8443 gate: refresh the Cloudflare ranges (validated, atomic, fail-static)
+After=network-online.target
+Wants=network-online.target
+OnFailure=staging-8443-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/staging-8443-fw refresh
+TimeoutStartSec=300
