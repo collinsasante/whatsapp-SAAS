@@ -1,9 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DigitalSelf, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OVERRIDE_OPTIONS } from './digital-self.constants';
 import { deriveStatus, emptyProfile, parseProfile, summarizeProfile, type ProfileOverrides, type StyleSummary } from './profile.util';
 import { CORRECTION_SOURCE, lockDigitalSelf, REPLY_SOURCE, rebuildFromEvents } from './evidence.util';
+import { isLearningPermitted } from '../ai-learning/learning-eligibility';
+import { consentNeed, DIGITAL_SELF_CONSENT_VERSION, hasValidConsent, nextConsentStatus, type ConsentDecision, type ConsentNeed } from './digital-self-consent.util';
 
 /** Roles that reply to customers. VIEWER (read-only) and the synthetic Verz AI user are not agents and get no Digital Self. */
 export const AGENT_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.AGENT];
@@ -171,9 +173,11 @@ export class DigitalSelfService {
     await this.assertCanChangeConversation(tenantId, conversationId, actor);
 
     if (digitalSelfId !== null) {
-      const target = await this.prisma.digitalSelf.findFirst({ where: { id: digitalSelfId, tenantId }, select: { id: true, userId: true, enabled: true } });
+      const target = await this.prisma.digitalSelf.findFirst({ where: { id: digitalSelfId, tenantId }, select: { id: true, userId: true, enabled: true, consentStatus: true, consentVersion: true } });
       if (!target) throw new NotFoundException('Digital Self not found');
       if (!target.enabled) throw new BadRequestException('This Digital Self is deactivated');
+      // Only the agent can allow their style to be used, so only a consenting agent's Digital Self can be assigned.
+      if (!hasValidConsent(target)) throw new BadRequestException('This agent has not agreed to a Digital Self, so it cannot be assigned');
       const eligible = await this.prisma.user.count({ where: { ...DigitalSelfService.assignableUserWhere(tenantId), id: target.userId } });
       if (eligible === 0) throw new BadRequestException('This agent is not active in the workspace, so their Digital Self cannot be assigned');
     }
@@ -223,6 +227,93 @@ export class DigitalSelfService {
     return { excluded, excludedAt, evidenceRemoved, profilesRebuilt: affected.length };
   }
 
+  /**
+   * What the signed-in agent sees about their own Digital Self: whether they are eligible, whether the workspace has made it available (so
+   * there is something to agree to), their own decision, and what has been learned. Always the caller's own row, taken from their session,
+   * never from a parameter, so there is no way to read or decide for another person.
+   */
+  async getMine(tenantId: string, userId: string, featureEnabled: boolean): Promise<MyDigitalSelf> {
+    const self = await provisionDigitalSelf(this.prisma, tenantId, userId);
+    if (!self) return { eligible: false, workspaceAvailable: false, promptRequired: false, consentVersion: DIGITAL_SELF_CONSENT_VERSION, consent: null, learned: null };
+    const workspace = await this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { learningEnabled: true, learningPaused: true, disclosureVersion: true } });
+    const workspaceAvailable = featureEnabled && isLearningPermitted(workspace);
+    const need = consentNeed(self);
+    return {
+      eligible: true,
+      workspaceAvailable,
+      // Asked once, when the agent first has something to agree to (or the wording changed), and never again once they have decided.
+      promptRequired: workspaceAvailable && self.enabled && need !== 'none',
+      consentVersion: DIGITAL_SELF_CONSENT_VERSION,
+      consent: { status: self.consentStatus, decidedAt: self.consentDecidedAt, need },
+      learned: {
+        evidenceCount: self.evidenceCount,
+        lastLearnedAt: self.lastLearnedAt,
+        summary: hasValidConsent(self) ? summarizeProfile(parseProfile(self.profile)) : null,
+      },
+    };
+  }
+
+  /**
+   * The agent's own decision. `userId` is the caller's session user and is also what the database CHECK requires as the decider, so a decision
+   * for anyone else is impossible rather than merely refused. Takes the same row lock as the learner: a withdrawal that returns has already
+   * won against any learning job that has not yet committed.
+   */
+  async decideConsent(tenantId: string, userId: string, decision: ConsentDecision, opts: { version?: string; deleteData?: boolean; featureEnabled: boolean }): Promise<MyDigitalSelf> {
+    const self = await provisionDigitalSelf(this.prisma, tenantId, userId);
+    if (!self) throw new ForbiddenException('Only agents have a Digital Self');
+    if (decision === 'ACCEPT' && opts.version !== DIGITAL_SELF_CONSENT_VERSION) {
+      throw new ConflictException('The consent wording has changed. Reload the page and read it again before agreeing.');
+    }
+    const result = await this.prisma.$transaction(async (tx) => {
+      await lockDigitalSelf(tx, self.id);
+      const row = await tx.digitalSelf.findUniqueOrThrow({ where: { id: self.id } });
+      const same = (decision === 'ACCEPT' && hasValidConsent(row)) || (decision === 'DECLINE' && row.consentStatus === 'DECLINED') || (decision === 'WITHDRAW' && row.consentStatus === 'WITHDRAWN');
+      let erased = 0;
+      if (!same) {
+        const next = nextConsentStatus(row.consentStatus, decision);
+        if (!next) throw new BadRequestException(decision === 'DECLINE' ? 'You have already agreed. Withdraw your consent instead.' : 'There is no consent to withdraw.');
+        await tx.digitalSelf.update({
+          where: { id: row.id },
+          data: { consentStatus: next, consentVersion: DIGITAL_SELF_CONSENT_VERSION, consentDecidedAt: new Date(), consentDecidedById: userId },
+        });
+      }
+      // A deletion request can accompany a withdrawal, and is honoured even when the withdrawal had already happened.
+      if (decision === 'WITHDRAW' && opts.deleteData) erased = await this.eraseWithin(tx, row.id, tenantId);
+      return { selfId: row.id, erased, changed: !same };
+    });
+    return Object.assign(await this.getMine(tenantId, userId, opts.featureEnabled), { selfId: result.selfId, evidenceRemoved: result.erased, changed: result.changed });
+  }
+
+  /** The agent's deletion request: everything learned about them (their replies and any approved corrections) and the profile built from it. */
+  async eraseMine(tenantId: string, userId: string): Promise<{ evidenceRemoved: number; selfId: string }> {
+    const self = await provisionDigitalSelf(this.prisma, tenantId, userId);
+    if (!self) throw new ForbiddenException('Only agents have a Digital Self');
+    const removed = await this.prisma.$transaction(async (tx) => {
+      await lockDigitalSelf(tx, self.id);
+      return this.eraseWithin(tx, self.id, tenantId);
+    });
+    return { evidenceRemoved: removed, selfId: self.id };
+  }
+
+  /** Deletes every learning event of one Digital Self and resets its profile to empty. Caller holds the row lock. Consent itself is not changed here. */
+  private async eraseWithin(tx: Prisma.TransactionClient, digitalSelfId: string, tenantId: string): Promise<number> {
+    const deleted = await tx.digitalSelfLearningEvent.deleteMany({ where: { digitalSelfId, tenantId } });
+    await tx.aiTrainingExample.updateMany({ where: { digitalSelfId, tenantId }, data: { digitalSelfId: null } });
+    const row = await tx.digitalSelf.findUniqueOrThrow({ where: { id: digitalSelfId } });
+    await tx.digitalSelf.update({
+      where: { id: digitalSelfId },
+      data: {
+        profile: emptyProfile() as unknown as Prisma.InputJsonValue,
+        profileVersion: { increment: 1 },
+        evidenceCount: 0,
+        lastLearnedAt: null,
+        lastError: null,
+        status: deriveStatus({ evidenceCount: 0, enabled: row.enabled, learningPaused: row.learningPaused, lastLearnedAt: null }),
+      },
+    });
+    return deleted.count;
+  }
+
   /** Read-modify-write under the same row lock the learner takes, so an admin edit and a learning job cannot overwrite each other. */
   private async mutate(tenantId: string, id: string, build: (row: DigitalSelf) => Prisma.DigitalSelfUpdateInput): Promise<DigitalSelfView> {
     await this.prisma.$transaction(async (tx) => {
@@ -248,6 +339,21 @@ export interface ConversationDigitalSelf {
   digitalSelf: DigitalSelfView | null;
 }
 
+export interface MyDigitalSelf {
+  /** False for roles that have no Digital Self (viewers, the AI user). */
+  eligible: boolean;
+  /** The workspace has switched Digital Self on and its administrators have acknowledged the disclosure, so there is something to agree to. */
+  workspaceAvailable: boolean;
+  /** Show the consent prompt now: available, not yet decided (or the wording changed), and not before. */
+  promptRequired: boolean;
+  consentVersion: string;
+  consent: { status: string; decidedAt: Date | null; need: ConsentNeed } | null;
+  learned: { evidenceCount: number; lastLearnedAt: Date | null; summary: StyleSummary | null } | null;
+  selfId?: string;
+  evidenceRemoved?: number;
+  changed?: boolean;
+}
+
 export interface DigitalSelfView {
   id: string;
   userId: string;
@@ -265,6 +371,9 @@ export interface DigitalSelfView {
   profileVersion: number;
   /** Approved style corrections currently applied to this Digital Self. */
   correctionCount: number;
+  /** The agent's own decision. Only the agent can change it; an admin sees it but cannot override it. */
+  consent: { status: string; decidedAt: Date | null; need: ConsentNeed };
+  /** Empty (nothing learned shown) while the agent's consent is not valid: a withdrawn or undecided profile is not displayed to anyone else. */
   summary: StyleSummary;
 }
 
@@ -275,7 +384,7 @@ function toView(row: DigitalSelf, correctionCount: number, user: { name: string;
     name: user.name,
     role: user.role,
     avatarUrl: user.avatarUrl,
-    assignable: memberAssignable && user.isActive && row.enabled,
+    assignable: memberAssignable && user.isActive && row.enabled && hasValidConsent(row),
     // Derived now, not read from the column: staleness changes with time, not only with events.
     status: deriveStatus({ evidenceCount: row.evidenceCount, enabled: row.enabled, learningPaused: row.learningPaused, lastLearnedAt: row.lastLearnedAt }),
     enabled: row.enabled,
@@ -285,6 +394,7 @@ function toView(row: DigitalSelf, correctionCount: number, user: { name: string;
     lastError: row.lastError,
     profileVersion: row.profileVersion,
     correctionCount,
-    summary: summarizeProfile(parseProfile(row.profile)),
+    consent: { status: row.consentStatus, decidedAt: row.consentDecidedAt, need: consentNeed(row) },
+    summary: hasValidConsent(row) ? summarizeProfile(parseProfile(row.profile)) : summarizeProfile(emptyProfile()),
   };
 }

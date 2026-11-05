@@ -6,6 +6,8 @@ import { newTrace, type PipelineContext } from '../ai-core/pipeline/pipeline.typ
 import { DigitalSelfContextService } from './digital-self-context.service';
 import { extractFeatures } from './message-features.util';
 import { emptyProfile, mergeFeatures } from './profile.util';
+import { CONSENTED } from './testing/consent';
+import { DIGITAL_SELF_CONSENT_VERSION } from './digital-self-consent.util';
 
 jest.mock('axios');
 
@@ -14,9 +16,9 @@ const learn = (texts: string[], times: number) =>
 const AMA_PROFILE = learn(["Hello! I'd be happy to help 😊 What size are you looking for? Let me know, thank you!"], 20);
 const KOFI_PROFILE = learn(['Kindly send the size. Price is as listed. Delivery is tomorrow.'], 20);
 
-type Self = { id: string; tenantId: string; userId: string; enabled: boolean; profile: unknown; user: { isActive: boolean; isAiAgent: boolean; role: string; workspaceMemberships: Array<{ status: string }> } };
+type Self = { id: string; tenantId: string; userId: string; consentStatus: string; consentVersion: string | null; enabled: boolean; profile: unknown; user: { isActive: boolean; isAiAgent: boolean; role: string; workspaceMemberships: Array<{ status: string }> } };
 const self = (id: string, userId: string, profile: unknown, over: Partial<Self> = {}, userOver: Partial<Self['user']> = {}): Self => ({
-  id, tenantId: 't1', userId, enabled: true, profile, user: { isActive: true, isAiAgent: false, role: 'AGENT', workspaceMemberships: [{ status: 'ACTIVE' }], ...userOver }, ...over,
+  id, tenantId: 't1', userId, ...CONSENTED, enabled: true, profile, user: { isActive: true, isAiAgent: false, role: 'AGENT', workspaceMemberships: [{ status: 'ACTIVE' }], ...userOver }, ...over,
 });
 
 function world(opts: { conv?: Record<string, unknown> | null; selves?: Self[]; flag?: boolean; failing?: boolean } = {}) {
@@ -29,6 +31,39 @@ function world(opts: { conv?: Record<string, unknown> | null; selves?: Self[]; f
   const flags = { isEnabledCached: jest.fn().mockResolvedValue(opts.flag ?? true) };
   return { prisma, conv, ctx: new DigitalSelfContextService(prisma as never, flags as never), flags };
 }
+
+describe('DigitalSelfContextService: the agent\'s own consent governs whether a profile is used', () => {
+  const notConsenting = [
+    ['pending', { consentStatus: 'PENDING', consentVersion: null }],
+    ['declined', { consentStatus: 'DECLINED', consentVersion: DIGITAL_SELF_CONSENT_VERSION }],
+    ['withdrawn', { consentStatus: 'WITHDRAWN', consentVersion: DIGITAL_SELF_CONSENT_VERSION }],
+    ['agreed to older wording', { consentStatus: 'GRANTED', consentVersion: 'ds-consent-v0' }],
+  ] as const;
+
+  it('uses a consenting agent\'s style (control)', async () => {
+    expect(await world().ctx.getStyleBlock('t1', 'c1')).not.toBe('');
+  });
+
+  it.each(notConsenting)('uses nothing for an agent whose consent is %s, on an explicitly assigned conversation', async (_l, over) => {
+    const w = world({ selves: [self('dsAma', 'ama', AMA_PROFILE, over as never)] });
+    expect(await w.ctx.getStyleBlock('t1', 'c1')).toBe('');
+  });
+
+  it.each(notConsenting)('uses nothing for an agent whose consent is %s, on a conversation they own', async (_l, over) => {
+    const w = world({ conv: { digitalSelfId: null, assignedToId: 'ama' }, selves: [self('dsAma', 'ama', AMA_PROFILE, over as never)] });
+    expect(await w.ctx.getStyleBlock('t1', 'c1')).toBe('');
+  });
+
+  it('uses nothing in the preview either', async () => {
+    const w = world({ selves: [self('dsAma', 'ama', AMA_PROFILE, { consentStatus: 'WITHDRAWN' } as never)] });
+    expect(await w.ctx.getStyleBlockFor('t1', 'dsAma')).toBe('');
+  });
+
+  it('one agent\'s withdrawal does not affect another agent\'s style', async () => {
+    const w = world({ conv: { digitalSelfId: 'dsKofi', assignedToId: null }, selves: [self('dsAma', 'ama', AMA_PROFILE, { consentStatus: 'WITHDRAWN' } as never), self('dsKofi', 'kofi', KOFI_PROFILE)] });
+    expect(await w.ctx.getStyleBlock('t1', 'c1')).not.toBe('');
+  });
+});
 
 describe('DigitalSelfContextService.getStyleBlock', () => {
   it('returns the assigned agent\'s style, and a different one after the assignment changes', async () => {

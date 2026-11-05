@@ -5,6 +5,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { AGENT_ROLES } from './digital-self.service';
 import { DIGITAL_SELF_FLAG_KEY } from './digital-self-learning.trigger';
 import { formatStyleBlock, parseProfile, summarizeProfile } from './profile.util';
+import { hasValidConsent } from './digital-self-consent.util';
 
 const WITH_AGENT = (tenantId: string) =>
   ({ user: { select: { isActive: true, isAiAgent: true, role: true, workspaceMemberships: { where: { workspaceId: tenantId }, select: { status: true } } } } }) satisfies Prisma.DigitalSelfInclude;
@@ -53,6 +54,8 @@ export class DigitalSelfContextService {
 
   private blockFor(self: LoadedSelf | null): string {
     if (!self || !self.enabled) return '';
+    // No profile is used for a reply without that agent's own current agreement; withdrawal takes effect on the very next reply.
+    if (!hasValidConsent(self)) return '';
     const u = self.user;
     const memberOk = u.workspaceMemberships.every((m) => m.status === 'ACTIVE');
     if (!u.isActive || u.isAiAgent || !(AGENT_ROLES as string[]).includes(u.role) || !memberOk) return '';

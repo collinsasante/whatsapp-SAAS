@@ -6,6 +6,7 @@ import { DIGITAL_SELF_FLAG_KEY } from './digital-self-learning.trigger';
 import { CORRECTION_SOURCE, CORRECTION_WEIGHT, lockConversationAndReadExclusion, lockDigitalSelf, rebuildFromEvents } from './evidence.util';
 import { extractFeatures } from './message-features.util';
 import { deriveStatus, mergeFeatures, parseProfile } from './profile.util';
+import { DIGITAL_SELF_CONSENT_VERSION, hasValidConsent } from './digital-self-consent.util';
 
 /**
  * The only failure categories that describe HOW a reply sounded rather than WHAT it said or did. Everything else (wrong price, wrong
@@ -59,7 +60,8 @@ export class DigitalSelfCorrectionsService {
     });
     if (!conversation?.digitalSelfId) { await this.withdraw(tenantId, example, existing, actorId); return 'no_digital_self'; }
     if (conversation.digitalSelfLearningExcluded) { await this.withdraw(tenantId, example, existing, actorId); return 'excluded'; }
-    const self = await this.prisma.digitalSelf.findFirst({ where: { id: conversation.digitalSelfId, tenantId, enabled: true }, select: { id: true } });
+    // An approved correction shapes an agent's profile, so it needs that agent's own agreement exactly like their replies do.
+    const self = await this.prisma.digitalSelf.findFirst({ where: { id: conversation.digitalSelfId, tenantId, enabled: true, consentStatus: 'GRANTED', consentVersion: DIGITAL_SELF_CONSENT_VERSION }, select: { id: true } });
     if (!self) { await this.withdraw(tenantId, example, existing, actorId); return 'no_digital_self'; }
 
     if (existing?.digitalSelfId === self.id) return 'unchanged';
@@ -72,6 +74,7 @@ export class DigitalSelfCorrectionsService {
       await lockDigitalSelf(tx, self.id);
       if (await tx.digitalSelfLearningEvent.findUnique({ where: { messageId: correctionKey(exampleId) }, select: { id: true } })) return 'unchanged';
       const current = await tx.digitalSelf.findUniqueOrThrow({ where: { id: self.id } });
+      if (!hasValidConsent(current)) return 'unchanged'; // consent withdrawn while this ran
       await tx.digitalSelfLearningEvent.create({
         data: { tenantId, digitalSelfId: self.id, messageId: correctionKey(exampleId), source: CORRECTION_SOURCE, conversationId: example.sourceConversationId, features: features as unknown as Prisma.InputJsonValue, weight: CORRECTION_WEIGHT },
       });

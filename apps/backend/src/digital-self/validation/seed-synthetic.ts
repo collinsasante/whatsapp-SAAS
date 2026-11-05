@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { simulatedPhoneFor } from '@whatsapp-platform/shared-utils';
 import { DigitalSelfLearningService } from '../digital-self-learning.service';
 import { DigitalSelfService, AGENT_ROLES } from '../digital-self.service';
+import { DIGITAL_SELF_CONSENT_VERSION, hasValidConsent } from '../digital-self-consent.util';
 import { AiLearningSettingsService, LearningSettingsView } from '../../ai-learning/learning-settings.service';
 import { AiLearningCostService } from '../../ai-learning/learning-cost.service';
 import { currentDisclosureVersion } from '../../ai-learning/learning-disclosure';
@@ -65,7 +66,15 @@ export async function seedSynthetic(prisma: PrismaClient, tenantId: string, agen
   for (const agent of agents) {
     const user = await prisma.user.findFirst({ where: { id: agent.userId, tenantId, isAiAgent: false, role: { in: AGENT_ROLES } }, select: { id: true } });
     if (!user) throw new Error(`User ${agent.userId} is not a human agent of this workspace`);
-    await service.ensureForUser(tenantId, user.id);
+    const self = await service.ensureForUser(tenantId, user.id);
+    // SYNTHETIC personas only (assertSyntheticTenant above refuses any real-looking workspace): there is no person to ask, so the persona's consent is
+    // recorded as the persona itself, which is what the database requires. This is never a way to record consent for a real agent.
+    if (self && !hasValidConsent(self)) {
+      await prisma.digitalSelf.update({
+        where: { id: self.id },
+        data: { consentStatus: 'GRANTED', consentVersion: DIGITAL_SELF_CONSENT_VERSION, consentDecidedAt: new Date(), consentDecidedById: user.id },
+      });
+    }
 
     const phone = simulatedPhoneFor(`seed-${user.id}`);
     const contact = (await prisma.contact.findFirst({ where: { tenantId, phone } })) ?? (await prisma.contact.create({ data: { tenantId, phone, name: 'Synthetic customer (Digital Self seed)' } }));

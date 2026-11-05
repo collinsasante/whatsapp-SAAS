@@ -708,6 +708,12 @@ export const aiLearningApi = {
 
 export const digitalSelfApi = {
   list: () => api.get('/digital-self'),
+  /** The signed-in agent's own consent and what has been learned about them. Never takes an id: it is always the caller. */
+  mine: () => api.get('/digital-self/me'),
+  /** The agent's own decision. `version` is the wording they were shown; withdrawing may ask for what was learned to be deleted too. */
+  decideConsent: (decision: 'ACCEPT' | 'DECLINE' | 'WITHDRAW', opts: { version?: string; deleteData?: boolean } = {}) => api.put('/digital-self/me/consent', { decision, ...opts }),
+  /** A deletion request: everything learned about the signed-in agent. Their consent decision is not changed. */
+  eraseMine: () => api.delete('/digital-self/me/data'),
   forConversation: (conversationId: string) => api.get(`/digital-self/conversations/${conversationId}`),
   /** `null` removes the assignment. Never changes who owns the conversation or whether AI replies. */
   assign: (conversationId: string, digitalSelfId: string | null) => api.put(`/digital-self/conversations/${conversationId}`, { digitalSelfId }),

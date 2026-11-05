@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { authApi, mediaApi } from '@/lib/api';
 import { UserRole } from '@whatsapp-platform/shared-types';
 import { userRoleToWorkspaceRole, workspaceRoleDescription, workspaceRoleLabel } from '@/lib/workspace-role';
+import { DigitalSelfAccountCard } from '@/components/shared/DigitalSelfAccountCard';
 
 const WORKSPACE_ROLE_COLORS: Record<string, string> = {
   OWNER: 'bg-orange-100 text-orange-700',
@@ -420,6 +421,8 @@ export default function AccountPage() {
             </button>
           </form>
         </div>
+
+        <DigitalSelfAccountCard />
 
         {/* Workspace card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

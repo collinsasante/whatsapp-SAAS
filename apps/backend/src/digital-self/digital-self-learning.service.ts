@@ -7,8 +7,9 @@ import { deriveStatus, mergeFeatures, parseProfile } from './profile.util';
 import { lockConversationAndReadExclusion, lockDigitalSelf, REPLY_SOURCE } from './evidence.util';
 import { matchesSavedReply, templateBodyText } from './saved-reply.util';
 import { isLearningPermitted } from '../ai-learning/learning-eligibility';
+import { hasValidConsent } from './digital-self-consent.util';
 
-export type LearnOutcome = 'learned' | 'duplicate' | 'ineligible' | 'paused' | 'excluded';
+export type LearnOutcome = 'learned' | 'duplicate' | 'ineligible' | 'paused' | 'excluded' | 'no_consent';
 
 /** How many saved replies / templates are compared against; a workspace with more than this has its newest ones checked. */
 const MAX_SAVED_TEXTS = 500;
@@ -43,6 +44,8 @@ export class DigitalSelfLearningService {
     const self = await provisionDigitalSelf(this.prisma, tenantId, msg.senderId);
     if (!self) return 'ineligible';
     if (!self.enabled || self.learningPaused) return 'paused';
+    // The agent's own agreement comes first: nothing is read, counted or stored for someone who has not said yes (or has withdrawn).
+    if (!hasValidConsent(self)) return 'no_consent';
     // The workspace-level opt-in, pause and acknowledged disclosure (AiLearningSettings) govern evidence capture too: no row means the workspace never opted in.
     const workspace = await this.prisma.aiLearningSettings.findUnique({ where: { tenantId }, select: { learningEnabled: true, learningPaused: true, disclosureVersion: true } });
     if (!isLearningPermitted(workspace)) return 'paused';
@@ -59,6 +62,8 @@ export class DigitalSelfLearningService {
 
       const current = await tx.digitalSelf.findUniqueOrThrow({ where: { id: self.id } });
       if (!current.enabled || current.learningPaused) return 'paused' as const;
+      // Re-read under the row lock: a withdrawal that committed while this job was queued or running wins.
+      if (!hasValidConsent(current)) return 'no_consent' as const;
       const evidenceCount = current.evidenceCount + 1;
       const now = new Date();
 

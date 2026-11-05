@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsUUID, ValidateIf } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
 import { OVERRIDE_OPTIONS } from './digital-self.constants';
 
 import { StrictBoolean } from '../common/validation/strict-boolean.decorator';
@@ -30,4 +30,21 @@ export class SetLearningExclusionDto {
   @ApiProperty({ description: 'true excludes the conversation from Digital Self learning and removes what was already learned from it.' })
   @StrictBoolean()
   excluded: boolean;
+}
+
+export const CONSENT_DECISIONS = ['ACCEPT', 'DECLINE', 'WITHDRAW'] as const;
+
+/** The signed-in agent's decision about their OWN Digital Self. There is deliberately no id here: the subject is always the caller. */
+export class ConsentDecisionDto {
+  @ApiProperty({ enum: CONSENT_DECISIONS })
+  @IsIn(CONSENT_DECISIONS)
+  decision: (typeof CONSENT_DECISIONS)[number];
+
+  @ApiProperty({ required: false, description: 'The consent wording version the agent was shown. Required to accept; a stale version is refused so nobody agrees to text they did not read.' })
+  @IsOptional() @IsString() @MaxLength(64)
+  version?: string;
+
+  @ApiProperty({ required: false, description: 'With WITHDRAW: also delete everything learned about the agent.' })
+  @IsOptional() @StrictBoolean()
+  deleteData?: boolean;
 }

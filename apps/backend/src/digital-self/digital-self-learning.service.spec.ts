@@ -2,12 +2,14 @@ import { currentDisclosureVersion } from '../ai-learning/learning-disclosure';
 import { DigitalSelfLearningService } from './digital-self-learning.service';
 import { DigitalSelfLearningProcessor } from './digital-self-learning.processor';
 import { DigitalSelfLearningTrigger, learnJobId } from './digital-self-learning.trigger';
+import { CONSENTED } from './testing/consent';
+import { DIGITAL_SELF_CONSENT_VERSION } from './digital-self-consent.util';
 
 type Msg = { conversationId: string; conversation: { digitalSelfLearningExcluded: boolean }; tenantId: string; direction: string; type: string; senderId: string | null; templateId: string | null; content: string | null; metadata: unknown; sender: { isAiAgent: boolean } | null };
 const human = (over: Partial<Msg> = {}): Msg => ({ conversationId: 'c1', conversation: { digitalSelfLearningExcluded: false }, tenantId: 't1', direction: 'OUTBOUND', type: 'TEXT', senderId: 'ama', templateId: null, content: "Hello! I'd be happy to help 😊 Which size do you need?", metadata: null, sender: { isAiAgent: false }, ...over });
 
 function build(opts: { workspace?: { learningEnabled: boolean; learningPaused: boolean; disclosureVersion: string | null } | null; message?: Msg | null; self?: Record<string, unknown>; canned?: string[]; templates?: unknown[]; ledger?: boolean; excludedUnderLock?: boolean } = {}) {
-  const self = { id: 'ds1', tenantId: 't1', userId: 'ama', enabled: true, learningPaused: false, evidenceCount: 0, profile: {}, ...opts.self };
+  const self = { id: 'ds1', tenantId: 't1', userId: 'ama', ...CONSENTED, enabled: true, learningPaused: false, evidenceCount: 0, profile: {}, ...opts.self };
   const tx = {
     // 1st call per transaction = the shared conversation lock + exclusion read; 2nd = the Digital Self row lock.
     $queryRaw: jest.fn().mockImplementation(async (q: { strings?: string[] }) => (String(q?.strings?.join('') ?? '').includes('conversations') ? [{ excluded: !!opts.excludedUnderLock }] : [])),
@@ -25,6 +27,36 @@ function build(opts: { workspace?: { learningEnabled: boolean; learningPaused: b
   };
   return { svc: new DigitalSelfLearningService(prisma as never), prisma, tx };
 }
+
+describe('DigitalSelfLearningService.learnFromMessage: the agent\'s own consent', () => {
+  it.each([
+    ['not yet decided', { consentStatus: 'PENDING', consentVersion: null }],
+    ['declined', { consentStatus: 'DECLINED', consentVersion: DIGITAL_SELF_CONSENT_VERSION }],
+    ['withdrawn', { consentStatus: 'WITHDRAWN', consentVersion: DIGITAL_SELF_CONSENT_VERSION }],
+    ['given to older wording', { consentStatus: 'GRANTED', consentVersion: 'ds-consent-v0' }],
+  ])('learns nothing from an agent whose consent is %s, even with the workspace fully opted in', async (_label, self) => {
+    const { svc, tx, prisma } = build({ self });
+    expect(await svc.learnFromMessage('t1', 'm1')).toBe('no_consent');
+    expect(tx.digitalSelfLearningEvent.create).not.toHaveBeenCalled();
+    expect(tx.digitalSelf.update).not.toHaveBeenCalled();
+    expect(prisma.cannedResponse.findMany).not.toHaveBeenCalled(); // not even the reply text is examined
+  });
+
+  it('a withdrawal that commits after the early check but before the write wins (re-read under the row lock)', async () => {
+    const { svc, tx, prisma } = build();
+    // The early check sees consent; by the time the transaction takes the lock the agent has withdrawn.
+    tx.digitalSelf.findUniqueOrThrow.mockResolvedValue({ id: 'ds1', enabled: true, learningPaused: false, evidenceCount: 0, profile: {}, consentStatus: 'WITHDRAWN', consentVersion: DIGITAL_SELF_CONSENT_VERSION });
+    expect(await svc.learnFromMessage('t1', 'm1')).toBe('no_consent');
+    expect(tx.digitalSelfLearningEvent.create).not.toHaveBeenCalled();
+    expect(tx.digitalSelf.update).not.toHaveBeenCalled();
+  });
+
+  it('another agent\'s consent does not authorise this agent: the decision is read from the sender\'s own row', async () => {
+    const { svc, prisma } = build({ self: { consentStatus: 'PENDING', consentVersion: null } });
+    await svc.learnFromMessage('t1', 'm1');
+    expect(prisma.digitalSelf.findUnique).toHaveBeenCalledWith({ where: { userId: 'ama' } });
+  });
+});
 
 describe('DigitalSelfLearningService.learnFromMessage', () => {
   describe('workspace opt-in and pause (AiLearningSettings)', () => {

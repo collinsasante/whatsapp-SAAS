@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { digitalSelfApi } from '@/lib/api';
 import { cn, getApiError } from '@/lib/utils';
 import { showConfirm } from '@/store/confirm.store';
-import { describeStyle, OVERRIDE_FIELDS, STATUS_LABEL, STATUS_TONE, type DigitalSelf, type DigitalSelfList } from '@/lib/digital-self';
+import { CONSENT_LABEL, CONSENT_TONE, describeStyle, OVERRIDE_FIELDS, STATUS_LABEL, STATUS_TONE, type DigitalSelf, type DigitalSelfList } from '@/lib/digital-self';
 
 const SELECT = 'w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500';
 
@@ -104,6 +104,7 @@ function Row({ ds, thresholds, onChange }: { ds: DigitalSelf; thresholds: Digita
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm text-gray-900 truncate">{ds.name}</span>
             <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', STATUS_TONE[ds.status])}>{STATUS_LABEL[ds.status]}</span>
+            <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', CONSENT_TONE[ds.consent.status])} title="Only the agent can change this">Consent: {CONSENT_LABEL[ds.consent.status]}</span>
             {!ds.assignable && <span className="text-[11px] text-gray-500">Not available to assign</span>}
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -132,7 +133,11 @@ function Row({ ds, thresholds, onChange }: { ds: DigitalSelf; thresholds: Digita
           {traits.map((t) => <li key={t} className="text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded-full px-2.5 py-1">{t}</li>)}
         </ul>
       ) : (
-        <p className="text-xs text-gray-400">Not enough of their own replies to describe a style yet. Until then Verz AI uses its usual voice for this agent.</p>
+        <p className="text-xs text-gray-400">
+          {ds.consent.status === 'GRANTED'
+            ? 'Not enough of their own replies to describe a style yet. Until then Verz AI uses its usual voice for this agent.'
+            : `${ds.name} has not agreed to a Digital Self (${CONSENT_LABEL[ds.consent.status].toLowerCase()}). Nothing is learned or used until they do. Only they can change this.`}
+        </p>
       )}
       {ds.correctionCount > 0 && (
         <p className="text-[11px] text-gray-500">

@@ -2,6 +2,8 @@ import { FailureCategory, TrainingExampleStatus } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import { AiLearningService } from '../ai-learning/ai-learning.service';
 import { correctionKey, DigitalSelfCorrectionsService, isStyleCorrection, STYLE_CATEGORIES } from './digital-self-corrections.service';
+import { CONSENTED } from './testing/consent';
+import { DIGITAL_SELF_CONSENT_VERSION } from './digital-self-consent.util';
 
 const example = (over: Record<string, unknown> = {}) => ({
   id: 'ex1', tenantId: 't1', sourceConversationId: 'c1', status: TrainingExampleStatus.APPROVED, digitalSelfId: null, customerInput: 'how much?',
@@ -32,7 +34,7 @@ function build(opts: { example?: Record<string, unknown> | null; conversation?: 
   const tx = {
     $queryRaw: jest.fn().mockImplementation(async (q: { strings?: string[] }) => (String(q?.strings?.join('') ?? '').includes('conversations') ? [{ excluded: !!opts.excludedUnderLock }] : [])),
     digitalSelfLearningEvent: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0), findFirst: jest.fn().mockResolvedValue(null) },
-    digitalSelf: { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'dsAma', enabled: true, learningPaused: false, evidenceCount: 20, lastLearnedAt: new Date(), profile: {} }), findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'dsAma', enabled: true, learningPaused: false, profile: {} }), update: jest.fn().mockResolvedValue({}) },
+    digitalSelf: { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'dsAma', ...CONSENTED, enabled: true, learningPaused: false, evidenceCount: 20, lastLearnedAt: new Date(), profile: {} }), findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'dsAma', enabled: true, learningPaused: false, profile: {} }), update: jest.fn().mockResolvedValue({}) },
     aiTrainingExample: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   const prisma = {
@@ -58,6 +60,21 @@ describe('DigitalSelfCorrectionsService.sync', () => {
     // It does not count as one of the agent's own replies.
     expect(tx.digitalSelf.update.mock.calls[0][0].data).not.toHaveProperty('evidenceCount');
     expect(JSON.stringify(tx.digitalSelfLearningEvent.create.mock.calls[0][0].data.features)).not.toMatch(/GH₵|colour/);
+  });
+
+  it('only ever considers an agent who has agreed: the lookup requires GRANTED at the current wording, so a correction cannot shape anyone else\'s profile', async () => {
+    const { svc, prisma, tx } = build({ self: null }); // what the filtered lookup returns for a pending, declined or withdrawn agent
+    expect(await svc.sync('t1', 'ex1', 'admin')).toBe('no_digital_self');
+    expect(prisma.digitalSelf.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ consentStatus: 'GRANTED', consentVersion: DIGITAL_SELF_CONSENT_VERSION }) }));
+    expect(tx.digitalSelfLearningEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('a withdrawal that commits while the correction is being applied wins (re-read under the row lock)', async () => {
+    const { svc, tx } = build();
+    tx.digitalSelf.findUniqueOrThrow.mockResolvedValue({ id: 'dsAma', consentStatus: 'WITHDRAWN', consentVersion: DIGITAL_SELF_CONSENT_VERSION, enabled: true, learningPaused: false, evidenceCount: 20, lastLearnedAt: new Date(), profile: {} });
+    expect(await svc.sync('t1', 'ex1', 'admin')).toBe('unchanged');
+    expect(tx.digitalSelfLearningEvent.create).not.toHaveBeenCalled();
+    expect(tx.digitalSelf.update).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -3,6 +3,7 @@ import { UserRole } from '@whatsapp-platform/shared-types';
 import { ROLES_KEY } from '../common/decorators/roles.decorator';
 import { DigitalSelfController } from './digital-self.controller';
 import { DigitalSelfService } from './digital-self.service';
+import { CONSENTED } from './testing/consent';
 
 const USER = { name: 'Ama', role: 'AGENT', avatarUrl: null, isActive: true };
 
@@ -32,7 +33,7 @@ function build(rows: Array<Record<string, unknown>>) {
   };
   return { svc: new DigitalSelfService(prisma as never), prisma, tx, store };
 }
-const row = (over: Record<string, unknown> = {}) => ({ id: 'ds1', tenantId: 't1', userId: 'ama', enabled: true, learningPaused: false, evidenceCount: 12, lastLearnedAt: new Date(), lastError: null, profileVersion: 3, status: 'LEARNING', profile: { v: 2, samples: 12, words: 120, overrides: { emoji: 'none' } }, ...over });
+const row = (over: Record<string, unknown> = {}) => ({ id: 'ds1', tenantId: 't1', userId: 'ama', ...CONSENTED, enabled: true, learningPaused: false, evidenceCount: 12, lastLearnedAt: new Date(), lastError: null, profileVersion: 3, status: 'LEARNING', profile: { v: 2, samples: 12, words: 120, overrides: { emoji: 'none' } }, ...over });
 
 describe('DigitalSelfService management', () => {
   it('never returns or changes another tenant\'s Digital Self', async () => {
@@ -49,6 +50,23 @@ describe('DigitalSelfService management', () => {
     expect(prisma.user.count).not.toHaveBeenCalled();
     expect(view).toMatchObject({ id: 'ds1', name: 'Ama', assignable: true, status: 'LEARNING', evidenceCount: 12 });
     expect(view).not.toHaveProperty('profile');
+  });
+
+  it('shows the agent\'s consent to admins, but hides what was learned while that consent is not valid, and marks the profile not assignable', async () => {
+    const { svc } = build([row({ consentStatus: 'WITHDRAWN', consentDecidedAt: new Date('2026-11-02T10:00:00Z') })]);
+    const [view] = await svc.list('t1');
+    expect(view.consent).toMatchObject({ status: 'WITHDRAWN', need: 'none' });
+    expect(view.summary.hasLearnedTraits).toBe(false);
+    expect(view.summary.samples).toBe(0);
+    expect(view.assignable).toBe(false);
+    expect(view.evidenceCount).toBe(12); // preserved: only the agent, or an authorised deletion, removes it
+  });
+
+  it('a consenting agent\'s view carries consent GRANTED and stays assignable', async () => {
+    const { svc } = build([row()]);
+    const [view] = await svc.list('t1');
+    expect(view.consent.status).toBe('GRANTED');
+    expect(view.assignable).toBe(true);
   });
 
   it('pausing learning shows PAUSED and bumps the version, under the row lock', async () => {

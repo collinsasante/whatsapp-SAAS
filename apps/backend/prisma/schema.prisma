@@ -3275,6 +3275,13 @@ enum DigitalSelfStatus {
   PAUSED
 }
 
+enum DigitalSelfConsentStatus {
+  PENDING
+  GRANTED
+  DECLINED
+  WITHDRAWN
+}
+
 model DigitalSelf {
   id             String            @id @default(uuid())
   tenantId       String            @map("tenant_id")
@@ -3287,6 +3294,13 @@ model DigitalSelf {
   evidenceCount  Int               @default(0) @map("evidence_count")
   lastLearnedAt  DateTime?         @map("last_learned_at")
   lastError      String?           @map("last_error")
+  // The individual agent's own agreement. Learning, using the profile and assigning it all require GRANTED at the current consent version. Nothing
+  // pre-dating this column counts: every existing row starts PENDING. A database CHECK (see the migration) makes consentDecidedById equal userId for any
+  // decision, so no admin, script or API call can record consent on an agent's behalf.
+  consentStatus      DigitalSelfConsentStatus @default(PENDING) @map("consent_status")
+  consentVersion     String?                  @map("consent_version")
+  consentDecidedAt   DateTime?                @map("consent_decided_at")
+  consentDecidedById String?                  @map("consent_decided_by_id")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 

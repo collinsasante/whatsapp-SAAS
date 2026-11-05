@@ -17,6 +17,7 @@ import OfflineBanner from '@/components/OfflineBanner';
 import { SyncProvider } from '@/components/shared/SyncProvider';
 import { WhatsNewModal } from '@/components/shared/WhatsNewModal';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { DigitalSelfConsentPrompt } from '@/components/shared/DigitalSelfConsentPrompt';
 import { ErrorTracker } from '@/components/shared/ErrorTracker';
 
 const Spinner = () => (
@@ -147,6 +148,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       <OutboundCallBar />
       <ConfirmCallModal />
       <ConfirmModal />
+      <DigitalSelfConsentPrompt />
       {/* relative: absolutely positioned descendants (sr-only text, popovers) must be clipped here, or the document itself scrolls into a blank page. overflow-clip rather than hidden: hidden still lets an anchor jump or scrollIntoView slide the whole app (sidebar logo included) out of view. Flex children under overflow-clip keep a min-content minimum size (hidden made it 0), so the column and main need min-w-0 or wide content widens the whole app. */}
       <div className="relative flex flex-col h-dvh overflow-clip bg-gray-50">
         <OfflineBanner />

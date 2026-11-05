@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuditAction, JwtPayload, UserRole } from '@whatsapp-platform/shared-types';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -11,7 +11,7 @@ import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { DIGITAL_SELF_FLAG_KEY } from './digital-self-learning.trigger';
 import { DigitalSelfService } from './digital-self.service';
 import { MIN_ATTRIBUTE_SAMPLES, READY_SAMPLES } from './digital-self.constants';
-import { AssignDigitalSelfDto, SetLearningExclusionDto, SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
+import { AssignDigitalSelfDto, ConsentDecisionDto, SetLearningExclusionDto, SetEnabledDto, SetLearningPausedDto, SetOverridesDto } from './dto';
 
 /** Every query is scoped by the authenticated tenant; the tenant id is never taken from the request. Reads: agents and up (the conversation selector needs the list). Changes: admins. */
 @ApiTags('Digital Self')
@@ -59,6 +59,38 @@ export class DigitalSelfController {
       tenantId, userId: user.sub, action: AuditAction.UPDATE, resource: 'conversation_digital_self_learning', resourceId: conversationId,
       metadata: { excluded: dto.excluded, evidenceRemoved: result.evidenceRemoved, profilesRebuilt: result.profilesRebuilt },
     });
+    return result;
+  }
+
+  // ── The signed-in agent's own consent. No route here takes an id: the subject is always the caller's session, so an admin deciding "for" an
+  // agent is not something the API can express. Declared before ':id' so 'me' is never read as an id.
+  @Get('me')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: "The signed-in agent's own Digital Self consent and what has been learned about them" })
+  async mine(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload) {
+    return this.service.getMine(tenantId, user.sub, await this.featureFlags.isEnabledCached(DIGITAL_SELF_FLAG_KEY, tenantId));
+  }
+
+  @Put('me/consent')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Accept, decline or withdraw consent for your own Digital Self. Withdrawing stops learning and use of your profile at once.' })
+  async decide(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload, @Body() dto: ConsentDecisionDto) {
+    const result = await this.service.decideConsent(tenantId, user.sub, dto.decision, { version: dto.version, deleteData: dto.deleteData === true, featureEnabled: await this.featureFlags.isEnabledCached(DIGITAL_SELF_FLAG_KEY, tenantId) });
+    if (result.changed || result.evidenceRemoved) {
+      await this.audit.log({
+        tenantId, userId: user.sub, action: AuditAction.UPDATE, resource: 'digital_self_consent', resourceId: result.selfId ?? user.sub,
+        metadata: { decision: dto.decision, version: dto.version ?? null, evidenceRemoved: result.evidenceRemoved ?? 0 },
+      });
+    }
+    return result;
+  }
+
+  @Delete('me/data')
+  @Roles(UserRole.AGENT)
+  @ApiOperation({ summary: 'Delete everything learned about you (a deletion request). Your consent decision is not changed.' })
+  async eraseMine(@CurrentTenant() tenantId: string, @CurrentUser() user: JwtPayload) {
+    const result = await this.service.eraseMine(tenantId, user.sub);
+    await this.audit.log({ tenantId, userId: user.sub, action: AuditAction.DELETE, resource: 'digital_self_data', resourceId: result.selfId, metadata: { evidenceRemoved: result.evidenceRemoved } });
     return result;
   }
 

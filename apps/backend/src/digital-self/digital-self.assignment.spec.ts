@@ -2,9 +2,10 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { validate } from 'class-validator';
 import { AssignDigitalSelfDto } from './dto';
 import { DigitalSelfService } from './digital-self.service';
+import { CONSENTED } from './testing/consent';
 
 const USER = { name: 'Ama', role: 'AGENT', avatarUrl: null, isActive: true };
-const ds = (id: string, userId: string, over: Record<string, unknown> = {}) => ({ id, tenantId: 't1', userId, enabled: true, learningPaused: false, evidenceCount: 20, lastLearnedAt: new Date(), lastError: null, profileVersion: 1, profile: {}, ...over });
+const ds = (id: string, userId: string, over: Record<string, unknown> = {}) => ({ id, tenantId: 't1', userId, ...CONSENTED, enabled: true, learningPaused: false, evidenceCount: 20, lastLearnedAt: new Date(), lastError: null, profileVersion: 1, profile: {}, ...over });
 
 function build(opts: { conv?: Record<string, unknown> | null; selves?: Array<Record<string, unknown>>; assignable?: boolean } = {}) {
   const selves = opts.selves ?? [ds('dsAma', 'ama'), ds('dsKofi', 'kofi')];
@@ -26,6 +27,17 @@ function build(opts: { conv?: Record<string, unknown> | null; selves?: Array<Rec
   return { svc: new DigitalSelfService(prisma as never), prisma, conv };
 }
 const admin = { id: 'boss', role: 'ADMIN' };
+
+describe('assignToConversation: consent', () => {
+  it.each([['pending', { consentStatus: 'PENDING', consentVersion: null }], ['declined', { consentStatus: 'DECLINED' }], ['withdrawn', { consentStatus: 'WITHDRAWN' }], ['older wording', { consentVersion: 'ds-consent-v0' }]])(
+    'refuses to assign the Digital Self of an agent whose consent is %s (an admin cannot override it)',
+    async (_l, over) => {
+      const { svc, conv } = build({ selves: [ds('dsAma', 'ama', over as never)] });
+      await expect(svc.assignToConversation('t1', 'c1', 'dsAma', admin)).rejects.toThrow(/has not agreed/);
+      expect(conv!['digitalSelfId']).toBeNull();
+    },
+  );
+});
 
 describe('assignToConversation', () => {
   it('assigns, changes and removes a Digital Self', async () => {

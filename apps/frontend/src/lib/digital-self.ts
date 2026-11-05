@@ -38,8 +38,41 @@ export interface DigitalSelf {
   profileVersion: number;
   /** Approved style corrections currently applied. */
   correctionCount: number;
+  /** The agent's own decision. Only the agent can change it; admins see it. */
+  consent: { status: ConsentStatus; decidedAt: string | null; need: 'none' | 'decide' | 'reconfirm' };
   summary: DigitalSelfSummary;
 }
+
+export type ConsentStatus = 'PENDING' | 'GRANTED' | 'DECLINED' | 'WITHDRAWN';
+
+/** What the signed-in agent sees about their own Digital Self (GET /digital-self/me). */
+export interface MyDigitalSelf {
+  eligible: boolean;
+  /** The workspace has switched Digital Self on and acknowledged the disclosure, so there is something to agree to. */
+  workspaceAvailable: boolean;
+  /** Show the consent prompt now. Asked once when first available (or when the wording changes), never again after a decision. */
+  promptRequired: boolean;
+  /** The wording version to send when accepting. */
+  consentVersion: string;
+  consent: { status: ConsentStatus; decidedAt: string | null; need: 'none' | 'decide' | 'reconfirm' } | null;
+  learned: { evidenceCount: number; lastLearnedAt: string | null; summary: DigitalSelfSummary | null } | null;
+  evidenceRemoved?: number;
+  changed?: boolean;
+}
+
+export const CONSENT_LABEL: Record<ConsentStatus, string> = {
+  PENDING: 'Not decided',
+  GRANTED: 'Agreed',
+  DECLINED: 'Declined',
+  WITHDRAWN: 'Withdrawn',
+};
+
+export const CONSENT_TONE: Record<ConsentStatus, string> = {
+  PENDING: 'bg-amber-50 text-amber-700',
+  GRANTED: 'bg-green-50 text-green-700',
+  DECLINED: 'bg-gray-100 text-gray-600',
+  WITHDRAWN: 'bg-gray-100 text-gray-600',
+};
 
 export interface DigitalSelfList {
   featureEnabled: boolean;

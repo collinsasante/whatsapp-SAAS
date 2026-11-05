@@ -12,7 +12,8 @@ import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { DigitalSelfService } from './digital-self.service';
+import { DigitalSelfService, provisionDigitalSelf } from './digital-self.service';
+import { grantConsentInDb } from './testing/consent';
 import { DigitalSelfLearningService } from './digital-self-learning.service';
 import { DigitalSelfLearningProcessor } from './digital-self-learning.processor';
 import { DigitalSelfLearningTrigger } from './digital-self-learning.trigger';
@@ -55,8 +56,15 @@ suite('Digital Self against a real database', () => {
     await prisma.aiLearningSettings.create({ data: { tenantId: t.id, learningEnabled: true, disclosureVersion: currentDisclosureVersion() } });
     return t.id;
   }
-  const user = (tenantId: string, name: string, over: Record<string, unknown> = {}) =>
-    prisma.user.create({ data: { tenantId, email: `${name}-${tag}-${randomUUID().slice(0, 4)}@t.test`, name, passwordHash: 'x', role: 'AGENT', ...over } as never });
+  // Agents here have agreed to Digital Self (their own consent, recorded as the agent), unless a test asks for a user without one.
+  const user = async (tenantId: string, name: string, over: Record<string, unknown> = {}, opts: { consent?: boolean } = {}) => {
+    const created = await prisma.user.create({ data: { tenantId, email: `${name}-${tag}-${randomUUID().slice(0, 4)}@t.test`, name, passwordHash: 'x', role: 'AGENT', ...over } as never });
+    if (opts.consent !== false && !created.isAiAgent && (created.role === 'AGENT' || created.role === 'ADMIN')) {
+      const self = await provisionDigitalSelf(prisma as never, tenantId, created.id);
+      if (self) await grantConsentInDb(prisma as never, self.id);
+    }
+    return created;
+  };
   async function convo(tenantId: string, assignedToId?: string) {
     const contact = await prisma.contact.create({ data: { tenantId, phone: `+23355${Math.floor(Math.random() * 1e7)}`, name: 'Cust' } });
     const conversation = await prisma.conversation.create({ data: { tenantId, contactId: contact.id, assignedToId } });
@@ -92,7 +100,7 @@ suite('Digital Self against a real database', () => {
   it('provisioning is idempotent under concurrency and tenant-scoped', async () => {
     const [a, b] = [await tenant('prov-a'), await tenant('prov-b')];
     const ama = await user(a, 'ama');
-    await user(b, 'bea');
+    await user(b, 'bea', {}, { consent: false }); // no Digital Self yet: this test is about lazy provisioning
     await Promise.all([svc.ensureForTenant(a), svc.ensureForTenant(a), svc.ensureForUser(a, ama.id), svc.ensureForUser(a, ama.id)]);
     expect(await prisma.digitalSelf.count({ where: { tenantId: a } })).toBe(1);
     expect(await prisma.digitalSelf.count({ where: { tenantId: b } })).toBe(0);
