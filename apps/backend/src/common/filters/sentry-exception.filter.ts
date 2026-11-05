@@ -9,6 +9,19 @@ try {
   Sentry = require('@sentry/nestjs');
 } catch { /* package not installed */ }
 
+/** A failed call to an external provider: an axios error, or an error from the Stripe SDK. */
+function isUpstreamError(exception: unknown): boolean {
+  if (typeof exception !== 'object' || exception === null) return false;
+  const e = exception as { isAxiosError?: unknown; type?: unknown };
+  return e.isAxiosError === true || (typeof e.type === 'string' && e.type.startsWith('Stripe'));
+}
+
+function upstreamHttpStatus(exception: unknown): number | undefined {
+  const e = exception as { response?: { status?: unknown }; statusCode?: unknown };
+  const status = e.response?.status ?? e.statusCode;
+  return typeof status === 'number' ? status : undefined;
+}
+
 @Injectable()
 @Catch()
 export class SentryExceptionFilter implements ExceptionFilter {
@@ -21,17 +34,25 @@ export class SentryExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    // Non-HttpException errors raised by middleware (e.g. body-parser's
-    // PayloadTooLargeError) still carry a valid HTTP status — respect it
-    // instead of always reporting a generic 500.
+    // Non-HttpException errors raised by the HTTP stack itself (e.g. body-parser's PayloadTooLargeError, built with http-errors)
+    // still carry a valid HTTP status — respect it instead of always reporting a generic 500. Only those: http-errors marks its
+    // errors with a boolean `expose`.
+    // A failed call to a provider (axios, Stripe) carries the PROVIDER's status, which says nothing about the caller's request.
+    // Forwarding it turned our own expired or missing provider credential into a 401 for the user, which the web app reads as an
+    // expired session and answers by refreshing and retrying, and a provider 404 or 429 into a misleading 404 or 429 for the user.
+    // Those are a bad gateway from the user's point of view, and ours to fix.
+    const upstream = isUpstreamError(exception);
     const rawStatus = (exception as { status?: unknown; statusCode?: unknown })?.status
       ?? (exception as { status?: unknown; statusCode?: unknown })?.statusCode;
+    const fromHttpStack = typeof (exception as { expose?: unknown })?.expose === 'boolean';
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : typeof rawStatus === 'number' && rawStatus >= 400 && rawStatus < 600
-          ? rawStatus
-          : HttpStatus.INTERNAL_SERVER_ERROR;
+        : upstream
+          ? HttpStatus.BAD_GATEWAY
+          : fromHttpStack && typeof rawStatus === 'number' && rawStatus >= 400 && rawStatus < 600
+            ? rawStatus
+            : HttpStatus.INTERNAL_SERVER_ERROR;
 
     // Log 5xx errors
     if (status >= 500) {
@@ -53,7 +74,8 @@ export class SentryExceptionFilter implements ExceptionFilter {
 
     // Forward 5xx errors to Telegram/Slack and persist them for the admin Errors page
     if (status >= 500) {
-      const message = exception instanceof Error ? exception.message : String(exception);
+      const upstreamStatus = upstream ? upstreamHttpStatus(exception) : undefined;
+      const message = (exception instanceof Error ? exception.message : String(exception)) + (upstreamStatus ? ` (provider answered HTTP ${upstreamStatus})` : '');
       const stack = exception instanceof Error ? exception.stack : undefined;
       const tenantId = (request as Request & { tenantId?: string }).tenantId;
       void notify({
@@ -79,7 +101,9 @@ export class SentryExceptionFilter implements ExceptionFilter {
     const message =
       exception instanceof HttpException
         ? exception.getResponse()
-        : status < 500 && exception instanceof Error
+        : upstream
+          ? { statusCode: status, message: 'A request to an external service failed. Please try again shortly.' }
+          : status < 500 && exception instanceof Error
           ? { statusCode: status, message: exception.message }
           : { statusCode: status, message: 'Internal server error' };
 

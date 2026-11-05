@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
@@ -24,6 +24,12 @@ export class PaystackGateway implements IBillingGateway {
   }
 
   private get headers() {
+    // Without a key every call would go out unauthenticated and come back as the provider's 401. Refuse here instead, with a message
+    // the user can act on, and a log line the operator can.
+    if (!this.secretKey) {
+      this.logger.error('PAYSTACK_SECRET_KEY is not configured; refusing to call Paystack');
+      throw new ServiceUnavailableException('Card and mobile money payments are not available right now. Please try again later.');
+    }
     return { Authorization: `Bearer ${this.secretKey}`, 'Content-Type': 'application/json' };
   }
 

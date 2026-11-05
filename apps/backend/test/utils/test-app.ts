@@ -2,11 +2,13 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { AppModule } from '../../src/app.module';
+import { SentryExceptionFilter } from '../../src/common/filters/sentry-exception.filter';
 import { JwtPayload } from '@whatsapp-platform/shared-types';
 
 /** `validation: true` installs the same global ValidationPipe as src/main.ts, so DTO rules are exercised. */
 /** `configure` can replace providers (for example an HTTP client for an external service) before the app is built. */
-export async function createTestingApp(opts: { validation?: boolean; configure?: (builder: TestingModuleBuilder) => TestingModuleBuilder } = {}): Promise<INestApplication> {
+/** `exceptionFilter: true` installs the same global exception filter as src/main.ts, so error responses are what clients really receive. */
+export async function createTestingApp(opts: { validation?: boolean; exceptionFilter?: boolean; configure?: (builder: TestingModuleBuilder) => TestingModuleBuilder } = {}): Promise<INestApplication> {
   const builder = Test.createTestingModule({ imports: [AppModule] });
   const moduleRef = await (opts.configure ? opts.configure(builder) : builder).compile();
   // rawBody matches src/main.ts: webhook signatures are computed over the exact bytes Meta sent.
@@ -16,6 +18,7 @@ export async function createTestingApp(opts: { validation?: boolean; configure?:
       whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true },
     }));
   }
+  if (opts.exceptionFilter) app.useGlobalFilters(app.get(SentryExceptionFilter));
   await app.init();
   // One persistent listening server for the whole suite. Left to supertest, every request binds a fresh ephemeral port, and Node's keep-alive agent can hand a
   // stale socket from a server that just closed to the next request on the recycled port ("Parse Error: Expected HTTP/..."), roughly once in forty runs.
