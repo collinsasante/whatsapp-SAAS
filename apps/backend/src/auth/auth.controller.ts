@@ -3,7 +3,7 @@ import {
   Req, Res, UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -49,7 +49,6 @@ export class AuthController {
   }
 
   @Post('register')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Register a new workspace and admin user' })
   async register(@Body() dto: RegisterDto) {
@@ -66,7 +65,6 @@ export class AuthController {
 
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @ApiOperation({ summary: 'Resend email verification link' })
   resendVerification(@Body() body: { email: string }) {
@@ -76,7 +74,6 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Login with email and password, returns requiresPin, requiresPinSetup, requiresWorkspaceSelection, or full tokens' })
   async login(
@@ -97,7 +94,6 @@ export class AuthController {
 
   @Post('setup-pin')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Set login PIN for the first time after password verification' })
   async setupPin(
@@ -114,7 +110,6 @@ export class AuthController {
 
   @Post('select-workspace')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Complete login by selecting a workspace (multi-workspace accounts)' })
   async selectWorkspace(
@@ -131,7 +126,6 @@ export class AuthController {
 
   @Post('verify-2fa')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Verify login PIN and complete sign-in' })
   async verify2FA(
@@ -173,7 +167,6 @@ export class AuthController {
 
   @Post('mobile/login')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: '[Mobile] Login with email and password, returns tokens in the body' })
   async mobileLogin(@Body() dto: LoginDto, @Req() req: Request) {
@@ -185,7 +178,6 @@ export class AuthController {
 
   @Post('mobile/setup-pin')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: '[Mobile] Set login PIN for the first time, returns tokens in the body' })
   async mobileSetupPin(@Body() body: { tempToken: string; pin: string }, @Req() req: Request) {
@@ -195,7 +187,6 @@ export class AuthController {
 
   @Post('mobile/select-workspace')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: '[Mobile] Complete login by selecting a workspace, returns tokens in the body' })
   async mobileSelectWorkspace(@Body() body: { tempToken: string; tenantId: string }, @Req() req: Request) {
@@ -205,7 +196,6 @@ export class AuthController {
 
   @Post('mobile/verify-2fa')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: '[Mobile] Verify login PIN and complete sign-in, returns tokens in the body' })
   async mobileVerify2FA(@Body() body: { tempToken: string; code: string }, @Req() req: Request) {
@@ -280,7 +270,6 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Request a password reset link' })
   forgotPassword(@Body() dto: ForgotPasswordDto) {
